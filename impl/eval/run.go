@@ -917,8 +917,13 @@ func (h *harness) failedSummaries(ctx context.Context) []string {
 			if change.Spec.Direction != specapi.DirectionCodeToSpec {
 				continue
 			}
-			message := change.Status.Message + " " + change.Status.AgentLog
-			out = append(out, entry.Name+": "+strings.TrimSpace(message))
+			message := strings.TrimSpace(change.Status.Message)
+			if message == "" {
+				// A change that failed before it could be described still has
+				// the model's own output, which is the only clue left.
+				message = "no message; the agent answered: " + strings.TrimSpace(change.Status.AgentLog)
+			}
+			out = append(out, entry.Name+": "+firstLine(limitText(message, 400)))
 			break
 		}
 	}
@@ -1270,6 +1275,20 @@ func orScripted(kind string) string {
 		return "scripted"
 	}
 	return kind
+}
+
+// firstLine keeps one line of a failure, and limitText bounds it, so a report
+// stays readable when a model answered with a whole JSON document.
+func firstLine(value string) string {
+	line, _, _ := strings.Cut(value, "\n")
+	return line
+}
+
+func limitText(value string, maximum int) string {
+	if len(value) <= maximum {
+		return value
+	}
+	return value[:maximum] + "..."
 }
 
 func tail(text string) string {
