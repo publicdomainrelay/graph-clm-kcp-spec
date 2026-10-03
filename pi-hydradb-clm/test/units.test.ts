@@ -8,9 +8,15 @@ import {
 } from "../src/cypher.ts";
 import { canonicalPath, cypherLiteral, cypherString, nodeKey, stableNodeId } from "../src/ids.ts";
 import {
+  MANAGED_BEGIN,
+  MANAGED_END,
   buildLiveContextDocument,
+  composeContextFile,
   estimateTokens,
+  extractReferences,
+  isCodegraphId,
   projectLiveContext,
+  splitContextFile,
   type MemoryRecord,
 } from "../src/context-doc.ts";
 import { touchedPaths } from "../src/extension.ts";
@@ -107,4 +113,51 @@ test("projection drops entries past the token budget", () => {
   assert.ok(estimateTokens(projected) < 2000);
   assert.ok(projected.includes("hydradb_remember"));
   assert.match(projected, /## Remembered/);
+});
+
+test("codegraph ids are recognized by kind prefix", () => {
+  assert.ok(isCodegraphId("file:pi-hydradb-clm/src/graph.ts"));
+  assert.ok(isCodegraphId("function:6afd43a75d2f6c730cb2b29c8f5dcb5b"));
+  assert.ok(isCodegraphId("method:0d564a833fc434af175a7ce3af3d5beb"));
+  assert.ok(!isCodegraphId("src/graph.ts"));
+  assert.ok(!isCodegraphId("GraphClient"));
+});
+
+test("extractReferences pulls backticked paths, symbols and codegraph ids", () => {
+  const text = [
+    "The Bolt client lives in `pi-hydradb-clm/src/graph.ts`.",
+    "It is implemented by `GraphClient::connect`.",
+    "Already resolved: function:6afd43a75d2f6c730cb2b29c8f5dcb5b",
+    "Duplicate `pi-hydradb-clm/src/graph.ts` is collapsed.",
+  ].join("\n");
+  assert.deepEqual(extractReferences(text), [
+    "pi-hydradb-clm/src/graph.ts",
+    "GraphClient::connect",
+    "function:6afd43a75d2f6c730cb2b29c8f5dcb5b",
+  ]);
+});
+
+test("context file splits and recomposes around the managed zone", () => {
+  const model = "# Live context\n\nBolt client is `pi-hydradb-clm/src/graph.ts`.";
+  const refs = [
+    {
+      id: 1,
+      codegraphId: "file:pi-hydradb-clm/src/graph.ts",
+      kind: "file",
+      name: "graph.ts",
+      filePath: "pi-hydradb-clm/src/graph.ts",
+    },
+  ];
+  const composed = composeContextFile(model, refs, "s1", 3);
+  assert.ok(composed.startsWith(model));
+  assert.ok(composed.includes(MANAGED_BEGIN) && composed.includes(MANAGED_END));
+  assert.ok(composed.includes("`file:pi-hydradb-clm/src/graph.ts`"));
+
+  const split = splitContextFile(composed);
+  assert.equal(split.model, model);
+  assert.ok(split.managed.startsWith(MANAGED_BEGIN));
+
+  const regenerated = composeContextFile(split.model, [], "s1", 4);
+  assert.ok(!regenerated.includes("file:pi-hydradb-clm/src/graph.ts"));
+  assert.ok(regenerated.includes("_None yet."));
 });

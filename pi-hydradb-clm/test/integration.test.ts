@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import type { GraphClient } from "../src/graph.ts";
 import { nodeKey, stableNodeId } from "../src/ids.ts";
-import { FILE_PROPS, LABELS, MEMORY_PROPS } from "../src/schema.ts";
+import { CODE_REF_PROPS, FILE_PROPS, LABELS, MEMORY_PROPS } from "../src/schema.ts";
 import { ensureGraph, makeScratch, makeSession, openGraph, uniqueSessionKey } from "./harness.ts";
 
 const TIMEOUT = { timeout: 240_000 };
@@ -14,6 +14,7 @@ const EXPECTED_TOOLS = [
   "hydradb_neighbors",
   "hydradb_forget",
   "hydradb_context",
+  "codegraph_resolve",
 ];
 
 let graph: GraphClient;
@@ -155,15 +156,17 @@ test("the live context document is injected into the provider request", TIMEOUT,
     );
     await harness.session.prompt("Reply with the single word: ok");
     const payloads = harness.captured.join("\n");
-    const header = `[[HYDRA_CLM version=1 session=${sessionKey}`;
     assert.ok(
-      payloads.includes(header),
-      "live context document was not injected into the request",
+      payloads.includes("Context file:"),
+      "the live context file was not injected into the request",
     );
-    assert.ok(payloads.includes("context probe"), "remembered fact missing from injection");
     assert.ok(
-      payloads.includes("## Touched files"),
-      "live context document is missing its sections",
+      payloads.includes("HYDRA_CLM_MANAGED_BEGIN"),
+      "the injected document is missing its managed reference section",
+    );
+    assert.ok(
+      payloads.includes("live-context.md"),
+      "the injected document does not name the context file",
     );
   } finally {
     harness.dispose();
@@ -188,6 +191,84 @@ test("forgetting removes the node from the graph", TIMEOUT, async () => {
       `Call the hydradb_forget tool with id ${nodeId}. Then reply done.`,
     );
     assert.equal(await graph.countVertices(LABELS.memory, { session: sessionId }), 0);
+  } finally {
+    harness.dispose();
+  }
+});
+
+test("backticked references in the context file become CodeGraph ids in the graph", TIMEOUT, async () => {
+  const sessionKey = uniqueSessionKey("coderef");
+  process.env.HYDRA_CLM_SESSION = sessionKey;
+  const sessionId = sessionIdFor(sessionKey);
+  const scratch = makeScratch();
+  const contextFile = join(scratch, "live-context.md");
+  writeFileSync(
+    contextFile,
+    [
+      "# Live context",
+      "",
+      "The Bolt client lives in `pi-hydradb-clm/src/graph.ts`.",
+      "The retry logic is in `GraphClient::connect`.",
+    ].join("\n"),
+  );
+  process.env.HYDRA_CLM_CONTEXT_PATH = contextFile;
+  const harness = await makeSession(scratch);
+  try {
+    await harness.session.prompt("Reply with the single word: ok");
+    const rows = await graph.selectVertices(
+      LABELS.codeRef,
+      ["id", ...CODE_REF_PROPS],
+      { session: sessionId },
+    );
+    const ids = rows.map((row) => String(row.codegraph_id));
+    assert.ok(
+      ids.includes("file:pi-hydradb-clm/src/graph.ts"),
+      `file reference not resolved to a CodeGraph id: ${JSON.stringify(ids)}`,
+    );
+    assert.ok(
+      ids.some((id) => id.startsWith("method:") || id.startsWith("class:")),
+      `symbol reference not resolved to a CodeGraph id: ${JSON.stringify(ids)}`,
+    );
+
+    const regenerated = readFileSync(contextFile, "utf8");
+    assert.ok(
+      regenerated.includes("file:pi-hydradb-clm/src/graph.ts"),
+      "managed section did not record the resolved id",
+    );
+    assert.ok(
+      regenerated.startsWith("# Live context"),
+      "the model-owned part of the context file was moved or lost",
+    );
+  } finally {
+    delete process.env.HYDRA_CLM_CONTEXT_PATH;
+    harness.dispose();
+  }
+});
+
+test("remembering a concept attaches it to code through CodeGraph ids", TIMEOUT, async () => {
+  const sessionKey = uniqueSessionKey("attach");
+  process.env.HYDRA_CLM_SESSION = sessionKey;
+  const sessionId = sessionIdFor(sessionKey);
+  const harness = await makeSession(makeScratch());
+  try {
+    await harness.session.prompt(
+      "Call hydradb_remember exactly once with kind=\"decision\", title=\"bolt client\", " +
+        'body="the graph client retries connectivity three times", ' +
+        'code_refs=["pi-hydradb-clm/src/graph.ts"]. Then reply done.',
+    );
+    const memories = await graph.selectVertices(LABELS.memory, ["id"], { session: sessionId });
+    assert.equal(memories.length, 1, "expected one concept node");
+    const refs = await graph.selectNeighbors(
+      "REFERENCES",
+      LABELS.memory,
+      LABELS.codeRef,
+      ["codegraph_id"],
+      Number(memories[0]!.id),
+    );
+    assert.ok(
+      refs.some((row) => row.codegraph_id === "file:pi-hydradb-clm/src/graph.ts"),
+      `concept is not attached to code: ${JSON.stringify(refs)}`,
+    );
   } finally {
     harness.dispose();
   }

@@ -3,6 +3,7 @@ export const LABELS = {
   memory: "PiMemory",
   file: "PiFile",
   turn: "PiTurn",
+  codeRef: "PiCodeRef",
 } as const;
 
 export const EDGES = {
@@ -10,9 +11,17 @@ export const EDGES = {
   touched: "TOUCHED",
   occurred: "OCCURRED",
   mentions: "MENTIONS",
+  references: "REFERENCES",
 } as const;
 
 export const SESSION_PROPS = ["key", "started", "cwd", "revision"] as const;
 export const MEMORY_PROPS = ["session", "kind", "title", "body", "created"] as const;
 export const FILE_PROPS = ["session", "path", "touches"] as const;
 export const TURN_PROPS = ["session", "turnIndex", "summary", "created"] as const;
+export const CODE_REF_PROPS = [
+  "session",
+  "codegraph_id",
+  "kind",
+  "name",
+  "file_path",
+] as const;

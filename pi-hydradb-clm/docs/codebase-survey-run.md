@@ -126,11 +126,10 @@ Neo4j semantics give 3. This was found while inspecting, and is not currently
 covered by the probe, whose cases assert only that a query parses and, where
 `minRows` is set, that it returns rows.
 
-**The agent modified the repository.** During the survey it invoked the
-`codegraph` CLI, which created `.codegraph/codegraph.db` (908 KB) and appended
-`.codegraph/` to the repo `.gitignore`. That is the agent's own tool use through
-`bash`, not an action of this extension, but it is a reminder that a survey run
-is not read-only.
+**Correction:** an earlier version of this report credited the `.codegraph/`
+directory and the `.gitignore` line to the agent. The operator ran `codegraph`,
+not the agent. `codegraph init` created `.codegraph/codegraph.db` (908 KB) and
+appended `.codegraph/` to the repo `.gitignore`.
 
 **This database was mutated during inspection.** The replay in defect 2 added a
 `REMEMBERED` and a `MENTIONS` edge to the `cypher.ts` orphan, and the fixture
