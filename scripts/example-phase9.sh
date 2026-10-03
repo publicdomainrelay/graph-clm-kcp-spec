@@ -72,6 +72,14 @@ echo "--- two tenants binding one APIExport ---"
 A api-resources --api-group=specs.publicdomainrelay.dev | grep systemcontexts | sed 's/^/  tenant A sees: /'
 P get apiexportendpointslices "$EXPORT_NAME" -o jsonpath='  the export serves {.status.endpoints[0].url}{"\n"}'
 
+echo "--- a clean slate in both tenants (the example is repeatable) ---"
+for action in A B; do
+  for kind in specchanges systemcontexts repositories; do
+    "${action}" delete "$kind" --all --ignore-not-found >/dev/null 2>&1 || true
+  done
+done
+echo "  removed every spec object the tenants held"
+
 echo "--- one codebase per tenant ---"
 rm -rf "$WORK"
 mkdir -p "$WORK"
@@ -133,7 +141,11 @@ sed -n '1,12p' "$WORK/calc/.specs/calc.yaml" | sed 's/^/    /'
 
 echo "--- both sides moved: the sync refuses ---"
 A patch systemcontext calc --type merge -p '{"spec":{"intent":"changed in kcp"}}' >/dev/null
-sed -i 's/^  intent: .*/  intent: changed in the file/' "$WORK/calc/.specs/calc.yaml"
+if grep -q '^  intent:' "$WORK/calc/.specs/calc.yaml"; then
+  sed -i 's/^  intent: .*/  intent: changed in the file/' "$WORK/calc/.specs/calc.yaml"
+else
+  sed -i '/^spec:$/a\  intent: changed in the file' "$WORK/calc/.specs/calc.yaml"
+fi
 if "$SPECCTL" sync --repo "$WORK/calc" --direction both --workspace "root:${TENANT_A}" 2>"$WORK/conflict.txt"; then
   echo "  the sync did not refuse; that is a bug" >&2
   exit 1

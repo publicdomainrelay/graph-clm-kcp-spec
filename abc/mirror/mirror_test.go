@@ -32,6 +32,15 @@ func TestRenderAndParseRoundTrip(t *testing.T) {
 	if strings.Contains(text, "status") {
 		t.Errorf("the document carries status:\n%s", text)
 	}
+	// The file-level code refs ingest derived are an observation, not a
+	// decision, so they are not in the file and a re-index does not rewrite
+	// every context. A requirement's own code refs are a human's and stay.
+	if strings.Contains(text, "file:calc/calc.go") || strings.Contains(text, "\n  codeRefs:") {
+		t.Errorf("the document carries the derived code refs:\n%s", text)
+	}
+	if !strings.Contains(text, "function:Multiply") {
+		t.Errorf("a requirement's declared code ref was dropped:\n%s", text)
+	}
 	// The keyed lists come out canonically ordered, so the same spec always
 	// renders to the same bytes.
 	if strings.Index(text, "r.add") > strings.Index(text, "r.mul") {

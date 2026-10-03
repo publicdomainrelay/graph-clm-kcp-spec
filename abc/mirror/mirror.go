@@ -79,13 +79,18 @@ type Document struct {
 
 // Render writes one context's spec as the mirror document. The spec is
 // canonicalized first, so the keyed lists come out in their key order and a
-// reordered manifest does not change the file.
+// reordered manifest does not change the file. The code refs ingest derived
+// from the tree are left out: they are an observation, not a decision, and
+// including them would rewrite every file on every commit and drown a pull
+// request in spec churn.
 func Render(name, namespace string, contextSpec spec.SystemContextSpec) ([]byte, error) {
+	declared := spec.Canonicalize(contextSpec)
+	declared.CodeRefs = nil
 	document := Document{
 		APIVersion: specapi.Group + "/" + specapi.Version,
 		Kind:       specapi.SystemContextKind,
 		Metadata:   Metadata{Name: name, Namespace: namespace},
-		Spec:       spec.Canonicalize(contextSpec),
+		Spec:       declared,
 	}
 	data, err := yaml.Marshal(document)
 	if err != nil {
@@ -212,6 +217,9 @@ func Resolve(direction Direction, prefer Prefer, state State) (Action, error) {
 	}
 	if action.Note == "" && state.Kcp == state.File && state.Last != state.Kcp {
 		action.Note = "both sides agree, the baseline was behind"
+	}
+	if action.Note == "" {
+		action.Note = "in step"
 	}
 	return action, nil
 }
