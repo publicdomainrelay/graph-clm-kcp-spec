@@ -18,7 +18,9 @@
   },
   "scripts": {
     "test": "node --import tsx --test --test-force-exit test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "probe": "tsx scripts/cypher-probe.ts",
+    "probe:diff": "tsx scripts/cypher-diff.ts"
   },
   "dependencies": {
     "neo4j-driver": "~5.26.0"

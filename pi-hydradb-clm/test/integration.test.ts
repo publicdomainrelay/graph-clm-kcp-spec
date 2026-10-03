@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import type { HydraGraph } from "../src/graph.ts";
+import type { GraphClient } from "../src/graph.ts";
 import { nodeKey, stableNodeId } from "../src/ids.ts";
 import { FILE_PROPS, LABELS, MEMORY_PROPS } from "../src/schema.ts";
-import { ensureHydra, makeScratch, makeSession, openGraph, uniqueSessionKey } from "./harness.ts";
+import { ensureGraph, makeScratch, makeSession, openGraph, uniqueSessionKey } from "./harness.ts";
 
 const TIMEOUT = { timeout: 240_000 };
 const EXPECTED_TOOLS = [
@@ -16,10 +16,10 @@ const EXPECTED_TOOLS = [
   "hydradb_context",
 ];
 
-let graph: HydraGraph;
+let graph: GraphClient;
 
 before(async () => {
-  await ensureHydra();
+  await ensureGraph();
   graph = await openGraph();
 });
 

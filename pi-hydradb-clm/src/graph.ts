@@ -9,7 +9,7 @@ import {
   type Literal,
 } from "./cypher.ts";
 
-export interface HydraGraphOptions {
+export interface GraphClientOptions {
   boltUrl: string;
   user: string;
   token: string;
@@ -61,13 +61,27 @@ function toParams(rows: Row[]): Row[] {
   });
 }
 
-export class HydraGraph {
+function toDeepParam(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(toDeepParam);
+  if (value !== null && typeof value === "object") {
+    const out: Row = {};
+    for (const [key, inner] of Object.entries(value as Row)) out[key] = toDeepParam(inner);
+    return out;
+  }
+  return toParam(value);
+}
+
+export function normalizeParams(params: Record<string, unknown>): Record<string, unknown> {
+  return toDeepParam(params) as Record<string, unknown>;
+}
+
+export class GraphClient {
   private constructor(
     private readonly driver: neo4j.Driver,
     private readonly database: string | undefined,
   ) {}
 
-  static async connect(options: HydraGraphOptions, attempts = 3): Promise<HydraGraph> {
+  static async connect(options: GraphClientOptions, attempts = 3): Promise<GraphClient> {
     let lastError: unknown;
     for (let attempt = 0; attempt < attempts; attempt++) {
       const driver = neo4j.driver(
@@ -76,7 +90,7 @@ export class HydraGraph {
       );
       try {
         await driver.verifyConnectivity();
-        return new HydraGraph(driver, options.database);
+        return new GraphClient(driver, options.database);
       } catch (error) {
         lastError = error;
         await driver.close().catch(() => {});
@@ -95,6 +109,10 @@ export class HydraGraph {
     } finally {
       await session.close();
     }
+  }
+
+  async run(query: string, params: Record<string, unknown> = {}): Promise<Row[]> {
+    return await this.records(query, normalizeParams(params));
   }
 
   async upsertVertices(label: string, rows: Row[], properties: string[]): Promise<void> {

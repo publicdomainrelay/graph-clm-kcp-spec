@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { HydraGraph } from "./graph.ts";
+import { type GraphBackend } from "./backend.ts";
+import { GraphClient } from "./graph.ts";
 import { nodeKey, stableNodeId } from "./ids.ts";
+import { resolvePartialTarget } from "./target.ts";
 import {
   MEMORY_PROTOCOL,
   projectLiveContext,
@@ -20,10 +22,11 @@ import {
 } from "./schema.ts";
 
 export interface HydraClmOptions {
+  backend: GraphBackend;
   boltUrl: string;
   user: string;
   token?: string;
-  tokenFile: string;
+  tokenFile?: string;
   database?: string;
   budgetTokens: number;
   sessionKey: string;
@@ -31,17 +34,17 @@ export interface HydraClmOptions {
   enabled: boolean;
 }
 
-export const DEFAULT_TOKEN_FILE = "/var/run/secrets/slatedb-graph/auth-token";
-
 export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): HydraClmOptions {
   const enabled = env.HYDRA_CLM_ENABLED !== "0" && env.HYDRA_CLM_ENABLED !== "false";
   const budgetTokens = Number(env.HYDRA_CLM_BUDGET ?? 2000);
+  const target = resolvePartialTarget(env);
   return {
-    boltUrl: env.HYDRA_BOLT_URL ?? "bolt://127.0.0.1:7687",
-    user: env.HYDRA_USER ?? "neo4j",
-    token: env.HYDRA_TOKEN,
-    tokenFile: env.HYDRA_TOKEN_FILE ?? DEFAULT_TOKEN_FILE,
-    database: env.HYDRA_DATABASE,
+    backend: target.backend,
+    boltUrl: target.boltUrl,
+    user: target.user,
+    token: target.token,
+    tokenFile: target.tokenFile,
+    database: target.database,
     budgetTokens: Number.isFinite(budgetTokens) && budgetTokens > 0 ? budgetTokens : 2000,
     sessionKey: env.HYDRA_CLM_SESSION ?? `pi-${process.pid}`,
     autoIndex: env.HYDRA_CLM_AUTO_INDEX !== "0",
@@ -51,7 +54,8 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): HydraClmOp
 
 export function resolveToken(options: HydraClmOptions): string {
   if (options.token) return options.token.trim();
-  return readFileSync(options.tokenFile, "utf8").trim();
+  if (options.tokenFile) return readFileSync(options.tokenFile, "utf8").trim();
+  throw new Error(`${options.backend} backend needs HYDRA_TOKEN or HYDRA_TOKEN_FILE`);
 }
 
 const FILE_TOOLS = new Set(["read", "write", "edit"]);
@@ -71,7 +75,7 @@ function text(content: string) {
 }
 
 export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): void {
-  let graph: HydraGraph | null = null;
+  let graph: GraphClient | null = null;
   let sessionId = 0;
   let revision = 0;
   const filesTouched = new Map<string, number>();
@@ -82,10 +86,10 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
   const turnNodeId = (turnIndex: number) =>
     stableNodeId(nodeKey(options.sessionKey, "turn", String(turnIndex)));
 
-  async function connect(): Promise<HydraGraph | null> {
+  async function connect(): Promise<GraphClient | null> {
     if (graph) return graph;
     try {
-      graph = await HydraGraph.connect({
+      graph = await GraphClient.connect({
         boltUrl: options.boltUrl,
         user: options.user,
         token: resolveToken(options),
@@ -98,7 +102,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
     }
   }
 
-  async function ensureSession(client: HydraGraph): Promise<number> {
+  async function ensureSession(client: GraphClient): Promise<number> {
     if (sessionId !== 0) return sessionId;
     sessionId = sessionNodeId();
     await client.upsertVertices(
@@ -117,7 +121,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
     return sessionId;
   }
 
-  async function loadMemories(client: HydraGraph): Promise<MemoryRecord[]> {
+  async function loadMemories(client: GraphClient): Promise<MemoryRecord[]> {
     const rows = await client.selectVertices(
       LABELS.memory,
       ["id", ...MEMORY_PROPS],
@@ -134,7 +138,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
       .sort((a, b) => b.created - a.created);
   }
 
-  async function loadFiles(client: HydraGraph): Promise<FileRecord[]> {
+  async function loadFiles(client: GraphClient): Promise<FileRecord[]> {
     const rows = await client.selectVertices(LABELS.file, ["id", ...FILE_PROPS], {
       session: sessionId,
     });

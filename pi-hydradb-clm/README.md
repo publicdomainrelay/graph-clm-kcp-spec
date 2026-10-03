@@ -96,13 +96,73 @@ pi -e ./pi-hydradb-clm
 
 | Env var | Default | Meaning |
 | --- | --- | --- |
-| `HYDRA_BOLT_URL` | `bolt://127.0.0.1:7687` | Bolt endpoint |
-| `HYDRA_USER` | `neo4j` | Bolt principal (HydraDB accepts any) |
-| `HYDRA_TOKEN` / `HYDRA_TOKEN_FILE` | `/var/run/secrets/slatedb-graph/auth-token` | Bearer token, min 32 non-placeholder chars |
+| `HYDRA_BACKEND` | `hydradb` | `hydradb` or `arcadedb` |
+| `HYDRA_BOLT_URL` | per backend | Bolt endpoint (`bolt://127.0.0.1:7687` / `:7688`) |
+| `HYDRA_USER` | per backend | Bolt principal (`neo4j` / `root`) |
+| `HYDRA_TOKEN` / `HYDRA_TOKEN_FILE` | per backend | Token or password; HydraDB also accepts a file |
+| `HYDRA_DATABASE` | per backend | Graph/database name; required by ArcadeDB (`clm`) |
 | `HYDRA_CLM_SESSION` | `pi-<pid>` | Session key; the graph partition for one agent session |
 | `HYDRA_CLM_BUDGET` | `2000` | Token budget for the injected live-context document |
 | `HYDRA_CLM_AUTO_INDEX` | `1` | Index touched files |
 | `HYDRA_CLM_ENABLED` | `1` | Master switch |
+
+## Two backends
+
+The extension talks Bolt and emits one Cypher dialect, so either engine can back
+it. `HYDRA_BACKEND=arcadedb` switches the defaults; everything else is unchanged.
+
+| | HydraDB | ArcadeDB |
+| --- | --- | --- |
+| Default Bolt port | 7687 | 7688 (this PoC) |
+| Principal / secret | any user + token file | `root` + password |
+| Database | implicit | required, `clm` |
+| Distribution | OCI image `ghcr.io/hydra-db/hydradb:0.2.0` | release `arcadedb-26.9.1.tar.gz` |
+
+### Running ArcadeDB
+
+Bolt is a **plugin**, absent from the `-base` distribution and not enabled by
+default. Use the full tarball and pass the plugin flag:
+
+```bash
+curl -fsSLO https://github.com/ArcadeData/arcadedb/releases/download/26.9.1/arcadedb-26.9.1.tar.gz
+tar -xzf arcadedb-26.9.1.tar.gz && cd arcadedb-26.9.1
+
+ARCADEDB_HOME=$PWD ARCADEDB_JMX=" " ARCADEDB_OPTS_MEMORY="-Xms256M -Xmx2G" \
+JAVA_OPTS="-Darcadedb.bolt.port=7688 -Darcadedb.bolt.host=127.0.0.1 \
+  -Darcadedb.server.httpPort=2490 \
+  -Darcadedb.server.rootPassword=clm-arcadedb-root \
+  -Darcadedb.server.defaultDatabases=clm[root] \
+  -Darcadedb.server.plugins=Bolt:com.arcadedb.bolt.BoltProtocolPlugin" \
+  bin/server.sh
+```
+
+Then point the tests at it:
+
+```bash
+HYDRA_BACKEND=arcadedb HYDRA_BOLT_URL=bolt://127.0.0.1:7688 \
+HYDRA_USER=root HYDRA_TOKEN=clm-arcadedb-root HYDRA_DATABASE=clm npm test
+```
+
+## Cypher conformance probe
+
+`scripts/cypher-probe.ts` runs a battery of Cypher features over Bolt against
+whichever backend is configured and reports pass/fail per case. `src/conformance.ts`
+holds the cases; each is flagged `core` if it is part of the subset
+`src/cypher.ts` emits and the extension therefore depends on.
+
+```bash
+HYDRA_BACKEND=hydradb   HYDRA_TOKEN_FILE=... npx tsx scripts/cypher-probe.ts
+HYDRA_BACKEND=arcadedb  HYDRA_TOKEN=... HYDRA_BOLT_URL=bolt://127.0.0.1:7688 \
+  HYDRA_USER=root HYDRA_DATABASE=clm npx tsx scripts/cypher-probe.ts
+
+npm run probe:diff -- /tmp/cypher-probe-hydradb.json \
+  /tmp/cypher-probe-arcadedb.json docs/cypher-conformance.md
+```
+
+Result against HydraDB 0.1.0 and ArcadeDB 26.9.1: **all 12 core cases pass on
+both**, and `test/conformance.test.ts` asserts that on whichever backend runs.
+The full table is in [`docs/cypher-conformance.md`](docs/cypher-conformance.md).
+HydraDB passes 26 of 39 cases, ArcadeDB 38 of 39.
 
 ## Where this sits in the HydraDB ecosystem
 
@@ -133,11 +193,11 @@ It requires either TLS materials or `GRAPH_ALLOW_PLAINTEXT=true`, an auth token
 file, and a storage backend (`CLOUD_PROVIDER=local` + `LOCAL_PATH`, or
 `memory`).
 
-The published README advertises a broader OpenCypher subset than the shipped
-binaries accept. Against the `0.2.0` image (binaries self-report `0.1.0`), the
-engine rejected multi-hop paths, variable-length relationships, bare
-`MATCH (n)`, and `RETURN n`. Treat the list below as what this PoC was tested
-against, not as the documented surface.
+These are measured results from `scripts/cypher-probe.ts`, not the documented
+surface. HydraDB is broader than its error messages first suggest — multi-hop
+paths, variable-length relationships, `OPTIONAL MATCH`, `UNION`, `SKIP`,
+`DISTINCT`, `STARTS WITH`, aggregations (`sum`, `collect`, `GROUP BY`), and
+parameters in property predicates all work.
 
 What works:
 
@@ -145,20 +205,26 @@ What works:
 MATCH (n:Label {prop: 'literal'}) RETURN n.other AS other
 MATCH (n:Label) RETURN count(*) AS total
 MATCH (a:Label {id: 1})-[:TYPE]->(b:Label) RETURN b.prop AS prop
+MATCH (a:Label {id: 1})-[:TYPE*1..3]->(b:Label) RETURN b.prop AS prop
 
 UNWIND $rows AS row MERGE (n {id: row.id}) SET n:Label, n.p = row.p
 UNWIND $rows AS row MATCH (a:Label {id: row.src}), (b:Label {id: row.dst}) CREATE (a)-[:TYPE]->(b)
 UNWIND $rows AS row MATCH (n {id: row.id}) DETACH DELETE n
 ```
 
-What it rejects: bare `MATCH (n)`, `RETURN n` (only `<binding>.<property>` or
-`count(*)`), multi-hop or variable-length patterns, relationship patterns with
-more than one type, `CREATE` followed by another clause, non-integer node ids,
-and `DELETE` of a vertex with edges (needs `DETACH`). Write batches must be
-`UNWIND`ed parameters, and integer fields must be Bolt integers, not JS floats.
+What it rejects, with the engine's own wording:
 
-`src/cypher.ts` encodes exactly this subset, which is why the extension has a
-query-builder module instead of hand-written Cypher.
+- `MATCH (n) RETURN count(*)` — "node-only MATCH requires an id, label, or property predicate".
+- `RETURN n` or `RETURN labels(n)` — "RETURN currently supports `<binding>.<property>` or `count(*)`". A whole node can never be projected, only its properties.
+- `WHERE n.name =~ '...'` — "WHERE currently supports boolean combinations of property comparisons".
+- `WITH n WHERE ...` — `WITH` takes pass-through identifiers only.
+- `CREATE` outside an `UNWIND` batch, `CREATE ... RETURN`, `MERGE ... SET` — "CREATE with following clauses is not executable".
+- `CREATE INDEX` / `SHOW INDEXES` — parse errors. HydraDB exposes **no index DDL or index introspection over Bolt**; indexing is the separate `graph-indexer`'s job.
+- Deleting a connected vertex without `DETACH`, and non-integer node ids.
+
+`src/cypher.ts` encodes the intersection of the two engines, which is why the
+extension has a query-builder module instead of hand-written Cypher. That
+intersection is asserted by `test/conformance.test.ts` on every run.
 
 ### Client compatibility
 
