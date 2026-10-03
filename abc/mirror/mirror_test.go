@@ -99,7 +99,8 @@ func TestResolveConflictRule(t *testing.T) {
 	}{
 		{name: "a missing file is a pull, whatever the direction", direction: Both, state: State{Kcp: "k1"}, pull: true},
 		{name: "push alone does nothing without a file", direction: Push, state: State{Kcp: "k1"}},
-		{name: "the file moved, so push applies it", direction: Both, state: State{HasFile: true, Last: last, Kcp: last, File: "f1"}, push: true, pull: true},
+		{name: "the file moved, so push applies it and the pull waits for the re-read", direction: Both, state: State{HasFile: true, Last: last, Kcp: last, File: "f1"}, push: true},
+		{name: "a pull-only run writes the file kcp holds", direction: Pull, state: State{HasFile: true, Last: last, Kcp: last, File: "f1"}, pull: true},
 		{name: "kcp moved, so pull writes the file and push leaves kcp alone", direction: Both, state: State{HasFile: true, Last: last, Kcp: "k2", File: last}, pull: true},
 		{name: "both moved is a conflict", direction: Both, state: State{HasFile: true, Last: last, Kcp: "k2", File: "f2"}, conflict: true},
 		{name: "both moved, kcp wins", direction: Both, prefer: PreferKCP, state: State{HasFile: true, Last: last, Kcp: "k2", File: "f2"}, pull: true},

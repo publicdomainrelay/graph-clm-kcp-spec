@@ -205,7 +205,10 @@ func Resolve(direction Direction, prefer Prefer, state State) (Action, error) {
 		action.Push = true
 		action.Note = "the file moved"
 	}
-	if wantPull && state.Kcp != state.File {
+	// A push writes kcp, so pulling the object this decision was made from
+	// would write the pre-push spec back into the file. The caller re-reads kcp
+	// after a push when it wants both sides canonical (direction both).
+	if wantPull && !action.Push && state.Kcp != state.File {
 		action.Pull = true
 		if action.Note == "" {
 			action.Note = "kcp moved"

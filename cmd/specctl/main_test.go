@@ -221,3 +221,25 @@ func TestCLMWithoutASubcommandIsUsage(t *testing.T) {
 		t.Errorf("exit = %d, want %d", code, exitUsage)
 	}
 }
+
+// TestSyncValidatesItsArguments: the mirror refuses a direction or a preference
+// it does not know, and needs a tree, before it touches kcp or the disk.
+func TestSyncValidatesItsArguments(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		code int
+	}{
+		{name: "no repo", args: []string{"sync"}, code: exitUsage},
+		{name: "unknown direction", args: []string{"sync", "--repo", ".", "--direction", "sideways"}, code: exitUsage},
+		{name: "unknown preference", args: []string{"sync", "--repo", ".", "--prefer", "mine"}, code: exitUsage},
+		{name: "missing tree", args: []string{"sync", "--repo", "/definitely/not/here"}, code: exitError},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := run(testCase.args, io.Discard, io.Discard); got != testCase.code {
+				t.Errorf("exit = %d, want %d", got, testCase.code)
+			}
+		})
+	}
+}

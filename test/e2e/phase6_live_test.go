@@ -177,7 +177,8 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 	applyTyped(t, ctx, client, phase6Baseline())
 
 	// No --agent: the Repository names the scripted agent, which is the review
-	// gap phase 5 left.
+	// gap phase 5 left. --specs-mirror is on, so the commit carries the
+	// context's `.specs/<name>.yaml` beside the code.
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
 		Workspace:    "root:specs",
@@ -187,6 +188,7 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 		Resync:       500 * time.Millisecond,
 		MaxAttempts:  3,
 		RetryBackoff: time.Second,
+		SpecMirror:   true,
 		Log:          logging.Discard(),
 	})
 	if err != nil {
@@ -282,8 +284,13 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 	if succeeded.Status.VerifyExitCode != 0 {
 		t.Errorf("verifyExitCode = %d, want 0", succeeded.Status.VerifyExitCode)
 	}
-	if strings.Join(succeeded.Status.FilesTouched, ",") != "calc/calc.go,calc/subtract_test.go" {
+	// The spec mirror is part of the commit, so one commit carries the spec and
+	// the code: `.specs/calc.yaml` sorts first, and it holds the realized spec.
+	if strings.Join(succeeded.Status.FilesTouched, ",") != ".specs/calc.yaml,calc/calc.go,calc/subtract_test.go" {
 		t.Errorf("filesTouched = %v", succeeded.Status.FilesTouched)
+	}
+	if !strings.Contains(gitOutput(t, repoPath, "show", succeeded.Status.Commit+":.specs/calc.yaml"), "name: calc") {
+		t.Error("the commit does not carry the context's spec mirror")
 	}
 
 	// The commit is on the managed branch, signed by the tool, and the tree
