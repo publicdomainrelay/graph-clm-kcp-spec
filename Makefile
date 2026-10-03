@@ -13,7 +13,10 @@ export SPECD_BOLT_USER ?= neo4j
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 clean
+.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 example-phase3 clean
+
+ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
+ARCH_REPOSITORY ?= deno-kcp
 
 build: $(SPECCTL) $(BIN)/hydradb-bins
 
@@ -76,6 +79,17 @@ example-phase2: $(SPECCTL) kcp-up
 		--bolt-url bolt://127.0.0.1:7688 --bolt-user root --bolt-password clm-arcadedb-root --bolt-database clm
 	$(SPECCTL) graph neighbors calc \
 		--bolt-url bolt://127.0.0.1:7688 --bolt-user root --bolt-password clm-arcadedb-root --bolt-database clm
+
+example-phase3: $(SPECCTL) kcp-up
+	@echo "--- every node of the open architecture document becomes a SystemContext ---"
+	$(SPECCTL) import-arch $(ARCH_YAML) --repository $(ARCH_REPOSITORY)
+	@echo "--- one hop of the graph around sc.deno-kcp, by arch id ---"
+	$(SPECCTL) graph neighbors sc.deno-kcp
+	@echo "--- the same document, exported back out of kcp ---"
+	$(SPECCTL) export --format arch --repository $(ARCH_REPOSITORY) -o $(CURDIR)/.kcp-specd/arch-export.yaml
+	head -n 6 $(CURDIR)/.kcp-specd/arch-export.yaml
+	@echo "--- import, export and the semantic diff are checked by the live test ---"
+	SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase3ArchRoundTrip -count=1
 
 clean:
 	rm -f $(SPECCTL) $(BIN)/hydradb-bins

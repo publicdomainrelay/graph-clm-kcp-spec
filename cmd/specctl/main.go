@@ -57,8 +57,13 @@ type globals struct {
 	context    string
 	workspace  string
 	namespace  string
+	qps        float64
+	burst      int
 }
 
+// The client-go default of 5 requests per second makes a bulk import of a few
+// hundred objects take minutes; specctl raises it, and the flags let a caller
+// back off again.
 func addGlobals(fs *flag.FlagSet) *globals {
 	options := &globals{}
 	fs.StringVar(&options.kubeconfig, "kubeconfig", defaultKubeconfig(), "path to the kcp kubeconfig")
@@ -66,6 +71,8 @@ func addGlobals(fs *flag.FlagSet) *globals {
 	fs.StringVar(&options.workspace, "workspace", "root:specs", "logical cluster path, empty to use the kubeconfig as given")
 	fs.StringVar(&options.namespace, "namespace", specapi.DefaultNamespace, "namespace to work in")
 	fs.StringVar(&options.namespace, "n", specapi.DefaultNamespace, "namespace to work in")
+	fs.Float64Var(&options.qps, "qps", 50, "requests per second against kcp")
+	fs.IntVar(&options.burst, "burst", 100, "request burst against kcp")
 	return options
 }
 
@@ -82,6 +89,8 @@ func (g *globals) client() (*kcpclient.Client, error) {
 		Context:    g.context,
 		Workspace:  g.workspace,
 		Namespace:  g.namespace,
+		QPS:        float32(g.qps),
+		Burst:      g.burst,
 	})
 }
 
@@ -311,6 +320,8 @@ global flags:
   --context <name>      kubeconfig context
   --workspace <path>    logical cluster path (default root:specs, empty to use the kubeconfig as given)
   --namespace, -n <ns>  namespace (default default)
+  --qps <n>             requests per second against kcp (default 50)
+  --burst <n>           request burst against kcp (default 100)
 
 graph flags:
   --bolt-url <url>           bolt endpoint (default $SPECD_BOLT_URL, empty skips the graph)

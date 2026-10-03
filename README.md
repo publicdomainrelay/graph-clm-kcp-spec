@@ -21,8 +21,8 @@ plan is the source of truth; this file says how to run what is built.
 
 ## Status
 
-Phases 1 and 2 of 8 are done: **kcp holds specs, and code becomes facts in
-`status` and in the graph.**
+Phases 1 to 3 of 8 are done: **kcp holds specs, code becomes facts in `status`
+and in the graph, and a hand written `arch.yaml` round trips through kcp.**
 
 - API group `specs.publicdomainrelay.dev/v1alpha1`, kinds `Repository`,
   `SystemContext`, `SpecChange`, namespaced, with a status subresource and
@@ -34,10 +34,14 @@ Phases 1 and 2 of 8 are done: **kcp holds specs, and code becomes facts in
   CodeGraph id, and a `fingerprint` over both) plus the conditions `SpecValid`,
   `CodeSynced` and `Drifted`. Ingest is idempotent: a second run changes no spec
   and writes no status.
+- `specctl import-arch <arch.yaml>` turns every node of an open architecture
+  document into a `SystemContext`, and `specctl export --format arch` writes it
+  back; the ids, the refs and the preserved node bodies survive the trip.
 - `specctl graph neighbors|rebuild` read and write the spec graph in HydraDB or
   ArcadeDB over Bolt, using only the Cypher core subset both engines run.
-- Live tests that round trip a `SystemContext` through a real kcp, and that
-  ingest a real git working tree twice and check the graph on both backends.
+- Live tests that round trip a `SystemContext` through a real kcp, that ingest a
+  real git working tree twice and check the graph on both backends, and that
+  take the open architecture document through kcp and diff the two models.
 
 ## Requirements
 
@@ -53,6 +57,7 @@ on `bolt://127.0.0.1:7688` (database `clm`). Phase 2 uses the graph, so only
 make kcp-up          # kcp on 6447, kine on 23797, state in .kcp-specd/
 make example-phase1  # apply examples/calc/specs.yaml and read it back
 make example-phase2  # ingest fixtures/calc, fill status.observed, write the graph
+make example-phase3  # import testdata/open-architecture/arch.yaml and export it back
 make kcp-down        # stop the cluster this repo started
 ```
 
@@ -60,8 +65,12 @@ make kcp-down        # stop the cluster this repo started
 objects through `kubectl`, and one `SystemContext` as YAML.
 `make example-phase2` applies the same example, indexes `fixtures/calc` with
 CodeGraph, ingests it, prints the observed facts and the conditions, and shows
-one hop of the graph around `calc` in HydraDB and in ArcadeDB. Both targets are
-idempotent: run them as often as you like.
+one hop of the graph around `calc` in HydraDB and in ArcadeDB.
+`make example-phase3` imports the archived open architecture document, prints
+one hop of the graph around `sc.deno-kcp` (by arch id), exports the document
+back out of kcp, and runs the live round trip test. All three targets are
+idempotent except that the phase 3 live test cleans up after itself, so run the
+target again to put the imported contexts back.
 
 The same steps by hand:
 
@@ -80,6 +89,12 @@ bin/specctl graph rebuild --bolt-url bolt://127.0.0.1:7688 \
   --bolt-user root --bolt-password clm-arcadedb-root --bolt-database clm
 
 bin/specctl delete systemcontext calc
+
+bin/specctl import-arch testdata/open-architecture/arch.yaml --repository deno-kcp
+bin/specctl graph neighbors sc.deno-kcp
+bin/specctl get systemcontext -o name | head
+bin/specctl export --format arch --repository deno-kcp -o /tmp/arch-export.yaml
+
 KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl get systemcontexts
 ```
 
@@ -101,8 +116,8 @@ works against it without extra flags.
 
 | Kind | Purpose | Key fields |
 | --- | --- | --- |
-| `Repository` | a git working tree under management | `spec.path`, `spec.branch`, `spec.verify`, `status.headCommit` |
-| `SystemContext` | one spec node (one system context) | `spec.repository`, `spec.upstream`, `spec.overlay`, `spec.intent`, `spec.requirements[]`, `spec.interfaces[]`, `spec.codeRefs[]` |
+| `Repository` | a git working tree under management | `spec.path`, `spec.branch`, `spec.verify`, `status.headCommit`, `status.indexedCommit`, the `Indexed` condition |
+| `SystemContext` | one spec node (one system context) | `spec.repository`, `spec.upstream`, `spec.overlay`, `spec.orchestrator`, `spec.dependsOn[]`, `spec.introduces[]`, `spec.intent`, `spec.requirements[]`, `spec.interfaces[]`, `spec.codeRefs[]`, `spec.arch` |
 | `SpecChange` | one direction-tagged change, the unit of work | `spec.systemContext`, `spec.direction`, `spec.toSpecHash` / `spec.toCommit`, `status.phase` |
 
 `SystemContext.status` carries the code facts (`observed.files`,
@@ -113,11 +128,15 @@ conditions `SpecValid`, `CodeSynced` and `Drifted`.
 Requirements carry `id` (unique in the context), `level` (`MUST`, `SHOULD` or
 `MAY`) and `text`. Every `codeRefs` entry is a CodeGraph id: `file:`, `function:`,
 `method:`, `type:` or `package:`. Context-to-context references are `self`,
-`sc.<name>` or `up.<name>`.
+`sc.<name>`, `up.<name>`, `ov.<name>` or `orch.<name>`, and an open architecture
+id such as `sc.kind.denopod` is a reference too; it names the context
+`sc-kind-denopod`, because the dots are part of the id.
 
 `specctl apply` validates before it writes: duplicate requirement ids, an
 unknown level, a malformed reference, a missing required field or a malformed
-spec hash are rejected locally with the field path, and nothing is sent.
+spec hash are rejected locally with the field path, and nothing is sent. A
+field whose type is wrong is reported with its path too, for example
+`spec.requirements.codeRefs`.
 
 ## Ingest: code becomes facts
 
@@ -142,6 +161,45 @@ spec hash are rejected locally with the field path, and nothing is sent.
 6. when a Bolt endpoint is configured, rewrites the graph from kcp and
    CodeGraph.
 
+## The open architecture document
+
+`deno-kcp/.tools/open-architecture/arch.yaml` is a hand written spec of a whole
+system: a header, then sections of nodes, where a node nests inside its parent
+through `upstream`, `overlay`, `orchestrator` or `children` and an id is shared
+by reference. `specctl import-arch` turns it into `SystemContext` objects and
+`specctl export --format arch` writes it back. The three revisions used as
+fixtures live in `testdata/open-architecture/`.
+
+```
+$ specctl import-arch testdata/open-architecture/arch.yaml --repository deno-kcp
+repository   deno-kcp
+document     arch-document-deno-kcp
+contexts     166
+pruned       0
+graph        true
+```
+
+- Every node with an id becomes one `SystemContext`, named after the id:
+  `sc.kind.denopod` becomes `sc-kind-denopod`. The id itself stays in
+  `spec.arch.id`, with `spec.arch.kind` (`node` or `document`), the section and
+  the position, the parent id and the slot it sat in, the derived `upstream`,
+  `overlay`, `orchestrator`, `dependsOn` and `introduces` refs, the code paths
+  as `spec.codeRefs`, and `spec.arch.node`, the node body with its inline
+  children replaced by their id refs.
+- One more `SystemContext` (`spec.arch.kind: document`) carries the top-level
+  header and the section skeleton, so an empty section survives the trip too.
+- Import is idempotent, and it prunes the objects under that repository that the
+  document no longer holds (`--no-prune` keeps them). The `Repository` is
+  created or updated so the graph commands can resolve code refs against it.
+- A node whose `upstream` is an inline manifest rather than a ref is its own
+  upstream, exactly as the arch layout describes; the manifest stays in the
+  preserved node body.
+- Export is the inverse: the nodes are grouped by the recorded section, ordered
+  by the recorded position, and each node is rebuilt by re-inlining its children
+  at the slots they recorded. The top-level keys come out sorted, and a YAML
+  date such as `generated: 2026-09-28` comes out quoted, which is the same JSON
+  value and the form the schema asks for.
+
 ## The graph
 
 ```
@@ -149,7 +207,7 @@ spec hash are rejected locally with the field path, and nothing is sent.
 (SpecContext) -[:REQUIRES]-> (SpecRequirement {id,context,reqId,level,text})
 (SpecContext) -[:DECLARES]-> (SpecInterface {id,context,name,kind,signature})
 (SpecContext|SpecRequirement) -[:REFERENCES]-> (CodeRef {id,codegraphId,kind,name,filePath})
-(SpecContext) -[:UPSTREAM|OVERLAY|ORCHESTRATOR]-> (SpecContext)
+(SpecContext) -[:UPSTREAM|OVERLAY|ORCHESTRATOR|DEPENDS_ON|INTRODUCES]-> (SpecContext)
 ```
 
 Vertex ids are FNV-1a of a content key, masked to 53 bits, so re-ingest lands on
@@ -179,15 +237,17 @@ state.
 ```
 common/specapi       group, version, kinds, resources, conditions, hashing
 common/ids           FNV-1a vertex ids and Cypher literal helpers
-abc/spec             typed Repository/SystemContext/SpecChange, pure validator
+abc/spec             typed Repository/SystemContext/SpecChange, arch ids, pure validator
+abc/archyaml         pure: read arch.yaml into a flat node model, write it back
 abc/sync             pure: partition a tree into contexts, observed facts, fingerprint, conditions
 abc/graph            pure: the graph model, row builders, Cypher builders, GraphWriter
 impl/kcpclient       dynamic client for a kcp workspace: CRUD, status, manifests
 impl/codegraphsqlite run codegraph, read .codegraph/codegraph.db, resolve code refs
 impl/ingest          the code -> facts -> kcp status pipeline and the graph rebuild
+impl/archkcp         arch.yaml <-> SystemContext objects on a kcp workspace
 impl/gitrepo         reading the working tree (head commit, branch)
 impl/boltgraph       Bolt client for HydraDB and ArcadeDB
-cmd/specctl          apply -f, get, delete, ingest, graph neighbors|rebuild
+cmd/specctl          apply -f, get, delete, ingest, import-arch, export, graph neighbors|rebuild
 cmd/hydradb-bins     extracts the HydraDB binaries from their OCI image
 deploy/start-kcp.sh  start kcp + kine, then install the workspace and CRDs
 deploy/stop-kcp.sh   stop only the kcp and kine this repository started
@@ -195,8 +255,9 @@ deploy/install-specs.sh  create root:specs, apply the CRDs, write a kubeconfig
 deploy/crds/         the three CustomResourceDefinitions
 examples/calc/       a repository and two system contexts that reference each other
 fixtures/calc/       a tiny Go working tree: the calc package and its CLI
+testdata/open-architecture/  three revisions of arch.yaml and its schema
 test/fixture         copies a fixture into a temp dir and commits it as a real git repo
-test/e2e             the live round trip and the live ingest + graph runs
+test/e2e             the live round trip, ingest + graph, and arch.yaml runs
 ```
 
 Dependencies point one way: `common` <- `abc` <- `impl` <- `cmd`. `abc` does no
@@ -214,9 +275,13 @@ make test-live  # SPECD_REQUIRE_LIVE=1; starts kcp, needs codegraph and a Bolt b
 The live tests start the cluster with `deploy/start-kcp.sh` if needed and leave
 it running; `make kcp-down` stops it. Without `SPECD_REQUIRE_LIVE=1` a missing
 `kcp`, `kine`, `kubectl`, `codegraph` or Bolt endpoint skips the test instead of
-failing. The phase 2 test takes over the `calc` names in the workspace and
-deletes them when it finishes, so run `make example-phase2` afterwards to put
-the example state back. The ArcadeDB checks read
+failing. `impl/boltgraph` has its own live test that writes, reads and deletes
+its own vertices, so it never disturbs the example graph; `impl/gitrepo` builds
+a temporary git repository. The phase 2 test takes over the `calc` names in the
+workspace and deletes them when it finishes, and the phase 3 test owns
+everything under the `deno-kcp` repository, so run `make example-phase2` or
+`make example-phase3` afterwards to put the example state back. The ArcadeDB
+checks read
 `SPECD_TEST_ARCADE_URL`, `SPECD_TEST_ARCADE_USER`, `SPECD_TEST_ARCADE_PASSWORD`
 and `SPECD_TEST_ARCADE_DATABASE`; the HydraDB ones read
 `SPECD_TEST_HYDRA_URL`, `SPECD_TEST_HYDRA_USER`,
@@ -232,6 +297,7 @@ on `bolt://127.0.0.1:7688`; neither is started by this repository.
 
 ## What is next
 
-Phase 3 imports `deno-kcp/.tools/open-architecture/arch.yaml` into
-`SystemContext` objects and exports them back, with a semantic diff over ids
-and references as the test.
+Phase 4 adds `cmd/specd`: a controller that watches `Repository` and
+`SystemContext`, re-ingests on a new HEAD, keeps `SpecValid`, `CodeSynced` and
+`Drifted` true to the code, and opens a `SpecChange{CodeToSpec}` when the code
+drifts away from the spec.
