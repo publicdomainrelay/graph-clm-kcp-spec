@@ -114,6 +114,12 @@ spec:
                   format: int64
                 observedCommit:
                   type: string
+                syncedCommit:
+                  type: string
+                  description: The commit whose facts the spec was last synced against.
+                syncedFingerprint:
+                  type: string
+                  description: The observed fingerprint recorded when the spec was last synced.
                 observed:
                   type: object
                   properties:

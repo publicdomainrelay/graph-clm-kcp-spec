@@ -132,10 +132,17 @@ type ObservedFacts struct {
 	Fingerprint string              `json:"fingerprint,omitempty"`
 }
 
+// SystemContextStatus is the observed state. ObservedCommit and Observed are
+// what the code is right now. SyncedCommit and SyncedFingerprint are the
+// baseline the spec was last brought into agreement with: they move only when
+// an ingest, a realize or a human edit acknowledges the code, so Drifted stays
+// true until the drift is worked off.
 type SystemContextStatus struct {
 	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
 	ObservedCommit     string             `json:"observedCommit,omitempty"`
 	Observed           ObservedFacts      `json:"observed,omitempty"`
+	SyncedCommit       string             `json:"syncedCommit,omitempty"`
+	SyncedFingerprint  string             `json:"syncedFingerprint,omitempty"`
 	RealizedSpecHash   string             `json:"realizedSpecHash,omitempty"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
 }

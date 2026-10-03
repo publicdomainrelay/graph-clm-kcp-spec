@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -22,6 +21,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphsqlite"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/gitrepo"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/kcp-libs/common/condition"
 )
 
 type Cluster interface {
@@ -171,12 +171,9 @@ func upsertRepository(ctx context.Context, cluster Cluster, repository *spec.Rep
 		return err
 	}
 
-	conditions := conditionsFor(repository.Status.Conditions, []metav1.Condition{{
-		Type:    specapi.ConditionIndexed,
-		Status:  metav1.ConditionTrue,
-		Reason:  specapi.ReasonIndexed,
-		Message: "the codegraph index is current",
-	}})
+	conditions := condition.Copy(repository.Status.Conditions)
+	condition.SetTrue(&conditions, repository.GetGeneration(), specapi.ConditionIndexed,
+		specapi.ReasonIndexed, "the codegraph index is current")
 	status := map[string]any{
 		"headCommit":         commit,
 		"indexedCommit":      commit,
@@ -200,7 +197,6 @@ func ingestPartition(
 	result := ContextResult{Name: partition.Name, Fingerprint: observed.Fingerprint, Observed: observed}
 
 	var existingContext *spec.SystemContext
-	var previousFingerprint string
 	found, err := cluster.Get(ctx, specapi.SystemContextGVR, namespace, partition.Name)
 	switch {
 	case err == nil:
@@ -213,7 +209,6 @@ func ingestPartition(
 			return result, fmt.Errorf("ingest: %s is not a SystemContext", partition.Name)
 		}
 		existingContext = current
-		previousFingerprint = current.Status.Observed.Fingerprint
 	case kcpclient.IsNotFound(err):
 		existingContext = &spec.SystemContext{ObjectMeta: metav1.ObjectMeta{Name: partition.Name, Namespace: namespace}}
 		result.Created = true
@@ -221,7 +216,18 @@ func ingestPartition(
 		return result, err
 	}
 
-	merged := existingContext.Spec
+	previousSpec := existingContext.Spec
+	// The synced baseline is the fingerprint and commit the spec was last
+	// brought into agreement with. Ingest only establishes it, so a code change
+	// keeps Drifted true until something acknowledges it.
+	syncedFingerprint := existingContext.Status.SyncedFingerprint
+	syncedCommit := existingContext.Status.SyncedCommit
+	if syncedFingerprint == "" {
+		syncedFingerprint = observed.Fingerprint
+		syncedCommit = commit
+	}
+
+	merged := previousSpec
 	if merged.Repository == "" {
 		merged.Repository = repositoryName
 	}
@@ -232,7 +238,7 @@ func ingestPartition(
 	}
 	merged.CodeRefs = mergeCodeRefs(merged.CodeRefs, observed.Files)
 
-	specChanged := !reflect.DeepEqual(merged, existingContext.Spec)
+	specChanged := !reflect.DeepEqual(merged, previousSpec)
 	generation := existingContext.GetGeneration()
 
 	var applied *unstructured.Unstructured
@@ -259,22 +265,34 @@ func ingestPartition(
 		result.SpecChanged = true
 	}
 
-	decision := specsync.Decide(merged.Interfaces, observed, previousFingerprint)
-	conditions := conditionsFor(existingContext.Status.Conditions, desiredConditions(partition.Name, merged, decision))
+	_, conditions := specsync.Conditions(specsync.Input{
+		Name:              partition.Name,
+		Generation:        generation,
+		Spec:              merged,
+		Observed:          observed,
+		SyncedFingerprint: syncedFingerprint,
+	}, existingContext.Status.Conditions)
 	result.Conditions = conditions
+
+	// The realized hash moves only when nothing was pending: a stored spec that
+	// already hashes to the realized hash carries no unprocessed human edit, so
+	// ingest may absorb its own write. A pending human edit keeps the old hash,
+	// which is what makes the controller raise a SpecToCode change.
+	realizedSpecHash := existingContext.Status.RealizedSpecHash
+	previousHash, previousErr := spec.HashSystemContextSpec(previousSpec)
+	mergedHash, mergedErr := spec.HashSystemContextSpec(merged)
+	if previousErr == nil && mergedErr == nil && (realizedSpecHash == "" || realizedSpecHash == previousHash) {
+		realizedSpecHash = mergedHash
+	}
 
 	status := map[string]any{
 		"observedGeneration": generation,
 		"observedCommit":     commit,
 		"observed":           observedObject(observed),
+		"syncedCommit":       syncedCommit,
+		"syncedFingerprint":  syncedFingerprint,
+		"realizedSpecHash":   realizedSpecHash,
 		"conditions":         conditions,
-	}
-	if specChanged {
-		hash, err := specHash(&merged)
-		if err != nil {
-			return result, err
-		}
-		status["realizedSpecHash"] = hash
 	}
 
 	if statusMatches(existingContext.Status, status) {
@@ -287,78 +305,6 @@ func ingestPartition(
 	return result, nil
 }
 
-func desiredConditions(name string, merged spec.SystemContextSpec, decision specsync.Decision) []metav1.Condition {
-	conditions := []metav1.Condition{{
-		Type:    specapi.ConditionSpecValid,
-		Status:  metav1.ConditionTrue,
-		Reason:  specapi.ReasonValidatorPassed,
-		Message: "the spec passes the validator",
-	}}
-	candidate := spec.SystemContext{ObjectMeta: metav1.ObjectMeta{Name: name}, Spec: merged}
-	if result := spec.ValidateSystemContext(&candidate); !result.OK() {
-		conditions[0].Status = metav1.ConditionFalse
-		conditions[0].Reason = specapi.ReasonValidatorFailed
-		conditions[0].Message = result.Err().Error()
-	}
-	synced := metav1.Condition{
-		Type:    specapi.ConditionCodeSynced,
-		Status:  metav1.ConditionTrue,
-		Reason:  specapi.ReasonInterfacesObserved,
-		Message: "every declared interface is observed and nothing undeclared is exported",
-	}
-	if !decision.CodeSynced {
-		synced.Status = metav1.ConditionFalse
-		synced.Reason = specapi.ReasonInterfacesMissing
-		synced.Message = syncMessage(decision)
-	}
-	conditions = append(conditions, synced)
-
-	drifted := metav1.Condition{
-		Type:    specapi.ConditionDrifted,
-		Status:  metav1.ConditionFalse,
-		Reason:  specapi.ReasonFingerprintEqual,
-		Message: "observed facts match the last ingest",
-	}
-	if decision.Drifted {
-		drifted.Status = metav1.ConditionTrue
-		drifted.Reason = specapi.ReasonFingerprintChanged
-		drifted.Message = "observed facts changed since the last ingest"
-	}
-	return append(conditions, drifted)
-}
-
-func syncMessage(decision specsync.Decision) string {
-	parts := []string{}
-	if len(decision.Missing) > 0 {
-		parts = append(parts, "missing: "+strings.Join(decision.Missing, ", "))
-	}
-	if len(decision.Undeclared) > 0 {
-		parts = append(parts, "undeclared: "+strings.Join(decision.Undeclared, ", "))
-	}
-	return strings.Join(parts, "; ")
-}
-
-// conditionsFor keeps the transition time of a condition whose status did not
-// change, which is the Kubernetes convention and makes a repeat ingest a
-// no-op write.
-func conditionsFor(existing []metav1.Condition, desired []metav1.Condition) []metav1.Condition {
-	previous := map[string]metav1.Condition{}
-	for _, condition := range existing {
-		previous[condition.Type] = condition
-	}
-	now := metav1.NewTime(time.Now().UTC())
-	out := make([]metav1.Condition, 0, len(desired))
-	for _, condition := range desired {
-		if before, ok := previous[condition.Type]; ok && before.Status == condition.Status {
-			condition.LastTransitionTime = before.LastTransitionTime
-		} else {
-			condition.LastTransitionTime = now
-		}
-		out = append(out, condition)
-	}
-	return out
-}
-
 func observedObject(observed spec.ObservedFacts) map[string]any {
 	encoded, err := json.Marshal(observed)
 	if err != nil {
@@ -369,14 +315,6 @@ func observedObject(observed spec.ObservedFacts) map[string]any {
 		return map[string]any{}
 	}
 	return out
-}
-
-func specHash(specification *spec.SystemContextSpec) (string, error) {
-	hash, err := specapi.HashJSON(*specification)
-	if err != nil {
-		return "", fmt.Errorf("ingest: hash the spec: %w", err)
-	}
-	return hash, nil
 }
 
 func mergeCodeRefs(existing []string, files []string) []string {

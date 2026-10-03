@@ -3,7 +3,10 @@ package specsync
 import (
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
 
 func fixtureFacts() Facts {
@@ -110,16 +113,26 @@ func TestObservedIsStableAcrossRuns(t *testing.T) {
 	}
 }
 
-func TestDecide(t *testing.T) {
+func decideWith(observed spec.ObservedFacts, synced string, declared []spec.Interface, requirements ...spec.Requirement) Decision {
+	return Decide(Input{
+		Name:              "calc",
+		Generation:        1,
+		Spec:              spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf, Interfaces: declared, Requirements: requirements},
+		Observed:          observed,
+		SyncedFingerprint: synced,
+	})
+}
+
+func TestDecideComparesTheDeclaredSurface(t *testing.T) {
 	observed := Observed(PartitionFacts(fixtureFacts(), "calc")[0])
 
 	declared := []spec.Interface{{Name: "Add"}, {Name: "Multiply"}}
-	decision := Decide(declared, observed, "")
-	if !decision.CodeSynced || decision.Drifted {
-		t.Errorf("decision = %+v, want synced and not drifted", decision)
+	decision := decideWith(observed, "", declared)
+	if !decision.SpecValid || !decision.CodeSynced || decision.Drifted {
+		t.Errorf("decision = %+v, want valid, synced and not drifted", decision)
 	}
 
-	decision = Decide([]spec.Interface{{Name: "Add"}}, observed, "")
+	decision = decideWith(observed, "", []spec.Interface{{Name: "Add"}})
 	if decision.CodeSynced {
 		t.Error("a declared interface set missing Multiply is not synced")
 	}
@@ -127,17 +140,137 @@ func TestDecide(t *testing.T) {
 		t.Errorf("undeclared = %v, want [Multiply]", decision.Undeclared)
 	}
 
-	decision = Decide([]spec.Interface{{Name: "Add"}, {Name: "Multiply"}, {Name: "Subtract"}}, observed, "")
+	decision = decideWith(observed, "", []spec.Interface{{Name: "Add"}, {Name: "Multiply"}, {Name: "Subtract"}})
 	if decision.CodeSynced || len(decision.Missing) != 1 || decision.Missing[0] != "Subtract" {
 		t.Errorf("decision = %+v, want Subtract missing", decision)
 	}
+}
 
-	decision = Decide(declared, observed, "some-old-fingerprint")
-	if !decision.Drifted {
-		t.Error("a different previous fingerprint is drift")
+func TestDecideResolvesRequirementCodeRefs(t *testing.T) {
+	observed := Observed(PartitionFacts(fixtureFacts(), "calc")[0])
+	declared := []spec.Interface{{Name: "Add"}, {Name: "Multiply"}}
+
+	resolved := decideWith(observed, "", declared,
+		spec.Requirement{ID: "r.add", Level: spec.LevelMust, Text: "Add.", CodeRefs: []string{"function:Add", "function:add", "file:calc/calc.go"}})
+	if !resolved.CodeSynced {
+		t.Errorf("decision = %+v, want the code refs to resolve", resolved)
 	}
-	decision = Decide(declared, observed, observed.Fingerprint)
-	if decision.Drifted {
+
+	unresolved := decideWith(observed, "", declared,
+		spec.Requirement{ID: "r.subtract", Level: spec.LevelMust, Text: "Subtract.", CodeRefs: []string{"function:Subtract"}})
+	if unresolved.CodeSynced {
+		t.Error("a code ref that names no observed interface is not synced")
+	}
+	if len(unresolved.Unresolved) != 1 || unresolved.Unresolved[0] != "r.subtract: function:Subtract" {
+		t.Errorf("unresolved = %v", unresolved.Unresolved)
+	}
+}
+
+func TestDecideDriftsAgainstTheSyncedFingerprint(t *testing.T) {
+	observed := Observed(PartitionFacts(fixtureFacts(), "calc")[0])
+	declared := []spec.Interface{{Name: "Add"}, {Name: "Multiply"}}
+
+	if decideWith(observed, observed.Fingerprint, declared).Drifted {
 		t.Error("the same fingerprint is not drift")
+	}
+	if !decideWith(observed, "some-old-fingerprint", declared).Drifted {
+		t.Error("a different synced fingerprint is drift")
+	}
+	// Before the first ingest there is no baseline, so nothing has drifted.
+	if decideWith(observed, "", declared).Drifted {
+		t.Error("an unset synced fingerprint is not drift")
+	}
+}
+
+func TestConditionsKeepTheTransitionTimeAndCarryTheGeneration(t *testing.T) {
+	observed := Observed(PartitionFacts(fixtureFacts(), "calc")[0])
+	in := Input{
+		Name:              "calc",
+		Generation:        3,
+		Spec:              spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf, Interfaces: []spec.Interface{{Name: "Add"}, {Name: "Multiply"}}},
+		Observed:          observed,
+		SyncedFingerprint: observed.Fingerprint,
+	}
+
+	first, conditions := Conditions(in, nil)
+	if !first.CodeSynced || first.Drifted {
+		t.Fatalf("decision = %+v", first)
+	}
+	if len(conditions) != 3 {
+		t.Fatalf("conditions = %+v, want three", conditions)
+	}
+	for _, declaredCondition := range conditions {
+		if declaredCondition.ObservedGeneration != 3 {
+			t.Errorf("condition %s observedGeneration = %d, want 3", declaredCondition.Type, declaredCondition.ObservedGeneration)
+		}
+	}
+	for _, conditionType := range []string{specapi.ConditionSpecValid, specapi.ConditionCodeSynced} {
+		if got := conditionOf(t, conditions, conditionType); got.Status != "True" {
+			t.Errorf("condition %s = %s, want True", conditionType, got.Status)
+		}
+	}
+	if got := conditionOf(t, conditions, specapi.ConditionDrifted); got.Status != "False" {
+		t.Errorf("condition Drifted = %s, want False", got.Status)
+	}
+
+	in.Generation = 4
+	in.Observed = spec.ObservedFacts{Files: observed.Files, Interfaces: observed.Interfaces, Fingerprint: "a-new-fingerprint"}
+	second, drifted := Conditions(in, conditions)
+	if !second.Drifted {
+		t.Fatalf("decision = %+v, want drift", second)
+	}
+	validBefore := conditionOf(t, conditions, specapi.ConditionSpecValid)
+	validAfter := conditionOf(t, drifted, specapi.ConditionSpecValid)
+	if validAfter.ObservedGeneration != 4 {
+		t.Errorf("observedGeneration = %d, want 4", validAfter.ObservedGeneration)
+	}
+	if !validAfter.LastTransitionTime.Equal(&validBefore.LastTransitionTime) {
+		t.Error("an unchanged condition must keep its transition time")
+	}
+
+	driftedBefore := conditionOf(t, conditions, specapi.ConditionDrifted)
+	driftedAfter := conditionOf(t, drifted, specapi.ConditionDrifted)
+	if driftedAfter.LastTransitionTime.Equal(&driftedBefore.LastTransitionTime) {
+		t.Error("a changed condition must move its transition time")
+	}
+}
+
+func conditionOf(t *testing.T, conditions []metav1.Condition, conditionType string) metav1.Condition {
+	t.Helper()
+	for _, entry := range conditions {
+		if entry.Type == conditionType {
+			return entry
+		}
+	}
+	t.Fatalf("%s is not in %+v", conditionType, conditions)
+	return metav1.Condition{}
+}
+
+func TestSpecChangeDue(t *testing.T) {
+	if !CodeToSpecDue(false, true, "aaa", "bbb") {
+		t.Error("a drift transition with a commit pair is due")
+	}
+	for _, due := range []bool{
+		CodeToSpecDue(true, true, "aaa", "bbb"),
+		CodeToSpecDue(false, false, "aaa", "bbb"),
+		CodeToSpecDue(false, true, "aaa", "aaa"),
+		CodeToSpecDue(false, true, "", "bbb"),
+	} {
+		if due {
+			t.Error("a change is due only on the transition with a usable commit pair")
+		}
+	}
+
+	if !SpecEditDue("hash-a", "hash-b") {
+		t.Error("a spec that no longer hashes to the realized hash is a pending edit")
+	}
+	for _, due := range []bool{
+		SpecEditDue("hash-a", "hash-a"),
+		SpecEditDue("hash-a", ""),
+		SpecEditDue("", "hash-b"),
+	} {
+		if due {
+			t.Error("an edit is due only against a realized baseline")
+		}
 	}
 }

@@ -59,9 +59,14 @@ const (
 	ReasonValidatorFailed    = "ValidatorFailed"
 	ReasonInterfacesObserved = "InterfacesObserved"
 	ReasonInterfacesMissing  = "InterfacesMissing"
+	ReasonCodeRefsUnresolved = "CodeRefsUnresolved"
 	ReasonFingerprintEqual   = "FingerprintEqual"
 	ReasonFingerprintChanged = "FingerprintChanged"
+	ReasonNotSyncedYet       = "NotSyncedYet"
 	ReasonIndexed            = "Indexed"
+	ReasonHeadUnavailable    = "HeadUnavailable"
+	ReasonIndexFailed        = "IndexFailed"
+	ReasonPathMissing        = "PathMissing"
 )
 
 const (

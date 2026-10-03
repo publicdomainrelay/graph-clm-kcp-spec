@@ -6,8 +6,11 @@ import (
 	"strconv"
 	"strings"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/kcp-libs/common/condition"
 )
 
 type SourceFile struct {
@@ -57,6 +60,10 @@ func IsTestFile(file string) bool {
 	base := path.Base(file)
 	switch {
 	case strings.HasSuffix(base, "_test.go"):
+		return true
+	case strings.HasSuffix(base, "_test.ts"), strings.HasSuffix(base, "_test.tsx"):
+		return true
+	case strings.HasSuffix(base, "_test.js"), strings.HasSuffix(base, "_test.mjs"):
 		return true
 	case strings.HasSuffix(base, ".test.ts"), strings.HasSuffix(base, ".test.tsx"):
 		return true
@@ -246,27 +253,56 @@ func dedupe(values []string) []string {
 }
 
 type Decision struct {
-	Drifted bool
+	SpecValid bool
+
+	ValidatorMessage string
 
 	CodeSynced bool
 
-	Missing    []string
+	Missing []string
+
 	Undeclared []string
+
+	Unresolved []string
+
+	Drifted bool
 }
 
-// Decide compares the declared interface surface with the observed one and the
-// new fingerprint with the one the last ingest stored.
-func Decide(declared []spec.Interface, observed spec.ObservedFacts, previousFingerprint string) Decision {
+// Input is everything the deciders need about one context. It is a value, so a
+// caller can decide without a cluster.
+type Input struct {
+	Name string
+
+	Generation int64
+
+	Spec spec.SystemContextSpec
+
+	Observed spec.ObservedFacts
+
+	SyncedFingerprint string
+}
+
+// Decide is the whole SystemContext decision: the validator, the declared
+// surface against the observed one, the requirement code refs against the
+// observed facts, and the observed fingerprint against the one recorded when
+// the spec was last synced.
+func Decide(in Input) Decision {
+	decision := Decision{SpecValid: true}
+	candidate := spec.SystemContext{ObjectMeta: metav1.ObjectMeta{Name: in.Name}, Spec: in.Spec}
+	if result := spec.ValidateSystemContext(&candidate); !result.OK() {
+		decision.SpecValid = false
+		decision.ValidatorMessage = result.Err().Error()
+	}
+
 	declaredNames := map[string]bool{}
-	for _, declaredInterface := range declared {
+	for _, declaredInterface := range in.Spec.Interfaces {
 		declaredNames[declaredInterface.Name] = true
 	}
 	observedNames := map[string]bool{}
-	for _, observedInterface := range observed.Interfaces {
+	for _, observedInterface := range in.Observed.Interfaces {
 		observedNames[observedInterface.Name] = true
 	}
 
-	decision := Decision{}
 	for name := range declaredNames {
 		if !observedNames[name] {
 			decision.Missing = append(decision.Missing, name)
@@ -279,7 +315,121 @@ func Decide(declared []spec.Interface, observed spec.ObservedFacts, previousFing
 	}
 	sort.Strings(decision.Missing)
 	sort.Strings(decision.Undeclared)
-	decision.CodeSynced = len(decision.Missing) == 0 && len(decision.Undeclared) == 0
-	decision.Drifted = previousFingerprint != "" && previousFingerprint != observed.Fingerprint
+
+	decision.Unresolved = UnresolvedCodeRefs(in.Spec.Requirements, in.Observed)
+	decision.CodeSynced = len(decision.Missing) == 0 && len(decision.Undeclared) == 0 && len(decision.Unresolved) == 0
+	decision.Drifted = in.SyncedFingerprint != "" && in.SyncedFingerprint != in.Observed.Fingerprint
 	return decision
+}
+
+// CodeToSpecDue reports whether the Drifted condition just turned true with a
+// usable commit pair. Only the transition creates a change, so a code base that
+// stays drifted does not queue new work on every reconcile.
+func CodeToSpecDue(driftedBefore, driftedNow bool, fromCommit, toCommit string) bool {
+	return driftedNow && !driftedBefore && fromCommit != "" && toCommit != "" && fromCommit != toCommit
+}
+
+// SpecEditDue reports whether a human spec edit waits for a realize. An empty
+// realized hash means the controller has no baseline yet, so nothing is due.
+func SpecEditDue(specHash, realizedSpecHash string) bool {
+	return realizedSpecHash != "" && specHash != "" && specHash != realizedSpecHash
+}
+
+// UnresolvedCodeRefs returns the requirement code refs that name neither an
+// observed file nor an observed interface. A ref resolves by its full CodeGraph
+// id, by an interface name with any code ref prefix, or as a file ref.
+func UnresolvedCodeRefs(requirements []spec.Requirement, observed spec.ObservedFacts) []string {
+	resolvable := map[string]bool{}
+	for _, file := range observed.Files {
+		resolvable[spec.CodeRefPrefixFile+file] = true
+	}
+	for _, observedInterface := range observed.Interfaces {
+		if observedInterface.CodegraphID != "" {
+			resolvable[observedInterface.CodegraphID] = true
+		}
+		resolvable[observedInterface.Name] = true
+		for _, prefix := range spec.CodeRefPrefixes {
+			resolvable[prefix+observedInterface.Name] = true
+		}
+	}
+
+	unresolved := []string{}
+	seen := map[string]bool{}
+	for _, requirement := range requirements {
+		for _, ref := range requirement.CodeRefs {
+			if resolvable[ref] || seen[ref] {
+				continue
+			}
+			seen[ref] = true
+			unresolved = append(unresolved, requirement.ID+": "+ref)
+		}
+	}
+	sort.Strings(unresolved)
+	return unresolved
+}
+
+// Conditions is the one place that turns a decision into the three conditions.
+// Ingest and the controller both call it, so the two never disagree and never
+// write over each other. The kcp-libs condition helpers keep the transition
+// time of a condition whose status did not change.
+func Conditions(in Input, previous []metav1.Condition) (Decision, []metav1.Condition) {
+	decision := Decide(in)
+	out := make([]metav1.Condition, 0, 3)
+	for _, conditionType := range []string{
+		specapi.ConditionSpecValid,
+		specapi.ConditionCodeSynced,
+		specapi.ConditionDrifted,
+	} {
+		if before := condition.Of(previous, conditionType); before != nil {
+			out = append(out, *before)
+		}
+	}
+
+	if decision.SpecValid {
+		condition.SetTrue(&out, in.Generation, specapi.ConditionSpecValid,
+			specapi.ReasonValidatorPassed, "the spec passes the validator")
+	} else {
+		condition.SetFalse(&out, in.Generation, specapi.ConditionSpecValid,
+			specapi.ReasonValidatorFailed, decision.ValidatorMessage)
+	}
+
+	switch {
+	case decision.CodeSynced:
+		condition.SetTrue(&out, in.Generation, specapi.ConditionCodeSynced,
+			specapi.ReasonInterfacesObserved,
+			"every declared interface is observed, nothing undeclared is exported and every requirement code ref resolves")
+	case len(decision.Missing) > 0 || len(decision.Undeclared) > 0:
+		condition.SetFalse(&out, in.Generation, specapi.ConditionCodeSynced,
+			specapi.ReasonInterfacesMissing, syncMessage(decision))
+	default:
+		condition.SetFalse(&out, in.Generation, specapi.ConditionCodeSynced,
+			specapi.ReasonCodeRefsUnresolved, "unresolved requirement code refs: "+strings.Join(decision.Unresolved, ", "))
+	}
+
+	switch {
+	case decision.Drifted:
+		condition.SetTrue(&out, in.Generation, specapi.ConditionDrifted,
+			specapi.ReasonFingerprintChanged, "observed facts changed since the spec was last synced")
+	case in.SyncedFingerprint == "":
+		condition.SetFalse(&out, in.Generation, specapi.ConditionDrifted,
+			specapi.ReasonNotSyncedYet, "no synced fingerprint has been recorded yet")
+	default:
+		condition.SetFalse(&out, in.Generation, specapi.ConditionDrifted,
+			specapi.ReasonFingerprintEqual, "observed facts match the synced fingerprint")
+	}
+	return decision, out
+}
+
+func syncMessage(decision Decision) string {
+	parts := []string{}
+	if len(decision.Missing) > 0 {
+		parts = append(parts, "missing: "+strings.Join(decision.Missing, ", "))
+	}
+	if len(decision.Undeclared) > 0 {
+		parts = append(parts, "undeclared: "+strings.Join(decision.Undeclared, ", "))
+	}
+	if len(decision.Unresolved) > 0 {
+		parts = append(parts, "unresolved: "+strings.Join(decision.Unresolved, ", "))
+	}
+	return strings.Join(parts, "; ")
 }
