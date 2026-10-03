@@ -133,10 +133,11 @@ sequenceDiagram
 
 ## Status
 
-Phases 1 to 5 of 8 are done: **kcp holds specs, code becomes facts in `status`
+Phases 1 to 6 of 10 are done: **kcp holds specs, code becomes facts in `status`
 and in the graph, a hand written `arch.yaml` round trips through kcp, `specd`
-keeps the facts, the conditions and the work queue true to the code, and an
-agent turns the code back into a spec.**
+keeps the facts, the conditions and the work queue true to the code, an agent
+turns the code back into a spec, and a spec edit becomes a structured delta that
+drives an agent to change the code under a test gate.**
 
 - API group `specs.publicdomainrelay.dev/v1alpha1`, kinds `Repository`,
   `SystemContext`, `SpecChange`, namespaced, with a status subresource and
@@ -167,10 +168,35 @@ agent turns the code back into a spec.**
 - Each context gets a CLM document at `<repo>/.specs/context/<name>.md`: the
   model's prose above `<!-- SPECD_MANAGED_BEGIN -->`, and the code refs the
   index resolved below it, regenerated on every summarize.
+- Every list in every CRD is a keyed list: `requirements` by `id`, `interfaces`
+  and the observed interfaces by `name` and `conditions` by `type` are
+  `x-kubernetes-list-type: map`, and `codeRefs`, `overlay`, `dependsOn` and
+  `introduces` are sets. A server side apply that names one entry therefore
+  edits that entry and leaves the rest of the list, and every other field,
+  exactly as it was.
+- `status.realizedSpec` and `status.syncedObserved` snapshot the last realized
+  spec and the last synced fact set, so a delta is computable from kcp alone in
+  both directions. `abc/delta` is the pure `Diff`/`Apply` algebra
+  (`DiffObserved`/`ApplyObserved` for facts) and its stable JSON is pinned by
+  golden files in `testdata/delta/`; `SpecChange.spec.delta` carries it and
+  `specctl get specchange` prints the `+2 ~1 -1` summary.
+- `SpecToCode` is one worktree: branch `spec/<context>/<hash8>` off the managed
+  branch, the agent edits files only, `Repository.spec.verify` gates the commit,
+  and a zero exit lands the commit as `specd <specd@localhost>` on the managed
+  branch with a re-ingest that adopts it in one status write, so the tool's own
+  work raises no opposite change. A failing verify keeps the branch, leaves the
+  spec and the managed branch untouched and hands the output to the next
+  attempt.
+- `Repository.spec.agent.kind` selects the agent per repository (`claude` or
+  `scripted:<file>`; `pi` is named and refused until phase 8) and wins over the
+  controller's `--agent`.
 - Live tests that round trip a `SystemContext` through a real kcp, that ingest a
   real git working tree twice and check the graph on both backends, that take
   the open architecture document through kcp and diff the two models, that drive
-  the controller through drift and both directions of `SpecChange`, that ingest
+  the controller through drift and both directions of `SpecChange`, that patch
+  one requirement of a keyed list without rewriting its list, that realize a
+  spec edit through a worktree, a verify gate and a re-ingest on both the
+  passing and the failing path, that ingest
   a Deno/TypeScript module, not only Go, and that run `deepseek-claude` over
   `fixtures/calc` and hold its answer to the same contract the scripted agent is
   held to.
