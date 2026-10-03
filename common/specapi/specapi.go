@@ -37,6 +37,13 @@ const DefaultNamespace = "default"
 const (
 	OriginAnnotation = Group + "/origin"
 
+	// OriginHashAnnotation is the hash of the spec the tool itself wrote. A
+	// spec write and the status write that acknowledges it are two API calls,
+	// and a reconcile can see the object between them; the annotation is what
+	// tells that reconcile the spec it is reading is the tool's own write and
+	// not a human edit.
+	OriginHashAnnotation = Group + "/origin-hash"
+
 	OriginIngest  = "ingest"
 	OriginRealize = "realize"
 	OriginHuman   = "human"

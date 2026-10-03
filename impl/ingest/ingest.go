@@ -263,6 +263,11 @@ func ingestPartition(
 			updated.Annotations = map[string]string{}
 		}
 		updated.Annotations[specapi.OriginAnnotation] = specapi.OriginIngest
+		if mergedHash, err := spec.HashSystemContextSpec(merged); err == nil {
+			// The status write is a separate call, so the object has to say
+			// which spec this write produced.
+			updated.Annotations[specapi.OriginHashAnnotation] = mergedHash
+		}
 		updated.SetDefaults()
 		object, err := kcpclient.Unstructured(updated)
 		if err != nil {

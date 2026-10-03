@@ -3,6 +3,7 @@ package specd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -53,38 +54,39 @@ func (c *Controller) reconcileSystemContext(ctx context.Context, namespace, name
 		c.log.Info("conditions updated",
 			"systemcontext", name, "generation", systemContext.GetGeneration(), "drifted", decision.Drifted)
 	}
-	if err := c.reconcileChanges(ctx, namespace, systemContext, decision); err != nil {
-		return 0, err
-	}
-	return 0, nil
+	return c.reconcileChanges(ctx, namespace, systemContext, decision)
 }
 
 // reconcileChanges turns the decision into at most one change per direction.
 // A change is only raised when nothing of that direction is still unfinished,
-// so a code base that stays drifted does not queue work on every reconcile.
+// so a code base that stays drifted does not queue work on every reconcile. An
+// episode that keeps failing is capped and backed off: after MaxAttempts
+// records the controller stops asking and the drift stays visible in the
+// Drifted condition for a human to read.
 func (c *Controller) reconcileChanges(
 	ctx context.Context,
 	namespace string,
 	systemContext *spec.SystemContext,
 	decision specsync.Decision,
-) error {
+) (time.Duration, error) {
 	fromCommit := systemContext.Status.SyncedCommit
 	toCommit := systemContext.Status.ObservedCommit
 	driftDue := specsync.CodeToSpecDue(decision.Drifted, fromCommit, toCommit)
 
 	specHash, err := spec.HashSystemContextSpec(systemContext.Spec)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	editDue := specsync.SpecEditDue(specHash, systemContext.Status.RealizedSpecHash)
+	editDue := specsync.SpecEditDue(specHash, systemContext.Status.RealizedSpecHash,
+		systemContext.Annotations[specapi.OriginHashAnnotation])
 	// A quiet context is the common case, and it costs no list to find out.
 	if !driftDue && !editDue {
-		return nil
+		return 0, nil
 	}
 
 	changes, err := c.changesFor(ctx, namespace, systemContext.Name)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	unfinished := map[string]bool{}
 	taken := make([]string, 0, len(changes))
@@ -96,42 +98,140 @@ func (c *Controller) reconcileChanges(
 		}
 	}
 
+	requeue := time.Duration(0)
 	if driftDue && !unfinished[specapi.DirectionCodeToSpec] {
-		change := &spec.SpecChange{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      spec.NextChangeName(taken, spec.ChangeNameCodeToSpec(systemContext.Name, fromCommit, toCommit)),
-				Namespace: namespace,
-			},
-			Spec: spec.SpecChangeSpec{
-				SystemContext: systemContext.Name,
-				Direction:     specapi.DirectionCodeToSpec,
-				FromCommit:    fromCommit,
-				ToCommit:      toCommit,
-			},
+		base := spec.ChangeNameCodeToSpec(systemContext.Name, fromCommit, toCommit)
+		wait, ready := c.retryDelay(changes, taken, base)
+		if ready && episodeSucceeded(changes, base) {
+			// The episode is over: the change that worked it off succeeded and
+			// the status that says so may not have landed yet.
+			ready = false
 		}
-		if err := c.createChange(ctx, change); err != nil {
-			return err
+		switch {
+		case !ready:
+			c.log.Warn("not raising another code to spec change: the attempt cap is reached",
+				"systemcontext", systemContext.Name, "episode", base, "maxAttempts", c.opts.MaxAttempts)
+		case wait > 0:
+			requeue = max(requeue, wait)
+		default:
+			change := &spec.SpecChange{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      spec.NextChangeName(taken, base),
+					Namespace: namespace,
+				},
+				Spec: spec.SpecChangeSpec{
+					SystemContext: systemContext.Name,
+					Direction:     specapi.DirectionCodeToSpec,
+					FromCommit:    fromCommit,
+					ToCommit:      toCommit,
+				},
+			}
+			if err := c.createChange(ctx, change); err != nil {
+				return 0, err
+			}
 		}
 	}
 
 	if editDue && !unfinished[specapi.DirectionSpecToCode] {
-		change := &spec.SpecChange{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      spec.NextChangeName(taken, spec.ChangeNameSpecToCode(systemContext.Name, specHash)),
-				Namespace: namespace,
-			},
-			Spec: spec.SpecChangeSpec{
-				SystemContext: systemContext.Name,
-				Direction:     specapi.DirectionSpecToCode,
-				FromSpecHash:  systemContext.Status.RealizedSpecHash,
-				ToSpecHash:    specHash,
-			},
+		base := spec.ChangeNameSpecToCode(systemContext.Name, specHash)
+		wait, ready := c.retryDelay(changes, taken, base)
+		if ready && episodeSucceeded(changes, base) {
+			ready = false
 		}
-		if err := c.createChange(ctx, change); err != nil {
-			return err
+		switch {
+		case !ready:
+			c.log.Warn("not raising another spec to code change: the attempt cap is reached",
+				"systemcontext", systemContext.Name, "episode", base, "maxAttempts", c.opts.MaxAttempts)
+		case wait > 0:
+			requeue = max(requeue, wait)
+		default:
+			change := &spec.SpecChange{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      spec.NextChangeName(taken, base),
+					Namespace: namespace,
+				},
+				Spec: spec.SpecChangeSpec{
+					SystemContext: systemContext.Name,
+					Direction:     specapi.DirectionSpecToCode,
+					FromSpecHash:  systemContext.Status.RealizedSpecHash,
+					ToSpecHash:    specHash,
+				},
+			}
+			if err := c.createChange(ctx, change); err != nil {
+				return 0, err
+			}
 		}
 	}
-	return nil
+	return requeue, nil
+}
+
+// retryDelay asks the pure policy whether another attempt at one episode may be
+// raised now. A context that has never failed has no attempt recorded, so the
+// first attempt is always immediate.
+func (c *Controller) retryDelay(changes []spec.SpecChange, taken []string, base string) (time.Duration, bool) {
+	attempts := spec.AttemptCount(taken, base)
+	if attempts == 0 {
+		return 0, true
+	}
+	return specsync.RetryBackoff(attempts, newestFailure(changes, base), time.Now(), c.opts.RetryBackoff, c.opts.MaxAttempts)
+}
+
+// episodeSucceeded reports whether one episode already has a change that
+// finished. An episode is keyed by the commit pair or the spec hash, so a
+// success ends it: the work is done and only the status that records it may
+// still be in flight.
+func episodeSucceeded(changes []spec.SpecChange, base string) bool {
+	for _, change := range changes {
+		if change.Status.Phase != specapi.PhaseSucceeded {
+			continue
+		}
+		if change.Name == base || strings.HasPrefix(change.Name, base+"-a") {
+			return true
+		}
+	}
+	return false
+}
+
+func newestFailure(changes []spec.SpecChange, base string) time.Time {
+	newest := time.Time{}
+	for _, change := range changes {
+		if change.Status.Phase != specapi.PhaseFailed {
+			continue
+		}
+		if change.Name != base && !strings.HasPrefix(change.Name, base+"-a") {
+			continue
+		}
+		if created := change.GetCreationTimestamp().Time; created.After(newest) {
+			newest = created
+		}
+	}
+	return newest
+}
+
+// episodeBase is the name one drift episode is keyed by, without an attempt
+// suffix. It is recomputed from the change, so a retry knows which records it
+// is another try at.
+func episodeBase(change *spec.SpecChange) string {
+	switch change.Spec.Direction {
+	case specapi.DirectionCodeToSpec:
+		return spec.ChangeNameCodeToSpec(change.Spec.SystemContext, change.Spec.FromCommit, change.Spec.ToCommit)
+	case specapi.DirectionSpecToCode:
+		return spec.ChangeNameSpecToCode(change.Spec.SystemContext, change.Spec.ToSpecHash)
+	}
+	return change.Name
+}
+
+// attemptsTaken counts the records of the episode a change belongs to.
+func (c *Controller) attemptsTaken(ctx context.Context, namespace string, change *spec.SpecChange) int {
+	changes, err := c.changesFor(ctx, namespace, change.Spec.SystemContext)
+	if err != nil {
+		return 1
+	}
+	taken := make([]string, 0, len(changes))
+	for _, recorded := range changes {
+		taken = append(taken, recorded.Name)
+	}
+	return spec.AttemptCount(taken, episodeBase(change))
 }
 
 func (c *Controller) changesFor(ctx context.Context, namespace, systemContext string) ([]spec.SpecChange, error) {

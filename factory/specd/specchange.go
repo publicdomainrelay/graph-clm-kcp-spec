@@ -13,8 +13,9 @@ import (
 )
 
 // reconcileSpecChange keeps a change Pending and enforces the admission rule:
-// at most one change may run per SystemContext. Agents take a change from
-// Pending to Running in phases 5 and 6; until then nothing moves.
+// at most one change may run per SystemContext. A CodeToSpec change is the one
+// an agent works off; a SpecToCode change waits for phase 6. A controller with
+// no agent configured runs neither, so the change stays Pending for a human.
 func (c *Controller) reconcileSpecChange(ctx context.Context, namespace, name string) (time.Duration, error) {
 	object, err := c.client.Get(ctx, specapi.SpecChangeGVR, namespace, name)
 	if err != nil {
@@ -30,6 +31,11 @@ func (c *Controller) reconcileSpecChange(ctx context.Context, namespace, name st
 	change, ok := typed.(*spec.SpecChange)
 	if !ok {
 		return 0, fmt.Errorf("specd: %s is not a SpecChange", name)
+	}
+
+	if change.Spec.Direction == specapi.DirectionCodeToSpec &&
+		change.Status.Phase == specapi.PhasePending && c.agents.Configured() {
+		return c.reconcileCodeToSpec(ctx, namespace, name, change)
 	}
 
 	status := map[string]any{}

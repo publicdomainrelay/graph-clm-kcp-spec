@@ -12,9 +12,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/util/workqueue"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/watch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/agentfactory"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/bundle"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/claudecli"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/watchinformer"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/watchpoll"
@@ -30,6 +34,17 @@ const (
 	DefaultPollInterval = 2 * time.Second
 
 	DefaultWorkers = 4
+
+	// DefaultMaxAttempts caps one episode of drift: after this many failed
+	// attempts the controller stops raising new ones, so a broken agent cannot
+	// fill the workspace with retries.
+	DefaultMaxAttempts = 3
+
+	// DefaultRetryBackoff is the wait before the second attempt at an episode.
+	// Each further attempt doubles it.
+	DefaultRetryBackoff = 5 * time.Second
+
+	DefaultAgentTimeout = claudecli.DefaultTimeout
 )
 
 type Options struct {
@@ -56,6 +71,24 @@ type Options struct {
 	Tool string
 
 	Graph graph.Writer
+
+	Agent string
+
+	AgentCommand string
+
+	AgentArgs []string
+
+	AgentTimeout time.Duration
+
+	Budget int
+
+	NodeLimit int
+
+	ManagedBudget int
+
+	MaxAttempts int
+
+	RetryBackoff time.Duration
 
 	Log *slog.Logger
 }
@@ -91,6 +124,8 @@ type Controller struct {
 
 	queue workqueue.TypedRateLimitingInterface[key]
 
+	agents *agentfactory.Factory
+
 	log *slog.Logger
 }
 
@@ -123,6 +158,34 @@ func New(opts Options) (*Controller, error) {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
+	if opts.AgentTimeout <= 0 {
+		opts.AgentTimeout = claudecli.DefaultTimeout
+	}
+	if opts.Budget <= 0 {
+		opts.Budget = bundle.DefaultBudget
+	}
+	if opts.NodeLimit <= 0 {
+		opts.NodeLimit = bundle.DefaultNodeLimit
+	}
+	if opts.ManagedBudget <= 0 {
+		opts.ManagedBudget = agent.DefaultManagedBudget
+	}
+	if opts.MaxAttempts < 0 {
+		opts.MaxAttempts = DefaultMaxAttempts
+	}
+	if opts.RetryBackoff <= 0 {
+		opts.RetryBackoff = DefaultRetryBackoff
+	}
+
+	agents, err := agentfactory.New(agentfactory.Options{
+		Kind:    opts.Agent,
+		Command: opts.AgentCommand,
+		Args:    opts.AgentArgs,
+		Timeout: opts.AgentTimeout,
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	client, err := kcpclient.New(kcpclient.Options{
 		Kubeconfig: opts.Kubeconfig,
@@ -144,6 +207,7 @@ func New(opts Options) (*Controller, error) {
 		client: client,
 		source: source,
 		queue:  workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[key]()),
+		agents: agents,
 		log:    opts.Log,
 	}, nil
 }
