@@ -116,9 +116,6 @@ func Run(ctx context.Context, options Options) (Result, error) {
 			return result, fmt.Errorf("specsync: %s: %w", object.GetName(), err)
 		}
 		switch {
-		case record.Pull && record.Push:
-			result.Pulled++
-			result.Pushed++
 		case record.Pull:
 			result.Pulled++
 		case record.Push:
@@ -133,8 +130,9 @@ func Run(ctx context.Context, options Options) (Result, error) {
 			if err != nil {
 				return result, fmt.Errorf("specsync: %s: %w", object.GetName(), err)
 			}
-			if pullRecord.Pull && !record.Pull {
+			if pullRecord.Pull {
 				result.Pulled++
+				record.Pull = true
 			}
 			record.Note = record.Note + "; " + pullRecord.Note
 		}

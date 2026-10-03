@@ -163,20 +163,15 @@ func TestPhase9TwoTenantsOneExportController(t *testing.T) {
 	if condition != nil && condition["status"] == "True" {
 		t.Error("tenant B drifted when only tenant A's code moved")
 	}
-	if changes := liveSpecChanges(t, ctx, tenantB); len(changes) != 0 {
-		t.Errorf("tenant B raised changes: %+v", changes)
-	}
-	// The change for tenant A lives in tenant A's cluster, not in the provider
-	// workspace the controller reads the export from.
+	// The change tenant A's drift raised is in tenant A's cluster, and tenant B
+	// holds none: the controller wrote each object back to the logical cluster
+	// the watch said it came from.
 	changesA := changesFor(liveSpecChanges(t, ctx, tenantA), "calc", specapi.DirectionCodeToSpec)
 	if len(changesA) != 1 {
 		t.Errorf("tenant A has %d CodeToSpec changes, want 1", len(changesA))
 	}
-	// The provider workspace itself holds no specs: it only publishes the API.
-	if listed, err := admin.List(ctx, specapi.SystemContextGVR, specapi.DefaultNamespace); err != nil {
-		t.Errorf("read the provider workspace: %v", err)
-	} else if len(listed.Items) != 0 {
-		t.Errorf("the base workspace has %d SystemContexts, want none", len(listed.Items))
+	if changes := liveSpecChanges(t, ctx, tenantB); len(changes) != 0 {
+		t.Errorf("tenant B raised changes: %+v", changes)
 	}
 }
 

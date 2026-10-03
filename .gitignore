@@ -3,6 +3,7 @@
 node_modules/
 .codegraph/
 /.kcp-specd/
+.kcp-specd/
 .specs/
 
 # Claude Code writes its own declarations here when it loads the mod

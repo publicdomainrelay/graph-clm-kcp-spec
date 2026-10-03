@@ -298,6 +298,7 @@ only something `codegraph` can parse.
 
 ```bash
 make kcp-up          # kcp on 6447, kine on 23797, state in .kcp-specd/
+make generate-schemas # rewrite deploy/apiresourceschemas/ after a CRD change
 make example-phase1  # apply examples/calc/specs.yaml and read it back
 make example-phase2  # ingest fixtures/calc, fill status.observed, write the graph
 make example-phase3  # import testdata/open-architecture/arch.yaml and export it back
@@ -1056,9 +1057,10 @@ and the phase 2 graph check default to ArcadeDB and take
 
 kcp listens on 6447 with kine on 23797 and keeps state in `.kcp-specd/`
 (gitignored). The multi workspace mode adds the workspaces
-`root:specs-provider`, `root:phase9-a` and `root:phase9-b` and the kubeconfigs
-`.kcp-specd/<workspace>.kubeconfig`; `make kcp-down` and `rm -rf .kcp-specd`
-remove them all. `deploy/stop-kcp.sh` only ever signals processes whose command
+`root:specs-provider` and one per tenant (`root:phase9-a`, `root:phase9-b`, ...)
+plus a kubeconfig per tenant in `.kcp-specd/<workspace>.kubeconfig`. They live
+in the same state directory, so `make kcp-down` followed by `rm -rf .kcp-specd`
+removes them. `deploy/stop-kcp.sh` only ever signals processes whose command
 line names that root directory, so it cannot disturb another kcp on the
 machine. The graph defaults to ArcadeDB on `bolt://127.0.0.1:7688` (HydraDB on
 `bolt://127.0.0.1:7687` is the option); neither is started by this repository.

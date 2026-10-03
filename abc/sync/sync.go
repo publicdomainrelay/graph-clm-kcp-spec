@@ -10,6 +10,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/mirror"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/kcp-libs/common/condition"
@@ -184,6 +185,9 @@ func filterFiles(files []SourceFile, include, exclude []string) []SourceFile {
 	excludes := compileGlobs(exclude)
 	out := make([]SourceFile, 0, len(files))
 	for _, file := range files {
+		if IsSpecArtifact(file.Path) {
+			continue
+		}
 		if len(includes) > 0 && !matchAny(includes, file.Path) {
 			continue
 		}
@@ -193,6 +197,15 @@ func filterFiles(files []SourceFile, include, exclude []string) []SourceFile {
 		out = append(out, file)
 	}
 	return out
+}
+
+// IsSpecArtifact reports whether a repository-relative path is spec state
+// rather than code: the context documents and the `.specs/*.yaml` mirror the
+// tool itself writes. They are left out of every partition and out of the
+// observed facts, even when the index happened to read one, because a spec the
+// tool wrote must never look like code that drifted.
+func IsSpecArtifact(file string) bool {
+	return file == mirror.Dir || strings.HasPrefix(file, mirror.Dir+"/")
 }
 
 // MatchGlob matches one repository-relative path against one glob. `*` and `?`

@@ -16,7 +16,7 @@ export SPECD_BOLT_BACKEND ?= arcadedb
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs install-specs-provider example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 example-phase9 demo clean
+.PHONY: build check fmt vet generate-schemas test test-live kcp-up kcp-down install-specs install-specs-provider example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 example-phase9 demo clean
 
 ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
 ARCH_REPOSITORY ?= deno-kcp
@@ -34,6 +34,11 @@ $(SPECD): $(shell find cmd/specd factory abc common impl -name '*.go') go.mod
 $(BIN)/hydradb-bins: $(shell find cmd/hydradb-bins -name '*.go') go.mod
 	@mkdir -p $(BIN)
 	go build -o $@ ./cmd/hydradb-bins
+
+# The APIResourceSchemas are generated from the CRDs; a test fails when they
+# drift, and this target is how a deliberate CRD change is regenerated.
+generate-schemas:
+	SPECD_UPDATE_GOLDEN=1 go test ./impl/schemagen/ -run TestEveryCRDHasItsAPIResourceSchema -count=1
 
 check: fmt vet
 
