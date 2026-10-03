@@ -14,13 +14,17 @@
   "pi": {
     "extensions": [
       "./index.ts"
+    ],
+    "skills": [
+      "skills"
     ]
   },
   "scripts": {
     "test": "node --import tsx --test --test-force-exit test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "probe": "tsx scripts/cypher-probe.ts",
-    "probe:diff": "tsx scripts/cypher-diff.ts"
+    "probe:diff": "tsx scripts/cypher-diff.ts",
+    "dump": "tsx scripts/graph-dump.ts"
   },
   "dependencies": {
     "neo4j-driver": "~5.26.0"

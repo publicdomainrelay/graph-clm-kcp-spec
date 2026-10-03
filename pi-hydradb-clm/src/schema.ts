@@ -10,7 +10,6 @@ export const EDGES = {
   remembered: "REMEMBERED",
   touched: "TOUCHED",
   occurred: "OCCURRED",
-  mentions: "MENTIONS",
   references: "REFERENCES",
 } as const;
 

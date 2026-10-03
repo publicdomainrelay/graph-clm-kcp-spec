@@ -77,58 +77,6 @@ export function selectWithinBudget<T>(
   return selected;
 }
 
-function renderMemory(memory: MemoryRecord): string {
-  return `- [${memory.kind}] ${memory.title} (id=${memory.id})\n  ${memory.body}`;
-}
-
-function renderFile(file: FileRecord): string {
-  return `- ${file.path} (id=${file.id}, touches=${file.touches})`;
-}
-
-function renderTurn(turn: TurnRecord): string {
-  return `- turn ${turn.turnIndex}: ${turn.summary} (id=${turn.id})`;
-}
-
-export function buildLiveContextDocument(input: LiveContextInput): string {
-  const lines: string[] = [];
-  lines.push(
-    `[[HYDRA_CLM version=${LIVE_CONTEXT_VERSION} session=${input.sessionKey} ` +
-      `id=${input.sessionId} revision=${input.revision} budget=${input.budgetTokens}]]`,
-  );
-
-  lines.push("", "## Remembered");
-  if (input.memories.length === 0) lines.push("- (none)");
-  else for (const memory of input.memories) lines.push(renderMemory(memory));
-
-  lines.push("", "## Touched files");
-  if (input.files.length === 0) lines.push("- (none)");
-  else for (const file of input.files) lines.push(renderFile(file));
-
-  lines.push("", "## Recent turns");
-  if (input.turns.length === 0) lines.push("- (none)");
-  else for (const turn of input.turns) lines.push(renderTurn(turn));
-
-  return lines.join("\n");
-}
-
-export function projectLiveContext(input: LiveContextInput): string {
-  const header = estimateTokens(
-    `[[HYDRA_CLM version=${LIVE_CONTEXT_VERSION} session=${input.sessionKey}]]`,
-  );
-  let remaining = Math.max(0, input.budgetTokens - header);
-
-  const memories = selectWithinBudget(input.memories, Math.floor(remaining * 0.6), renderMemory);
-  remaining -= memories.reduce((sum, item) => sum + estimateTokens(renderMemory(item)), 0);
-
-  const files = selectWithinBudget(input.files, Math.floor(remaining * 0.5), renderFile);
-  remaining -= files.reduce((sum, item) => sum + estimateTokens(renderFile(item)), 0);
-
-  const turns = selectWithinBudget(input.turns, remaining, renderTurn);
-
-  const document = buildLiveContextDocument({ ...input, memories, files, turns });
-  return `${MEMORY_PROTOCOL}\n\n${document}`;
-}
-
 export const MANAGED_BEGIN = "<!-- HYDRA_CLM_MANAGED_BEGIN -->";
 export const MANAGED_END = "<!-- HYDRA_CLM_MANAGED_END -->";
 export const CONTEXT_FILE_NAME = "live-context.md";
@@ -150,12 +98,22 @@ export function isCodegraphId(value: string): boolean {
   return CODEGRAPH_ID.test(value.trim());
 }
 
+const REFERENCE_TOKEN = /^[A-Za-z0-9_][A-Za-z0-9_./\\:#-]*$/;
+
+export function isReferenceCandidate(token: string): boolean {
+  const trimmed = token.trim();
+  if (trimmed.length === 0 || trimmed.length > 200) return false;
+  if (!REFERENCE_TOKEN.test(trimmed)) return false;
+  if (trimmed.startsWith("/")) return false;
+  return true;
+}
+
 export function extractReferences(text: string): string[] {
   const found: string[] = [];
   const seen = new Set<string>();
   const push = (value: string) => {
     const trimmed = value.trim();
-    if (trimmed.length === 0 || seen.has(trimmed)) return;
+    if (!isReferenceCandidate(trimmed) || seen.has(trimmed)) return;
     seen.add(trimmed);
     found.push(trimmed);
   };
@@ -179,6 +137,7 @@ export function renderManagedZone(
   sessionKey: string,
   revision: number,
   budgetTokens = 1500,
+  unresolved: string[] = [],
 ): string {
   const lines = [
     MANAGED_BEGIN,
@@ -206,6 +165,14 @@ export function renderManagedZone(
       );
     }
   }
+  if (unresolved.length > 0) {
+    lines.push("", `### Not in the CodeGraph index (${unresolved.length})`);
+    for (const reference of unresolved.slice(0, 10)) lines.push(`- ${reference}`);
+    if (unresolved.length > 10) {
+      lines.push(`- ... and ${unresolved.length - 10} more`);
+    }
+    lines.push("", "_Run `codegraph sync` to index them, or quote a different path._");
+  }
   lines.push(MANAGED_END);
   return lines.join("\n");
 }
@@ -216,8 +183,42 @@ export function composeContextFile(
   sessionKey: string,
   revision: number,
   budgetTokens = 1500,
+  unresolved: string[] = [],
 ): string {
   const head =
     model.trim().length > 0 ? model.trim() : "# Live context\n\n_(empty: write your notes here)_";
-  return `${head}\n\n${renderManagedZone(references, sessionKey, revision, budgetTokens)}\n`;
+  return `${head}\n\n${renderManagedZone(references, sessionKey, revision, budgetTokens, unresolved)}\n`;
+}
+
+export function summarizeTurn(message: unknown, toolResults: unknown[] = []): string {
+  const parts: string[] = [];
+  const content = (message as { content?: unknown[] } | null)?.content;
+  if (Array.isArray(content)) {
+    const texts: string[] = [];
+    const thinking: string[] = [];
+    const tools: string[] = [];
+    for (const block of content) {
+      const b = block as { type?: string; text?: string; thinking?: string; name?: string };
+      if (b.type === "text" && b.text) texts.push(b.text);
+      else if (b.type === "thinking" && b.thinking) thinking.push(b.thinking);
+      else if (b.type === "toolCall" && b.name) tools.push(b.name);
+    }
+    if (texts.length > 0) parts.push(texts.join(" "));
+    else if (thinking.length > 0) parts.push(thinking.join(" "));
+    if (tools.length > 0) parts.push(`called: ${[...new Set(tools)].join(", ")}`);
+  }
+  for (const result of toolResults) {
+    const r = result as { toolName?: string; isError?: boolean; content?: unknown[] };
+    if (!r?.isError) continue;
+    const text = Array.isArray(r.content)
+      ? r.content
+          .map((c) => (c as { text?: string }).text ?? "")
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim()
+      : "";
+    parts.push(`ERROR from ${r.toolName ?? "tool"}: ${text.slice(0, 200)}`);
+  }
+  const summary = parts.join(" | ").replace(/\s+/g, " ").trim();
+  return summary.length > 0 ? summary.slice(0, 600) : "(no text)";
 }

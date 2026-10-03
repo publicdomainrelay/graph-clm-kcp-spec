@@ -36,6 +36,13 @@ describe(`portable Cypher subset on ${process.env.HYDRA_BACKEND ?? "default back
             `[${backend}] ${probe.id} returned ${rows.length} rows, expected at least ${probe.minRows}`,
           );
         }
+        if (probe.expectRows !== undefined) {
+          assert.equal(
+            rows.length,
+            probe.expectRows,
+            `[${backend}] ${probe.id} returned ${rows.length} rows, expected exactly ${probe.expectRows}`,
+          );
+        }
       } catch (error) {
         assert.fail(`[${backend}] ${probe.id} rejected: ${reason(error)}`);
       }

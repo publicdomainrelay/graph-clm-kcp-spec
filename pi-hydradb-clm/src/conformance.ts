@@ -10,6 +10,8 @@ export interface ProbeCase extends ProbeStatement {
   portable: boolean;
   /** Minimum rows the probe must return, so a silently-empty result cannot pass. */
   minRows?: number;
+  /** Exact row count, when the engine's semantics make it deterministic. */
+  expectRows?: number;
   note?: string;
 }
 
@@ -36,10 +38,34 @@ const SEED: ProbeStatement[] = [SEED_ROWS, SEED_OTHER];
 
 const KNOWN_EDGE: ProbeStatement = {
   cypher: `UNWIND $rows AS row MATCH (a:${LABEL} {id: row.src}), (b:${LABEL} {id: row.dst}) CREATE (a)-[:CLM_KNOWS]->(b)`,
-  params: { rows: [{ src: 900001, dst: 900002 }] },
+  params: {
+    rows: [
+      { src: 900001, dst: 900002 },
+      { src: 900002, dst: 900003 },
+    ],
+  },
 };
 
 const SEED_WITH_EDGE: ProbeStatement[] = [...SEED, KNOWN_EDGE];
+
+const ANTI_LABEL = "ClmAntiJoin";
+
+const ANTI_JOIN_SEED: ProbeStatement[] = [
+  {
+    cypher: `UNWIND $rows AS row MERGE (n {id: row.id}) SET n:${ANTI_LABEL}, n.name = row.name`,
+    params: {
+      rows: [
+        { id: 960001, name: "source" },
+        { id: 960002, name: "sink" },
+        { id: 960003, name: "isolated" },
+      ],
+    },
+  },
+  {
+    cypher: `UNWIND $rows AS row MATCH (a:${ANTI_LABEL} {id: row.src}), (b:${ANTI_LABEL} {id: row.dst}) CREATE (a)-[:CLM_KNOWS]->(b)`,
+    params: { rows: [{ src: 960001, dst: 960002 }] },
+  },
+];
 
 export const PROBE_CASES: ProbeCase[] = [
   {
@@ -49,6 +75,7 @@ export const PROBE_CASES: ProbeCase[] = [
     setup: SEED,
     portable: false,
     note: "HydraDB: node-only MATCH requires an id, label, or property predicate",
+    minRows: 1,
   },
   {
     id: "read.bare_node",
@@ -57,6 +84,7 @@ export const PROBE_CASES: ProbeCase[] = [
     setup: SEED,
     portable: false,
     note: "HydraDB: RETURN takes only <binding>.<property> or count(*)",
+    minRows: 1,
   },
   {
     id: "read.labels_function",
@@ -64,6 +92,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) RETURN labels(n) AS labels`,
     setup: SEED,
     portable: false,
+    minRows: 1,
   },
   {
     id: "read.count_by_label",
@@ -103,6 +132,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) WHERE n.name IS NOT NULL RETURN n.name AS name`,
     setup: SEED,
     portable: false,
+    minRows: 1,
   },
   {
     id: "read.order_by_alias",
@@ -118,6 +148,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) RETURN n.name AS name ORDER BY name DESC`,
     setup: SEED,
     portable: false,
+    minRows: 1,
   },
   {
     id: "read.limit",
@@ -133,6 +164,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) RETURN n.name AS name SKIP 1 LIMIT 1`,
     setup: SEED,
     portable: false,
+    minRows: 1,
   },
   {
     id: "read.distinct",
@@ -140,6 +172,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) RETURN DISTINCT n.kind AS kind`,
     setup: SEED,
     portable: false,
+    minRows: 1,
   },
   {
     id: "read.parameter_predicate",
@@ -149,6 +182,7 @@ export const PROBE_CASES: ProbeCase[] = [
     setup: SEED,
     portable: false,
     note: "HydraDB: property values take literals, not parameters",
+    minRows: 1,
   },
   {
     id: "read.regex_match",
@@ -156,6 +190,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) WHERE n.name =~ '(?i)ALPHA' RETURN n.name AS name`,
     setup: SEED,
     portable: false,
+    minRows: 1,
   },
   {
     id: "read.starts_with",
@@ -163,6 +198,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) WHERE n.name STARTS WITH 'al' RETURN n.name AS name`,
     setup: SEED,
     portable: false,
+    minRows: 1,
   },
   {
     id: "read.union",
@@ -170,6 +206,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL} {id: 900001}) RETURN n.name AS name UNION MATCH (n:${OTHER_LABEL} {id: 910001}) RETURN n.name AS name`,
     setup: SEED,
     portable: false,
+    minRows: 1,
   },
   {
     id: "read.optional_match",
@@ -177,6 +214,18 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL} {id: 900003}) OPTIONAL MATCH (n)-[:CLM_KNOWS]->(m) RETURN m.name AS name`,
     setup: SEED_WITH_EDGE,
     portable: false,
+    minRows: 1,
+  },
+  {
+    id: "read.optional_match_was_null",
+    group: "read",
+    cypher: `MATCH (n:${ANTI_LABEL}) OPTIONAL MATCH (n)-[:CLM_KNOWS]->(m:${ANTI_LABEL}) WHERE m.id IS NULL RETURN n.id AS id`,
+    setup: ANTI_JOIN_SEED,
+    portable: false,
+    expectRows: 2,
+    note:
+      "anti-join: 960002 and 960003 have no outgoing edge, so two rows. " +
+      "ArcadeDB ignores the WHERE on an OPTIONAL MATCH and returns every left row",
   },
   {
     id: "read.with_clause",
@@ -184,6 +233,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) WITH n WHERE n.weight > 1 RETURN n.name AS name`,
     setup: SEED,
     portable: false,
+    minRows: 1,
   },
   {
     id: "agg.sum",
@@ -191,6 +241,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) RETURN sum(n.weight) AS total`,
     setup: SEED,
     portable: false,
+    minRows: 1,
   },
   {
     id: "agg.collect",
@@ -198,6 +249,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) RETURN collect(n.name) AS names`,
     setup: SEED,
     portable: false,
+    minRows: 1,
   },
   {
     id: "agg.group_by",
@@ -205,6 +257,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) RETURN n.kind AS kind, count(*) AS total`,
     setup: SEED,
     portable: false,
+    minRows: 1,
   },
   {
     id: "traversal.one_hop_typed",
@@ -228,6 +281,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (a:${LABEL} {id: 900001})-[:CLM_KNOWS]->(b:${LABEL})-[:CLM_KNOWS]->(c:${LABEL}) RETURN c.name AS name`,
     setup: SEED_WITH_EDGE,
     portable: false,
+    minRows: 1,
   },
   {
     id: "traversal.variable_length",
@@ -235,6 +289,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (a:${LABEL} {id: 900001})-[:CLM_KNOWS*1..2]->(c:${LABEL}) RETURN c.name AS name`,
     setup: SEED_WITH_EDGE,
     portable: false,
+    minRows: 1,
   },
   {
     id: "traversal.relationship_type_function",
@@ -242,6 +297,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (a:${LABEL} {id: 900001})-[r]->(b:${LABEL}) RETURN type(r) AS rel`,
     setup: SEED_WITH_EDGE,
     portable: false,
+    minRows: 1,
   },
   {
     id: "write.create_literal",

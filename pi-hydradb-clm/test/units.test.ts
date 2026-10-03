@@ -10,14 +10,13 @@ import { canonicalPath, cypherLiteral, cypherString, nodeKey, stableNodeId } fro
 import {
   MANAGED_BEGIN,
   MANAGED_END,
-  buildLiveContextDocument,
   composeContextFile,
   estimateTokens,
   extractReferences,
   isCodegraphId,
-  projectLiveContext,
+  isReferenceCandidate,
   splitContextFile,
-  type MemoryRecord,
+  summarizeTurn,
 } from "../src/context-doc.ts";
 import { touchedPaths } from "../src/extension.ts";
 
@@ -76,45 +75,6 @@ test("absolute and relative references to one file collapse to one node", () => 
   );
 });
 
-test("live context document has the CLM header and sections", () => {
-  const document = buildLiveContextDocument({
-    sessionKey: "s1",
-    sessionId: 11,
-    revision: 2,
-    budgetTokens: 500,
-    memories: [{ id: 1, kind: "decision", title: "use bolt", body: "port 7687", created: 0 }],
-    files: [{ id: 2, path: "src/a.ts", touches: 3 }],
-    turns: [{ id: 3, turnIndex: 0, summary: "started" }],
-  });
-  assert.match(document, /^\[\[HYDRA_CLM version=1 session=s1 id=11 revision=2 budget=500\]\]/);
-  assert.match(document, /## Remembered/);
-  assert.match(document, /\[decision\] use bolt \(id=1\)/);
-  assert.match(document, /## Touched files/);
-  assert.match(document, /## Recent turns/);
-});
-
-test("projection drops entries past the token budget", () => {
-  const memories: MemoryRecord[] = Array.from({ length: 50 }, (_, index) => ({
-    id: index,
-    kind: "finding",
-    title: `finding ${index}`,
-    body: "x".repeat(400),
-    created: index,
-  }));
-  const projected = projectLiveContext({
-    sessionKey: "s1",
-    sessionId: 1,
-    revision: 1,
-    budgetTokens: 300,
-    memories,
-    files: [],
-    turns: [],
-  });
-  assert.ok(estimateTokens(projected) < 2000);
-  assert.ok(projected.includes("hydradb_remember"));
-  assert.match(projected, /## Remembered/);
-});
-
 test("codegraph ids are recognized by kind prefix", () => {
   assert.ok(isCodegraphId("file:pi-hydradb-clm/src/graph.ts"));
   assert.ok(isCodegraphId("function:6afd43a75d2f6c730cb2b29c8f5dcb5b"));
@@ -160,4 +120,60 @@ test("context file splits and recomposes around the managed zone", () => {
   const regenerated = composeContextFile(split.model, [], "s1", 4);
   assert.ok(!regenerated.includes("file:pi-hydradb-clm/src/graph.ts"));
   assert.ok(regenerated.includes("_None yet."));
+});
+
+test("estimateTokens is characters over four", () => {
+  assert.equal(estimateTokens("abcd"), 1);
+  assert.equal(estimateTokens("a".repeat(401)), 101);
+});
+
+test("summarizeTurn keeps prose and tool names instead of a JSON slice", () => {
+  const message = {
+    role: "assistant",
+    content: [
+      { type: "thinking", thinking: "I should read the file first." },
+      { type: "text", text: "Reading the Bolt client." },
+      { type: "toolCall", name: "read", arguments: { path: "src/graph.ts" } },
+      { type: "toolCall", name: "grep", arguments: { pattern: "connect" } },
+    ],
+  };
+  const summary = summarizeTurn(message);
+  assert.ok(summary.includes("Reading the Bolt client."));
+  assert.ok(summary.includes("called: read, grep"));
+  assert.ok(!summary.includes("{"), "summary must not be raw JSON");
+  assert.ok(summary.length < 600);
+});
+
+test("summarizeTurn surfaces tool errors", () => {
+  const summary = summarizeTurn(
+    { role: "assistant", content: [{ type: "text", text: "retrying" }] },
+    [
+      { toolName: "hydradb_remember", isError: true, content: [{ type: "text", text: "connection reset" }] },
+      { toolName: "read", isError: false, content: [{ type: "text", text: "ok" }] },
+    ],
+  );
+  assert.ok(summary.includes("ERROR from hydradb_remember: connection reset"));
+  assert.ok(!summary.includes("ERROR from read"));
+});
+
+test("summarizeTurn falls back when there is nothing to say", () => {
+  assert.equal(summarizeTurn({ role: "assistant", content: [] }), "(no text)");
+  assert.equal(summarizeTurn(null), "(no text)");
+});
+
+test("only plausible code references survive extraction", () => {
+  assert.ok(isReferenceCandidate("pi-hydradb-clm/src/graph.ts"));
+  assert.ok(isReferenceCandidate("GraphClient::connect"));
+  assert.ok(isReferenceCandidate("file:cmd/hydradb-bins/main.go"));
+  assert.ok(isReferenceCandidate("oras.land/oras-go/v2"));
+  assert.ok(!isReferenceCandidate("codegraph sync"), "prose phrase");
+  assert.ok(!isReferenceCandidate("--test-force-exit"), "command-line flag");
+  assert.ok(!isReferenceCandidate("/home/user/src/repo"), "absolute path, not repo-relative");
+  assert.ok(!isReferenceCandidate(".codegraph/codegraph.db"), "leading dot");
+  assert.ok(!isReferenceCandidate(""), "empty");
+});
+
+test("extraction drops prose and flags from backticks", () => {
+  const text = "Run `codegraph sync`, pass `--test-force-exit`, and read `pi-hydradb-clm/src/graph.ts`.";
+  assert.deepEqual(extractReferences(text), ["pi-hydradb-clm/src/graph.ts"]);
 });

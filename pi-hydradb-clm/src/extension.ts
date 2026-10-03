@@ -6,7 +6,10 @@ import { CodegraphResolver, type CodegraphNode } from "./codegraph.ts";
 import { contextFilePath, ensureContextFile, readContextFile, writeContextFile } from "./context-file.ts";
 import {
   MEMORY_PROTOCOL,
+  estimateTokens,
   extractReferences,
+  splitContextFile,
+  summarizeTurn,
   type CodeRefRecord,
 } from "./context-doc.ts";
 import { GraphClient } from "./graph.ts";
@@ -88,6 +91,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
   let revision = 0;
   const filesTouched = new Map<string, number>();
   const codeRefs = new Map<string, CodeRefRecord>();
+  const unresolvedRefs = new Set<string>();
   const resolver = CodegraphResolver.open(process.cwd());
   const filePath = options.contextPath ?? contextFilePath(options.sessionKey);
 
@@ -175,9 +179,15 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
 
   async function syncReferencesFromFile(client: GraphClient, model: string): Promise<void> {
     const references = extractReferences(model);
-    if (references.length === 0) return;
-    const nodes = await resolver.resolveAll(references);
-    for (const node of nodes) await storeCodeRef(client, node);
+    for (const reference of references) {
+      const nodes = await resolver.resolve(reference);
+      if (nodes.length === 0) {
+        if (!resolver.ambiguous.has(reference)) unresolvedRefs.add(reference);
+        continue;
+      }
+      unresolvedRefs.delete(reference);
+      for (const node of nodes) await storeCodeRef(client, node);
+    }
   }
 
   const contextBudget = Math.max(400, Math.floor(options.budgetTokens * 0.6));
@@ -190,6 +200,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
       options.sessionKey,
       revision,
       contextBudget,
+      [...unresolvedRefs].sort(),
     );
   }
 
@@ -207,6 +218,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
     if (!client) return;
     await ensureSession(client);
     for (const path of touchedPaths(event.toolName, event.input)) {
+      if (canonicalPath(path, process.cwd()) === canonicalPath(filePath, process.cwd())) continue;
       const touches = (filesTouched.get(path) ?? 0) + 1;
       filesTouched.set(path, touches);
       const id = fileNodeId(path);
@@ -227,7 +239,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
     if (!client) return;
     await ensureSession(client);
     revision += 1;
-    const summary = JSON.stringify(event.message).slice(0, 400);
+    const summary = summarizeTurn(event.message, event.toolResults);
     const id = turnNodeId(event.turnIndex);
     await client.upsertVertices(
       LABELS.turn,
@@ -251,10 +263,13 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
     ensureContextFile(filePath, options.sessionKey, revision, contextBudget);
     refreshContextFile(readContextFile(filePath).model);
     const document = readFileSync(filePath, "utf8");
+    const split = splitContextFile(document);
     const header = [
       MEMORY_PROTOCOL,
       "",
       `Context file: ${filePath}`,
+      `Size: ${estimateTokens(document)} tokens ` +
+        `(your notes ${estimateTokens(split.model)}, index ${estimateTokens(split.managed)})`,
       "",
       document,
     ].join("\n");
@@ -321,9 +336,11 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
         for (const reference of params.code_refs ?? []) {
           const nodes = await resolver.resolve(reference);
           if (nodes.length === 0) {
+            if (!resolver.ambiguous.has(reference)) unresolvedRefs.add(reference);
             unresolved.push(reference);
             continue;
           }
+          unresolvedRefs.delete(reference);
           for (const node of nodes) {
             await storeCodeRef(client, node);
             if (await linkOnce(client, id, node.id)) linked += 1;

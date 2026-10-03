@@ -31,10 +31,11 @@ export function writeContextFile(
   sessionKey: string,
   revision: number,
   budgetTokens?: number,
+  unresolved: string[] = [],
 ): void {
   writeFileSync(
     path,
-    composeContextFile(model, references, sessionKey, revision, budgetTokens),
+    composeContextFile(model, references, sessionKey, revision, budgetTokens, unresolved),
     { mode: 0o600 },
   );
 }

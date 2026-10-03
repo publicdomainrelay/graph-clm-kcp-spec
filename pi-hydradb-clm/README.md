@@ -67,16 +67,30 @@ content key, so re-remembering the same fact merges instead of duplicating.
 ## Layout
 
 ```
-index.ts            pi extension entrypoint (pi.extensions)
-src/ids.ts          pure: stable node ids, Cypher literal escaping
-src/cypher.ts       pure: query builders for the HydraDB-compatible subset
-src/context-doc.ts  pure: CLM live-context document + token-budget projection
-src/schema.ts       pure: labels, edge types, property lists
-src/graph.ts        I/O: Bolt client over neo4j-driver
-src/extension.ts    pi wiring: tools, hooks, env options
-test/units.test.ts  pure-module tests, no I/O
-test/integration.test.ts  live HydraDB + live DeepSeek
+index.ts               pi extension entrypoint (pi.extensions)
+src/ids.ts             pure: stable node ids, Cypher literals, path canonicalization
+src/cypher.ts          pure: query builders for the portable Cypher subset
+src/context-doc.ts     pure: memory protocol, managed zone, reference extraction,
+                       token budget, turn summaries
+src/conformance.ts     pure: the Cypher probe case list
+src/schema.ts          pure: labels, edge types, property lists
+src/backend.ts         pure: backend names, defaults, parsing
+src/graph.ts           I/O: Bolt client over neo4j-driver
+src/codegraph.ts       I/O: CodeGraph id resolution (node:sqlite, CLI fallback)
+src/context-file.ts    I/O: the live context file
+src/target.ts          I/O: env + token-file target resolution
+src/extension.ts       pi wiring: tools, hooks, env options
+scripts/cypher-probe.ts  run the conformance probe against a backend
+scripts/cypher-diff.ts   diff two probe reports into markdown
+scripts/graph-dump.ts    dump the context graph for inspection
+test/units.test.ts        pure-module tests, no I/O
+test/conformance.test.ts  the portable subset, on the configured backend
+test/integration.test.ts  live graph + live DeepSeek
+test/harness.ts           spawns a backend, builds a pi session
 ```
+
+The evaluation procedure for the survey runs is a pi skill:
+[`skills/codebase-survey-eval/SKILL.md`](skills/codebase-survey-eval/SKILL.md).
 
 ## Running
 

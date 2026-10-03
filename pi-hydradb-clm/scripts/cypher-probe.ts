@@ -64,6 +64,16 @@ async function main(): Promise<void> {
         });
         continue;
       }
+      if (probe.expectRows !== undefined && rows.length !== probe.expectRows) {
+        outcomes.push({
+          id: probe.id,
+          group: probe.group,
+          portable: probe.portable,
+          status: "fail",
+          error: `returned ${rows.length} rows, expected exactly ${probe.expectRows}`,
+        });
+        continue;
+      }
       outcomes.push({
         id: probe.id,
         group: probe.group,
