@@ -291,3 +291,43 @@ func TestEnsureCheckoutRejectsAnEmptyURL(t *testing.T) {
 		t.Error("an empty url was accepted")
 	}
 }
+
+func TestEnsureCheckoutFollowsANamedRef(t *testing.T) {
+	ctx := context.Background()
+	source := tempRepo(t)
+	git(t, source, "checkout", "-q", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(source, "feature.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, source, "add", "-A")
+	git(t, source, "-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-qm", "feature")
+	git(t, source, "checkout", "-q", "main")
+
+	dir := filepath.Join(t.TempDir(), "cache", "ref")
+	if _, err := EnsureCheckout(ctx, source, "feature", dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "feature.txt")); err != nil {
+		t.Fatalf("the branch was not checked out: %v", err)
+	}
+
+	// The remote branch moves. A cached checkout has to follow it, or a source
+	// with a ref would be indexed once and never again.
+	git(t, source, "checkout", "-q", "feature")
+	if err := os.WriteFile(filepath.Join(source, "feature.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, source, "add", "-A")
+	git(t, source, "-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-qm", "feature again")
+	git(t, source, "checkout", "-q", "main")
+	if _, err := EnsureCheckout(ctx, source, "feature", dir); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(filepath.Join(dir, "feature.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(contents)) != "two" {
+		t.Errorf("the checkout = %q, want the branch as it is now", contents)
+	}
+}

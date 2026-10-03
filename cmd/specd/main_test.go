@@ -133,3 +133,29 @@ func TestRunWithHelpSucceeds(t *testing.T) {
 		t.Errorf("exit = %d, want %d", code, exitOK)
 	}
 }
+
+func TestCacheDirFlagBeatsTheEnvironment(t *testing.T) {
+	t.Setenv("SPECD_CACHE_DIR", "/from/env")
+	config, _, err := parseConfig(nil, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.cacheDir != "/from/env" {
+		t.Errorf("cache dir = %q, want the environment to fill the default", config.cacheDir)
+	}
+	config, _, err = parseConfig([]string{"--cache-dir", "/from/flag"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.cacheDir != "/from/flag" {
+		t.Errorf("cache dir = %q, want the flag to beat the environment", config.cacheDir)
+	}
+	// A flag left at the default value is still not a flag the caller set.
+	config, _, err = parseConfig([]string{"--cache-dir", specd.DefaultCacheDir}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.cacheDir != specd.DefaultCacheDir {
+		t.Errorf("cache dir = %q", config.cacheDir)
+	}
+}

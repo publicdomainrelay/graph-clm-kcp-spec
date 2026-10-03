@@ -183,11 +183,12 @@ func ValidateSpecChange(change *SpecChange) Result {
 			b.add("spec.fromSpecHash", "%q is not a sha256 hex digest", change.Spec.FromSpecHash)
 		}
 	case specapi.DirectionCodeToSpec:
-		if change.Spec.ToCommit == "" {
-			b.add("spec.toCommit", "is required for %s", specapi.DirectionCodeToSpec)
-		}
-		if change.Spec.FromCommit == "" {
-			b.add("spec.fromCommit", "is required for %s", specapi.DirectionCodeToSpec)
+		// A working tree that is not a git repository has no commits, and the
+		// populate of such a tree still raises one code -> spec change per
+		// context, so a wholly empty pair is allowed. Half a pair is not: it
+		// names a drift nobody can place.
+		if (change.Spec.ToCommit == "") != (change.Spec.FromCommit == "") {
+			b.add("spec.fromCommit", "and spec.toCommit are both empty or both set")
 		}
 	default:
 		b.add("spec.direction", "%q is not %s or %s", change.Spec.Direction, specapi.DirectionSpecToCode, specapi.DirectionCodeToSpec)

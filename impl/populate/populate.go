@@ -122,10 +122,12 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	// The index step wrote headCommit, indexedCommit and the Indexed condition,
 	// so the status this run writes has to start from the object as it is now.
 	// A conditions list copied from before the index would drop that write.
-	if current, err := Read(ctx, options.Cluster, namespace, repository.Name); err == nil {
-		repository = current
-		options.Repository = current
+	current, err := Read(ctx, options.Cluster, namespace, repository.Name)
+	if err != nil {
+		return result, err
 	}
+	repository = current
+	options.Repository = current
 
 	contexts, err := listContexts(ctx, options.Cluster, namespace, repository.Name)
 	if err != nil {
@@ -241,8 +243,11 @@ func raise(
 	for index := range changes {
 		change := &changes[index]
 		taken = append(taken, change.Name)
+		// A change created but not yet phased (the create and the status patch
+		// are two calls) counts as unfinished too: treating it as absent would
+		// raise a second attempt of the same episode beside it.
 		if change.Spec.Direction == specapi.DirectionCodeToSpec &&
-			(change.Status.Phase == specapi.PhasePending || change.Status.Phase == specapi.PhaseRunning) {
+			change.Status.Phase != specapi.PhaseFailed && change.Status.Phase != specapi.PhaseSucceeded {
 			unfinished[change.Spec.SystemContext] = true
 		}
 	}
@@ -309,6 +314,13 @@ func raise(
 func writeStatus(ctx context.Context, options Options, namespace string, result Result) error {
 	repository := options.Repository
 	conditions := condition.Copy(repository.Status.Conditions)
+	// A failure leaves Indexed False so a reader can see it; when this run has
+	// the index current, the condition has to come back to True, or a transient
+	// failure of another step would leave a permanent False behind.
+	if options.Index || (options.Commit != "" && options.Commit == repository.Status.IndexedCommit) {
+		condition.SetTrue(&conditions, repository.GetGeneration(), specapi.ConditionIndexed,
+			specapi.ReasonIndexed, "the codegraph index is current")
+	}
 	switch result.Phase {
 	case specapi.PhasePopulated:
 		condition.SetTrue(&conditions, repository.GetGeneration(), specapi.ConditionPopulated,

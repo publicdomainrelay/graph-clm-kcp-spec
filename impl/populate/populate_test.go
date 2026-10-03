@@ -163,7 +163,7 @@ func run(t *testing.T, cluster *fakeCluster, repository *spec.Repository, maxCon
 	t.Helper()
 	result, err := Run(context.Background(), Options{
 		Cluster: cluster, Namespace: specapi.DefaultNamespace, Repository: repository,
-		Path: "/src/unseen", MaxConcurrent: maxConcurrent, MaxAttempts: maxAttempts,
+		Path: "/src/unseen", Commit: "c1", MaxConcurrent: maxConcurrent, MaxAttempts: maxAttempts,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -227,12 +227,7 @@ func TestRunAdmitsAtMostMaxConcurrentSummaries(t *testing.T) {
 
 func TestRunIsIdempotent(t *testing.T) {
 	cluster, repository := setup(t, true, 4)
-	if _, err := Run(context.Background(), Options{
-		Cluster: cluster, Namespace: specapi.DefaultNamespace, Repository: repository,
-		Path: "/src/unseen", MaxConcurrent: 4, MaxAttempts: 3,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	run(t, cluster, repository, 4, 3)
 	writes := cluster.writes
 	result, _ := run(t, cluster, repository, 4, 3)
 	if result.Raised != 0 {
@@ -290,6 +285,37 @@ func TestRunFailedWhenTheAttemptCapIsReached(t *testing.T) {
 	}
 	if got := conditionOf(after.Status.Conditions, specapi.ConditionPopulated); got == nil || got.Reason != specapi.ReasonPopulateFailed {
 		t.Errorf("Populated condition = %+v", got)
+	}
+}
+
+// A change whose create succeeded and whose status patch did not land has no
+// phase. It is still the attempt for its episode, so a second one must not be
+// raised beside it.
+func TestRunTreatsAPhaseLessChangeAsUnfinished(t *testing.T) {
+	cluster, repository := setup(t, true, 4)
+	store(t, cluster, &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-c1-c1", Namespace: specapi.DefaultNamespace},
+		Spec:       spec.SpecChangeSpec{SystemContext: "calc", Direction: specapi.DirectionCodeToSpec, FromCommit: "c1", ToCommit: "c1"},
+	})
+	result, _ := run(t, cluster, repository, 4, 3)
+	if result.Raised != 1 {
+		t.Errorf("raised = %d, want only the context with no change at all", result.Raised)
+	}
+}
+
+// A failure leaves the Indexed condition False; a run that has the index
+// current has to put it back, or the False would outlive the failure.
+func TestRunRestoresTheIndexedCondition(t *testing.T) {
+	cluster, repository := setup(t, true, 4)
+	repository.Status.Conditions = []metav1.Condition{{
+		Type: specapi.ConditionIndexed, Status: metav1.ConditionFalse,
+		Reason: specapi.ReasonIndexFailed, Message: "a transient failure",
+	}}
+	store(t, cluster, repository)
+	_, after := run(t, cluster, repository, 4, 3)
+	condition := conditionOf(after.Status.Conditions, specapi.ConditionIndexed)
+	if condition == nil || condition.Status != metav1.ConditionTrue {
+		t.Errorf("Indexed = %+v, want True once the index is current", condition)
 	}
 }
 

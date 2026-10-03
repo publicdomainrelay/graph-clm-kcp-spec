@@ -415,3 +415,25 @@ func TestNextChangeName(t *testing.T) {
 		t.Errorf("another episode = %q, want %q", got, other)
 	}
 }
+
+// A working tree that is not a git repository has no commits, and the populate
+// of such a tree still raises one code -> spec change per context. Half a pair
+// stays invalid: it names a drift nobody can place.
+func TestValidateSpecChangeAllowsATreeWithoutCommits(t *testing.T) {
+	without := &SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-none-none"},
+		Spec:       SpecChangeSpec{SystemContext: "calc", Direction: specapi.DirectionCodeToSpec},
+	}
+	without.SetDefaults()
+	if result := ValidateSpecChange(without); !result.OK() {
+		t.Errorf("an empty commit pair must be allowed: %v", result.Err())
+	}
+	half := &SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-none-c1"},
+		Spec:       SpecChangeSpec{SystemContext: "calc", Direction: specapi.DirectionCodeToSpec, ToCommit: "c1"},
+	}
+	half.SetDefaults()
+	if ValidateSpecChange(half).OK() {
+		t.Error("half a commit pair was accepted")
+	}
+}

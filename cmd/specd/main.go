@@ -115,7 +115,25 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	if err := bolt.Resolve(fs); err != nil {
 		return config, bolt, err
 	}
+	// The flag beats the environment, so the environment only fills a cache
+	// directory the caller did not name, even when the flag was left at the
+	// default value.
+	if !flagSet(fs, "cache-dir") {
+		if fromEnv := os.Getenv("SPECD_CACHE_DIR"); fromEnv != "" {
+			config.cacheDir = fromEnv
+		}
+	}
 	return config, bolt, nil
+}
+
+func flagSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(parsed *flag.Flag) {
+		if parsed.Name == name {
+			set = true
+		}
+	})
+	return set
 }
 
 func (c config) options(writer graph.Writer, log *slog.Logger) (specd.Options, error) {
@@ -138,7 +156,7 @@ func (c config) options(writer graph.Writer, log *slog.Logger) (specd.Options, e
 		Resync:                 c.resync,
 		Workers:                c.workers,
 		Tool:                   c.tool,
-		CacheDir:               cacheDir(c.cacheDir),
+		CacheDir:               c.cacheDir,
 		MaxConcurrentSummaries: c.maxConcurrentSummaries,
 		Graph:                  writer,
 		Agent:                  c.agent,
@@ -210,19 +228,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	logger.Info("stopped")
 	fmt.Fprintln(stdout, "specd stopped")
 	return exitOK
-}
-
-// cacheDir reads the cache directory from the flag, or from SPECD_CACHE_DIR
-// when the flag was left at its default, so a deployment can point every
-// Repository checkout at one volume.
-func cacheDir(fromFlag string) string {
-	if fromFlag != specd.DefaultCacheDir {
-		return fromFlag
-	}
-	if fromEnv := os.Getenv("SPECD_CACHE_DIR"); fromEnv != "" {
-		return fromEnv
-	}
-	return fromFlag
 }
 
 func defaultKubeconfig() string {

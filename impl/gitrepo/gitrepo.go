@@ -73,12 +73,16 @@ func EnsureCheckout(ctx context.Context, url, ref, dir string) (string, error) {
 
 func checkout(ctx context.Context, dir, ref string) error {
 	if ref != "" {
-		if _, err := run(ctx, dir, "checkout", "--force", "--quiet", ref); err != nil {
-			if _, remoteErr := run(ctx, dir, "checkout", "--force", "--quiet", "origin/"+ref); remoteErr != nil {
-				return err
-			}
+		// A branch that exists on the remote is reset to it. A plain checkout
+		// leaves the cached local branch where it was, so a source with a ref
+		// would be indexed once and never follow its remote again.
+		if _, err := run(ctx, dir, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+ref); err == nil {
+			_, err := run(ctx, dir, "checkout", "--force", "--quiet", "-B", ref, "origin/"+ref)
+			return err
 		}
-		return nil
+		// A tag or a commit is checked out detached; it cannot move.
+		_, err := run(ctx, dir, "checkout", "--force", "--quiet", ref)
+		return err
 	}
 	// An empty ref is the remote's default branch. A clone has an upstream, so
 	// the fast-forward is what moves a cache forward; a detached checkout has
