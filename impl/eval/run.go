@@ -1,0 +1,1037 @@
+package evalrun
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/yaml"
+
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/eval"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
+	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/agentfactory"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphcli"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/scriptedagent"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/summarize"
+	"github.com/publicdomainrelay/kcp-libs/common/logging"
+)
+
+const (
+	// DefaultTimeout bounds one scenario from the spec edit to a settled change.
+	DefaultTimeout = 5 * time.Minute
+
+	// DefaultScenarioAttempts is how many attempts one scenario's change gets
+	// before the harness gives up on it. It is small on purpose: an eval run
+	// measures the loop, it does not retry it forever.
+	DefaultScenarioAttempts = 2
+
+	defaultResync = 500 * time.Millisecond
+
+	defaultRetryBackoff = time.Second
+
+	pollInterval = 250 * time.Millisecond
+
+	// scenarioManager is the field manager the scenario edit is applied under.
+	// It is distinct from the tool's own writer, so the controller reads the
+	// edit as the human change it stands in for.
+	scenarioManager = "specctl-eval-scenario"
+
+	gitAuthorName = "eval"
+
+	gitAuthorMail = "eval@localhost"
+)
+
+// Report is what one run measured. It is the pure report of abc/eval, named
+// here so a caller of this package needs one import and not two.
+type Report = eval.Report
+
+// Options is one eval run.
+type Options struct {
+	FixturesDir string
+
+	ScenarioGlob string
+
+	// Agent is the agent kind of both halves, in the agentfactory spelling:
+	// claude, claude-mod or pi. Empty means the scripted baseline, where each
+	// fixture answers from its own files.
+	Agent string
+
+	// SummarizeAgent, when set, is the kind of the code -> spec half only, so a
+	// run can measure one host in that direction and another in the other.
+	SummarizeAgent string
+
+	AgentCommand string
+
+	AgentArgs []string
+
+	AgentTimeout time.Duration
+
+	ClmMod string
+
+	PiExtension string
+
+	Kubeconfig string
+
+	Context string
+
+	Workspace string
+
+	Namespace string
+
+	QPS float32
+
+	Burst int
+
+	Client *kcpclient.Client
+
+	WorkDir string
+
+	Keep bool
+
+	// CodeOnly stops after the code -> spec half and the round trip: a run that
+	// only asks whether one host can read a codebase.
+	CodeOnly bool
+
+	Timeout time.Duration
+
+	MaxAttempts int
+
+	Tool string
+
+	Writer graph.Writer
+
+	Log *slog.Logger
+}
+
+// baseline is where every scenario of one context starts: the commit the tree
+// is reset to, the spec the code -> spec half left, and the fingerprint of the
+// facts that spec was written about.
+type baseline struct {
+	commit string
+
+	spec spec.SystemContextSpec
+
+	fingerprint string
+}
+
+type harness struct {
+	options Options
+
+	client *kcpclient.Client
+
+	namespace string
+
+	dir string
+
+	repository *spec.Repository
+}
+
+// Run drives every fixture through both halves of the loop and returns the
+// numbers. The caller owns the workspace and the client; Run owns the working
+// trees and, unless Keep is set, the objects it created.
+func Run(ctx context.Context, options Options) (eval.Report, error) {
+	report := eval.Report{
+		Agent:     orScripted(options.Agent),
+		Fixtures:  options.FixturesDir,
+		StartedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	if options.Client == nil {
+		return report, errors.New("eval: a cluster client is required")
+	}
+	if options.Namespace == "" {
+		options.Namespace = specapi.DefaultNamespace
+	}
+	if options.Timeout <= 0 {
+		options.Timeout = DefaultTimeout
+	}
+	if options.MaxAttempts <= 0 {
+		options.MaxAttempts = DefaultScenarioAttempts
+	}
+	if options.Log == nil {
+		options.Log = logging.Discard()
+	}
+	if err := options.Client.Ping(ctx); err != nil {
+		return report, err
+	}
+	fixtures, err := Load(options.FixturesDir)
+	if err != nil {
+		return report, err
+	}
+	fixtures, err = SelectScenarios(fixtures, options.ScenarioGlob)
+	if err != nil {
+		return report, err
+	}
+	workDir := options.WorkDir
+	if workDir == "" {
+		workDir, err = os.MkdirTemp("", "specd-eval.")
+		if err != nil {
+			return report, fmt.Errorf("eval: make a working directory: %w", err)
+		}
+		if !options.Keep {
+			defer os.RemoveAll(workDir)
+		}
+	}
+	report.Notes = append(report.Notes, "working trees under "+workDir)
+
+	for _, fixture := range fixtures {
+		run, err := runFixture(ctx, options, fixture, workDir)
+		if err != nil {
+			report.Populate = append(report.Populate, run.populate)
+			report.CodeToSpec = append(report.CodeToSpec, run.codeToSpec...)
+			report.Scenarios = append(report.Scenarios, run.scenarios...)
+			report.Notes = append(report.Notes, fmt.Sprintf("fixture %s stopped early: %v", fixture.Name, err))
+			report.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+			return report, nil
+		}
+		report.Populate = append(report.Populate, run.populate)
+		report.CodeToSpec = append(report.CodeToSpec, run.codeToSpec...)
+		report.Scenarios = append(report.Scenarios, run.scenarios...)
+	}
+	report.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+	return report, nil
+}
+
+type fixtureRun struct {
+	populate eval.PopulateReport
+
+	codeToSpec []eval.CodeToSpecReport
+
+	scenarios []eval.ScenarioReport
+}
+
+func runFixture(ctx context.Context, options Options, fixture Fixture, workDir string) (fixtureRun, error) {
+	run := fixtureRun{populate: eval.PopulateReport{Fixture: fixture.Name, Phase: "NotStarted"}}
+	client := options.Client
+	dir := filepath.Join(workDir, fixture.Name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return run, err
+	}
+	if err := CopyTree(fixture.Dir, dir); err != nil {
+		return run, err
+	}
+	baseCommit, err := initRepository(ctx, dir)
+	if err != nil {
+		return run, err
+	}
+	if err := forget(ctx, client, options.Namespace, fixture.Name); err != nil {
+		return run, err
+	}
+	scenarioFiles, err := writeScenarioFiles(workDir, fixture)
+	if err != nil {
+		return run, err
+	}
+
+	summarizeKind, realizeKind := fixture.kinds(options, scenarioFiles)
+
+	repository := &spec.Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: fixture.Name, Namespace: options.Namespace},
+		Spec: spec.RepositorySpec{
+			Path:   dir,
+			Branch: "main",
+			Verify: fixture.Config.Verify,
+			Agent:  &spec.AgentSpec{Kind: realizeKind},
+			Populate: &spec.RepositoryPopulate{
+				Partition: spec.PartitionDirectory,
+				Summarize: true,
+				Agent:     &spec.AgentSpec{Kind: summarizeKind},
+			},
+		},
+	}
+	if err := applyTyped(ctx, client, repository); err != nil {
+		return run, err
+	}
+
+	h := &harness{options: options, client: client, namespace: options.Namespace, dir: dir, repository: repository}
+	stop, err := h.start()
+	if err != nil {
+		return run, err
+	}
+	defer func() {
+		stop()
+		if options.Keep {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		_ = forget(cleanupCtx, client, options.Namespace, fixture.Name)
+	}()
+
+	// The code -> spec half: one Repository manifest, every context summarized,
+	// measured from the objects the controller wrote.
+	populateStart := time.Now()
+	waitErr := h.waitPopulated(ctx)
+	run.populate.WallTimeSeconds = time.Since(populateStart).Seconds()
+	status, statusErr := h.repositoryStatus(ctx)
+	if statusErr != nil {
+		run.populate.Error = statusErr.Error()
+		return run, nil
+	}
+	run.populate.Phase = status.Phase
+	if status.Contexts != nil {
+		run.populate.Contexts = status.Contexts.Total
+		run.populate.Summarized = status.Contexts.Summarized
+		run.populate.Failed = status.Contexts.Failed
+	}
+	if waitErr != nil {
+		run.populate.Error = waitErr.Error()
+		return run, nil
+	}
+
+	contexts, err := h.contexts(ctx)
+	if err != nil {
+		return run, err
+	}
+	summarizer, err := h.agent(summarizeKind)
+	if err != nil {
+		return run, err
+	}
+	run.codeToSpec = h.measureCodeToSpec(ctx, contexts, summarizer)
+	if options.CodeOnly {
+		return run, nil
+	}
+
+	// The spec -> code half: every scenario starts from the same baseline, so
+	// the fixtures are compared with each other and not with their own history.
+	baselines, err := h.baselines(ctx, baseCommit)
+	if err != nil {
+		return run, err
+	}
+	for _, scenario := range fixture.Scenarios {
+		run.scenarios = append(run.scenarios, h.runScenario(ctx, fixture, scenario, scenarioFiles[scenario.Name], baselines[scenario.Context]))
+	}
+	return run, nil
+}
+
+// kinds is the agent of each half. An empty Agent is the scripted baseline: the
+// code -> spec half answers from the fixture's own drafts and the spec -> code
+// half from the generated scenario file.
+func (f Fixture) kinds(options Options, scenarioFiles map[string]string) (string, string) {
+	if options.Agent != "" {
+		summarize := options.Agent
+		if options.SummarizeAgent != "" {
+			summarize = options.SummarizeAgent
+		}
+		return summarize, options.Agent
+	}
+	summarize := "scripted:" + filepath.Join(f.Dir, fixtureDrafts)
+	realize := summarize
+	for _, scenario := range f.Scenarios {
+		realize = "scripted:" + scenarioFiles[scenario.Name]
+		break
+	}
+	if options.SummarizeAgent != "" {
+		summarize = options.SummarizeAgent
+	}
+	return summarize, realize
+}
+
+func (h *harness) start() (func(), error) {
+	controller, err := specd.New(specd.Options{
+		Kubeconfig:   h.options.Kubeconfig,
+		Context:      h.options.Context,
+		Workspace:    h.options.Workspace,
+		Namespace:    h.namespace,
+		QPS:          h.options.QPS,
+		Burst:        h.options.Burst,
+		Watch:        specd.WatchInformer,
+		Resync:       defaultResync,
+		MaxAttempts:  h.options.MaxAttempts,
+		RetryBackoff: defaultRetryBackoff,
+		Tool:         h.options.Tool,
+		Graph:        h.options.Writer,
+		AgentCommand: h.options.AgentCommand,
+		AgentArgs:    h.options.AgentArgs,
+		AgentTimeout: h.options.AgentTimeout,
+		ClmMod:       h.options.ClmMod,
+		PiExtension:  h.options.PiExtension,
+		AgentEnv:     h.agentEnv(),
+		Log:          h.options.Log,
+	})
+	if err != nil {
+		return nil, err
+	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan error, 1)
+	go func() { stopped <- controller.Run(runCtx) }()
+	return func() {
+		cancel()
+		select {
+		case <-stopped:
+		case <-time.After(60 * time.Second):
+		}
+	}, nil
+}
+
+// agentEnv is what a host inside the model reads to reach the same state the
+// controller watches.
+func (h *harness) agentEnv() map[string]string {
+	return map[string]string{
+		"SPECD_KUBECONFIG": h.options.Kubeconfig,
+		"KUBECONFIG":       h.options.Kubeconfig,
+		"SPECD_WORKSPACE":  h.options.Workspace,
+		"SPECD_NAMESPACE":  h.namespace,
+	}
+}
+
+func (h *harness) agent(kind string) (agent.Agent, error) {
+	factory, err := agentfactory.New(agentfactory.Options{
+		Kind:        kind,
+		Command:     h.options.AgentCommand,
+		Args:        h.options.AgentArgs,
+		Timeout:     h.options.AgentTimeout,
+		ClmMod:      h.options.ClmMod,
+		PiExtension: h.options.PiExtension,
+		Env:         h.agentEnv(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return factory.Agent(h.repository, h.dir)
+}
+
+// measureCodeToSpec scores the spec the code -> spec half wrote against the
+// facts the index observed, and then summarizes every context twice more to see
+// whether a second pass says the same thing.
+func (h *harness) measureCodeToSpec(ctx context.Context, contexts []spec.SystemContext, summarizer agent.Agent) []eval.CodeToSpecReport {
+	out := make([]eval.CodeToSpecReport, 0, len(contexts))
+	for _, entry := range contexts {
+		report := eval.CodeToSpecReport{
+			Fixture:          h.repository.Name,
+			Context:          entry.Name,
+			Score:            eval.InterfaceScore(entry.Spec.Interfaces, entry.Status.Observed),
+			Requirements:     len(entry.Spec.Requirements),
+			AnchoringRate:    eval.AnchoringRate(entry.Spec.Requirements, entry.Status.Observed),
+			ValidatorPass:    eval.ValidatorPass(entry.Name, entry.Spec),
+			RoundTripJaccard: 1,
+		}
+		first, err := h.summarizeOnce(ctx, entry.Name, summarizer)
+		if err != nil {
+			h.options.Log.Warn("eval: the first round trip summarize failed", "context", entry.Name, "err", err)
+			out = append(out, report)
+			continue
+		}
+		second, err := h.summarizeOnce(ctx, entry.Name, summarizer)
+		if err != nil {
+			h.options.Log.Warn("eval: the second round trip summarize failed", "context", entry.Name, "err", err)
+			out = append(out, report)
+			continue
+		}
+		report.DroppedRefs = len(first.Dropped)
+		report.Score = eval.InterfaceScore(first.Draft.Interfaces, entry.Status.Observed)
+		report.AnchoringRate = eval.AnchoringRate(first.Draft.Requirements, entry.Status.Observed)
+		report.RoundTripJaccard = eval.Jaccard(interfaceNames(first.Draft.Interfaces), interfaceNames(second.Draft.Interfaces))
+		report.RequirementCountDelta = len(second.Draft.Requirements) - len(first.Draft.Requirements)
+		out = append(out, report)
+	}
+	return out
+}
+
+func (h *harness) summarizeOnce(ctx context.Context, name string, summarizer agent.Agent) (summarize.Result, error) {
+	copied := *h.repository
+	copied.Status.ResolvedPath = h.dir
+	return summarize.Run(ctx, summarize.Options{
+		Cluster:    h.client,
+		Namespace:  h.namespace,
+		Context:    name,
+		Repository: &copied,
+		Agent:      summarizer,
+		Writer:     h.options.Writer,
+		Codegraph:  codegraphcli.Runner{Tool: h.options.Tool, Dir: h.dir},
+	})
+}
+
+// baselines reads where every context of the fixture starts: the spec the code
+// -> spec half left, and the fingerprint of the facts it was written about.
+func (h *harness) baselines(ctx context.Context, commit string) (map[string]baseline, error) {
+	contexts, err := h.contexts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]baseline{}
+	for _, entry := range contexts {
+		out[entry.Name] = baseline{commit: commit, spec: entry.Spec, fingerprint: entry.Status.Observed.Fingerprint}
+	}
+	return out, nil
+}
+
+// runScenario resets the tree and the spec to the baseline, applies the
+// scenario's edit, waits for the controller to work it off, and grades the
+// result with the hidden acceptance tests.
+func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Scenario, scenarioFile string, start baseline) eval.ScenarioReport {
+	started := time.Now()
+	report := eval.ScenarioReport{
+		Fixture:     fixture.Name,
+		Scenario:    scenario.Name,
+		Context:     scenario.Context,
+		Difficulty:  scenario.Difficulty,
+		Description: scenario.Description,
+		Agent:       orScripted(h.options.Agent),
+	}
+	deadline, cancel := context.WithTimeout(ctx, h.options.Timeout)
+	defer cancel()
+
+	if err := h.reset(deadline, scenario.Context, scenarioFile, start); err != nil {
+		report.Error = err.Error()
+		report.WallTimeSeconds = time.Since(started).Seconds()
+		return report
+	}
+	before, err := h.context(deadline, scenario.Context)
+	if err != nil {
+		report.Error = err.Error()
+		report.WallTimeSeconds = time.Since(started).Seconds()
+		return report
+	}
+	if err := h.applyPatch(deadline, scenario.Context, scenario.SpecPatch); err != nil {
+		report.Error = err.Error()
+		report.WallTimeSeconds = time.Since(started).Seconds()
+		return report
+	}
+
+	change, err := h.waitChange(deadline, scenario.Context)
+	report.WallTimeSeconds = time.Since(started).Seconds()
+	if err != nil {
+		report.Error = err.Error()
+		return report
+	}
+	report.Attempts = h.changeCount(ctx, scenario.Context)
+	report.ProgressRecords = len(change.Status.Progress)
+	report.Delta = eval.ScoreDelta(change.Spec.Delta, scenario.ExpectedDeltaEntries)
+	report.FilesOutside = eval.FilesOutsideContext(change.Status.FilesTouched, before.Status.Observed)
+	report.VerifyPass = change.Status.Phase == specapi.PhaseSucceeded && change.Status.VerifyExitCode == 0
+	if change.Status.Phase != specapi.PhaseSucceeded {
+		report.Error = strings.TrimSpace(change.Status.Phase + ": " + change.Status.Message + " " + change.Status.AgentLog)
+		return report
+	}
+
+	pass, err := h.runAcceptance(deadline, fixture.Config.Accept, scenario.Acceptance)
+	report.AcceptancePass = pass
+	if err != nil {
+		report.Error = err.Error()
+		return report
+	}
+	missing := h.missingInterfaces(deadline, scenario.Context, scenario.ExpectedInterfaces)
+	if len(missing) > 0 {
+		report.Error = "the observed surface is missing: " + strings.Join(missing, ", ")
+		return report
+	}
+	report.Pass = true
+	return report
+}
+
+// reset puts the working tree and the context back where the scenario found
+// them: the tree at the baseline commit, the spec at the baseline every
+// scenario starts from, and no change left over from the scenario before.
+func (h *harness) reset(ctx context.Context, name, scenarioFile string, start baseline) error {
+	if err := h.git(ctx, "reset", "--hard", start.commit); err != nil {
+		return err
+	}
+	if err := h.git(ctx, "clean", "-fdq"); err != nil {
+		return err
+	}
+	if err := h.deleteBranches(ctx); err != nil {
+		return err
+	}
+	if err := h.setAgentKind(ctx, scenarioFile); err != nil {
+		return err
+	}
+	// The tree is put back before the spec is, and the spec before the changes
+	// are swept: reverting a landed commit looks like drift to the controller,
+	// so a code -> spec change is raised for the revert, and sweeping in the
+	// other order would leave it running into the next scenario's admission
+	// window.
+	if start.fingerprint != "" {
+		if err := h.waitFingerprint(ctx, name, start.fingerprint); err != nil {
+			return err
+		}
+	}
+	current, err := h.context(ctx, name)
+	if err != nil {
+		return err
+	}
+	if err := h.restoreSpec(ctx, current, start.spec); err != nil {
+		return err
+	}
+	if err := h.deleteChanges(ctx, name); err != nil {
+		return err
+	}
+	return h.waitNoChanges(ctx, name)
+}
+
+// waitNoChanges waits until the context holds no change at all, so the change
+// the scenario raises is the only one admission can see.
+func (h *harness) waitNoChanges(ctx context.Context, name string) error {
+	return h.wait(ctx, "the changes of "+name+" to be swept", func() bool {
+		changes, err := h.changes(ctx, name)
+		return err == nil && len(changes) == 0
+	})
+}
+
+// restoreSpec writes the baseline spec back with the tool's own origin
+// annotation, so the write is never read as a human edit, and moves the
+// realized baseline with it. It is the same shape the summarize path writes,
+// and it is a whole object write because the spec it replaces may hold entries
+// the scenario before it added.
+func (h *harness) restoreSpec(ctx context.Context, current *spec.SystemContext, wanted spec.SystemContextSpec) error {
+	restored := *current
+	restored.Spec = wanted
+	if restored.Annotations == nil {
+		restored.Annotations = map[string]string{}
+	}
+	restored.SetDefaults()
+	hash, err := spec.HashSystemContextSpec(restored.Spec)
+	if err != nil {
+		return err
+	}
+	restored.Annotations[specapi.OriginAnnotation] = specapi.OriginIngest
+	restored.Annotations[specapi.OriginHashAnnotation] = hash
+	if err := applyTyped(ctx, h.client, &restored); err != nil {
+		return err
+	}
+	observed := current.Status.Observed
+	_, conditions := specsync.Conditions(specsync.Input{
+		Name:              current.Name,
+		Generation:        restored.GetGeneration(),
+		Spec:              restored.Spec,
+		Observed:          observed,
+		SyncedFingerprint: observed.Fingerprint,
+	}, current.Status.Conditions)
+	return h.patchStatus(ctx, current.Name, map[string]any{
+		"observedGeneration": restored.GetGeneration(),
+		"realizedSpecHash":   hash,
+		"realizedSpec":       &restored.Spec,
+		"syncedCommit":       current.Status.ObservedCommit,
+		"syncedFingerprint":  observed.Fingerprint,
+		"syncedObserved":     observed,
+		"conditions":         conditions,
+	})
+}
+
+func (h *harness) applyPatch(ctx context.Context, name string, patch map[string]any) error {
+	object := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": specapi.APIVersion,
+		"kind":       specapi.SystemContextKind,
+		"metadata": map[string]any{
+			"name":      name,
+			"namespace": h.namespace,
+		},
+		"spec": patch,
+	}}
+	_, err := h.client.ServerSideApply(ctx, object, scenarioManager)
+	return err
+}
+
+func (h *harness) setAgentKind(ctx context.Context, scenarioFile string) error {
+	repository, err := h.typedRepository(ctx)
+	if err != nil {
+		return err
+	}
+	kind := "scripted:" + scenarioFile
+	if h.options.Agent != "" {
+		kind = h.options.Agent
+	}
+	repository.Spec.Agent = &spec.AgentSpec{Kind: kind}
+	return applyTyped(ctx, h.client, repository)
+}
+
+func (h *harness) typedRepository(ctx context.Context) (*spec.Repository, error) {
+	object, err := h.client.Get(ctx, specapi.RepositoryGVR, h.namespace, h.repository.Name)
+	if err != nil {
+		return nil, err
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		return nil, err
+	}
+	repository, ok := typed.(*spec.Repository)
+	if !ok {
+		return nil, fmt.Errorf("eval: %s is not a Repository", h.repository.Name)
+	}
+	return repository, nil
+}
+
+func (h *harness) repositoryStatus(ctx context.Context) (spec.RepositoryStatus, error) {
+	repository, err := h.typedRepository(ctx)
+	if err != nil {
+		return spec.RepositoryStatus{}, err
+	}
+	return repository.Status, nil
+}
+
+func (h *harness) context(ctx context.Context, name string) (*spec.SystemContext, error) {
+	object, err := h.client.Get(ctx, specapi.SystemContextGVR, h.namespace, name)
+	if err != nil {
+		return nil, err
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		return nil, err
+	}
+	systemContext, ok := typed.(*spec.SystemContext)
+	if !ok {
+		return nil, fmt.Errorf("eval: %s is not a SystemContext", name)
+	}
+	return systemContext, nil
+}
+
+func (h *harness) contexts(ctx context.Context) ([]spec.SystemContext, error) {
+	listed, err := h.client.List(ctx, specapi.SystemContextGVR, h.namespace)
+	if err != nil {
+		return nil, err
+	}
+	out := []spec.SystemContext{}
+	for index := range listed.Items {
+		typed, err := kcpclient.Typed(&listed.Items[index])
+		if err != nil {
+			return nil, err
+		}
+		systemContext, ok := typed.(*spec.SystemContext)
+		if !ok || systemContext.Spec.Repository != h.repository.Name {
+			continue
+		}
+		out = append(out, *systemContext)
+	}
+	sort.Slice(out, func(left, right int) bool { return out[left].Name < out[right].Name })
+	return out, nil
+}
+
+func (h *harness) changes(ctx context.Context, name string) ([]spec.SpecChange, error) {
+	listed, err := h.client.List(ctx, specapi.SpecChangeGVR, h.namespace)
+	if err != nil {
+		return nil, err
+	}
+	out := []spec.SpecChange{}
+	for index := range listed.Items {
+		typed, err := kcpclient.Typed(&listed.Items[index])
+		if err != nil {
+			return nil, err
+		}
+		change, ok := typed.(*spec.SpecChange)
+		if !ok {
+			continue
+		}
+		if name == "" || change.Spec.SystemContext == name {
+			out = append(out, *change)
+		}
+	}
+	sort.Slice(out, func(left, right int) bool { return out[left].Name < out[right].Name })
+	return out, nil
+}
+
+func (h *harness) changeCount(ctx context.Context, name string) int {
+	changes, err := h.changes(ctx, name)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, change := range changes {
+		if change.Spec.Direction == specapi.DirectionSpecToCode {
+			count++
+		}
+	}
+	return count
+}
+
+func (h *harness) deleteChanges(ctx context.Context, name string) error {
+	changes, err := h.changes(ctx, name)
+	if err != nil {
+		return err
+	}
+	for _, change := range changes {
+		if err := h.client.Delete(ctx, specapi.SpecChangeGVR, h.namespace, change.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *harness) patchStatus(ctx context.Context, name string, status map[string]any) error {
+	_, err := h.client.PatchStatus(ctx, specapi.SystemContextGVR, h.namespace, name, status)
+	return err
+}
+
+func (h *harness) waitPopulated(ctx context.Context) error {
+	return h.wait(ctx, "the Repository to reach Populated", func() bool {
+		status, err := h.repositoryStatus(ctx)
+		if err != nil {
+			return false
+		}
+		return status.Phase == specapi.PhasePopulated || status.Phase == specapi.PhaseFailed
+	})
+}
+
+func (h *harness) waitChange(ctx context.Context, name string) (spec.SpecChange, error) {
+	var found spec.SpecChange
+	err := h.wait(ctx, "the SpecToCode change of "+name, func() bool {
+		changes, err := h.changes(ctx, name)
+		if err != nil {
+			return false
+		}
+		for _, change := range changes {
+			if change.Spec.Direction != specapi.DirectionSpecToCode {
+				continue
+			}
+			if change.Status.Phase == specapi.PhaseSucceeded || change.Status.Phase == specapi.PhaseFailed {
+				found = change
+				return true
+			}
+		}
+		return false
+	})
+	return found, err
+}
+
+func (h *harness) waitFingerprint(ctx context.Context, name, want string) error {
+	return h.wait(ctx, "the tree of "+name+" to be back at the baseline", func() bool {
+		current, err := h.context(ctx, name)
+		if err != nil {
+			return false
+		}
+		return current.Status.Observed.Fingerprint == want
+	})
+}
+
+// missingInterfaces waits for the re-ingest that follows a realize to observe
+// the interfaces the scenario declared, and reports the ones that never
+// appeared.
+func (h *harness) missingInterfaces(ctx context.Context, name string, expected []string) []string {
+	if len(expected) == 0 {
+		return nil
+	}
+	missing := []string{}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		missing = missing[:0]
+		current, err := h.context(ctx, name)
+		if err == nil {
+			observed := map[string]bool{}
+			for _, entry := range current.Status.Observed.Interfaces {
+				observed[entry.Name] = true
+			}
+			for _, want := range expected {
+				if !observed[want] {
+					missing = append(missing, want)
+				}
+			}
+			if len(missing) == 0 {
+				return nil
+			}
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return missing
+		}
+		time.Sleep(pollInterval)
+	}
+}
+
+// runAcceptance copies the scenario's hidden tests into the tree, runs the
+// fixture's acceptance command, and takes them out again. The tree at this
+// point is the one the agent committed, so the tests run against the code the
+// change produced and nothing else.
+func (h *harness) runAcceptance(ctx context.Context, command []string, files []AcceptanceFile) (bool, error) {
+	written := []string{}
+	defer func() {
+		for _, path := range written {
+			_ = os.Remove(path)
+		}
+	}()
+	for _, file := range files {
+		target := filepath.Join(h.dir, filepath.FromSlash(file.Path))
+		if !strings.HasPrefix(target, h.dir+string(os.PathSeparator)) {
+			return false, fmt.Errorf("eval: acceptance file %q is outside the tree", file.Path)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return false, err
+		}
+		if err := os.WriteFile(target, []byte(file.Contents), 0o644); err != nil {
+			return false, err
+		}
+		written = append(written, target)
+	}
+	if len(command) == 0 {
+		return true, nil
+	}
+	process := exec.CommandContext(ctx, command[0], command[1:]...)
+	process.Dir = h.dir
+	output, err := process.CombinedOutput()
+	if err == nil {
+		return true, nil
+	}
+	return false, fmt.Errorf("the acceptance tests failed: %v: %s", err, tail(string(output)))
+}
+
+func (h *harness) wait(ctx context.Context, what string, predicate func() bool) error {
+	for {
+		if predicate() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("eval: timed out waiting for %s", what)
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
+func (h *harness) git(ctx context.Context, args ...string) error {
+	return runGit(ctx, h.dir, args...)
+}
+
+func (h *harness) deleteBranches(ctx context.Context) error {
+	command := exec.CommandContext(ctx, "git", "-C", h.dir, "branch", "--list", "spec/*", "--format=%(refname:short)")
+	output, err := command.Output()
+	if err != nil {
+		return nil
+	}
+	for branch := range strings.FieldsSeq(string(output)) {
+		if err := h.git(ctx, "branch", "-D", branch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type defaults interface {
+	SetDefaults()
+}
+
+func applyTyped(ctx context.Context, client *kcpclient.Client, value any) error {
+	if setter, ok := value.(defaults); ok {
+		setter.SetDefaults()
+	}
+	object, err := kcpclient.Unstructured(value)
+	if err != nil {
+		return err
+	}
+	_, err = client.Apply(ctx, object)
+	return err
+}
+
+// forget removes the objects of one fixture's previous run, so a re-run does
+// not grade itself against its own history.
+func forget(ctx context.Context, client *kcpclient.Client, namespace, repository string) error {
+	names := []string{}
+	contexts, err := client.List(ctx, specapi.SystemContextGVR, namespace)
+	if err != nil {
+		return err
+	}
+	for index := range contexts.Items {
+		object := &contexts.Items[index]
+		owner, _, _ := unstructured.NestedString(object.Object, "spec", "repository")
+		if owner != repository {
+			continue
+		}
+		names = append(names, object.GetName())
+	}
+	changes, err := client.List(ctx, specapi.SpecChangeGVR, namespace)
+	if err != nil {
+		return err
+	}
+	for index := range changes.Items {
+		object := &changes.Items[index]
+		owner, _, _ := unstructured.NestedString(object.Object, "spec", "systemContext")
+		if slices.Contains(names, owner) {
+			_ = client.Delete(ctx, specapi.SpecChangeGVR, namespace, object.GetName())
+		}
+	}
+	for _, name := range names {
+		_ = client.Delete(ctx, specapi.SystemContextGVR, namespace, name)
+	}
+	return client.Delete(ctx, specapi.RepositoryGVR, namespace, repository)
+}
+
+func initRepository(ctx context.Context, dir string) (string, error) {
+	if err := runGit(ctx, dir, "init", "-q", "-b", "main"); err != nil {
+		return "", err
+	}
+	if err := runGit(ctx, dir, "add", "-A"); err != nil {
+		return "", err
+	}
+	if err := runGit(ctx, dir, "-c", "user.email="+gitAuthorMail, "-c", "user.name="+gitAuthorName, "commit", "-qm", "fixture"); err != nil {
+		return "", err
+	}
+	return headOf(ctx, dir), nil
+}
+
+func headOf(ctx context.Context, dir string) string {
+	command := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--verify", "HEAD")
+	output, err := command.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func runGit(ctx context.Context, dir string, args ...string) error {
+	command := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	if output, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("eval: git %s: %w: %s", strings.Join(args, " "), err, tail(string(output)))
+	}
+	return nil
+}
+
+// writeScenarioFiles writes one merged scripted scenario per scenario: the
+// fixture's code -> spec drafts plus that scenario's realize steps. The file
+// lives outside the working tree, so the agent under test cannot read the
+// intended edit out of the tree it is editing.
+func writeScenarioFiles(workDir string, fixture Fixture) (map[string]string, error) {
+	dir := filepath.Join(workDir, "eval-scenarios")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	files := map[string]string{}
+	for _, scenario := range fixture.Scenarios {
+		merged := scriptedagent.Scenario{
+			Contexts: fixture.Drafts.Contexts,
+			Realize:  map[string][]scriptedagent.Step{scenario.Context: scenario.Realize},
+		}
+		encoded, err := yaml.Marshal(merged)
+		if err != nil {
+			return nil, err
+		}
+		path := filepath.Join(dir, fixture.Name+"-"+scenario.Name+".yaml")
+		if err := os.WriteFile(path, encoded, 0o644); err != nil {
+			return nil, err
+		}
+		files[scenario.Name] = path
+	}
+	return files, nil
+}
+
+func interfaceNames(declared []spec.Interface) []string {
+	out := make([]string, 0, len(declared))
+	for _, entry := range declared {
+		out = append(out, entry.Name)
+	}
+	return out
+}
+
+func orScripted(kind string) string {
+	if kind == "" {
+		return "scripted"
+	}
+	return kind
+}
+
+func tail(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if len(trimmed) <= 2000 {
+		return trimmed
+	}
+	return "..." + trimmed[len(trimmed)-2000:]
+}

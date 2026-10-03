@@ -102,6 +102,16 @@ func defaultKubeconfig() string {
 	return ".kcp-specd/admin.kubeconfig"
 }
 
+func flagSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(parsed *flag.Flag) {
+		if parsed.Name == name {
+			set = true
+		}
+	})
+	return set
+}
+
 func (g *globals) client() (*kcpclient.Client, error) {
 	return kcpclient.New(kcpclient.Options{
 		Kubeconfig: g.kubeconfig,
@@ -138,6 +148,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runExport(rest, stdout, stderr)
 	case "sync":
 		return runSync(rest, stdout, stderr)
+	case "eval":
+		return runEval(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return exitOK
@@ -341,6 +353,12 @@ usage:
   specctl export --format arch [--repository <name>] [-o <file>]
   specctl sync --repo <path> [--direction pull|push|both] [--prefer kcp|git]
       mirrors <repo>/.specs/*.yaml and kcp; refuses when both moved
+  specctl eval [--fixtures fixtures] [--agent claude|claude-mod|pi]
+      [--scenarios <glob>] [--out docs/eval/run-<date>.md]
+      one Repository manifest per fixture, then one spec edit per scenario
+      graded by hidden acceptance tests; empty --agent is the scripted
+      baseline. Defaults to the workspace root:specs-eval, so it never
+      disturbs the objects another suite owns.
 
 kinds:
   repository, systemcontext, specchange
@@ -366,6 +384,17 @@ populate flags (specctl ingest):
   --codegraph, --no-graph, --bundle-budget, --bundle-nodes,
   --context-doc-budget, --agent-timeout and the bolt flags configure the
   controller now: pass them to specd.
+
+eval flags (specctl eval):
+  --fixtures <dir>        directory of fixtures (default fixtures)
+  --scenarios <glob>      keep the scenarios whose name matches; repeatable is not needed
+  --agent <kind>          empty (scripted baseline), claude, claude-mod or pi
+  --summarize-agent <k>   the code -> spec half only, when it differs
+  --out <file>            write the markdown report, and the JSON beside it
+  --code-only             run the code -> spec half and the round trip only
+  --keep                  keep the working trees and the objects
+  --work-dir <dir>        where the working trees go (default temporary)
+  --timeout <dur>         how long one scenario may take (default 5m)
 
 graph flags:
   --bolt-backend <name>      arcadedb (default) or hydradb; it fills the unset options
