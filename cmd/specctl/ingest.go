@@ -220,9 +220,14 @@ func printSummarize(out io.Writer, summaries []summarize.Result) {
 			specState,
 			summary.ContextDoc,
 		)
-		for _, dropped := range summary.Dropped {
-			fmt.Fprintf(table, "  dropped\t%s\t%s\t%s\n", dropped.Requirement, dropped.Ref, dropped.Reason)
-		}
 	}
 	table.Flush()
+
+	// A ref the facts do not answer to is reported, not hidden: it is the one
+	// thing a reader has to act on.
+	for _, summary := range summaries {
+		for _, dropped := range summary.Dropped {
+			fmt.Fprintf(out, "  %s: dropped %s (%s)\n", dropped.Requirement, dropped.Ref, dropped.Reason)
+		}
+	}
 }

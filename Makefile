@@ -14,7 +14,7 @@ export SPECD_BOLT_USER ?= neo4j
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 example-phase3 example-phase4 clean
+.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 clean
 
 ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
 ARCH_REPOSITORY ?= deno-kcp
@@ -98,6 +98,9 @@ example-phase3: $(SPECCTL) kcp-up
 
 example-phase4: $(SPECCTL) $(SPECD) kcp-up
 	./scripts/example-phase4.sh
+
+example-phase5: $(SPECCTL) $(SPECD) kcp-up
+	./scripts/example-phase5.sh
 
 clean:
 	rm -f $(SPECCTL) $(SPECD) $(BIN)/hydradb-bins

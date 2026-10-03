@@ -1,0 +1,53 @@
+# The deterministic agent of the phase 5 example. Each context of the calc
+# fixture has a draft, and the drafts go through the same strict parser a model
+# answer does, so a scenario cannot say what a model could not.
+contexts:
+  calc:
+    summary: |
+      The calc package does arithmetic on two integers. Add and Multiply are
+      the original pair; Subtract joined them when the drift that this
+      summarize worked off was raised.
+    intent: |
+      Arithmetic on two integers, as a library the command line front end
+      wraps. It exists to be a small, complete example of a managed context:
+      two exported functions with tests, and a CLI that depends on them.
+    requirements:
+      - id: r.add
+        level: MUST
+        text: Add returns the sum of two integers.
+        codeRefs: ["Add", "file:calc/calc.go"]
+      - id: r.multiply
+        level: MUST
+        text: Multiply returns the product of two integers.
+        codeRefs: ["Multiply", "file:calc/calc.go"]
+      - id: r.subtract
+        level: SHOULD
+        text: Subtract returns the difference of two integers.
+        codeRefs: ["Subtract", "file:calc/calc.go"]
+    interfaces:
+      - name: Add
+        kind: function
+        signature: "func Add(a, b int) int"
+        file: calc/calc.go
+      - name: Multiply
+        kind: function
+        signature: "func Multiply(a, b int) int"
+        file: calc/calc.go
+      - name: Subtract
+        kind: function
+        signature: "func Subtract(a, b int) int"
+        file: calc/calc.go
+  cmd-calc:
+    summary: |
+      The calc command line front end reads two operands and an operator and
+      prints the result.
+    intent: |
+      A command line front end over the calc package. It exists to prove the
+      ref syntax carries a real dependency: the CLI cannot be specified
+      without the library it wraps.
+    requirements:
+      - id: r.read-two-operands
+        level: MUST
+        text: The CLI reads two integers and an operator from the arguments.
+        codeRefs: ["file:cmd/calc/main.go"]
+    interfaces: []

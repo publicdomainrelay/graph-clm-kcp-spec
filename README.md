@@ -21,9 +21,10 @@ plan is the source of truth; this file says how to run what is built.
 
 ## Status
 
-Phases 1 to 4 of 8 are done: **kcp holds specs, code becomes facts in `status`
-and in the graph, a hand written `arch.yaml` round trips through kcp, and
-`specd` keeps the facts, the conditions and the work queue true to the code.**
+Phases 1 to 5 of 8 are done: **kcp holds specs, code becomes facts in `status`
+and in the graph, a hand written `arch.yaml` round trips through kcp, `specd`
+keeps the facts, the conditions and the work queue true to the code, and an
+agent turns the code back into a spec.**
 
 - API group `specs.publicdomainrelay.dev/v1alpha1`, kinds `Repository`,
   `SystemContext`, `SpecChange`, namespaced, with a status subresource and
@@ -43,11 +44,24 @@ and in the graph, a hand written `arch.yaml` round trips through kcp, and
   back; the ids, the refs and the preserved node bodies survive the trip.
 - `specctl graph neighbors|rebuild` read and write the spec graph in HydraDB or
   ArcadeDB over Bolt, using only the Cypher core subset both engines run.
+- `specd --agent claude|scripted:<file>` works a `CodeToSpec` change off: it
+  builds the context bundle, asks the agent, validates the answer, writes
+  `intent`, `requirements` and `interfaces` with the `origin: ingest`
+  annotation, moves the synced baseline so `Drifted` goes False, and writes the
+  context document. The write never looks like a human edit, so it raises no
+  `SpecToCode` change; the loop is proved in a unit test and in a live run.
+- `specctl ingest --summarize --agent <kind>` fills the spec of every context
+  whose intent is still empty, without a controller running.
+- Each context gets a CLM document at `<repo>/.specs/context/<name>.md`: the
+  model's prose above `<!-- SPECD_MANAGED_BEGIN -->`, and the code refs the
+  index resolved below it, regenerated on every summarize.
 - Live tests that round trip a `SystemContext` through a real kcp, that ingest a
   real git working tree twice and check the graph on both backends, that take
   the open architecture document through kcp and diff the two models, that drive
-  the controller through drift and both directions of `SpecChange`, and that
-  ingest a Deno/TypeScript module, not only Go.
+  the controller through drift and both directions of `SpecChange`, that ingest
+  a Deno/TypeScript module, not only Go, and that run `deepseek-claude` over
+  `fixtures/calc` and hold its answer to the same contract the scripted agent is
+  held to.
 
 ## Requirements
 
@@ -58,6 +72,14 @@ on `bolt://127.0.0.1:7688` (database `clm`). The graph commands need one;
 `apply`, `get`, `delete`, `import-arch` and `export` work without one (pass
 `--no-graph` to `ingest` and `import-arch`).
 
+`--agent claude` needs a model command on `PATH`: `deepseek-claude` by default,
+or whatever `--agent-command` and `--agent-args` name. Only
+`SPECD_REQUIRE_LIVE_MODEL=1` runs it; everything else, the whole `specd` loop
+included, runs `--agent scripted:<file>` and needs no model. The
+Deno/TypeScript fixture is read by `codegraph`, which parses TypeScript itself,
+so `deno` is not needed to index it; it is only needed if you want to run that
+fixture's own tests.
+
 ## Quick start
 
 ```bash
@@ -66,6 +88,7 @@ make example-phase1  # apply examples/calc/specs.yaml and read it back
 make example-phase2  # ingest fixtures/calc, fill status.observed, write the graph
 make example-phase3  # import testdata/open-architecture/arch.yaml and export it back
 make example-phase4  # run specd, commit a change, watch drift and the SpecChange
+make example-phase5  # run specd with an agent, watch the spec fill itself in
 make kcp-down        # stop the cluster this repo started
 ```
 
@@ -88,6 +111,14 @@ names, so it deletes the `calc` Repository and those two contexts first and
 last; run `make example-phase2` afterwards to put that example state back. The
 controller watches every `Repository` in the workspace, so two Repositories
 that name the same context would otherwise take turns writing its status.
+`make example-phase5` copies `fixtures/calc` to a temporary working tree, starts
+`specd` with the scripted agent, commits `Subtract`, and prints the spec the
+agent wrote: the intent, the requirements and the interfaces, the `origin:
+ingest` annotation, `Drifted=False` and zero `SpecToCode` changes. It prints the
+context document the summarize left in the tree, then runs
+`specctl ingest --summarize` over the same tree to show the CLI entry point,
+and stops `specd` with SIGTERM. It owns the same `calc` and `cmd-calc` names, so
+run `make example-phase2` afterwards to put that example state back.
 
 The same steps by hand:
 
@@ -266,6 +297,74 @@ ingest rewrite the graph as well. Every reconcile that writes nothing is a
 no-op: `status` is compared before it is patched, which is what keeps the
 controller from looping against itself.
 
+## The CLM loop: code becomes a spec
+
+Without an agent, a `CodeToSpec` change stays `Pending` and waits for a human;
+that is what `make example-phase4` shows. With `--agent`, the same change is
+worked off, and this is what the controller does with it:
+
+1. It takes the change from `Pending` to `Running`, after checking that no other
+   change of the same context is running.
+2. It builds the **context bundle**: the spec, `status.observed`, the model zone
+   of the context document, one hop of the spec graph in both directions, and
+   the `codegraph context` and `codegraph node` excerpts behind the context's
+   code refs. `Fit` keeps whole sections in priority order until the token
+   budget (`--bundle-budget`, 8000 by default) is spent and names what it
+   dropped, so the ask is never silently truncated.
+3. It asks the agent. `--agent claude` runs `deepseek-claude -p --output-format
+   text` with the prompt on **standard input** (the launcher word splits its
+   argv, so a prompt passed as an argument would arrive as a handful of words),
+   in the repository under management, with a timeout. `--agent
+   scripted:<file>` answers from a YAML scenario instead, and every test uses
+   it.
+4. It parses the answer strictly. A fenced or prose-wrapped JSON object is
+   tolerated; an unknown level, a duplicate id, an empty requirement or a
+   missing intent is not. A code ref the observed facts do not answer to is
+   dropped and reported rather than written; a bare name (`Add`) is read as the
+   interface of that name and stored as its canonical CodeGraph id, so a model
+   ref and a human ref that mean the same symbol land on the same vertex.
+5. It validates the draft with the same validator a human edit passes, writes
+   `intent`, `requirements` and `interfaces` with the `origin: ingest`
+   annotation, sets `status.realizedSpecHash` to the hash of what it wrote, and
+   moves `status.syncedFingerprint` and `syncedCommit` onto the observed facts
+   so `Drifted` goes False.
+6. It writes `<repo>/.specs/context/<name>.md`: the agent's prose in the model
+   zone, the resolved code refs between the `SPECD_MANAGED_BEGIN` and
+   `SPECD_MANAGED_END` markers, regenerated from the facts. The model owns
+   everything above the markers and nothing below them.
+
+The last two steps are what keep the two directions from fighting. A spec write
+is not a human edit, so it raises no `SpecToCode` change — and because a spec
+update and the status update that acknowledges it are two API calls, the object
+carries `specs.publicdomainrelay.dev/origin-hash`, the hash of the spec the tool
+wrote, so a reconcile that runs between the two reads sees the tool's own write
+and not an edit. A spec edit that makes the hash differ from both the realized
+hash and the origin hash is a human edit, and raises a `SpecToCode` change for
+phase 6 to realize.
+
+An episode that keeps failing is retried as a new `SpecChange`
+(`<base>-a2`, `<base>-a3`, ...) after a backoff that doubles from
+`--retry-backoff`, and stops for good after `--max-attempts` (3 by default), so
+a broken agent cannot fill the workspace with retries. The failed records stay
+as the audit trail.
+
+Two agent options:
+
+```bash
+bin/specd --agent claude --resync 5s                 # the real model
+bin/specd --agent scripted:examples/phase5/scenario.yaml --resync 5s
+```
+
+and the same summarize without a controller at all:
+
+```bash
+bin/specctl ingest --repo fixtures/calc --summarize --agent scripted:examples/phase5/scenario.yaml
+```
+
+`ingest --summarize` runs the summarize directly rather than creating
+`CodeToSpec` changes, so it works with no controller running; both entry points
+call the same `impl/summarize`, so the spec that lands is identical.
+
 ## The open architecture document
 
 `deno-kcp/.tools/open-architecture/arch.yaml` is a hand written spec of a whole
@@ -347,17 +446,24 @@ abc/spec             typed Repository/SystemContext/SpecChange, arch ids, pure v
 abc/archyaml         pure: read arch.yaml into a flat node model, write it back
 abc/sync             pure: partition a tree into contexts, observed facts, fingerprint, conditions
 abc/graph            pure: the graph model, row builders, Cypher builders, GraphWriter
+abc/agent            pure: the context bundle, the token budget, the strict draft parser, the context document
 impl/kcpclient       dynamic client for a kcp workspace: CRUD, status, manifests
 impl/codegraphsqlite run codegraph, read .codegraph/codegraph.db, resolve code refs
+impl/codegraphcli    run codegraph context|node, the only place the code itself is rendered
 impl/ingest          the code -> facts -> kcp status pipeline and the graph rebuild
+impl/bundle          build what one context looks like to a model; read and write its CLM document
+impl/summarize       one code -> spec unit of work: bundle, agent, validate, write, move the baseline
+impl/agentfactory    one --agent option string into an agent, shared by specd and specctl
+impl/claudecli       the model agent: a configurable command, the prompt on stdin, a timeout
+impl/scriptedagent   the deterministic agent: drafts and realize steps from a scenario file
 impl/archkcp         arch.yaml <-> SystemContext objects on a kcp workspace
 impl/gitrepo         reading the working tree (head commit, branch)
 impl/boltgraph       Bolt client for HydraDB and ArcadeDB
 abc/watch            the watch contract: resources in, Added/Updated/Deleted out
 impl/watchinformer   dynamic informer watches against the workspace
 impl/watchpoll       the list-and-diff fallback for a watch that cannot be held
-factory/specd        wires the watch, the workqueue and the three reconcilers
-cmd/specctl          apply -f, get, delete, ingest, import-arch, export, graph neighbors|rebuild
+factory/specd        wires the watch, the workqueue, the three reconcilers and the agent
+cmd/specctl          apply -f, get, delete, ingest [--summarize], import-arch, export, graph neighbors|rebuild
 cmd/specd            the controller binary; the only place that handles signals
 cmd/hydradb-bins     extracts the HydraDB binaries from their OCI image
 deploy/start-kcp.sh  start kcp + kine, then install the workspace and CRDs
@@ -365,11 +471,12 @@ deploy/stop-kcp.sh   stop only the kcp and kine this repository started
 deploy/install-specs.sh  create root:specs, apply the CRDs, write a kubeconfig
 deploy/crds/         the three CustomResourceDefinitions
 examples/calc/       a repository and two system contexts that reference each other
+examples/phase5/     the scripted agent the phase 5 example drives specd with
 fixtures/calc/       a tiny Go working tree: the calc package and its CLI
 fixtures/greet/      a tiny Deno/TypeScript module: a root module and format/
 testdata/open-architecture/  three revisions of arch.yaml and its schema
 test/fixture         copies a fixture into a temp dir and commits it as a real git repo
-test/e2e             the live round trip, ingest + graph, and arch.yaml runs
+test/e2e             the live round trip, ingest + graph, arch.yaml and the two CLM directions
 ```
 
 Dependencies point one way: `common` <- `abc` <- `impl` <- `cmd`. `abc` does no
@@ -382,6 +489,9 @@ tests with no cluster, no index and no database.
 make check      # gofmt and go vet
 make test       # unit tests; live tests skip (-short)
 make test-live  # SPECD_REQUIRE_LIVE=1; starts kcp, needs codegraph and a Bolt backend
+
+# the one test that spends a real model call
+SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase5LiveModel -count=1 -v
 ```
 
 The live tests start the cluster with `deploy/start-kcp.sh` if needed and leave
@@ -394,7 +504,10 @@ workspace and deletes them when it finishes, and the phase 3 test owns
 everything under the `deno-kcp` repository, so run `make example-phase2` or
 `make example-phase3` afterwards to put the example state back. The phase 4
 tests start a real `specd` in the test process and stop it before they clean up,
-so no controller is left watching the workspace afterwards. The ArcadeDB
+so no controller is left watching the workspace afterwards; the phase 5 ones run
+it with `--agent scripted:<file>`, so the loop is tested without a model, and
+only `SPECD_REQUIRE_LIVE_MODEL=1` runs `deepseek-claude` (that test needs no
+cluster, only `codegraph`). The ArcadeDB
 checks read
 `SPECD_TEST_ARCADE_URL`, `SPECD_TEST_ARCADE_USER`, `SPECD_TEST_ARCADE_PASSWORD`
 and `SPECD_TEST_ARCADE_DATABASE`; the HydraDB ones read
@@ -411,13 +524,14 @@ on `bolt://127.0.0.1:7688`; neither is started by this repository.
 
 ## What is next
 
-Phase 5 works the `CodeToSpec` changes off: `abc/agent` with a headless
-`deepseek-claude` implementation and a deterministic scripted one, the context
-bundle the model reads (`spec` plus `status.observed` plus the one hop graph
-neighborhood plus the CLM context document), and a reconciler that writes
-`intent`, `requirements` and `interfaces` back with the `origin: ingest`
-annotation so the write never looks like a human edit.
+Phase 6 does the other direction with the same pieces: a git worktree on branch
+`spec/<context>/<hash8>` per `SpecToCode` change, `impl/claudecli.Realize` (or
+the scripted agent's steps) editing it, `spec.verify` gating the commit, and the
+result fast-forwarded, re-ingested and marked `CodeSynced`. The pieces it needs
+are already here: `abc/agent.RealizeRequest` and `RealizeResult`, the scripted
+agent's write/patch/delete steps, and the `SpecToCode` change that the phase 5
+loop is careful never to raise for its own write.
 
-Phase 6 does the other direction: a git worktree per `SpecToCode` change, the
-agent edits it, `spec.verify` gates the commit, and the result is merged,
-re-ingested and marked `CodeSynced`.
+Phase 7 makes the same API available to a second workspace and mirrors
+`.specs/*.yaml` in the managed repository; phase 8 builds the fixture set and
+`specctl eval`.
