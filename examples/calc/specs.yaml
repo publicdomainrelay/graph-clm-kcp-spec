@@ -4,7 +4,7 @@ metadata:
   name: calc
   namespace: default
 spec:
-  path: examples/calc
+  path: fixtures/calc
   branch: main
   verify: ["go", "test", "./..."]
 ---
@@ -24,29 +24,29 @@ spec:
     - id: r.add-two-ints
       level: MUST
       text: Add returns the sum of two integers.
-      codeRefs: ["function:calc.Add", "file:calc/calc.go"]
-    - id: r.subtract-two-ints
-      level: SHOULD
-      text: Subtract returns the difference of two integers.
-      codeRefs: ["file:calc/calc.go"]
+      codeRefs: ["function:Add", "file:calc/calc.go"]
+    - id: r.multiply-two-ints
+      level: MUST
+      text: Multiply returns the product of two integers.
+      codeRefs: ["function:Multiply", "file:calc/calc.go"]
     - id: r.reject-overflow
       level: MAY
       text: Operations may report overflow instead of wrapping.
   interfaces:
     - name: Add
       kind: function
-      signature: "func Add(a, b int) int"
+      signature: "(a, b int) int"
       file: calc/calc.go
-    - name: Subtract
+    - name: Multiply
       kind: function
-      signature: "func Subtract(a, b int) int"
+      signature: "(a, b int) int"
       file: calc/calc.go
-  codeRefs: ["file:calc/calc.go", "file:calc/calc_test.go"]
+  codeRefs: ["function:Add", "function:Multiply", "file:calc/calc.go"]
 ---
 apiVersion: specs.publicdomainrelay.dev/v1alpha1
 kind: SystemContext
 metadata:
-  name: calc-cli
+  name: cmd-calc
   namespace: default
 spec:
   repository: calc
@@ -60,9 +60,5 @@ spec:
     - id: r.read-two-operands
       level: MUST
       text: The CLI reads two integers and an operator from the arguments.
-  interfaces:
-    - name: main
-      kind: function
-      signature: "func main()"
-      file: cmd/calc/main.go
+      codeRefs: ["file:cmd/calc/main.go"]
   codeRefs: ["file:cmd/calc/main.go"]

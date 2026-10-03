@@ -7,9 +7,13 @@ SPECS_KUBECONFIG ?= $(CURDIR)/.kcp-specd/admin.kubeconfig
 WORKSPACE_KUBECONFIG := $(CURDIR)/.kcp-specd/specs.kubeconfig
 export SPECD_KUBECONFIG ?= $(SPECS_KUBECONFIG)
 
+export SPECD_BOLT_URL ?= bolt://127.0.0.1:7687
+export SPECD_BOLT_PASSWORD_FILE ?= /tmp/hdb/token
+export SPECD_BOLT_USER ?= neo4j
+
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 clean
+.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 clean
 
 build: $(SPECCTL) $(BIN)/hydradb-bins
 
@@ -36,6 +40,9 @@ test:
 test-live:
 	SPECD_REQUIRE_LIVE=1 go test ./... -count=1
 
+# The live tests reuse the calc names in the workspace; run example-phase2 to
+# put the example state back.
+
 kcp-up:
 	./deploy/start-kcp.sh
 
@@ -52,6 +59,23 @@ example-phase1: $(SPECCTL) kcp-up
 	KUBECONFIG=$(WORKSPACE_KUBECONFIG) kubectl get systemcontexts
 	@echo "--- one SystemContext as YAML ---"
 	$(SPECCTL) get systemcontext calc -o yaml
+
+example-phase2: $(SPECCTL) kcp-up
+	$(SPECCTL) apply -f examples/calc/specs.yaml
+	@echo "--- index fixtures/calc with codegraph, fill status.observed, write the graph ---"
+	$(SPECCTL) ingest --repo fixtures/calc
+	@echo "--- observed code facts per context ---"
+	$(SPECCTL) get systemcontext
+	@echo "--- the calculated fingerprint and the conditions ---"
+	KUBECONFIG=$(WORKSPACE_KUBECONFIG) kubectl -n default get systemcontext calc \
+		-o jsonpath='{.status.observed.fingerprint}{"\n"}{range .status.conditions[*]}{.type}={.status} {end}{"\n"}'
+	@echo "--- one hop of the graph around calc in HydraDB ---"
+	$(SPECCTL) graph neighbors calc
+	@echo "--- the same neighborhood in ArcadeDB, rebuilt from kcp and codegraph ---"
+	$(SPECCTL) graph rebuild \
+		--bolt-url bolt://127.0.0.1:7688 --bolt-user root --bolt-password clm-arcadedb-root --bolt-database clm
+	$(SPECCTL) graph neighbors calc \
+		--bolt-url bolt://127.0.0.1:7688 --bolt-user root --bolt-password clm-arcadedb-root --bolt-database clm
 
 clean:
 	rm -f $(SPECCTL) $(BIN)/hydradb-bins
