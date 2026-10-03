@@ -30,6 +30,19 @@ func TestKindsNamesTheScriptedFilesForEachHalf(t *testing.T) {
 	if summarize != "pi" {
 		t.Errorf("summarize kind = %q, want the override", summarize)
 	}
+	// The bare word scripted means the fixture's own drafts: the caller cannot
+	// name a file that lives beside the fixture.
+	summarize, realize = fixture.kinds(Options{Agent: "claude-mod", SummarizeAgent: "scripted"}, files)
+	if summarize != "scripted:/fixtures/calc/"+fixtureDrafts {
+		t.Errorf("summarize kind = %q, want the fixture's drafts", summarize)
+	}
+	if realize != "claude-mod" {
+		t.Errorf("realize kind = %q, want the named agent", realize)
+	}
+	_, realize = fixture.kinds(Options{SummarizeAgent: "pi"}, files)
+	if realize != "scripted:/work/calc-one.yaml" {
+		t.Errorf("realize kind = %q, want the scenario file when no agent is named", realize)
+	}
 }
 
 func TestWriteScenarioFilesMergesTheDraftsWithTheSteps(t *testing.T) {

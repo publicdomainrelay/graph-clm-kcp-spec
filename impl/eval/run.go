@@ -131,7 +131,7 @@ type baseline struct {
 
 	spec spec.SystemContextSpec
 
-	fingerprint string
+	observed spec.ObservedFacts
 }
 
 type harness struct {
@@ -144,6 +144,11 @@ type harness struct {
 	dir string
 
 	repository *spec.Repository
+
+	// stop stops the in-process controller. A scenario stops it across the
+	// reset, so nothing reconciles the reverted tree while it is being put
+	// back, and starts it again before the scenario's edit is applied.
+	stop func()
 }
 
 // Run drives every fixture through both halves of the loop and returns the
@@ -297,12 +302,11 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 	}
 
 	h := &harness{options: options, client: client, namespace: options.Namespace, dir: dir, repository: repository}
-	stop, err := h.start()
-	if err != nil {
+	if err := h.startController(); err != nil {
 		return run, err
 	}
 	defer func() {
-		stop()
+		h.stopController()
 		if options.Keep {
 			return
 		}
@@ -327,8 +331,8 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 		run.populate.Summarized = status.Contexts.Summarized
 		run.populate.Failed = status.Contexts.Failed
 	}
-	if waitErr != nil {
-		run.populate.Error = waitErr.Error()
+	if waitErr != nil || status.Phase != specapi.PhasePopulated {
+		run.populate.Error = populateError(waitErr, status)
 		return run, nil
 	}
 	// A git source is resolved into the controller's cache, so the tree the
@@ -365,28 +369,54 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 
 // kinds is the agent of each half. An empty Agent is the scripted baseline: the
 // code -> spec half answers from the fixture's own drafts and the spec -> code
-// half from the generated scenario file.
+// half from the generated scenario file. SummarizeAgent overrides the code ->
+// spec half alone, and the bare word scripted means the fixture's own drafts,
+// because the drafts live beside the fixture and the caller cannot name them.
 func (f Fixture) kinds(options Options, scenarioFiles map[string]string) (string, string) {
-	if options.Agent != "" {
-		summarize := options.Agent
-		if options.SummarizeAgent != "" {
-			summarize = options.SummarizeAgent
-		}
-		return summarize, options.Agent
-	}
-	summarize := "scripted:" + filepath.Join(f.Dir, fixtureDrafts)
-	realize := summarize
+	drafts := "scripted:" + filepath.Join(f.Dir, fixtureDrafts)
+	realize := drafts
 	for _, scenario := range f.Scenarios {
 		realize = "scripted:" + scenarioFiles[scenario.Name]
 		break
 	}
-	if options.SummarizeAgent != "" {
+	summarize := drafts
+	if options.Agent != "" {
+		summarize = options.Agent
+		realize = options.Agent
+	}
+	switch options.SummarizeAgent {
+	case "":
+	case agentfactory.Scripted:
+		summarize = drafts
+	default:
 		summarize = options.SummarizeAgent
 	}
 	return summarize, realize
 }
 
-func (h *harness) start() (func(), error) {
+// startController starts the controller the whole loop runs against, and
+// stopController stops it. The two are called around every reset.
+func (h *harness) startController() error {
+	if h.stop != nil {
+		return nil
+	}
+	stop, err := h.newController()
+	if err != nil {
+		return err
+	}
+	h.stop = stop
+	return nil
+}
+
+func (h *harness) stopController() {
+	if h.stop == nil {
+		return
+	}
+	h.stop()
+	h.stop = nil
+}
+
+func (h *harness) newController() (func(), error) {
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   h.options.Kubeconfig,
 		Context:      h.options.Context,
@@ -449,6 +479,10 @@ func specctlPath() string {
 	return "specctl"
 }
 
+// agent builds the agent of one half explicitly. It goes through AgentFor and
+// not Agent because a Repository that names its own agent wins over the
+// controller's, which would silently answer a round trip asked for in the
+// code -> spec half with the agent of the other half.
 func (h *harness) agent(kind string) (agent.Agent, error) {
 	factory, err := agentfactory.New(agentfactory.Options{
 		Kind:        kind,
@@ -462,7 +496,7 @@ func (h *harness) agent(kind string) (agent.Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return factory.Agent(h.repository, h.dir)
+	return factory.AgentFor(&spec.AgentSpec{Kind: kind}, h.repository, h.dir)
 }
 
 // measureCodeToSpec scores the spec the code -> spec half wrote against the
@@ -529,7 +563,7 @@ func (h *harness) baselines(ctx context.Context, commit string) (map[string]base
 	}
 	out := map[string]baseline{}
 	for _, entry := range contexts {
-		out[entry.Name] = baseline{commit: commit, spec: entry.Spec, fingerprint: entry.Status.Observed.Fingerprint}
+		out[entry.Name] = baseline{commit: commit, spec: entry.Spec, observed: entry.Status.Observed}
 	}
 	return out, nil
 }
@@ -550,7 +584,17 @@ func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Sce
 	deadline, cancel := context.WithTimeout(ctx, h.options.Timeout)
 	defer cancel()
 
+	// The controller is stopped across the reset: the tree goes back to the
+	// baseline commit, and a reconcile of that window would read the revert
+	// against the last scenario's spec.
+	h.stopController()
 	if err := h.reset(deadline, scenario.Context, scenarioFile, start); err != nil {
+		h.startController()
+		report.Error = err.Error()
+		report.WallTimeSeconds = time.Since(started).Seconds()
+		return report
+	}
+	if err := h.startController(); err != nil {
 		report.Error = err.Error()
 		report.WallTimeSeconds = time.Since(started).Seconds()
 		return report
@@ -614,21 +658,11 @@ func (h *harness) reset(ctx context.Context, name, scenarioFile string, start ba
 	if err := h.setAgentKind(ctx, scenarioFile); err != nil {
 		return err
 	}
-	// The tree is put back before the spec is, and the spec before the changes
-	// are swept: reverting a landed commit looks like drift to the controller,
-	// so a code -> spec change is raised for the revert, and sweeping in the
-	// other order would leave it running into the next scenario's admission
-	// window.
-	if start.fingerprint != "" {
-		if err := h.waitFingerprint(ctx, name, start.fingerprint); err != nil {
-			return err
-		}
-	}
 	current, err := h.context(ctx, name)
 	if err != nil {
 		return err
 	}
-	if err := h.restoreSpec(ctx, current, start.spec); err != nil {
+	if err := h.restoreSpec(ctx, current, start); err != nil {
 		return err
 	}
 	if err := h.deleteChanges(ctx, name); err != nil {
@@ -659,14 +693,21 @@ func (h *harness) waitNoChanges(ctx context.Context, name string) error {
 	})
 }
 
-// restoreSpec writes the baseline spec back with the tool's own origin
-// annotation, so the write is never read as a human edit, and moves the
-// realized baseline with it. It is the same shape the summarize path writes,
-// and it is a whole object write because the spec it replaces may hold entries
-// the scenario before it added.
-func (h *harness) restoreSpec(ctx context.Context, current *spec.SystemContext, wanted spec.SystemContextSpec) error {
+// restoreSpec writes the baseline back as one settled context: the baseline
+// spec with the tool's own origin annotation, so the write is never read as a
+// human edit, and the facts of the baseline commit as the observed *and* the
+// synced state, so the revert the harness just made in git is not reported as
+// drift. It is a whole object write because the spec it replaces may hold
+// entries a scenario added.
+//
+// The facts are written rather than waited for on purpose: an ingest that ran
+// between the git reset and this write would see the reverted tree against the
+// last scenario's baseline and raise a code -> spec change for the revert, and
+// a live agent would then spend a model call summarizing a tree that is about
+// to be replaced.
+func (h *harness) restoreSpec(ctx context.Context, current *spec.SystemContext, start baseline) error {
 	restored := *current
-	restored.Spec = wanted
+	restored.Spec = start.spec
 	if restored.Annotations == nil {
 		restored.Annotations = map[string]string{}
 	}
@@ -680,21 +721,22 @@ func (h *harness) restoreSpec(ctx context.Context, current *spec.SystemContext, 
 	if err := applyTyped(ctx, h.client, &restored); err != nil {
 		return err
 	}
-	observed := current.Status.Observed
 	_, conditions := specsync.Conditions(specsync.Input{
 		Name:              current.Name,
 		Generation:        restored.GetGeneration(),
 		Spec:              restored.Spec,
-		Observed:          observed,
-		SyncedFingerprint: observed.Fingerprint,
+		Observed:          start.observed,
+		SyncedFingerprint: start.observed.Fingerprint,
 	}, current.Status.Conditions)
 	return h.patchStatus(ctx, current.Name, map[string]any{
 		"observedGeneration": restored.GetGeneration(),
+		"observedCommit":     start.commit,
+		"observed":           start.observed,
 		"realizedSpecHash":   hash,
 		"realizedSpec":       &restored.Spec,
-		"syncedCommit":       current.Status.ObservedCommit,
-		"syncedFingerprint":  observed.Fingerprint,
-		"syncedObserved":     observed,
+		"syncedCommit":       start.commit,
+		"syncedFingerprint":  start.observed.Fingerprint,
+		"syncedObserved":     start.observed,
 		"conditions":         conditions,
 	})
 }
@@ -842,14 +884,32 @@ func (h *harness) patchStatus(ctx context.Context, name string, status map[strin
 	return err
 }
 
+// waitPopulated waits for the populate step to settle, and returns as soon as
+// the Repository says it cannot be indexed at all: a manifest the validator
+// would refuse never reaches a phase, and waiting for one would hang a run.
 func (h *harness) waitPopulated(ctx context.Context) error {
-	return h.wait(ctx, "the Repository to reach Populated", func() bool {
+	bounded, cancel := context.WithTimeout(ctx, h.options.Timeout)
+	defer cancel()
+	return h.wait(bounded, "the Repository to reach Populated", func() bool {
 		status, err := h.repositoryStatus(ctx)
 		if err != nil {
 			return false
 		}
-		return status.Phase == specapi.PhasePopulated || status.Phase == specapi.PhaseFailed
+		if status.Phase == specapi.PhasePopulated || status.Phase == specapi.PhaseFailed {
+			return true
+		}
+		return blocked(status)
 	})
+}
+
+// blocked reports the conditions that say the Repository will never populate.
+func blocked(status spec.RepositoryStatus) bool {
+	for _, condition := range status.Conditions {
+		if condition.Status == metav1.ConditionFalse && condition.Reason == specapi.ReasonSourceInvalid {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *harness) waitChange(ctx context.Context, name string) (spec.SpecChange, error) {
@@ -871,16 +931,6 @@ func (h *harness) waitChange(ctx context.Context, name string) (spec.SpecChange,
 		return false
 	})
 	return found, err
-}
-
-func (h *harness) waitFingerprint(ctx context.Context, name, want string) error {
-	return h.wait(ctx, "the tree of "+name+" to be back at the baseline", func() bool {
-		current, err := h.context(ctx, name)
-		if err != nil {
-			return false
-		}
-		return current.Status.Observed.Fingerprint == want
-	})
 }
 
 // missingInterfaces waits for the re-ingest that follows a realize to observe
@@ -991,12 +1041,33 @@ func applyTyped(ctx context.Context, client *kcpclient.Client, value any) error 
 	if setter, ok := value.(defaults); ok {
 		setter.SetDefaults()
 	}
+	// The controller would report a manifest the validator refuses as a
+	// condition nobody reads, and a run would wait for a phase that never
+	// comes. The harness refuses it where the mistake was made instead.
+	if result := spec.ValidateAny(value); !result.OK() {
+		return fmt.Errorf("eval: the manifest the harness built is invalid: %w", result.Err())
+	}
 	object, err := kcpclient.Unstructured(value)
 	if err != nil {
 		return err
 	}
 	_, err = client.Apply(ctx, object)
 	return err
+}
+
+// populateError says why a Repository did not populate: the wait itself, or the
+// conditions that stopped it.
+func populateError(waitErr error, status spec.RepositoryStatus) string {
+	message := status.Phase
+	if waitErr != nil {
+		message = waitErr.Error()
+	}
+	for _, condition := range status.Conditions {
+		if condition.Status == metav1.ConditionFalse {
+			message += "; " + condition.Type + ": " + condition.Reason + ": " + condition.Message
+		}
+	}
+	return strings.TrimSpace(message)
 }
 
 // forget removes the objects of one fixture's previous run, so a re-run does

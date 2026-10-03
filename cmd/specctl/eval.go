@@ -115,24 +115,39 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
+// writeReport writes the markdown table and the JSON beside it. A path that is
+// already a .json names the JSON, and the markdown lands beside it, so
+// `--out run.json` cannot write one report over the other.
 func writeReport(path string, report eval.Report) error {
+	markdown, encoded := path, jsonPath(path)
+	if strings.EqualFold(filepath.Ext(path), ".json") {
+		markdown, encoded = markdownPath(path), path
+	}
+	if err := writeFile(markdown, []byte(report.Markdown())); err != nil {
+		return err
+	}
+	body, err := report.JSON()
+	if err != nil {
+		return err
+	}
+	return writeFile(encoded, body)
+}
+
+func writeFile(path string, contents []byte) error {
 	if dir := filepath.Dir(path); dir != "." && dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
 	}
-	if err := os.WriteFile(path, []byte(report.Markdown()), 0o644); err != nil {
-		return err
-	}
-	encoded, err := report.JSON()
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(jsonPath(path), encoded, 0o644)
+	return os.WriteFile(path, contents, 0o644)
 }
 
 func jsonPath(path string) string {
 	return strings.TrimSuffix(path, filepath.Ext(path)) + ".json"
+}
+
+func markdownPath(path string) string {
+	return strings.TrimSuffix(path, filepath.Ext(path)) + ".md"
 }
 
 func countFailed(report eval.Report) int {
