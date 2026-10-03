@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
@@ -64,8 +65,27 @@ func ValidateRepository(repository *Repository) Result {
 	if repository.Spec.Path == "" {
 		b.add("spec.path", "is required")
 	}
+	if agent := repository.Spec.Agent; agent != nil {
+		b.checkAgent("spec.agent", agent)
+	}
 
 	return b.result()
+}
+
+// checkAgent gates the per repository agent selection. The value is the same
+// option string specd takes, so a typo is caught at apply time instead of
+// silently leaving every change Pending.
+func (b *builder) checkAgent(path string, agent *AgentSpec) {
+	switch {
+	case agent.Kind == "":
+	case agent.Kind == "claude":
+	case strings.HasPrefix(agent.Kind, "scripted:"):
+		if strings.TrimPrefix(agent.Kind, "scripted:") == "" {
+			b.add(path+".kind", "scripted: needs a scenario file")
+		}
+	default:
+		b.add(path+".kind", "%q is not claude or scripted:<file>", agent.Kind)
+	}
 }
 
 func ValidateSystemContext(context *SystemContext) Result {
@@ -100,6 +120,17 @@ func ValidateSystemContext(context *SystemContext) Result {
 
 	if context.Status.RealizedSpecHash != "" && !specapi.IsHash(context.Status.RealizedSpecHash) {
 		b.add("status.realizedSpecHash", "%q is not a sha256 hex digest", context.Status.RealizedSpecHash)
+	}
+	// The snapshot is a whole spec, so it passes the same checks the live spec
+	// does. Its own status is empty, so this cannot recurse.
+	if context.Status.RealizedSpec != nil {
+		candidate := &SystemContext{
+			ObjectMeta: metav1.ObjectMeta{Name: context.Name},
+			Spec:       *context.Status.RealizedSpec,
+		}
+		if result := ValidateSystemContext(candidate); !result.OK() {
+			b.add("status.realizedSpec", "%v", result.Err())
+		}
 	}
 
 	result := b.result()
@@ -152,7 +183,43 @@ func ValidateSpecChange(change *SpecChange) Result {
 		b.add("status.phase", "%q is not Pending, Running, Succeeded or Failed", change.Status.Phase)
 	}
 
+	if change.Spec.Delta != nil {
+		b.checkDelta("spec.delta", change.Spec.Delta)
+	}
+
 	return b.result()
+}
+
+func (b *builder) checkDelta(path string, delta *Delta) {
+	for index, requirement := range delta.Requirements {
+		at := fmt.Sprintf("%s.requirements[%d]", path, index)
+		if requirement.ID == "" {
+			b.add(at+".id", "is required")
+		}
+		b.checkOp(at+".op", requirement.Op)
+	}
+	for index, declared := range delta.Interfaces {
+		at := fmt.Sprintf("%s.interfaces[%d]", path, index)
+		if declared.Name == "" {
+			b.add(at+".name", "is required")
+		}
+		b.checkOp(at+".op", declared.Op)
+	}
+	if delta.Observed != nil {
+		for index, observedInterface := range delta.Observed.Interfaces {
+			at := fmt.Sprintf("%s.observed.interfaces[%d]", path, index)
+			if observedInterface.Name == "" {
+				b.add(at+".name", "is required")
+			}
+			b.checkOp(at+".op", observedInterface.Op)
+		}
+	}
+}
+
+func (b *builder) checkOp(path, op string) {
+	if !slices.Contains([]string{OpAdded, OpRemoved, OpChanged}, op) {
+		b.add(path, "%q is not %s, %s or %s", op, OpAdded, OpRemoved, OpChanged)
+	}
 }
 
 func ValidateAny(object any) Result {

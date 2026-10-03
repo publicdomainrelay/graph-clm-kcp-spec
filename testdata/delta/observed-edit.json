@@ -1,0 +1,22 @@
+{
+  "observed": {
+    "interfaces": [
+      {
+        "op": "added",
+        "name": "Subtract",
+        "to": {
+          "name": "Subtract",
+          "kind": "function",
+          "signature": "func Subtract(a, b int) int",
+          "file": "calc/calc.go",
+          "line": 13,
+          "codegraphId": "function:cc33"
+        }
+      }
+    ],
+    "fingerprint": {
+      "from": "1111111111111111111111111111111111111111111111111111111111111111",
+      "to": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  }
+}

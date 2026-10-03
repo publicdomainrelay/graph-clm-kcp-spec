@@ -53,7 +53,11 @@ spec:
                     type: string
                 agent:
                   type: object
+                  description: Per repository agent selection; it wins over the controller's --agent.
                   properties:
+                    kind:
+                      type: string
+                      description: "claude, or scripted:<scenario file>. Empty keeps the controller's choice."
                     command:
                       type: string
                     args:

@@ -52,16 +52,28 @@ spec:
                   default: self
                 overlay:
                   type: array
+                  description: Refs this context overlays. A set, so a patch edits one entry without rewriting the list.
+                  x-kubernetes-list-type: set
                   items:
                     type: string
                 orchestrator:
                   type: string
                 dependsOn:
                   type: array
+                  description: Refs this context depends on. A set.
+                  x-kubernetes-list-type: set
                   items:
                     type: string
                 introduces:
                   type: array
+                  description: Refs this context introduces. A set.
+                  x-kubernetes-list-type: set
+                  items:
+                    type: string
+                codeRefs:
+                  type: array
+                  description: CodeGraph ids anchoring this context. A set, so a patch edits one entry without rewriting the list.
+                  x-kubernetes-list-type: set
                   items:
                     type: string
                 arch:
@@ -73,6 +85,9 @@ spec:
                   description: One paragraph of what this context is and why.
                 requirements:
                   type: array
+                  description: Machine first requirements, keyed by id, each citing code.
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [id]
                   items:
                     type: object
                     required: [id, level, text]
@@ -86,10 +101,14 @@ spec:
                         type: string
                       codeRefs:
                         type: array
+                        x-kubernetes-list-type: set
                         items:
                           type: string
                 interfaces:
                   type: array
+                  description: Declared public surface, keyed by name.
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [name]
                   items:
                     type: object
                     required: [name]
@@ -102,10 +121,6 @@ spec:
                         type: string
                       file:
                         type: string
-                codeRefs:
-                  type: array
-                  items:
-                    type: string
             status:
               type: object
               properties:
@@ -122,13 +137,47 @@ spec:
                   description: The observed fingerprint recorded when the spec was last synced.
                 observed:
                   type: object
+                  description: The code facts the index reports, deterministic.
                   properties:
                     files:
                       type: array
+                      x-kubernetes-list-type: set
                       items:
                         type: string
                     interfaces:
                       type: array
+                      x-kubernetes-list-type: map
+                      x-kubernetes-list-map-keys: [name]
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          kind:
+                            type: string
+                          signature:
+                            type: string
+                          file:
+                            type: string
+                          line:
+                            type: integer
+                          codegraphId:
+                            type: string
+                    fingerprint:
+                      type: string
+                syncedObserved:
+                  type: object
+                  description: The facts the synced baseline was taken from, the old side of a code to spec delta.
+                  properties:
+                    files:
+                      type: array
+                      x-kubernetes-list-type: set
+                      items:
+                        type: string
+                    interfaces:
+                      type: array
+                      x-kubernetes-list-type: map
+                      x-kubernetes-list-map-keys: [name]
                       items:
                         type: object
                         properties:
@@ -148,8 +197,82 @@ spec:
                       type: string
                 realizedSpecHash:
                   type: string
+                realizedSpec:
+                  type: object
+                  description: The last spec that was realized or absorbed, the old side of a spec to code delta.
+                  required: [repository]
+                  properties:
+                    repository:
+                      type: string
+                    upstream:
+                      type: string
+                    overlay:
+                      type: array
+                      x-kubernetes-list-type: set
+                      items:
+                        type: string
+                    orchestrator:
+                      type: string
+                    dependsOn:
+                      type: array
+                      x-kubernetes-list-type: set
+                      items:
+                        type: string
+                    introduces:
+                      type: array
+                      x-kubernetes-list-type: set
+                      items:
+                        type: string
+                    codeRefs:
+                      type: array
+                      x-kubernetes-list-type: set
+                      items:
+                        type: string
+                    arch:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    intent:
+                      type: string
+                    requirements:
+                      type: array
+                      x-kubernetes-list-type: map
+                      x-kubernetes-list-map-keys: [id]
+                      items:
+                        type: object
+                        required: [id, level, text]
+                        properties:
+                          id:
+                            type: string
+                          level:
+                            type: string
+                            enum: [MUST, SHOULD, MAY]
+                          text:
+                            type: string
+                          codeRefs:
+                            type: array
+                            x-kubernetes-list-type: set
+                            items:
+                              type: string
+                    interfaces:
+                      type: array
+                      x-kubernetes-list-type: map
+                      x-kubernetes-list-map-keys: [name]
+                      items:
+                        type: object
+                        required: [name]
+                        properties:
+                          name:
+                            type: string
+                          kind:
+                            type: string
+                          signature:
+                            type: string
+                          file:
+                            type: string
                 conditions:
                   type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
                   items:
                     type: object
                     required: [type, status]

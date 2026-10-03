@@ -18,7 +18,11 @@ func Levels() []Level {
 	return []Level{LevelMust, LevelShould, LevelMay}
 }
 
+// AgentSpec selects the agent of one Repository. Kind is the same option
+// string specd takes (claude, scripted:<file>, later pi); Command and Args
+// override the model command of the claude kind.
 type AgentSpec struct {
+	Kind    string   `json:"kind,omitempty"`
 	Command string   `json:"command,omitempty"`
 	Args    []string `json:"args,omitempty"`
 }
@@ -138,13 +142,21 @@ type ObservedFacts struct {
 // an ingest, a realize or a human edit acknowledges the code, so Drifted stays
 // true until the drift is worked off.
 type SystemContextStatus struct {
-	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
-	ObservedCommit     string             `json:"observedCommit,omitempty"`
-	Observed           ObservedFacts      `json:"observed,omitempty"`
-	SyncedCommit       string             `json:"syncedCommit,omitempty"`
-	SyncedFingerprint  string             `json:"syncedFingerprint,omitempty"`
-	RealizedSpecHash   string             `json:"realizedSpecHash,omitempty"`
-	Conditions         []metav1.Condition `json:"conditions,omitempty"`
+	ObservedGeneration int64         `json:"observedGeneration,omitempty"`
+	ObservedCommit     string        `json:"observedCommit,omitempty"`
+	Observed           ObservedFacts `json:"observed,omitempty"`
+	SyncedCommit       string        `json:"syncedCommit,omitempty"`
+	SyncedFingerprint  string        `json:"syncedFingerprint,omitempty"`
+	// SyncedObserved is the facts the synced baseline was taken from. Observed
+	// is overwritten by every ingest, so the code -> spec delta needs the old
+	// side kept: this is that side.
+	SyncedObserved   ObservedFacts `json:"syncedObserved,omitempty"`
+	RealizedSpecHash string        `json:"realizedSpecHash,omitempty"`
+	// RealizedSpec is the spec the hash above was taken from: the last spec
+	// that was realized or absorbed. It is the old side of a spec -> code
+	// delta, which is therefore computable from kcp alone.
+	RealizedSpec *SystemContextSpec `json:"realizedSpec,omitempty"`
+	Conditions   []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type SystemContext struct {
@@ -165,6 +177,10 @@ type SpecChangeSpec struct {
 
 	FromCommit string `json:"fromCommit,omitempty"`
 	ToCommit   string `json:"toCommit,omitempty"`
+
+	// Delta is what the change asks for, never the whole spec: the spec edit
+	// for a SpecToCode change, the observed fact change for a CodeToSpec one.
+	Delta *Delta `json:"delta,omitempty"`
 }
 
 type SpecChangeStatus struct {
@@ -173,9 +189,10 @@ type SpecChangeStatus struct {
 	Branch string `json:"branch,omitempty"`
 	Commit string `json:"commit,omitempty"`
 
-	VerifyExitCode int    `json:"verifyExitCode,omitempty"`
-	AgentLog       string `json:"agentLog,omitempty"`
-	Message        string `json:"message,omitempty"`
+	VerifyExitCode int      `json:"verifyExitCode,omitempty"`
+	FilesTouched   []string `json:"filesTouched,omitempty"`
+	AgentLog       string   `json:"agentLog,omitempty"`
+	Message        string   `json:"message,omitempty"`
 }
 
 type SpecChange struct {

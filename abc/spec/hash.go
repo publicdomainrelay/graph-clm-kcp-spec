@@ -8,8 +8,12 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
 
+// HashSystemContextSpec hashes the canonical form of a spec, so the keyed
+// lists the CRD declares (requirements by id, interfaces by name, codeRefs and
+// the other ref lists as sets) contribute the same hash however they are
+// ordered in a manifest.
 func HashSystemContextSpec(specification SystemContextSpec) (string, error) {
-	hash, err := specapi.HashJSON(specification)
+	hash, err := specapi.HashJSON(Canonicalize(specification))
 	if err != nil {
 		return "", fmt.Errorf("spec: hash the spec: %w", err)
 	}

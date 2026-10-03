@@ -66,14 +66,26 @@ until [ "$(K get workspace "$WORKSPACE" -o jsonpath='{.status.phase}' 2>/dev/nul
   sleep 1
 done
 
-for crd in "$DEPLOY_DIR"/crds/*.yaml; do
-  W apply --validate=false -f "$crd" >/dev/null
-done
+# A cold start races: the workspace can be Ready while the cluster is still
+# bringing up apiextensions, so the first apply answers "the server could not
+# find the requested resource". Applying is idempotent, so the loop reapplies
+# every CRD until all of them land and the group is served.
+specs_served() {
+  W api-resources --api-group=specs.publicdomainrelay.dev 2>/dev/null | grep -q systemcontexts
+}
 
-tries=0
-until W api-resources --api-group=specs.publicdomainrelay.dev 2>/dev/null | grep -q systemcontexts; do
-  tries=$((tries + 1))
-  if [ "$tries" -ge "$WAIT_SECONDS" ]; then
+deadline=$((SECONDS + WAIT_SECONDS))
+while true; do
+  applied=true
+  for crd in "$DEPLOY_DIR"/crds/*.yaml; do
+    if ! W apply --validate=false -f "$crd" >/dev/null 2>&1; then
+      applied=false
+    fi
+  done
+  if [ "$applied" = true ] && specs_served; then
+    break
+  fi
+  if [ "$SECONDS" -ge "$deadline" ]; then
     echo "the specs API is not served in ${WORKSPACE_PATH} within ${WAIT_SECONDS}s" >&2
     exit 1
   fi

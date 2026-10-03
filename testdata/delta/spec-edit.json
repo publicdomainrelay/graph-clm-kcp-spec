@@ -1,0 +1,33 @@
+{
+  "codeRefs": {
+    "added": [
+      "function:Subtract"
+    ]
+  },
+  "requirements": [
+    {
+      "op": "added",
+      "id": "r.subtract",
+      "to": {
+        "id": "r.subtract",
+        "level": "SHOULD",
+        "text": "Subtract returns the difference.",
+        "codeRefs": [
+          "function:Subtract"
+        ]
+      }
+    }
+  ],
+  "interfaces": [
+    {
+      "op": "added",
+      "name": "Subtract",
+      "to": {
+        "name": "Subtract",
+        "kind": "function",
+        "signature": "func Subtract(a, b int) int",
+        "file": "calc/calc.go"
+      }
+    }
+  ]
+}
