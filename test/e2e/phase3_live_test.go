@@ -95,17 +95,30 @@ func TestPhase3ArchRoundTrip(t *testing.T) {
 		t.Fatalf("rebuild on %s: %v", backend.name, err)
 	}
 	contextID := graph.ContextID(spec.ArchName("sc.deno-kcp"))
+	// sc.deno-kcp runs on an inline upstream node, and the kind contexts are
+	// nested in its overlay while the examples and test tiers point upstream at
+	// it.
 	out := oneHopKeys(t, ctx, writer, graph.LabelContext, contextID, graph.EdgeUpstream, true)
 	if !contains(out, spec.ArchName("sc.kcp-local")) {
 		t.Errorf("UPSTREAM out of sc.deno-kcp = %v", out)
 	}
 	in := oneHopKeys(t, ctx, writer, graph.LabelContext, contextID, graph.EdgeUpstream, false)
-	if !contains(in, spec.ArchName("sc.kind.denopod")) {
+	if !contains(in, spec.ArchName("sc.example.atproto-market")) {
 		t.Errorf("UPSTREAM into sc.deno-kcp = %v", in)
 	}
-	dependencies := oneHopKeys(t, ctx, writer, graph.LabelContext, contextID, graph.EdgeOverlay, true)
-	if len(dependencies) == 0 {
-		t.Errorf("OVERLAY out of sc.deno-kcp is empty")
+	overlay := oneHopKeys(t, ctx, writer, graph.LabelContext, contextID, graph.EdgeOverlay, true)
+	if !contains(overlay, spec.ArchName("sc.kind.denopod")) {
+		t.Errorf("OVERLAY out of sc.deno-kcp = %v", overlay)
+	}
+	serviceDNS := graph.ContextID(spec.ArchName("sc.provider.service-dns"))
+	introduced := oneHopKeys(t, ctx, writer, graph.LabelContext, serviceDNS, graph.EdgeIntroduces, true)
+	if !contains(introduced, spec.ArchName("sc.kcpdns.probe")) {
+		t.Errorf("INTRODUCES out of sc.provider.service-dns = %v", introduced)
+	}
+	watch := graph.ContextID(spec.ArchName("sc.provider.watch"))
+	dependencies := oneHopKeys(t, ctx, writer, graph.LabelContext, watch, graph.EdgeDependsOn, true)
+	if !contains(dependencies, spec.ArchName("sc.kcp.apiexport-vw")) {
+		t.Errorf("DEPENDS_ON out of sc.provider.watch = %v", dependencies)
 	}
 }
 

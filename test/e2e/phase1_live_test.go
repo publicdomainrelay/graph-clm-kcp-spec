@@ -67,6 +67,8 @@ func liveClient(t *testing.T, root string) *kcpclient.Client {
 	client, err := kcpclient.New(kcpclient.Options{
 		Kubeconfig: filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
 		Workspace:  "root:specs",
+		QPS:        50,
+		Burst:      100,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -230,12 +232,9 @@ func TestPhase1SystemContextRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("read back a %T", editedTyped)
 	}
-	edited := &spec.SystemContext{
-		ObjectMeta: *current.ObjectMeta.DeepCopy(),
-		Spec:       current.Spec,
-	}
+	edited := *current
 	edited.Spec.Intent = "A human edit, which must not touch status."
-	editedObject, err := kcpclient.Unstructured(edited)
+	editedObject, err := kcpclient.Unstructured(&edited)
 	if err != nil {
 		t.Fatal(err)
 	}
