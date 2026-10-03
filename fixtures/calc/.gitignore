@@ -1,2 +1,9 @@
+# Build and harness output. The index skips what git ignores, so these are
+# invisible to codegraph as well as to git: a fixture is a working tree, and
+# the scenario files, the drafts and the fixture manifest are the harness
+# reading it, never part of the tree under management.
 .codegraph/
 .specs/
+scenarios/
+summarize.yaml
+fixture.yaml

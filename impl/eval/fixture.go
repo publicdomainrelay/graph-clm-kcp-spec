@@ -89,6 +89,15 @@ const (
 // scripted code -> spec answer in summarize.yaml, and one scenario per YAML
 // file in scenarios/.
 func Load(dir string) ([]Fixture, error) {
+	// A single fixture may be named directly, which is how a run is narrowed to
+	// one repository without narrowing its scenarios.
+	if _, err := os.Stat(filepath.Join(dir, fixtureManifest)); err == nil {
+		fixture, err := loadFixture(dir)
+		if err != nil {
+			return nil, err
+		}
+		return []Fixture{fixture}, nil
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("eval: read %s: %w", dir, err)

@@ -16,7 +16,7 @@ export SPECD_BOLT_BACKEND ?= arcadedb
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet generate-schemas test test-live kcp-up kcp-down install-specs install-specs-provider example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 example-phase9 demo clean
+.PHONY: build check fmt vet generate-schemas test test-live kcp-up kcp-down install-specs install-specs-provider example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 example-phase9 demo demo-phases clean
 
 ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
 ARCH_REPOSITORY ?= deno-kcp
@@ -125,10 +125,20 @@ example-phase9: $(SPECCTL) $(SPECD) kcp-up
 example-phase6-failing: $(SPECCTL) $(SPECD) kcp-up
 	FAILING=1 MAX_ATTEMPTS=1 ./scripts/example-phase6.sh
 
+# The phase 10 demo: the shortest path through the whole loop against one
+# cluster. kcp up, one Repository manifest for a working tree, the code spelled
+# out as specs, a spec edit, the delta, the agent commit gated by tests, the
+# effectiveness table for the scripted baseline, and one scenario driven
+# through the CLM path. SPECD_AGENT=claude runs the body with the live model,
+# SPECD_CLM_PATH=off skips the closing scenario, SPECD_EVAL_OUT=<path> also
+# writes the report.
+demo: $(SPECCTL) $(SPECD) kcp-up
+	./scripts/demo.sh
+
 # Every phase, in order, against one cluster. It takes a few minutes: phases 2
 # and 3 index a tree and import a 166 node document, and each example starts and
 # stops its own controllers.
-demo: $(SPECCTL) $(SPECD) kcp-up
+demo-phases: $(SPECCTL) $(SPECD) kcp-up
 	@echo "=== phase 1: kcp holds specs ==="
 	$(MAKE) --no-print-directory example-phase1
 	@echo "=== phase 2: code -> facts -> kcp status + graph ==="

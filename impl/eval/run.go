@@ -166,6 +166,14 @@ func Run(ctx context.Context, options Options) (eval.Report, error) {
 	if options.Log == nil {
 		options.Log = logging.Discard()
 	}
+	// A host inside the model runs in a worktree, so every path it is handed
+	// has to be absolute: a relative kubeconfig would be resolved against the
+	// directory the model happens to be editing.
+	if options.Kubeconfig != "" {
+		if absolute, err := filepath.Abs(options.Kubeconfig); err == nil {
+			options.Kubeconfig = absolute
+		}
+	}
 	if err := options.Client.Ping(ctx); err != nil {
 		return report, err
 	}
@@ -379,14 +387,29 @@ func (h *harness) start() (func(), error) {
 }
 
 // agentEnv is what a host inside the model reads to reach the same state the
-// controller watches.
+// controller watches: the workspace, the state bridge and the namespace. A
+// plain model ignores all of it.
 func (h *harness) agentEnv() map[string]string {
 	return map[string]string{
 		"SPECD_KUBECONFIG": h.options.Kubeconfig,
 		"KUBECONFIG":       h.options.Kubeconfig,
 		"SPECD_WORKSPACE":  h.options.Workspace,
 		"SPECD_NAMESPACE":  h.namespace,
+		"SPECD_SPECCTL":    specctlPath(),
 	}
+}
+
+// specctlPath is the state bridge a host inside the model calls. The eval
+// harness is normally run by specctl itself, so its own executable is the
+// bridge; SPECD_SPECCTL overrides it and a specctl on PATH is the fallback.
+func specctlPath() string {
+	if fromEnv := os.Getenv("SPECD_SPECCTL"); fromEnv != "" {
+		return fromEnv
+	}
+	if executable, err := os.Executable(); err == nil && filepath.Base(executable) == "specctl" {
+		return executable
+	}
+	return "specctl"
 }
 
 func (h *harness) agent(kind string) (agent.Agent, error) {
