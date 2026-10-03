@@ -68,6 +68,20 @@ func (c *Controller) reconcileChanges(
 	systemContext *spec.SystemContext,
 	decision specsync.Decision,
 ) error {
+	fromCommit := systemContext.Status.SyncedCommit
+	toCommit := systemContext.Status.ObservedCommit
+	driftDue := specsync.CodeToSpecDue(decision.Drifted, fromCommit, toCommit)
+
+	specHash, err := spec.HashSystemContextSpec(systemContext.Spec)
+	if err != nil {
+		return err
+	}
+	editDue := specsync.SpecEditDue(specHash, systemContext.Status.RealizedSpecHash)
+	// A quiet context is the common case, and it costs no list to find out.
+	if !driftDue && !editDue {
+		return nil
+	}
+
 	changes, err := c.changesFor(ctx, namespace, systemContext.Name)
 	if err != nil {
 		return err
@@ -80,10 +94,7 @@ func (c *Controller) reconcileChanges(
 		}
 	}
 
-	fromCommit := systemContext.Status.SyncedCommit
-	toCommit := systemContext.Status.ObservedCommit
-	if specsync.CodeToSpecDue(decision.Drifted, fromCommit, toCommit) &&
-		!unfinished[specapi.DirectionCodeToSpec] {
+	if driftDue && !unfinished[specapi.DirectionCodeToSpec] {
 		change := &spec.SpecChange{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      spec.ChangeNameCodeToSpec(systemContext.Name, fromCommit, toCommit),
@@ -101,12 +112,7 @@ func (c *Controller) reconcileChanges(
 		}
 	}
 
-	specHash, err := spec.HashSystemContextSpec(systemContext.Spec)
-	if err != nil {
-		return err
-	}
-	if specsync.SpecEditDue(specHash, systemContext.Status.RealizedSpecHash) &&
-		!unfinished[specapi.DirectionSpecToCode] {
+	if editDue && !unfinished[specapi.DirectionSpecToCode] {
 		change := &spec.SpecChange{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      spec.ChangeNameSpecToCode(systemContext.Name, specHash),
