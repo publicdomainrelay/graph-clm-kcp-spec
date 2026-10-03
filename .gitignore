@@ -4,3 +4,6 @@ node_modules/
 .codegraph/
 /.kcp-specd/
 .specs/
+
+# Claude Code writes its own declarations here when it loads the mod
+/cc-clm-mod/.claude-plugin/types/

@@ -1,0 +1,8 @@
+{
+  "name": "cc-clm-mod",
+  "version": "0.1.0",
+  "description": "Reports a Claude Code session into the spec-driven state (context file, graph, kcp) the specd controllers watch",
+  "author": {
+    "name": "publicdomainrelay"
+  }
+}

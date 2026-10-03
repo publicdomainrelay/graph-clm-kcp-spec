@@ -1,0 +1,17 @@
+{
+  "name": "cc-clm-mod",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Unlicense",
+  "description": "Claude Code mod host of the CLM loop: report a session into the spec-driven state",
+  "scripts": {
+    "build:mod": "node build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.9.3"
+  }
+}
