@@ -1,3 +1,39 @@
+// The zone markers, the budget and the reference extraction are the shared CLM
+// format (clm/core), so the file pi writes and the file the Claude Code mod
+// writes are read by one parser. What stays here is what only pi needs: the
+// session protocol and the turn summary.
+
+export {
+  CONTEXT_DIR,
+  DEFAULT_MANAGED_BUDGET,
+  EMPTY_INTENT,
+  MANAGED_BEGIN,
+  MANAGED_END,
+  NOTICE,
+  estimateTokens,
+  extractReferences,
+  isCodegraphId,
+  isReferenceCandidate,
+  selectWithinBudget,
+  splitContextDoc as splitContextFile,
+  type ResolvedRef,
+} from "../../clm/core/mod.ts";
+
+import {
+  MANAGED_BEGIN,
+  MANAGED_END,
+  selectWithinBudget,
+  type CodeRefRecord as CoreCodeRefRecord,
+} from "../../clm/core/mod.ts";
+
+export const CONTEXT_FILE_NAME = "live-context.md";
+
+// pi keeps a numeric id per reference for its own graph nodes; the shared
+// fields are the core's.
+export interface CodeRefRecord extends CoreCodeRefRecord {
+  id: number;
+}
+
 export const LIVE_CONTEXT_VERSION = 1;
 
 export interface MemoryRecord {
@@ -56,81 +92,6 @@ export const MEMORY_PROTOCOL = [
   "The value of the graph is why: a concept node records why a piece of code",
   "matters and what it relates to, which the code index alone cannot express.",
 ].join("\n");
-
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
-export function selectWithinBudget<T>(
-  items: T[],
-  budgetTokens: number,
-  render: (item: T) => string,
-): T[] {
-  const selected: T[] = [];
-  let spent = 0;
-  for (const item of items) {
-    const cost = estimateTokens(render(item));
-    if (spent + cost > budgetTokens) break;
-    selected.push(item);
-    spent += cost;
-  }
-  return selected;
-}
-
-export const MANAGED_BEGIN = "<!-- HYDRA_CLM_MANAGED_BEGIN -->";
-export const MANAGED_END = "<!-- HYDRA_CLM_MANAGED_END -->";
-export const CONTEXT_FILE_NAME = "live-context.md";
-
-export interface CodeRefRecord {
-  id: number;
-  codegraphId: string;
-  kind: string;
-  name: string;
-  filePath: string;
-}
-
-const CODEGRAPH_KINDS =
-  "file|function|method|class|struct|interface|constant|type_alias|variable|import";
-
-const CODEGRAPH_ID = new RegExp(`^(?:${CODEGRAPH_KINDS}):[A-Za-z0-9_./\\\\-]+$`);
-
-export function isCodegraphId(value: string): boolean {
-  return CODEGRAPH_ID.test(value.trim());
-}
-
-const REFERENCE_TOKEN = /^[A-Za-z0-9_][A-Za-z0-9_./\\:#-]*$/;
-
-export function isReferenceCandidate(token: string): boolean {
-  const trimmed = token.trim();
-  if (trimmed.length === 0 || trimmed.length > 200) return false;
-  if (!REFERENCE_TOKEN.test(trimmed)) return false;
-  if (trimmed.startsWith("/")) return false;
-  return true;
-}
-
-export function extractReferences(text: string): string[] {
-  const found: string[] = [];
-  const seen = new Set<string>();
-  const push = (value: string) => {
-    const trimmed = value.trim();
-    if (!isReferenceCandidate(trimmed) || seen.has(trimmed)) return;
-    seen.add(trimmed);
-    found.push(trimmed);
-  };
-  for (const match of text.matchAll(/`([^`\n]+)`/g)) push(match[1] ?? "");
-  for (const match of text.matchAll(new RegExp(CODEGRAPH_ID.source.slice(1, -1), "g"))) {
-    push(match[0]);
-  }
-  return found;
-}
-
-export function splitContextFile(text: string): { model: string; managed: string } {
-  const begin = text.indexOf(MANAGED_BEGIN);
-  const end = text.indexOf(MANAGED_END);
-  if (begin === -1 || end === -1 || end < begin) return { model: text.trim(), managed: "" };
-  const model = `${text.slice(0, begin)}${text.slice(end + MANAGED_END.length)}`.trim();
-  return { model, managed: text.slice(begin, end + MANAGED_END.length) };
-}
 
 export function renderManagedZone(
   references: CodeRefRecord[],
@@ -222,3 +183,4 @@ export function summarizeTurn(message: unknown, toolResults: unknown[] = []): st
   const summary = parts.join(" | ").replace(/\s+/g, " ").trim();
   return summary.length > 0 ? summary.slice(0, 600) : "(no text)";
 }
+

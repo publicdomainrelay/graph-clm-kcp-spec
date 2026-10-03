@@ -1,31 +1,16 @@
-import { cypherLiteral } from "./ids.ts";
+// The Cypher the portable core subset allows. The write statements come from
+// clm/core, so pi writes the same rows as the Go writer and the Claude Code
+// mod, on the same ids; the reads below carry a limit pi's own tools ask for,
+// which the shared builders do not need.
 
-export type Literal = string | number | boolean;
+import { cypherLiteral, type Literal } from "../../clm/core/mod.ts";
 
-export function vertexUpsert(label: string, properties: string[]): string {
-  const assignments = properties.map((property) => `n.${property} = row.${property}`);
-  const setClause = [`n:${label}`, ...assignments].join(", ");
-  return `UNWIND $rows AS row MERGE (n {id: row.id}) SET ${setClause}`;
-}
-
-export function edgeUpsert(type: string, fromLabel: string, toLabel: string): string {
-  return `UNWIND $rows AS row MATCH (a:${fromLabel} {id: row.src}), (b:${toLabel} {id: row.dst}) CREATE (a)-[:${type}]->(b)`;
-}
-
-export function vertexDelete(): string {
-  return "UNWIND $rows AS row MATCH (n {id: row.id}) DETACH DELETE n";
-}
-
-function filterClause(filter: Record<string, Literal>): string {
-  const entries = Object.entries(filter);
-  if (entries.length === 0) return "";
-  const inner = entries.map(([key, value]) => `${key}: ${cypherLiteral(value)}`).join(", ");
-  return ` {${inner}}`;
-}
-
-function projection(properties: string[]): string {
-  return properties.map((property) => `n.${property} AS ${property}`).join(", ");
-}
+export {
+  edgeCreate as edgeUpsert,
+  vertexDelete,
+  vertexUpsert,
+  type Literal,
+} from "../../clm/core/mod.ts";
 
 export function vertexSelect(
   label: string,
@@ -34,7 +19,7 @@ export function vertexSelect(
   limit?: number,
 ): string {
   const tail = limit === undefined ? "" : ` LIMIT ${Math.trunc(limit)}`;
-  return `MATCH (n:${label}${filterClause(filter)}) RETURN ${projection(properties)}${tail}`;
+  return `MATCH (n:${label}${filterClause(filter)}) RETURN ${projection("n", properties)}${tail}`;
 }
 
 export function vertexCount(label: string, filter: Record<string, Literal> = {}): string {
@@ -50,6 +35,16 @@ export function edgeSelect(
   limit?: number,
 ): string {
   const tail = limit === undefined ? "" : ` LIMIT ${Math.trunc(limit)}`;
-  const targets = properties.map((property) => `b.${property} AS ${property}`).join(", ");
-  return `MATCH (a:${fromLabel} {id: ${Math.trunc(fromId)}})-[:${type}]->(b:${toLabel}) RETURN ${targets}${tail}`;
+  return `MATCH (a:${fromLabel} {id: ${Math.trunc(fromId)}})-[:${type}]->(b:${toLabel}) RETURN ${projection("b", properties)}${tail}`;
+}
+
+function filterClause(filter: Record<string, Literal>): string {
+  const entries = Object.entries(filter);
+  if (entries.length === 0) return "";
+  const inner = entries.map(([key, value]) => `${key}: ${cypherLiteral(value)}`).join(", ");
+  return ` {${inner}}`;
+}
+
+function projection(binding: string, properties: string[]): string {
+  return properties.map((property) => `${binding}.${property} AS ${property}`).join(", ");
 }

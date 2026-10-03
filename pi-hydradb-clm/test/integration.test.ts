@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
+import { MANAGED_BEGIN } from "../src/context-doc.ts";
 import type { GraphClient } from "../src/graph.ts";
 import { nodeKey, stableNodeId } from "../src/ids.ts";
 import { CODE_REF_PROPS, FILE_PROPS, LABELS, MEMORY_PROPS } from "../src/schema.ts";
@@ -161,7 +162,7 @@ test("the live context document is injected into the provider request", TIMEOUT,
       "the live context file was not injected into the request",
     );
     assert.ok(
-      payloads.includes("HYDRA_CLM_MANAGED_BEGIN"),
+      payloads.includes(MANAGED_BEGIN),
       "the injected document is missing its managed reference section",
     );
     assert.ok(
