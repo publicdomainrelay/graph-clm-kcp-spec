@@ -252,6 +252,18 @@ func ingestPartition(
 	specChanged := !reflect.DeepEqual(merged, previousSpec)
 	generation := existingContext.GetGeneration()
 
+	// The realized hash moves only when nothing was pending: a stored spec that
+	// already hashes to the realized hash carries no unprocessed human edit, so
+	// ingest may absorb its own write. A pending human edit keeps the old hash,
+	// which is what makes the controller raise a SpecToCode change.
+	realizedSpecHash := existingContext.Status.RealizedSpecHash
+	previousHash, previousErr := spec.HashSystemContextSpec(previousSpec)
+	mergedHash, mergedErr := spec.HashSystemContextSpec(merged)
+	absorbed := previousErr == nil && mergedErr == nil && (realizedSpecHash == "" || realizedSpecHash == previousHash)
+	if absorbed {
+		realizedSpecHash = mergedHash
+	}
+
 	var applied *unstructured.Unstructured
 	if specChanged {
 		updated := &spec.SystemContext{
@@ -263,10 +275,16 @@ func ingestPartition(
 			updated.Annotations = map[string]string{}
 		}
 		updated.Annotations[specapi.OriginAnnotation] = specapi.OriginIngest
-		if mergedHash, err := spec.HashSystemContextSpec(merged); err == nil {
-			// The status write is a separate call, so the object has to say
-			// which spec this write produced.
-			updated.Annotations[specapi.OriginHashAnnotation] = mergedHash
+		// The status write is a separate call, so the object has to say which
+		// spec this write produced — but only when the write is really the
+		// tool's own. Ingest deliberately leaves a human edit unabsorbed, and
+		// stamping a hash over that spec would hide the edit from the
+		// controller, which reads the annotation to tell the two apart.
+		delete(updated.Annotations, specapi.OriginHashAnnotation)
+		if absorbed {
+			if mergedHash, err := spec.HashSystemContextSpec(merged); err == nil {
+				updated.Annotations[specapi.OriginHashAnnotation] = mergedHash
+			}
 		}
 		updated.SetDefaults()
 		object, err := kcpclient.Unstructured(updated)
@@ -289,17 +307,6 @@ func ingestPartition(
 		SyncedFingerprint: syncedFingerprint,
 	}, existingContext.Status.Conditions)
 	result.Conditions = conditions
-
-	// The realized hash moves only when nothing was pending: a stored spec that
-	// already hashes to the realized hash carries no unprocessed human edit, so
-	// ingest may absorb its own write. A pending human edit keeps the old hash,
-	// which is what makes the controller raise a SpecToCode change.
-	realizedSpecHash := existingContext.Status.RealizedSpecHash
-	previousHash, previousErr := spec.HashSystemContextSpec(previousSpec)
-	mergedHash, mergedErr := spec.HashSystemContextSpec(merged)
-	if previousErr == nil && mergedErr == nil && (realizedSpecHash == "" || realizedSpecHash == previousHash) {
-		realizedSpecHash = mergedHash
-	}
 
 	status := map[string]any{
 		"observedGeneration": generation,

@@ -23,7 +23,7 @@ contexts:
       - id: r.subtract
         level: SHOULD
         text: Subtract returns the difference of two integers.
-        codeRefs: ["Subtract", "file:calc/calc.go"]
+        codeRefs: ["file:calc/calc.go"]
     interfaces:
       - name: Add
         kind: function

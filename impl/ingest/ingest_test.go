@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"testing"
@@ -285,6 +287,103 @@ func TestRunPreservesHumanSpecFields(t *testing.T) {
 	if synced == nil || synced.Status != metav1.ConditionTrue {
 		t.Errorf("CodeSynced = %+v, want True", synced)
 	}
+}
+
+// A context that has never been acknowledged gets its baseline from the first
+// ingest, and the object says which spec that was, so a reconcile running
+// before the status lands does not read the tool's own write as a human edit.
+func TestRunStampsTheOriginHashWhenItAbsorbsItsOwnWrite(t *testing.T) {
+	fixture.Require(t, "codegraph", "git")
+	repoPath := fixture.Copy(t, "calc")
+	cluster := newFakeCluster()
+
+	if _, err := Run(context.Background(), cluster, Options{RepoPath: repoPath, Commit: "cafebabe"}); err != nil {
+		t.Fatal(err)
+	}
+	context := storedContext(t, cluster, "calc")
+	hash, err := spec.HashSystemContextSpec(context.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if context.Annotations[specapi.OriginHashAnnotation] != hash {
+		t.Errorf("origin hash = %q, want the hash of the spec ingest wrote (%q)",
+			context.Annotations[specapi.OriginHashAnnotation], hash)
+	}
+	if context.Status.RealizedSpecHash != hash {
+		t.Errorf("realizedSpecHash = %q, want %q", context.Status.RealizedSpecHash, hash)
+	}
+}
+
+// The other half of the rule: an ingest that runs while a human edit is
+// pending absorbs nothing, so it must leave the origin hash off the object. A
+// stale stamp there would make the spec hash to the annotation and the
+// controller would never raise the SpecToCode change that realizes the edit.
+func TestRunKeepsAHumanEditVisibleAcrossALaterIngest(t *testing.T) {
+	fixture.Require(t, "codegraph", "git")
+	repoPath := fixture.Copy(t, "calc")
+	cluster := newFakeCluster()
+
+	if _, err := Run(context.Background(), cluster, Options{RepoPath: repoPath, Commit: "cafebabe"}); err != nil {
+		t.Fatal(err)
+	}
+	acknowledged := storedContext(t, cluster, "calc").Status.RealizedSpecHash
+
+	// A human edits the spec the way kubectl apply does: the whole object, so
+	// the annotations the tool left are carried along.
+	edited := storedContext(t, cluster, "calc")
+	edited.Spec.Intent = "the human wrote this"
+	stamped, err := kcpclient.Unstructured(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cluster.Apply(context.Background(), stamped); err != nil {
+		t.Fatal(err)
+	}
+
+	// The tree gains a file, so the next ingest rewrites the spec's code refs
+	// while the human edit is still pending.
+	if err := os.WriteFile(filepath.Join(repoPath, "calc", "extra.go"), []byte("package calc\n\n// Double doubles an integer.\nfunc Double(a int) int { return a * 2 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commit := fixture.Commit(t, repoPath, "add Double")
+	if _, err := Run(context.Background(), cluster, Options{RepoPath: repoPath, Commit: commit}); err != nil {
+		t.Fatal(err)
+	}
+
+	context := storedContext(t, cluster, "calc")
+	if context.Spec.Intent != "the human wrote this" {
+		t.Errorf("intent = %q, want the human's", context.Spec.Intent)
+	}
+	if context.Status.RealizedSpecHash != acknowledged {
+		t.Errorf("realizedSpecHash = %q, want the unchanged %q", context.Status.RealizedSpecHash, acknowledged)
+	}
+	hash, err := spec.HashSystemContextSpec(context.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash == acknowledged {
+		t.Fatal("the ingest did not change the spec, so the test proves nothing")
+	}
+	if origin := context.Annotations[specapi.OriginHashAnnotation]; origin == hash {
+		t.Errorf("origin hash = %q equals the spec, which hides the human edit", origin)
+	}
+}
+
+func storedContext(t *testing.T, cluster *fakeCluster, name string) *spec.SystemContext {
+	t.Helper()
+	stored, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := kcpclient.Typed(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	context, ok := typed.(*spec.SystemContext)
+	if !ok {
+		t.Fatalf("read back a %T", typed)
+	}
+	return context
 }
 
 func TestMergeCodeRefs(t *testing.T) {
