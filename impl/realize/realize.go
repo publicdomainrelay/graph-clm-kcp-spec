@@ -24,6 +24,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/gitrepo"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/specsync"
 )
 
 const (
@@ -89,6 +90,11 @@ type Options struct {
 	Tool string
 
 	VerifyTimeout time.Duration
+
+	// SpecMirror writes this context's `.specs/<name>.yaml` into the worktree
+	// before the commit, so the spec and the code land in one commit and a pull
+	// request carries both.
+	SpecMirror bool
 }
 
 // Result is what one realize attempt reports. VerifyExitCode is zero when the
@@ -217,6 +223,12 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	result.VerifyOutput = output
 	if exitCode != 0 {
 		return result, &VerifyError{Command: verifyCommand, ExitCode: exitCode, Output: output}
+	}
+
+	if options.SpecMirror {
+		if _, _, err := specsync.WriteFile(options.Worktree, *systemContext); err != nil {
+			return result, err
+		}
 	}
 
 	commit, err := gitrepo.CommitAll(ctx, options.Worktree, commitMessage(options.Context, options.Delta))

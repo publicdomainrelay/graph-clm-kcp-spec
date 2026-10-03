@@ -86,6 +86,8 @@ type config struct {
 
 	managedBudget int
 
+	specsMirror bool
+
 	maxAttempts int
 
 	retryBackoff time.Duration
@@ -124,6 +126,7 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	fs.IntVar(&config.budget, "bundle-budget", 0, "token budget of the context bundle")
 	fs.IntVar(&config.nodeLimit, "bundle-nodes", 0, "how many codegraph node excerpts a bundle carries")
 	fs.IntVar(&config.managedBudget, "context-doc-budget", 0, "token budget of the context document managed zone")
+	fs.BoolVar(&config.specsMirror, "specs-mirror", false, "write .specs/<name>.yaml into the realize worktree, so one commit carries spec and code")
 	fs.IntVar(&config.maxAttempts, "max-attempts", specd.DefaultMaxAttempts, "how many attempts one drift episode gets")
 	fs.DurationVar(&config.retryBackoff, "retry-backoff", specd.DefaultRetryBackoff, "wait before the second attempt at an episode")
 	bolt := boltflags.Add(fs)
@@ -222,6 +225,7 @@ func (c config) options(writer graph.Writer, bolt *boltflags.Options, log *slog.
 		Budget:                 c.budget,
 		NodeLimit:              c.nodeLimit,
 		ManagedBudget:          c.managedBudget,
+		SpecMirror:             c.specsMirror,
 		MaxAttempts:            c.maxAttempts,
 		RetryBackoff:           c.retryBackoff,
 		Log:                    log,

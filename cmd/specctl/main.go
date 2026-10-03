@@ -136,6 +136,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runImportArch(rest, stdout, stderr)
 	case "export":
 		return runExport(rest, stdout, stderr)
+	case "sync":
+		return runSync(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return exitOK
@@ -337,6 +339,8 @@ usage:
   specctl clm report --change <name> [--event <json>|--turn <n> --tool <t> --file <f> --note <s>]
   specctl import-arch <arch.yaml> [--repository <name>] [--bolt-url <url>]
   specctl export --format arch [--repository <name>] [-o <file>]
+  specctl sync --repo <path> [--direction pull|push|both] [--prefer kcp|git]
+      mirrors <repo>/.specs/*.yaml and kcp; refuses when both moved
 
 kinds:
   repository, systemcontext, specchange

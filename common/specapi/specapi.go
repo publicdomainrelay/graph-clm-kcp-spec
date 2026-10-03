@@ -47,6 +47,10 @@ const (
 	OriginIngest  = "ingest"
 	OriginRealize = "realize"
 	OriginHuman   = "human"
+	// OriginGit marks a spec write `specctl sync --direction push` made from a
+	// `.specs/*.yaml` file. It is a desired state change like a human's, so the
+	// controller raises a SpecToCode change for it.
+	OriginGit = "git"
 	// OriginCLM marks a spec write a context language model made through
 	// `specctl clm apply`. It is a spec edit like a human's, so it raises a
 	// SpecToCode change, but it is not a human's: the controller folds it into a
@@ -59,6 +63,12 @@ const (
 	// one it handled in status.populateRequest, so a request is answered once
 	// and a restart does not answer it twice.
 	PopulateRequestAnnotation = Group + "/populate-request"
+
+	// SyncedHashAnnotation is the declared-state hash of the spec at the last
+	// successful `specctl sync`. Both sides of the `.specs/` mirror are
+	// compared against it, so a conflict is exactly "kcp moved and the file
+	// moved since the last sync".
+	SyncedHashAnnotation = Group + "/synced-hash"
 )
 
 const (

@@ -131,6 +131,10 @@ type Options struct {
 
 	ManagedBudget int
 
+	// SpecMirror writes each context's `.specs/<name>.yaml` into the realize
+	// worktree, so one commit carries the spec and the code together.
+	SpecMirror bool
+
 	MaxAttempts int
 
 	RetryBackoff time.Duration
