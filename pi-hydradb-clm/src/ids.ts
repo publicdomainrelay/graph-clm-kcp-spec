@@ -1,4 +1,10 @@
+import { isAbsolute, normalize, resolve } from "node:path";
+
 export const MAX_NODE_ID = 0x1f_ffff_ffff_ffff;
+
+export function canonicalPath(path: string, cwd: string): string {
+  return isAbsolute(path) ? normalize(path) : resolve(cwd, path);
+}
 
 export function stableNodeId(key: string): number {
   let hash = 0xcbf29ce484222325n;

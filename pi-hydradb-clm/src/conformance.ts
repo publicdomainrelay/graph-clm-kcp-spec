@@ -8,6 +8,8 @@ export interface ProbeCase extends ProbeStatement {
   group: "read" | "traversal" | "aggregation" | "write" | "schema";
   setup?: ProbeStatement[];
   portable: boolean;
+  /** Minimum rows the probe must return, so a silently-empty result cannot pass. */
+  minRows?: number;
   note?: string;
 }
 
@@ -69,6 +71,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) RETURN count(*) AS total`,
     setup: SEED,
     portable: true,
+    minRows: 1,
   },
   {
     id: "read.property_by_id",
@@ -76,6 +79,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL} {id: 900001}) RETURN n.name AS name`,
     setup: SEED,
     portable: true,
+    minRows: 1,
   },
   {
     id: "read.two_properties",
@@ -83,6 +87,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL} {id: 900001}) RETURN n.name AS name, n.weight AS weight`,
     setup: SEED,
     portable: true,
+    minRows: 1,
   },
   {
     id: "read.where_equality",
@@ -90,6 +95,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) WHERE n.kind = 'seed' RETURN n.name AS name`,
     setup: SEED,
     portable: true,
+    minRows: 1,
   },
   {
     id: "read.where_is_not_null",
@@ -104,6 +110,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) RETURN n.name AS name ORDER BY name`,
     setup: SEED,
     portable: true,
+    minRows: 1,
   },
   {
     id: "read.order_by_desc",
@@ -118,6 +125,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (n:${LABEL}) RETURN n.name AS name LIMIT 2`,
     setup: SEED,
     portable: true,
+    minRows: 1,
   },
   {
     id: "read.skip",
@@ -204,6 +212,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (a:${LABEL} {id: 900001})-[:CLM_KNOWS]->(b:${LABEL}) RETURN b.name AS name`,
     setup: SEED_WITH_EDGE,
     portable: true,
+    minRows: 1,
   },
   {
     id: "traversal.one_hop_count",
@@ -211,6 +220,7 @@ export const PROBE_CASES: ProbeCase[] = [
     cypher: `MATCH (a:${LABEL} {id: 900001})-[:CLM_KNOWS]->(b:${LABEL}) RETURN count(*) AS total`,
     setup: SEED_WITH_EDGE,
     portable: true,
+    minRows: 1,
   },
   {
     id: "traversal.multi_hop",

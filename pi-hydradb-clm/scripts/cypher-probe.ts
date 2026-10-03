@@ -53,7 +53,17 @@ async function main(): Promise<void> {
       continue;
     }
     try {
-      await client.run(probe.cypher, probe.params ?? {});
+      const rows = await client.run(probe.cypher, probe.params ?? {});
+      if (probe.minRows !== undefined && rows.length < probe.minRows) {
+        outcomes.push({
+          id: probe.id,
+          group: probe.group,
+          portable: probe.portable,
+          status: "fail",
+          error: `returned ${rows.length} rows, expected at least ${probe.minRows}`,
+        });
+        continue;
+      }
       outcomes.push({
         id: probe.id,
         group: probe.group,

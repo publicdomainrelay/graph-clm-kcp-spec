@@ -29,7 +29,13 @@ describe(`portable Cypher subset on ${process.env.HYDRA_BACKEND ?? "default back
         await graph.run(statement.cypher, statement.params ?? {});
       }
       try {
-        await graph.run(probe.cypher, probe.params ?? {});
+        const rows = await graph.run(probe.cypher, probe.params ?? {});
+        if (probe.minRows !== undefined) {
+          assert.ok(
+            rows.length >= probe.minRows,
+            `[${backend}] ${probe.id} returned ${rows.length} rows, expected at least ${probe.minRows}`,
+          );
+        }
       } catch (error) {
         assert.fail(`[${backend}] ${probe.id} rejected: ${reason(error)}`);
       }

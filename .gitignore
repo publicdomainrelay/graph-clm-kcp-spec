@@ -1,3 +1,4 @@
 /bin/
 /hydradb-bins
 node_modules/
+.codegraph/

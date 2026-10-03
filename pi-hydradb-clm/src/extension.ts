@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type GraphBackend } from "./backend.ts";
 import { GraphClient } from "./graph.ts";
-import { nodeKey, stableNodeId } from "./ids.ts";
+import { canonicalPath, nodeKey, stableNodeId } from "./ids.ts";
 import { resolvePartialTarget } from "./target.ts";
 import {
   MEMORY_PROTOCOL,
@@ -60,10 +60,15 @@ export function resolveToken(options: HydraClmOptions): string {
 
 const FILE_TOOLS = new Set(["read", "write", "edit"]);
 
-export function touchedPaths(toolName: string, input: Record<string, unknown>): string[] {
+export function touchedPaths(
+  toolName: string,
+  input: Record<string, unknown>,
+  cwd: string = process.cwd(),
+): string[] {
   if (!FILE_TOOLS.has(toolName)) return [];
   const path = input.path ?? input.file_path ?? input.filePath;
-  return typeof path === "string" && path.length > 0 ? [path] : [];
+  if (typeof path !== "string" || path.length === 0) return [];
+  return [canonicalPath(path, cwd)];
 }
 
 export function memoryNodeId(sessionKey: string, kind: string, title: string, body: string): number {
@@ -265,21 +270,34 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
         ],
         [...MEMORY_PROPS],
       );
-      await client.upsertEdges(EDGES.remembered, LABELS.session, LABELS.memory, [
-        { src: sessionId, dst: id },
-      ]);
-      for (const path of params.files ?? []) {
-        const fileId = fileNodeId(path);
-        await client.upsertVertices(
-          LABELS.file,
-          [{ id: fileId, session: sessionId, path, touches: filesTouched.get(path) ?? 0 }],
-          [...FILE_PROPS],
-        );
-        await client.upsertEdges(EDGES.mentions ?? "MENTIONS", LABELS.memory, LABELS.file, [
-          { src: id, dst: fileId },
+      let linked = 0;
+      try {
+        await client.upsertEdges(EDGES.remembered, LABELS.session, LABELS.memory, [
+          { src: sessionId, dst: id },
         ]);
+        for (const raw of params.files ?? []) {
+          const path = canonicalPath(raw, process.cwd());
+          const fileId = fileNodeId(path);
+          await client.upsertVertices(
+            LABELS.file,
+            [{ id: fileId, session: sessionId, path, touches: filesTouched.get(path) ?? 0 }],
+            [...FILE_PROPS],
+          );
+          await client.upsertEdges(EDGES.mentions, LABELS.memory, LABELS.file, [
+            { src: id, dst: fileId },
+          ]);
+          linked += 1;
+        }
+      } catch (error) {
+        return text(
+          `remembered ${params.kind} "${params.title}" as node ${id}, but linking stopped ` +
+            `after ${linked} file(s): ${error instanceof Error ? error.message : String(error)}. ` +
+            "The memory is stored and will appear in the live context; do not re-store it.",
+        );
       }
-      return text(`remembered ${params.kind} "${params.title}" as node ${id}`);
+      return text(
+        `remembered ${params.kind} "${params.title}" as node ${id}, linked to ${linked} file(s)`,
+      );
     },
   });
 

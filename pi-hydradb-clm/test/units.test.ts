@@ -6,7 +6,7 @@ import {
   vertexSelect,
   vertexUpsert,
 } from "../src/cypher.ts";
-import { cypherLiteral, cypherString, stableNodeId } from "../src/ids.ts";
+import { canonicalPath, cypherLiteral, cypherString, nodeKey, stableNodeId } from "../src/ids.ts";
 import {
   buildLiveContextDocument,
   estimateTokens,
@@ -53,10 +53,21 @@ test("edge select uses a single relationship type and one hop", () => {
   assert.equal(query, "MATCH (a:PiMemory {id: 123})-[:MENTIONS]->(b:PiFile) RETURN b.path AS path");
 });
 
-test("touchedPaths reads file tools only", () => {
-  assert.deepEqual(touchedPaths("read", { path: "src/a.ts" }), ["src/a.ts"]);
-  assert.deepEqual(touchedPaths("edit", { file_path: "src/b.ts" }), ["src/b.ts"]);
-  assert.deepEqual(touchedPaths("bash", { command: "ls" }), []);
+test("touchedPaths reads file tools and canonicalizes to absolute paths", () => {
+  assert.deepEqual(touchedPaths("read", { path: "src/a.ts" }, "/repo"), ["/repo/src/a.ts"]);
+  assert.deepEqual(touchedPaths("read", { path: "/repo/src/a.ts" }, "/repo"), ["/repo/src/a.ts"]);
+  assert.deepEqual(touchedPaths("edit", { file_path: "src/b.ts" }, "/repo"), ["/repo/src/b.ts"]);
+  assert.deepEqual(touchedPaths("bash", { command: "ls" }, "/repo"), []);
+});
+
+test("absolute and relative references to one file collapse to one node", () => {
+  const absolute = canonicalPath("/repo/src/a.ts", "/repo");
+  const relative = canonicalPath("src/a.ts", "/repo");
+  assert.equal(absolute, relative);
+  assert.equal(
+    stableNodeId(nodeKey("session", "file", absolute)),
+    stableNodeId(nodeKey("session", "file", relative)),
+  );
 });
 
 test("live context document has the CLM header and sections", () => {
