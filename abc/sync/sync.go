@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -339,9 +340,41 @@ func CodeToSpecDue(drifted bool, fromCommit, toCommit string) bool {
 
 // SpecEditDue reports whether a human spec edit waits for a realize. An empty
 // realized hash means the controller has no baseline yet, so nothing is due.
-func SpecEditDue(specHash, realizedSpecHash string) bool {
-	return realizedSpecHash != "" && specHash != "" && specHash != realizedSpecHash
+//
+// originHash is the spec the tool itself last wrote, carried on the object.
+// A tool write is a spec update followed by a status update, and a reconcile
+// can run in between; when the spec still hashes to the tool's own write there
+// is no human edit to realize, only a status that has not landed yet.
+func SpecEditDue(specHash, realizedSpecHash, originHash string) bool {
+	if realizedSpecHash == "" || specHash == "" || specHash == realizedSpecHash {
+		return false
+	}
+	return specHash != originHash
 }
+
+// RetryBackoff decides whether the next attempt at a drift episode may be
+// raised now, later, or never. attempts is how many records of the episode
+// already exist, lastAttempt is when the newest one was created (zero when that
+// is unknown, which allows the retry at once), base is the wait before the
+// second attempt, and maxAttempts caps the episode — zero means no cap.
+func RetryBackoff(attempts int, lastAttempt, now time.Time, base time.Duration, maxAttempts int) (time.Duration, bool) {
+	if maxAttempts > 0 && attempts >= maxAttempts {
+		return 0, false
+	}
+	if base <= 0 || lastAttempt.IsZero() || attempts == 0 {
+		return 0, true
+	}
+	wait := base
+	for count := 1; count < attempts && wait < maxRetryBackoff; count++ {
+		wait *= 2
+	}
+	if now.Sub(lastAttempt) >= wait {
+		return 0, true
+	}
+	return wait - now.Sub(lastAttempt), true
+}
+
+const maxRetryBackoff = 10 * time.Minute
 
 // RunningAdmitted reports whether a change may stay Running while the others of
 // its context also are. The lowest name wins, so exactly one change per
@@ -355,10 +388,11 @@ func RunningAdmitted(name string, running []string) bool {
 	return true
 }
 
-// UnresolvedCodeRefs returns the requirement code refs that name neither an
-// observed file nor an observed interface. A ref resolves by its full CodeGraph
-// id, by an interface name with any code ref prefix, or as a file ref.
-func UnresolvedCodeRefs(requirements []spec.Requirement, observed spec.ObservedFacts) []string {
+// ResolvableRefs is every spelling of a code reference the observed facts
+// answer to: a file ref, an interface's CodeGraph id, its bare name, and its
+// name under each code ref prefix. One definition, so ingest, the controller
+// and the model parser can never disagree about what resolves.
+func ResolvableRefs(observed spec.ObservedFacts) map[string]bool {
 	resolvable := map[string]bool{}
 	for _, file := range observed.Files {
 		resolvable[spec.CodeRefPrefixFile+file] = true
@@ -372,6 +406,13 @@ func UnresolvedCodeRefs(requirements []spec.Requirement, observed spec.ObservedF
 			resolvable[prefix+observedInterface.Name] = true
 		}
 	}
+	return resolvable
+}
+
+// UnresolvedCodeRefs returns the requirement code refs that name neither an
+// observed file nor an observed interface.
+func UnresolvedCodeRefs(requirements []spec.Requirement, observed spec.ObservedFacts) []string {
+	resolvable := ResolvableRefs(observed)
 
 	unresolved := []string{}
 	seen := map[string]bool{}

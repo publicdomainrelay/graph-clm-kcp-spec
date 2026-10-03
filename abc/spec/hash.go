@@ -40,18 +40,25 @@ func shorten(value string) string {
 
 const attemptSuffix = "-a"
 
-// NextChangeName names the next attempt at one episode. The first attempt
-// carries the bare deterministic name; a later one is suffixed with its
-// attempt number. A change that failed is therefore retried as a new record
-// instead of colliding with its own name and being dropped, while an
-// unfinished change still blocks the caller before it ever asks.
-func NextChangeName(existing []string, base string) string {
+// AttemptCount is how many records of one episode exist: the bare name plus
+// every numbered retry. It is what a failure cap counts.
+func AttemptCount(existing []string, base string) int {
 	attempts := 0
 	for _, name := range existing {
 		if name == base || strings.HasPrefix(name, base+attemptSuffix) {
 			attempts++
 		}
 	}
+	return attempts
+}
+
+// NextChangeName names the next attempt at one episode. The first attempt
+// carries the bare deterministic name; a later one is suffixed with its
+// attempt number. A change that failed is therefore retried as a new record
+// instead of colliding with its own name and being dropped, while an
+// unfinished change still blocks the caller before it ever asks.
+func NextChangeName(existing []string, base string) string {
+	attempts := AttemptCount(existing, base)
 	if attempts == 0 {
 		return base
 	}

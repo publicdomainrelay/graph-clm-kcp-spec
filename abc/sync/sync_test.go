@@ -261,16 +261,24 @@ func TestSpecChangeDue(t *testing.T) {
 		}
 	}
 
-	if !SpecEditDue("hash-a", "hash-b") {
+	if !SpecEditDue("hash-a", "hash-b", "") {
 		t.Error("a spec that no longer hashes to the realized hash is a pending edit")
 	}
 	for _, due := range []bool{
-		SpecEditDue("hash-a", "hash-a"),
-		SpecEditDue("hash-a", ""),
-		SpecEditDue("", "hash-b"),
+		SpecEditDue("hash-a", "hash-a", ""),
+		SpecEditDue("hash-a", "", ""),
+		SpecEditDue("", "hash-b", ""),
 	} {
 		if due {
 			t.Error("an edit is due only against a realized baseline")
 		}
+	}
+	// A tool write is a spec update and a status update; between the two, the
+	// spec still hashes to what the tool wrote and is not a human edit.
+	if SpecEditDue("hash-a", "hash-b", "hash-a") {
+		t.Error("a spec that is still the tool's own write is not a pending edit")
+	}
+	if !SpecEditDue("hash-c", "hash-b", "hash-a") {
+		t.Error("a spec that is neither the realized hash nor the tool's write is a pending edit")
 	}
 }

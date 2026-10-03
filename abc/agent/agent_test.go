@@ -1,0 +1,250 @@
+package agent
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
+)
+
+func observed() spec.ObservedFacts {
+	return spec.ObservedFacts{
+		Files: []string{"calc/calc.go"},
+		Interfaces: []spec.ObservedInterface{
+			{Name: "Add", Kind: "function", Signature: "func Add(a, b int) int", File: "calc/calc.go", Line: 3, CodegraphID: "function:abc"},
+			{Name: "Multiply", Kind: "function", Signature: "func Multiply(a, b int) int", File: "calc/calc.go", Line: 8, CodegraphID: "function:def"},
+		},
+		Fingerprint: "f1",
+	}
+}
+
+func TestParseDraftReadsAFencedAnswer(t *testing.T) {
+	raw := "Here is the spec:\n\n```json\n" + `{
+  "summary": "The calc package adds and multiplies.",
+  "intent": "Arithmetic over two integers.",
+  "requirements": [
+    {"id": "r.add", "level": "MUST", "text": "Add adds two integers.", "codeRefs": ["function:abc", "Add", "function:Add", "file:calc/calc.go"]},
+    {"id": "r.multiply", "level": "SHOULD", "text": "Multiply multiplies.", "codeRefs": ["function:def"]}
+  ],
+  "interfaces": [
+    {"name": "Add", "kind": "function", "signature": "func Add(a, b int) int", "file": "calc/calc.go"},
+    {"name": "Multiply", "kind": "function", "signature": "func Multiply(a, b int) int", "file": "calc/calc.go"}
+  ]
+}` + "\n```\n"
+
+	draft, err := ParseDraft(raw, observed())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft.Intent != "Arithmetic over two integers." {
+		t.Errorf("intent = %q", draft.Intent)
+	}
+	if draft.Summary != "The calc package adds and multiplies." {
+		t.Errorf("summary = %q", draft.Summary)
+	}
+	if len(draft.Requirements) != 2 || draft.Requirements[0].ID != "r.add" || draft.Requirements[0].Level != spec.LevelMust {
+		t.Fatalf("requirements = %+v", draft.Requirements)
+	}
+	// Four spellings of one interface collapse to the one ref the spec stores.
+	if refs := draft.Requirements[0].CodeRefs; len(refs) != 2 || refs[0] != "function:abc" || refs[1] != "file:calc/calc.go" {
+		t.Errorf("codeRefs = %v, want the canonical id and the file", refs)
+	}
+	if len(draft.Interfaces) != 2 || draft.Interfaces[1].Name != "Multiply" {
+		t.Errorf("interfaces = %+v", draft.Interfaces)
+	}
+	if len(draft.Dropped) != 0 {
+		t.Errorf("dropped = %+v, want none", draft.Dropped)
+	}
+}
+
+func TestParseDraftDropsRefsTheFactsDoNotCarry(t *testing.T) {
+	raw := `{"intent": "i", "requirements": [
+	  {"id": "r.add", "level": "MUST", "text": "t", "codeRefs": ["function:abc", "function:nope", "file:calc/gone.go"]}
+	]}`
+	draft, err := ParseDraft(raw, observed())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(draft.Requirements) != 1 {
+		t.Fatalf("requirements = %+v", draft.Requirements)
+	}
+	if refs := draft.Requirements[0].CodeRefs; len(refs) != 1 || refs[0] != "function:abc" {
+		t.Errorf("kept refs = %v, want the one that resolves", refs)
+	}
+	if len(draft.Dropped) != 2 {
+		t.Fatalf("dropped = %+v, want two", draft.Dropped)
+	}
+	if draft.Dropped[0].Requirement != "r.add" || draft.Dropped[0].Ref != "function:nope" {
+		t.Errorf("dropped[0] = %+v", draft.Dropped[0])
+	}
+}
+
+func TestParseDraftCanonicalizesABareNameToTheObservedID(t *testing.T) {
+	raw := `{"intent": "i", "requirements": [
+	  {"id": "r.add", "level": "MUST", "text": "t", "codeRefs": ["Add", "function:Add", "function:abc"]}
+	]}`
+	draft, err := ParseDraft(raw, observed())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refs := draft.Requirements[0].CodeRefs; len(refs) != 1 || refs[0] != "function:abc" {
+		t.Fatalf("codeRefs = %v, want the one canonical id", refs)
+	}
+	if len(draft.Dropped) != 0 {
+		t.Errorf("dropped = %+v, want none: every spelling names Add", draft.Dropped)
+	}
+	// The canonical form is what the validator accepts, which is the point.
+	if _, result := ValidateDraft("calc", spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf}, draft); !result.OK() {
+		t.Errorf("the canonicalized draft does not validate: %v", result.Err())
+	}
+}
+
+func TestParseDraftRejectsAnUnknownLevel(t *testing.T) {
+	raw := `{"intent": "i", "requirements": [{"id": "r", "level": "MUSTARD", "text": "t"}]}`
+	if _, err := ParseDraft(raw, observed()); err == nil {
+		t.Fatal("an unknown level was accepted")
+	} else if !strings.Contains(err.Error(), "MUSTARD") {
+		t.Errorf("error does not name the level: %v", err)
+	}
+}
+
+func TestParseDraftRejectsAHalfReadableAnswer(t *testing.T) {
+	cases := map[string]string{
+		"no intent":       `{"requirements": []}`,
+		"duplicate id":    `{"intent": "i", "requirements": [{"id": "r", "level": "MUST", "text": "a"}, {"id": "r", "level": "MAY", "text": "b"}]}`,
+		"empty text":      `{"intent": "i", "requirements": [{"id": "r", "level": "MUST", "text": " "}]}`,
+		"duplicate iface": `{"intent": "i", "interfaces": [{"name": "Add"}, {"name": "Add"}]}`,
+		"not json":        `I could not read the code.`,
+	}
+	for name, raw := range cases {
+		if _, err := ParseDraft(raw, observed()); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
+func TestParseDraftFallsBackToTheIntentForTheModelZone(t *testing.T) {
+	draft, err := ParseDraft(`{"intent": "Only an intent."}`, observed())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft.Summary != "Only an intent." {
+		t.Errorf("summary = %q, want the intent", draft.Summary)
+	}
+}
+
+func TestValidateDraftKeepsTheHumanFieldsAndChecksTheRest(t *testing.T) {
+	base := spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf, Intent: "old"}
+	draft := SpecDraft{
+		Intent:       "new",
+		Requirements: []spec.Requirement{{ID: "r.add", Level: spec.LevelMust, Text: "t", CodeRefs: []string{"function:abc"}}},
+		Interfaces:   []spec.Interface{{Name: "Add", Kind: "function"}},
+	}
+	merged, result := ValidateDraft("calc", base, draft)
+	if !result.OK() {
+		t.Fatalf("a valid draft did not validate: %v", result.Err())
+	}
+	if merged.Intent != "new" || merged.Repository != "calc" || len(merged.Requirements) != 1 {
+		t.Errorf("merged = %+v", merged)
+	}
+
+	bad := SpecDraft{Intent: "x", Requirements: []spec.Requirement{{ID: "r", Level: "NOPE", Text: "t"}}}
+	if _, result := ValidateDraft("calc", base, bad); result.OK() {
+		t.Error("an invalid level passed the validator")
+	}
+}
+
+func TestFitKeepsThePromptAndReportsWhatItDropped(t *testing.T) {
+	sections := []Section{
+		{Title: "spec", Body: strings.Repeat("s", 400), Priority: 1},
+		{Title: "neighbors", Body: strings.Repeat("n", 4000), Priority: 5},
+	}
+	kept, dropped := Fit(sections, 200)
+	if len(kept) != 1 || kept[0].Title != "spec" {
+		t.Fatalf("kept = %+v", kept)
+	}
+	if len(dropped) != 1 || dropped[0] != "neighbors" {
+		t.Errorf("dropped = %v", dropped)
+	}
+}
+
+func TestFitKeepsTheFirstSectionWhateverTheBudget(t *testing.T) {
+	kept, dropped := Fit([]Section{{Title: "spec", Body: strings.Repeat("x", 8000), Priority: 1}}, 10)
+	if len(kept) != 1 {
+		t.Fatalf("kept = %+v, want the first section even over budget", kept)
+	}
+	if len(dropped) != 0 {
+		t.Errorf("dropped = %v", dropped)
+	}
+}
+
+func TestRenderPromptCarriesTheContractAndNamesWhatIsMissing(t *testing.T) {
+	neighbors := []Neighbor{}
+	for index := range 60 {
+		neighbors = append(neighbors, Neighbor{
+			Edge: "DECLARES", Direction: DirectionOut, Label: "SpecInterface", Name: string(rune('a'+index%26)) + "-interface",
+		})
+	}
+	bundle := ContextBundle{
+		Context:    "calc",
+		Repository: "calc",
+		Spec:       spec.SystemContextSpec{Repository: "calc", Intent: "old"},
+		Observed:   observed(),
+		Budget:     200,
+		Neighbors:  neighbors,
+	}
+	prompt, dropped := RenderPromptWithSections(bundle)
+	if !strings.Contains(prompt, "\"requirements\"") {
+		t.Error("the prompt does not carry the JSON contract")
+	}
+	if !strings.Contains(prompt, "function:abc") {
+		t.Error("the prompt does not carry the observed facts")
+	}
+	if len(dropped) == 0 || !strings.Contains(prompt, "did not fit the token budget") {
+		t.Errorf("dropped = %v, prompt must name them", dropped)
+	}
+}
+
+func TestSplitContextDocSeparatesTheModelZoneFromTheManagedOne(t *testing.T) {
+	document := "# Calc\n\nMy notes.\n\n" + ManagedBegin + "\n- `function:abc` function Add\n" + ManagedEnd + "\n"
+	model, managed := SplitContextDoc(document)
+	if model != "# Calc\n\nMy notes." {
+		t.Errorf("model = %q", model)
+	}
+	if !strings.Contains(managed, "function:abc") {
+		t.Errorf("managed = %q", managed)
+	}
+}
+
+func TestComposeContextDocRegeneratesTheManagedZoneAndKeepsTheModelZone(t *testing.T) {
+	refs := []ResolvedRef{{CodegraphID: "function:abc", Kind: "function", Name: "Add", FilePath: "calc/calc.go"}}
+	first := ComposeContextDoc("My notes.", refs, DefaultManagedBudget)
+	if !strings.Contains(first, "My notes.") || !strings.Contains(first, "function:abc") {
+		t.Fatalf("document = %q", first)
+	}
+
+	model, _ := SplitContextDoc(first)
+	second := ComposeContextDoc(model, nil, DefaultManagedBudget)
+	if !strings.Contains(second, "My notes.") {
+		t.Error("the model zone was lost")
+	}
+	if strings.Contains(second, "function:abc") {
+		t.Error("the managed zone was not regenerated")
+	}
+	if !strings.Contains(second, ManagedBegin) || !strings.Contains(second, ManagedEnd) {
+		t.Error("the markers are missing")
+	}
+}
+
+func TestComposeContextDocAlwaysLeavesSomewhereToWrite(t *testing.T) {
+	document := ComposeContextDoc("", nil, 100)
+	if !strings.Contains(document, "empty") {
+		t.Errorf("an empty model zone left no placeholder: %q", document)
+	}
+}
+
+func TestContextDocPathIsUnderTheRepository(t *testing.T) {
+	if got := ContextDocPath("/tmp/calc", "calc"); got != "/tmp/calc/.specs/context/calc.md" {
+		t.Errorf("path = %q", got)
+	}
+}
