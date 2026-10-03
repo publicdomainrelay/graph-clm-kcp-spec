@@ -11,6 +11,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/delta"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
 
@@ -65,7 +67,7 @@ func printTable(out io.Writer, items []unstructured.Unstructured) error {
 	case specapi.RepositoryKind:
 		fmt.Fprintln(table, "NAME\tPATH\tBRANCH\tHEADCOMMIT")
 	case specapi.SpecChangeKind:
-		fmt.Fprintln(table, "NAME\tCONTEXT\tDIRECTION\tPHASE")
+		fmt.Fprintln(table, "NAME\tCONTEXT\tDIRECTION\tPHASE\tDELTA\tCOMMIT")
 	}
 	for _, item := range items {
 		row, err := tableRow(item)
@@ -103,9 +105,30 @@ func tableRow(item unstructured.Unstructured) ([]string, error) {
 			nestedString(item, "spec", "systemContext"),
 			nestedString(item, "spec", "direction"),
 			nestedString(item, "status", "phase"),
+			deltaSummary(item),
+			truncate(nestedString(item, "status", "commit"), 12),
 		}, nil
 	}
 	return nil, fmt.Errorf("no table columns for kind %q", item.GetKind())
+}
+
+// deltaSummary reads the structured delta a change carries and prints it the
+// way the plan asks: compactly, so one line says how much work the change is.
+// A change without a delta (one created before phase 6) is a dash.
+func deltaSummary(item unstructured.Unstructured) string {
+	raw, found, err := unstructured.NestedMap(item.Object, "spec", "delta")
+	if err != nil || !found || len(raw) == 0 {
+		return "-"
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return "-"
+	}
+	change := spec.Delta{}
+	if err := json.Unmarshal(encoded, &change); err != nil {
+		return "-"
+	}
+	return delta.Summary(change)
 }
 
 func nestedString(item unstructured.Unstructured, fields ...string) string {

@@ -1,0 +1,19 @@
+# The spec edit the phase 6 example applies to the calc context: one interface
+# and one requirement. Every list here is a keyed list, so server side apply
+# adds these two entries and leaves the rest of the spec alone.
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: SystemContext
+metadata:
+  name: calc
+  namespace: default
+spec:
+  interfaces:
+    - name: Subtract
+      kind: function
+      signature: "func Subtract(a, b int) int"
+      file: calc/calc.go
+  requirements:
+    - id: r.subtract
+      level: SHOULD
+      text: Subtract returns the difference of two integers.
+      codeRefs: ["function:Subtract", "file:calc/calc.go"]

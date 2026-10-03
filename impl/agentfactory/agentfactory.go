@@ -18,6 +18,10 @@ const (
 	Claude = "claude"
 
 	Scripted = "scripted"
+
+	// Pi runs the CLM extension of phase 8. It is named here so a manifest that
+	// asks for it fails with a clear message instead of silently doing nothing.
+	Pi = "pi"
 )
 
 type Options struct {
@@ -36,6 +40,8 @@ type Factory struct {
 	options Options
 
 	scenario *scriptedagent.Scenario
+
+	scenarioFile string
 }
 
 func New(options Options) (*Factory, error) {
@@ -48,42 +54,104 @@ func New(options Options) (*Factory, error) {
 		if file == "" {
 			return nil, fmt.Errorf("agentfactory: %s needs a scenario file", Scripted)
 		}
-		scenario, err := scriptedagent.Load(file)
-		if err != nil {
+		if err := factory.useScenario(file); err != nil {
 			return nil, err
 		}
-		factory.options.Kind = Scripted
-		factory.scenario = scenario
 		return factory, nil
+	case options.Kind == Pi:
+		return nil, fmt.Errorf("agentfactory: %s is the phase 8 CLM extension and is not wired yet", Pi)
 	}
 	return nil, fmt.Errorf("agentfactory: %q is not %s or %s:<file>", options.Kind, Claude, Scripted)
+}
+
+func (f *Factory) useScenario(file string) error {
+	scenario, err := scriptedagent.Load(file)
+	if err != nil {
+		return err
+	}
+	f.options.Kind = Scripted
+	f.scenario = scenario
+	f.scenarioFile = file
+	return nil
 }
 
 func (f *Factory) Kind() string {
 	return f.options.Kind
 }
 
-// Configured reports whether an agent can be built at all. A caller with no
-// agent leaves the work for a human instead of failing it.
+// Configured reports whether the controller itself names an agent. A caller
+// with no agent leaves the work for a human instead of failing it.
 func (f *Factory) Configured() bool {
 	return f != nil && (f.options.Kind != "" || f.options.Command != "")
 }
 
+// KindFor is the agent kind one Repository selects: its own spec.agent.kind
+// when it names one, otherwise the controller's --agent.
+func (f *Factory) KindFor(repository *spec.Repository) string {
+	if repository != nil && repository.Spec.Agent != nil && repository.Spec.Agent.Kind != "" {
+		return repository.Spec.Agent.Kind
+	}
+	if f == nil {
+		return ""
+	}
+	if f.options.Kind == Scripted && f.scenarioFile != "" {
+		return Scripted + ":" + f.scenarioFile
+	}
+	return f.options.Kind
+}
+
+// ConfiguredFor reports whether an agent can be built for one Repository. A
+// Repository that names its own kind makes the controller work, even when
+// specd was started without --agent.
+func (f *Factory) ConfiguredFor(repository *spec.Repository) bool {
+	if f == nil {
+		return false
+	}
+	if f.Configured() {
+		return true
+	}
+	return f.KindFor(repository) != ""
+}
+
 // Agent builds the agent of one working tree. A Repository that names its own
-// command overrides the default; the scripted kind is fixed, because a
-// deterministic scenario must not be talked out of itself.
+// kind wins over the controller's, and one that names a command overrides the
+// model command. The scripted kind answers from the file the kind names, so a
+// deterministic scenario cannot be talked out of itself.
 func (f *Factory) Agent(repository *spec.Repository, dir string) (agent.Agent, error) {
-	if !f.Configured() {
+	if f == nil {
 		return nil, fmt.Errorf("agentfactory: no agent is configured")
 	}
-	if f.options.Kind == Scripted {
-		return scriptedagent.New(f.scenario), nil
-	}
+	kind := f.KindFor(repository)
 	command := f.options.Command
 	args := f.options.Args
 	if repository != nil && repository.Spec.Agent != nil && repository.Spec.Agent.Command != "" {
 		command = repository.Spec.Agent.Command
 		args = repository.Spec.Agent.Args
+	}
+
+	switch {
+	case strings.HasPrefix(kind, Scripted+":"):
+		file := strings.TrimPrefix(kind, Scripted+":")
+		if file == "" {
+			return nil, fmt.Errorf("agentfactory: %s needs a scenario file", Scripted)
+		}
+		if f.scenario != nil && f.scenarioFile == file {
+			return scriptedagent.New(f.scenario), nil
+		}
+		scenario, err := scriptedagent.Load(file)
+		if err != nil {
+			return nil, err
+		}
+		return scriptedagent.New(scenario), nil
+	case kind == Pi:
+		return nil, fmt.Errorf("agentfactory: %s is the phase 8 CLM extension and is not wired yet", Pi)
+	case kind == "" || kind == Claude:
+	default:
+		return nil, fmt.Errorf("agentfactory: %q is not %s or %s:<file>", kind, Claude, Scripted)
+	}
+
+	if kind == "" && command == "" {
+		return nil, fmt.Errorf("agentfactory: no agent is configured")
 	}
 	return claudecli.New(claudecli.Options{
 		Command: command,

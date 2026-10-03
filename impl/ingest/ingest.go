@@ -44,6 +44,15 @@ type Options struct {
 
 	Commit string
 
+	// Adopt is the spec a realize has just landed. When the stored spec still
+	// says the same thing about the fields a human owns, this ingest is the
+	// tail of that realize: it moves the synced baseline onto the facts it just
+	// read and records the spec as realized, in the one status write it already
+	// makes. Without it the realize would be followed by a drift report against
+	// the old baseline, and the controller would raise the opposite change for
+	// its own work.
+	Adopt *spec.SystemContextSpec
+
 	Writer graph.Writer
 }
 
@@ -125,7 +134,7 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 	}
 
 	for _, partition := range partitions {
-		contextResult, err := ingestPartition(ctx, cluster, repositoryName, namespace, commit, partition)
+		contextResult, err := ingestPartition(ctx, cluster, repositoryName, namespace, commit, partition, options.Adopt)
 		if err != nil {
 			return Result{}, err
 		}
@@ -197,6 +206,7 @@ func ingestPartition(
 	cluster Cluster,
 	repositoryName, namespace, commit string,
 	partition specsync.Partition,
+	adopt *spec.SystemContextSpec,
 ) (ContextResult, error) {
 	observed := specsync.Observed(partition)
 	result := ContextResult{Name: partition.Name, Fingerprint: observed.Fingerprint, Observed: observed}
@@ -228,14 +238,24 @@ func ingestPartition(
 	}
 
 	previousSpec := existingContext.Spec
+	previousHash, previousErr := spec.HashSystemContextSpec(previousSpec)
+	// A realize that has just landed asks this ingest to adopt what it finds.
+	// The stored spec is still the one that was realized, so the adopt is
+	// unconditional on that hash and the whole tail of the realize — the new
+	// file refs, the new fingerprint, the new commit — lands in one status
+	// write instead of a drift the controller would act on.
+	adopted := adopt != nil && spec.SameDeclaredState(previousSpec, *adopt)
+
 	// The synced baseline is the fingerprint and commit the spec was last
 	// brought into agreement with. Ingest only establishes it, so a code change
 	// keeps Drifted true until something acknowledges it.
 	syncedFingerprint := existingContext.Status.SyncedFingerprint
 	syncedCommit := existingContext.Status.SyncedCommit
-	if syncedFingerprint == "" {
+	syncedObserved := existingContext.Status.SyncedObserved
+	if syncedFingerprint == "" || adopted {
 		syncedFingerprint = observed.Fingerprint
 		syncedCommit = commit
+		syncedObserved = observed
 	}
 
 	merged := previousSpec
@@ -257,11 +277,18 @@ func ingestPartition(
 	// ingest may absorb its own write. A pending human edit keeps the old hash,
 	// which is what makes the controller raise a SpecToCode change.
 	realizedSpecHash := existingContext.Status.RealizedSpecHash
-	previousHash, previousErr := spec.HashSystemContextSpec(previousSpec)
 	mergedHash, mergedErr := spec.HashSystemContextSpec(merged)
 	absorbed := previousErr == nil && mergedErr == nil && (realizedSpecHash == "" || realizedSpecHash == previousHash)
+	if adopted {
+		absorbed = mergedErr == nil
+	}
+	realizedSpec := existingContext.Status.RealizedSpec
 	if absorbed {
 		realizedSpecHash = mergedHash
+		// The snapshot is the old side of the next spec -> code delta, so it
+		// has to be the spec this ingest just acknowledged.
+		snapshot := merged
+		realizedSpec = &snapshot
 	}
 
 	var applied *unstructured.Unstructured
@@ -314,8 +341,12 @@ func ingestPartition(
 		"observed":           observedObject(observed),
 		"syncedCommit":       syncedCommit,
 		"syncedFingerprint":  syncedFingerprint,
+		"syncedObserved":     observedObject(syncedObserved),
 		"realizedSpecHash":   realizedSpecHash,
 		"conditions":         conditions,
+	}
+	if realizedSpec != nil {
+		status["realizedSpec"] = realizedSpec
 	}
 
 	if specapi.StatusMatches(existingContext.Status, status) {

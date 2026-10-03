@@ -33,9 +33,15 @@ func (c *Controller) reconcileSpecChange(ctx context.Context, namespace, name st
 		return 0, fmt.Errorf("specd: %s is not a SpecChange", name)
 	}
 
-	if change.Spec.Direction == specapi.DirectionCodeToSpec &&
-		change.Status.Phase == specapi.PhasePending && c.agents.Configured() {
+	switch {
+	case change.Spec.Direction == specapi.DirectionCodeToSpec &&
+		change.Status.Phase == specapi.PhasePending && c.agents.Configured():
 		return c.reconcileCodeToSpec(ctx, namespace, name, change)
+	case change.Spec.Direction == specapi.DirectionSpecToCode &&
+		change.Status.Phase == specapi.PhasePending:
+		// This reconciler decides for itself whether an agent can be built for
+		// the repository; a change it cannot work off stays Pending.
+		return c.reconcileSpecToCode(ctx, namespace, name, change)
 	}
 
 	status := map[string]any{}

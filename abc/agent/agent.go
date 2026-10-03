@@ -89,13 +89,17 @@ type Agent interface {
 }
 
 // RealizeRequest is one spec -> code unit of work: the tree the agent may edit,
-// the spec to reach, and the spec it starts from.
+// the delta it must work off, the spec to reach, and the command that gates it.
+// The delta comes first on purpose: an agent is told what changed, never "here
+// is the whole spec, guess what changed".
 type RealizeRequest struct {
 	Context string
 
 	Repository string
 
 	Dir string
+
+	Delta spec.Delta
 
 	FromSpec spec.SystemContextSpec
 
@@ -104,6 +108,9 @@ type RealizeRequest struct {
 	Observed spec.ObservedFacts
 
 	ContextDoc string
+
+	// Verify is the command the repository must pass before the change lands.
+	Verify []string
 
 	Instruction string
 

@@ -90,6 +90,61 @@ func TestScriptedKindReadsTheScenarioOnce(t *testing.T) {
 	}
 }
 
+func TestARepositoryKindWinsOverTheController(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "scenario.yaml")
+	if err := os.WriteFile(path, []byte("contexts:\n  calc:\n    intent: from the scenario\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The controller names no agent at all; the Repository does.
+	factory, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := &spec.Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc"},
+		Spec:       spec.RepositorySpec{Agent: &spec.AgentSpec{Kind: Scripted + ":" + path}},
+	}
+	if !factory.ConfiguredFor(repository) {
+		t.Fatal("a repository that names a kind must be workable")
+	}
+	if factory.ConfiguredFor(nil) {
+		t.Error("a factory with nothing configured must not claim a repository it was not given")
+	}
+	built, err := factory.Agent(repository, "/tmp/calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := built.(*scriptedagent.Agent); !ok {
+		t.Fatalf("built a %T", built)
+	}
+
+	// A repository that names the model kind still gets the controller's
+	// command when it does not name one itself.
+	claudeRepo := &spec.Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc"},
+		Spec:       spec.RepositorySpec{Agent: &spec.AgentSpec{Kind: Claude}},
+	}
+	built, err = factory.Agent(claudeRepo, "/tmp/calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claude, ok := built.(*claudecli.Agent); !ok || claude.Command() != claudecli.DefaultCommand {
+		t.Fatalf("built a %T", built)
+	}
+	unknown := &spec.Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc"},
+		Spec:       spec.RepositorySpec{Agent: &spec.AgentSpec{Kind: "magic"}},
+	}
+	if _, err := factory.Agent(unknown, "/tmp/calc"); err == nil {
+		t.Error("a repository that names an unknown kind was accepted")
+	}
+	if _, err := factory.Agent(&spec.Repository{Spec: spec.RepositorySpec{
+		Agent: &spec.AgentSpec{Kind: Pi},
+	}}, "/tmp/calc"); err == nil {
+		t.Error("the phase 8 kind is not wired yet and must be refused")
+	}
+}
+
 func TestBadKindsAreRefused(t *testing.T) {
 	if _, err := New(Options{Kind: "magic"}); err == nil {
 		t.Error("an unknown kind was accepted")

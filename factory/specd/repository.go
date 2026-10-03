@@ -62,6 +62,18 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 			metav1.ConditionTrue, specapi.ReasonIndexed, "the codegraph index is current")
 	}
 
+	// A realize moves the branch as part of its own work, and the ingest that
+	// adopts it is the tail of that change. Indexing in between would report
+	// the half-finished move as drift and raise the opposite change for it, so
+	// the resync waits while any change is running.
+	running, err := c.anyRunningChange(ctx, namespace)
+	if err != nil {
+		return 0, err
+	}
+	if running {
+		return c.opts.Resync, nil
+	}
+
 	result, err := ingest.Run(ctx, c.client, ingest.Options{
 		RepoPath:       path,
 		RepositoryName: name,
@@ -88,6 +100,30 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 	c.log.Info("repository ingested",
 		"repository", name, "path", path, "commit", head, "contexts", len(result.Contexts))
 	return c.opts.Resync, nil
+}
+
+// anyRunningChange reports whether a change is mid-flight anywhere in the
+// namespace. It is deliberately coarse: a realize is short, and waiting for it
+// costs one list, while indexing beside it costs a wrong drift report.
+func (c *Controller) anyRunningChange(ctx context.Context, namespace string) (bool, error) {
+	listed, err := c.client.List(ctx, specapi.SpecChangeGVR, namespace)
+	if err != nil {
+		return false, err
+	}
+	for index := range listed.Items {
+		typed, err := kcpclient.Typed(&listed.Items[index])
+		if err != nil {
+			return false, err
+		}
+		change, ok := typed.(*spec.SpecChange)
+		if !ok {
+			continue
+		}
+		if change.Status.Phase == specapi.PhaseRunning {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (c *Controller) setRepositoryCondition(

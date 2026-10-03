@@ -52,6 +52,148 @@ func renderSection(section Section) string {
 	return "## " + section.Title + "\n\n" + section.Body + "\n\n"
 }
 
+// RenderDelta renders a structured delta the way a model reads it: one line
+// per changed key, with the old and the new value of a changed field. It is the
+// first thing a realize ask shows, because the ask is "make this difference
+// true", not "here is a spec".
+func RenderDelta(change spec.Delta) string {
+	builder := strings.Builder{}
+	renderFieldDelta(&builder, "intent", change.Intent)
+	renderFieldDelta(&builder, "upstream", change.Upstream)
+	renderFieldDelta(&builder, "orchestrator", change.Orchestrator)
+	renderSetDelta(&builder, "overlay", change.Overlay)
+	renderSetDelta(&builder, "dependsOn", change.DependsOn)
+	renderSetDelta(&builder, "introduces", change.Introduces)
+	renderSetDelta(&builder, "codeRefs", change.CodeRefs)
+	for _, requirement := range change.Requirements {
+		switch requirement.Op {
+		case spec.OpAdded:
+			if requirement.To != nil {
+				fmt.Fprintf(&builder, "+ requirement %s [%s] %s\n", requirement.To.ID, requirement.To.Level, requirement.To.Text)
+				renderSetDelta(&builder, "requirement."+requirement.To.ID+".codeRefs", setDeltaOf(requirement.To.CodeRefs, nil))
+			}
+		case spec.OpRemoved:
+			if requirement.From != nil {
+				fmt.Fprintf(&builder, "- requirement %s [%s] %s\n", requirement.From.ID, requirement.From.Level, requirement.From.Text)
+			}
+		default:
+			fmt.Fprintf(&builder, "~ requirement %s (%s)\n", requirement.ID, strings.Join(requirement.Fields, ", "))
+			if requirement.From != nil && requirement.To != nil {
+				renderFieldDelta(&builder, "requirement."+requirement.ID+".level", fieldOf(requirement.From.Level != requirement.To.Level, string(requirement.From.Level), string(requirement.To.Level)))
+				renderFieldDelta(&builder, "requirement."+requirement.ID+".text", fieldOf(requirement.From.Text != requirement.To.Text, requirement.From.Text, requirement.To.Text))
+				renderSetDelta(&builder, "requirement."+requirement.ID+".codeRefs", setDeltaOf(requirement.To.CodeRefs, requirement.From.CodeRefs))
+			}
+		}
+	}
+	for _, declared := range change.Interfaces {
+		switch declared.Op {
+		case spec.OpAdded:
+			if declared.To != nil {
+				fmt.Fprintf(&builder, "+ interface %s %s\n", declared.Name, renderInterface(*declared.To))
+			}
+		case spec.OpRemoved:
+			if declared.From != nil {
+				fmt.Fprintf(&builder, "- interface %s %s\n", declared.Name, renderInterface(*declared.From))
+			}
+		default:
+			fmt.Fprintf(&builder, "~ interface %s (%s)\n", declared.Name, strings.Join(declared.Fields, ", "))
+			if declared.From != nil && declared.To != nil {
+				renderInterfaceFields(&builder, "interface."+declared.Name+".", *declared.From, *declared.To)
+			}
+		}
+	}
+	if observed := change.Observed; observed != nil {
+		renderSetDelta(&builder, "observed files", observed.Files)
+		for _, entry := range observed.Interfaces {
+			switch entry.Op {
+			case spec.OpAdded:
+				if entry.To != nil {
+					fmt.Fprintf(&builder, "+ observed interface %s %s\n", entry.Name, renderObservedInterface(*entry.To))
+				}
+			case spec.OpRemoved:
+				if entry.From != nil {
+					fmt.Fprintf(&builder, "- observed interface %s %s\n", entry.Name, renderObservedInterface(*entry.From))
+				}
+			default:
+				fmt.Fprintf(&builder, "~ observed interface %s (%s)\n", entry.Name, strings.Join(entry.Fields, ", "))
+			}
+		}
+		renderFieldDelta(&builder, "observed fingerprint", observed.Fingerprint)
+	}
+	if builder.Len() == 0 {
+		return "(no change)\n"
+	}
+	return builder.String()
+}
+
+func renderInterfaceFields(builder *strings.Builder, prefix string, from, to spec.Interface) {
+	renderFieldDelta(builder, prefix+"kind", fieldOf(from.Kind != to.Kind, from.Kind, to.Kind))
+	renderFieldDelta(builder, prefix+"signature", fieldOf(from.Signature != to.Signature, from.Signature, to.Signature))
+	renderFieldDelta(builder, prefix+"file", fieldOf(from.File != to.File, from.File, to.File))
+}
+
+func renderInterface(declared spec.Interface) string {
+	return fmt.Sprintf("(%s) %s in %s", declared.Kind, declared.Signature, declared.File)
+}
+
+func renderObservedInterface(observed spec.ObservedInterface) string {
+	return fmt.Sprintf("%s (%s) in %s:%d", observed.CodegraphID, observed.Signature, observed.File, observed.Line)
+}
+
+func fieldOf(changed bool, from, to string) *spec.FieldDelta {
+	if !changed {
+		return nil
+	}
+	return &spec.FieldDelta{From: from, To: to}
+}
+
+// setDeltaOf is the set difference of one entry's own list field, so a changed
+// requirement shows which refs it gained and lost.
+func setDeltaOf(after, before []string) *spec.StringSetDelta {
+	have := map[string]bool{}
+	for _, value := range before {
+		have[value] = true
+	}
+	want := map[string]bool{}
+	for _, value := range after {
+		want[value] = true
+	}
+	out := &spec.StringSetDelta{}
+	for _, value := range spec.CanonicalSet(after) {
+		if !have[value] {
+			out.Added = append(out.Added, value)
+		}
+	}
+	for _, value := range spec.CanonicalSet(before) {
+		if !want[value] {
+			out.Removed = append(out.Removed, value)
+		}
+	}
+	if len(out.Added) == 0 && len(out.Removed) == 0 {
+		return nil
+	}
+	return out
+}
+
+func renderFieldDelta(builder *strings.Builder, label string, change *spec.FieldDelta) {
+	if change == nil {
+		return
+	}
+	fmt.Fprintf(builder, "~ %s: %q -> %q\n", label, change.From, change.To)
+}
+
+func renderSetDelta(builder *strings.Builder, label string, change *spec.StringSetDelta) {
+	if change == nil {
+		return
+	}
+	for _, value := range change.Added {
+		fmt.Fprintf(builder, "+ %s: %s\n", label, value)
+	}
+	for _, value := range change.Removed {
+		fmt.Fprintf(builder, "- %s: %s\n", label, value)
+	}
+}
+
 // RenderPrompt is the instruction block every summarize ask carries. The
 // contract is the parser's contract: a model that keeps it produces a draft
 // that reads back.

@@ -193,6 +193,31 @@ func (c *Client) Apply(ctx context.Context, object *unstructured.Unstructured) (
 	return c.Update(ctx, object)
 }
 
+// ServerSideApply writes one object with the apply patch type, so the CRD's
+// keyed lists are merged by key: a manifest that names one requirement adds
+// that requirement and leaves the others alone. The field manager is what makes
+// the write a distinct writer, which is what lets a human edit and the tool's
+// own writes coexist.
+func (c *Client) ServerSideApply(ctx context.Context, object *unstructured.Unstructured, fieldManager string) (*unstructured.Unstructured, error) {
+	if object.GetNamespace() == "" {
+		object.SetNamespace(c.namespace)
+	}
+	encoded, err := json.Marshal(object.Object)
+	if err != nil {
+		return nil, fmt.Errorf("kcpclient: encode %s %s: %w", object.GetKind(), object.GetName(), err)
+	}
+	force := true
+	applied, err := c.dynamic.Resource(gvrOf(object)).Namespace(object.GetNamespace()).
+		Patch(ctx, object.GetName(), types.ApplyPatchType, encoded, metav1.PatchOptions{
+			FieldManager: fieldManager,
+			Force:        &force,
+		})
+	if err != nil {
+		return nil, fmt.Errorf("kcpclient: server side apply %s %s: %w", object.GetKind(), object.GetName(), err)
+	}
+	return applied, nil
+}
+
 func (c *Client) Delete(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) error {
 	err := c.dynamic.Resource(gvr).Namespace(c.resolveNamespace(namespace)).
 		Delete(ctx, name, metav1.DeleteOptions{PropagationPolicy: propagationBackground()})

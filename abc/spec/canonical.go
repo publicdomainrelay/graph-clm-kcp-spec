@@ -1,6 +1,9 @@
 package spec
 
-import "sort"
+import (
+	"reflect"
+	"sort"
+)
 
 // CanonicalSet returns a sorted, deduplicated copy of a string list. An empty
 // list becomes nil, so two spellings of the same set hash alike: the CRD
@@ -81,6 +84,17 @@ func CanonicalObservedInterfaces(interfaces []ObservedInterface) []ObservedInter
 	out := append([]ObservedInterface{}, interfaces...)
 	sort.Slice(out, func(left, right int) bool { return out[left].Name < out[right].Name })
 	return out
+}
+
+// SameDeclaredState reports whether two specs say the same thing about the
+// fields a human owns: the repository, the refs, the intent, the requirements,
+// the interfaces and the arch block. The code refs ingest derives from the tree
+// are left out, so an ingest that only added a file ref is not read as a human
+// edit.
+func SameDeclaredState(left, right SystemContextSpec) bool {
+	left.CodeRefs = nil
+	right.CodeRefs = nil
+	return reflect.DeepEqual(Canonicalize(left), Canonicalize(right))
 }
 
 // Canonicalize orders every keyed list and set of a spec. The hash is taken

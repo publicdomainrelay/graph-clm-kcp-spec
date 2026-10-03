@@ -92,14 +92,20 @@ func (a *Agent) Realize(ctx context.Context, request agent.RealizeRequest) (agen
 	return result, nil
 }
 
-// RealizePrompt is the ask for the other direction: the spec the code must
-// reach, the spec it starts from, and the instruction to edit in place.
+// RealizePrompt is the ask for the other direction. The delta comes first: the
+// agent is told what changed in the specification, then the spec the code must
+// reach, then the command that decides whether the change is accepted. The
+// rules are the contract with the reconciler, which owns the worktree and the
+// commit.
 func RealizePrompt(request agent.RealizeRequest) string {
 	builder := strings.Builder{}
 	builder.WriteString("You change a working tree so the code matches its specification.\n\n")
 	builder.WriteString("Edit the files in place. Do not ask questions and do not print a plan.\n")
-	builder.WriteString("Run the repository's tests when you are done.\n\n")
-	builder.WriteString("## target spec\n\n")
+	builder.WriteString("Edit files only: do not run git and do not commit. The tool commits for you.\n\n")
+
+	builder.WriteString("## what changed in the specification\n\n")
+	builder.WriteString(agent.RenderDelta(request.Delta))
+	builder.WriteString("\n## the specification the code must reach\n\n")
 	target, _ := agent.RenderPromptWithSections(agent.ContextBundle{
 		Context:  request.Context,
 		Spec:     request.ToSpec,
@@ -107,6 +113,11 @@ func RealizePrompt(request agent.RealizeRequest) string {
 		Budget:   request.Budget,
 	})
 	builder.WriteString(target)
+
+	if len(request.Verify) > 0 {
+		builder.WriteString("\n## verify\n\n")
+		fmt.Fprintf(&builder, "`%s` must exit zero before this change is accepted.\n", strings.Join(request.Verify, " "))
+	}
 	if request.Instruction != "" {
 		fmt.Fprintf(&builder, "\n## instruction\n\n%s\n", request.Instruction)
 	}

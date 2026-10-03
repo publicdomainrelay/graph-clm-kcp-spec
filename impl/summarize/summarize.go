@@ -165,8 +165,10 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	status := map[string]any{
 		"observedGeneration": generation,
 		"realizedSpecHash":   mergedHash,
+		"realizedSpec":       &merged,
 		"syncedCommit":       systemContext.Status.ObservedCommit,
 		"syncedFingerprint":  observed.Fingerprint,
+		"syncedObserved":     observed,
 		"conditions":         conditions,
 	}
 	if !specapi.StatusMatches(systemContext.Status, status) {

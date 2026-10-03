@@ -8,6 +8,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/delta"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
@@ -114,6 +115,7 @@ func (c *Controller) reconcileChanges(
 		case wait > 0:
 			requeue = max(requeue, wait)
 		default:
+			observedDelta := delta.DiffObserved(systemContext.Status.SyncedObserved, systemContext.Status.Observed)
 			change := &spec.SpecChange{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      spec.NextChangeName(taken, base),
@@ -124,6 +126,7 @@ func (c *Controller) reconcileChanges(
 					Direction:     specapi.DirectionCodeToSpec,
 					FromCommit:    fromCommit,
 					ToCommit:      toCommit,
+					Delta:         &observedDelta,
 				},
 			}
 			if err := c.createChange(ctx, change); err != nil {
@@ -145,6 +148,7 @@ func (c *Controller) reconcileChanges(
 		case wait > 0:
 			requeue = max(requeue, wait)
 		default:
+			specDelta := delta.Diff(realizedSpecOf(systemContext), systemContext.Spec)
 			change := &spec.SpecChange{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      spec.NextChangeName(taken, base),
@@ -155,6 +159,7 @@ func (c *Controller) reconcileChanges(
 					Direction:     specapi.DirectionSpecToCode,
 					FromSpecHash:  systemContext.Status.RealizedSpecHash,
 					ToSpecHash:    specHash,
+					Delta:         &specDelta,
 				},
 			}
 			if err := c.createChange(ctx, change); err != nil {

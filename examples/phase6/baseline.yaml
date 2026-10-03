@@ -1,0 +1,34 @@
+# The spec of the phase 6 example before the human edits it. It declares the
+# surface the calc fixture already has, so the code is CodeSynced from the
+# start and the example's edit is the only change the delta has to carry.
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: SystemContext
+metadata:
+  name: calc
+  namespace: default
+spec:
+  repository: phase6-example
+  upstream: self
+  intent: |
+    The calc package is the smallest complete unit of the spec loop: integer
+    operations behind one exported surface, so an agent can be asked for a
+    change and the verify command can decide whether it landed.
+  requirements:
+    - id: r.add
+      level: MUST
+      text: Add returns the sum of two integers.
+      codeRefs: ["function:Add", "file:calc/calc.go"]
+    - id: r.multiply
+      level: MUST
+      text: Multiply returns the product of two integers.
+      codeRefs: ["function:Multiply", "file:calc/calc.go"]
+  interfaces:
+    - name: Add
+      kind: function
+      signature: "func Add(a, b int) int"
+      file: calc/calc.go
+    - name: Multiply
+      kind: function
+      signature: "func Multiply(a, b int) int"
+      file: calc/calc.go
+  codeRefs: ["file:calc/calc.go"]
