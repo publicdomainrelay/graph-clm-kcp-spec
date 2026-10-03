@@ -14,7 +14,7 @@ export SPECD_BOLT_USER ?= neo4j
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 clean
+.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 demo clean
 
 ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
 ARCH_REPOSITORY ?= deno-kcp
@@ -101,6 +101,33 @@ example-phase4: $(SPECCTL) $(SPECD) kcp-up
 
 example-phase5: $(SPECCTL) $(SPECD) kcp-up
 	./scripts/example-phase5.sh
+
+example-phase6: $(SPECCTL) $(SPECD) kcp-up
+	./scripts/example-phase6.sh
+
+# The failing verify path of the same example: the change ends Failed with its
+# branch kept and the managed branch untouched.
+example-phase6-failing: $(SPECCTL) $(SPECD) kcp-up
+	FAILING=1 MAX_ATTEMPTS=1 ./scripts/example-phase6.sh
+
+# Every phase, in order, against one cluster. It takes a few minutes: phases 2
+# and 3 index a tree and import a 166 node document, and each example starts and
+# stops its own controllers.
+demo: $(SPECCTL) $(SPECD) kcp-up
+	@echo "=== phase 1: kcp holds specs ==="
+	$(MAKE) --no-print-directory example-phase1
+	@echo "=== phase 2: code -> facts -> kcp status + graph ==="
+	$(MAKE) --no-print-directory example-phase2
+	@echo "=== phase 3: the open architecture document ==="
+	$(MAKE) --no-print-directory example-phase3
+	@echo "=== phase 4: the controller, conditions and drift ==="
+	$(MAKE) --no-print-directory example-phase4
+	@echo "=== phase 5: code -> spec with a model ==="
+	$(MAKE) --no-print-directory example-phase5
+	@echo "=== phase 6: spec -> code, driven by the delta ==="
+	$(MAKE) --no-print-directory example-phase6
+	@echo "=== the same change, with a verify command that rejects it ==="
+	$(MAKE) --no-print-directory example-phase6-failing
 
 clean:
 	rm -f $(SPECCTL) $(SPECD) $(BIN)/hydradb-bins

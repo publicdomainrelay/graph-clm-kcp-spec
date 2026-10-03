@@ -201,6 +201,8 @@ make example-phase2  # ingest fixtures/calc, fill status.observed, write the gra
 make example-phase3  # import testdata/open-architecture/arch.yaml and export it back
 make example-phase4  # run specd, commit a change, watch drift and the SpecChange
 make example-phase5  # run specd with an agent, watch the spec fill itself in
+make example-phase6  # edit the spec, watch the agent land the code and the tests pass
+make demo            # every phase, in order, against one cluster
 make kcp-down        # stop the cluster this repo started
 ```
 
@@ -231,6 +233,16 @@ context document the summarize left in the tree, then runs
 `specctl ingest --summarize` over the same tree to show the CLI entry point,
 and stops `specd` with SIGTERM. It owns the same `calc` and `cmd-calc` names, so
 run `make example-phase2` afterwards to put that example state back.
+`make example-phase6` copies `fixtures/calc` to a temporary working tree, applies
+a `Repository` that names its own scripted agent, starts `specd` with no
+`--agent` at all, adds one interface and one requirement to the `calc` context
+with a server side apply, and prints the two entry delta the controller raised,
+the worktree branch, the commit the agent made under `specd
+<specd@localhost>`, the files it touched, the verify exit code, `CodeSynced=True`
+and `Drifted=False`. `make example-phase6-failing` runs the same example with a
+scenario whose `Subtract` cannot pass, so the change ends `Failed` with its
+branch kept and the managed branch untouched. Both own the `calc` and `cmd-calc`
+names.
 
 The same steps by hand:
 
@@ -296,15 +308,25 @@ works against it without extra flags.
 
 | Kind | Purpose | Key fields |
 | --- | --- | --- |
-| `Repository` | a git working tree under management | `spec.path`, `spec.branch`, `spec.verify`, `status.headCommit`, `status.indexedCommit`, the `Indexed` condition |
+| `Repository` | a git working tree under management | `spec.path`, `spec.branch`, `spec.verify`, `spec.agent.kind`, `status.headCommit`, `status.indexedCommit`, the `Indexed` condition |
 | `SystemContext` | one spec node (one system context) | `spec.repository`, `spec.upstream`, `spec.overlay`, `spec.orchestrator`, `spec.dependsOn[]`, `spec.introduces[]`, `spec.intent`, `spec.requirements[]`, `spec.interfaces[]`, `spec.codeRefs[]`, `spec.arch` |
-| `SpecChange` | one direction-tagged change, the unit of work | `spec.systemContext`, `spec.direction`, `spec.toSpecHash` / `spec.toCommit`, `status.phase` |
+| `SpecChange` | one direction-tagged change, the unit of work | `spec.systemContext`, `spec.direction`, `spec.delta`, `spec.toSpecHash` / `spec.toCommit`, `status.phase`, `status.branch`, `status.commit`, `status.verifyExitCode`, `status.filesTouched` |
 
 `SystemContext.status` carries the code facts (`observed.files`,
 `observed.interfaces` with `signature`, `file`, `line` and `codegraphId`, and
 `observed.fingerprint` over both), `observedCommit`, the synced baseline
-(`syncedCommit` and `syncedFingerprint`), `observedGeneration`,
-`realizedSpecHash`, and the conditions `SpecValid`, `CodeSynced` and `Drifted`.
+(`syncedCommit`, `syncedFingerprint` and `syncedObserved`), `observedGeneration`,
+`realizedSpecHash` and `realizedSpec`, and the conditions `SpecValid`,
+`CodeSynced` and `Drifted`. `realizedSpec` is the last spec a realize or an
+ingest acknowledged and `syncedObserved` the facts that baseline was taken from:
+together they are the old side of either delta, so a delta is always computable
+from kcp alone.
+
+Every list in the CRDs is a keyed list: `requirements` by `id`, `interfaces` by
+`name`, the observed interfaces by `name` and `conditions` by `type` are
+`x-kubernetes-list-type: map`, and `codeRefs`, `overlay`, `dependsOn` and
+`introduces` are `x-kubernetes-list-type: set`. `deploy/install-specs.sh` applies
+them, and a server side apply edits one entry without rewriting the list.
 
 Requirements carry `id` (unique in the context), `level` (`MUST`, `SHOULD` or
 `MAY`) and `text`. Every `codeRefs` entry is a CodeGraph id: `file:`, `function:`,
@@ -477,6 +499,85 @@ bin/specctl ingest --repo fixtures/calc --summarize --agent scripted:examples/ph
 `CodeToSpec` changes, so it works with no controller running; both entry points
 call the same `impl/summarize`, so the spec that lands is identical.
 
+## Spec becomes code, driven by a delta
+
+The other direction is the same shape, with one addition that is the whole
+point: **the manifest delta must be computable, and the agent must be told the
+delta, never "here is the whole spec, guess what changed."**
+
+**Every list is a keyed list.** `x-kubernetes-list-type: map` with
+`x-kubernetes-list-map-keys` for `requirements` (by `id`), `interfaces` (by
+`name`), the observed interfaces (by `name`) and `conditions` (by `type`);
+`x-kubernetes-list-type: set` for `codeRefs`, `overlay`, `dependsOn` and
+`introduces`. That is what makes a manifest delta-able: a server side apply that
+names one requirement adds that requirement and leaves the other entries, and
+every other field, exactly as they were.
+
+```bash
+kubectl --server-side --field-manager=human apply -f examples/phase6/spec-edit.yaml
+```
+
+A JSON merge patch replaces a list wholesale, so it has to carry the whole list;
+a server side apply merges by key. `specctl get specchange` prints the result as
+one line, `+2` for two added entries. The hash of a spec is taken over its
+canonical form (keyed lists ordered by key, sets sorted), so reordering a list in
+a manifest is not an edit that raises work.
+
+**The delta is structured and pure.** `abc/delta` is `Diff(old, new) Delta` and
+its inverse `Apply`, with `DiffObserved` for the code -> spec direction. Each
+keyed entry is `added`, `removed` or `changed` with the fields that differ;
+`SpecChange.spec.delta` carries it, and the JSON form is pinned by golden files
+in `testdata/delta/` because phase 8 mirrors it in TypeScript.
+
+```json
+{
+  "interfaces": [{"op": "added", "name": "Subtract", "to": {"name": "Subtract", "kind": "function", "...": "..."}}],
+  "requirements": [{"op": "added", "id": "r.subtract", "to": {"id": "r.subtract", "level": "SHOULD", "...": "..."}}]
+}
+```
+
+The two sides of the diff come from kcp alone: `status.realizedSpec` is the
+spec the last realize or ingest acknowledged, and `status.syncedObserved` is the
+fact set the synced baseline was taken from, so a delta never needs a second
+source.
+
+**One `SpecToCode` change is one worktree.** The reconciler:
+
+1. Reads the context, the repository and its `verify` command, and computes the
+   delta against `status.realizedSpec`. A repository that names no agent, and a
+   controller started with no `--agent`, leave the change `Pending` for a
+   human.
+2. Makes a worktree on branch `spec/<context>/<hash8>` off the managed branch.
+3. Asks the agent. `impl/claudecli` puts the rendered delta first, then the spec
+   the code must reach, then the verify command, and the rule *edit files only,
+   do not commit*. `impl/scriptedagent` applies the scenario's write, patch and
+   delete steps instead.
+4. Runs `Repository.spec.verify` in the worktree. Zero is the gate.
+5. Commits everything the agent left, `.specs/context/*.md` included, as
+   `specd <specd@localhost>`, fast-forwards it onto the managed branch with
+   `--ff-only` (so a branch a human moved is a failure, never a rewrite), and
+   deletes the change's branch.
+6. Re-ingests the tree and hands ingest the spec it realized, so the new file
+   refs, the new fingerprint, the new commit and the realized hash land in one
+   status write. That is what ends the episode: no drift is reported for the
+   tool's own work, so the controller cannot raise the opposite change.
+
+On a non-zero exit the change is `Failed` with the exit code, the files it
+touched and the verify output; the branch is kept for a human, the managed
+branch and the spec do not move, and the next attempt is handed that output as
+its instruction. Attempts back off and stop after `--max-attempts`.
+
+```bash
+bin/specd --agent claude --resync 5s                       # the real model
+bin/specd --resync 5s                                      # agent named by the manifest
+bin/specd --agent scripted:examples/phase6/scenario.yaml    # deterministic
+```
+
+`Repository.spec.agent.kind` selects the agent per repository
+(`claude`, `scripted:<file>`, and `pi` once phase 8 wires it), and it wins over
+the controller's `--agent`, so one manifest can say how its own changes are
+worked off.
+
 ## The open architecture document
 
 `deno-kcp/.tools/open-architecture/arch.yaml` is a hand written spec of a whole
@@ -558,8 +659,9 @@ abc/spec             typed Repository/SystemContext/SpecChange, arch ids, pure v
 abc/archyaml         pure: read arch.yaml into a flat node model, write it back
 abc/sync             pure: partition a tree into contexts, observed facts, fingerprint, conditions
 abc/graph            pure: the graph model, row builders, Cypher builders, GraphWriter
-abc/agent            pure: the context bundle, the token budget, the strict draft parser, the context document
-impl/kcpclient       dynamic client for a kcp workspace: CRUD, status, manifests
+abc/agent            pure: the context bundle, the token budget, the strict draft parser, the context document, the delta render
+abc/delta            pure: Diff/Apply of two specs and of two observed fact sets, and the compact summary
+impl/kcpclient       dynamic client for a kcp workspace: CRUD, status, manifests, server side apply
 impl/codegraphsqlite run codegraph, read .codegraph/codegraph.db, resolve code refs
 impl/codegraphcli    run codegraph context|node, the only place the code itself is rendered
 impl/ingest          the code -> facts -> kcp status pipeline and the graph rebuild
@@ -568,8 +670,9 @@ impl/summarize       one code -> spec unit of work: bundle, agent, validate, wri
 impl/agentfactory    one --agent option string into an agent, shared by specd and specctl
 impl/claudecli       the model agent: a configurable command, the prompt on stdin, a timeout
 impl/scriptedagent   the deterministic agent: drafts and realize steps from a scenario file
+impl/realize         one spec -> code unit of work: worktree, agent, verify gate, commit, land, re-ingest
 impl/archkcp         arch.yaml <-> SystemContext objects on a kcp workspace
-impl/gitrepo         reading the working tree (head commit, branch)
+impl/gitrepo         the managed tree: head, branch, worktrees, the specd commit, the --ff-only land
 impl/boltgraph       Bolt client for HydraDB and ArcadeDB
 abc/watch            the watch contract: resources in, Added/Updated/Deleted out
 impl/watchinformer   dynamic informer watches against the workspace
@@ -584,6 +687,7 @@ deploy/install-specs.sh  create root:specs, apply the CRDs, write a kubeconfig
 deploy/crds/         the three CustomResourceDefinitions
 examples/calc/       a repository and two system contexts that reference each other
 examples/phase5/     the scripted agent the phase 5 example drives specd with
+examples/phase6/     the baseline spec, the spec edit and the two scripted agents of the phase 6 example
 fixtures/calc/       a tiny Go working tree: the calc package and its CLI
 fixtures/greet/      a tiny Deno/TypeScript module: a root module and format/
 testdata/open-architecture/  three revisions of arch.yaml and its schema
@@ -602,8 +706,9 @@ make check      # gofmt and go vet
 make test       # unit tests; live tests skip (-short)
 make test-live  # SPECD_REQUIRE_LIVE=1; starts kcp, needs codegraph and a Bolt backend
 
-# the one test that spends a real model call
+# the two tests that spend a real model call
 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase5LiveModel -count=1 -v
+SPECD_REQUIRE_LIVE_MODEL=1 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase6LiveModelRealizesSubtract -count=1 -v
 ```
 
 The live tests start the cluster with `deploy/start-kcp.sh` if needed and leave
@@ -618,8 +723,11 @@ everything under the `deno-kcp` repository, so run `make example-phase2` or
 tests start a real `specd` in the test process and stop it before they clean up,
 so no controller is left watching the workspace afterwards; the phase 5 ones run
 it with `--agent scripted:<file>`, so the loop is tested without a model, and
-only `SPECD_REQUIRE_LIVE_MODEL=1` runs `deepseek-claude` (that test needs no
-cluster, only `codegraph`). The ArcadeDB
+only `SPECD_REQUIRE_LIVE_MODEL=1` runs `deepseek-claude`: the phase 5 test needs
+no cluster, only `codegraph`, and the phase 6 one drives the whole realize path
+against a real worktree. The phase 6 tests own the `calc` and `cmd-calc` names
+too, and the keyed list test proves a server side apply edits one requirement
+without rewriting the others against the live API server. The ArcadeDB
 checks read
 `SPECD_TEST_ARCADE_URL`, `SPECD_TEST_ARCADE_USER`, `SPECD_TEST_ARCADE_PASSWORD`
 and `SPECD_TEST_ARCADE_DATABASE`; the HydraDB ones read
@@ -636,14 +744,14 @@ on `bolt://127.0.0.1:7688`; neither is started by this repository.
 
 ## What is next
 
-Phase 6 does the other direction with the same pieces: a git worktree on branch
-`spec/<context>/<hash8>` per `SpecToCode` change, `impl/claudecli.Realize` (or
-the scripted agent's steps) editing it, `spec.verify` gating the commit, and the
-result fast-forwarded, re-ingested and marked `CodeSynced`. The pieces it needs
-are already here: `abc/agent.RealizeRequest` and `RealizeResult`, the scripted
-agent's write/patch/delete steps, and the `SpecToCode` change that the phase 5
-loop is careful never to raise for its own write.
+Phase 7 makes one manifest populate an unknown codebase: `Repository.spec.source`
+(`path` or `git: {url, ref}`) and `Repository.spec.populate` (partition, include,
+exclude, summarize, agent), with `Repository.status.phase` running
+`Cloning -> Indexing -> Populating -> Populated`. `specctl ingest` becomes a thin
+wrapper that applies a `Repository` and waits, so there is one code path.
 
-Phase 7 makes the same API available to a second workspace and mirrors
-`.specs/*.yaml` in the managed repository; phase 8 builds the fixture set and
-`specctl eval`.
+Phase 8 makes the `pi-hydradb-clm` extension a first class writer of kcp state,
+with the same delta shape mirrored in TypeScript against the golden files in
+`testdata/delta/`, and `impl/piagent` as a third `Agent`. Phase 9 adds
+APIExport/APIBinding for tenant workspaces and `.specs/*.yaml` mirroring; phase
+10 builds the fixture set and `specctl eval`.

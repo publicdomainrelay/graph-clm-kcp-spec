@@ -248,3 +248,60 @@ func TestContextDocPathIsUnderTheRepository(t *testing.T) {
 		t.Errorf("path = %q", got)
 	}
 }
+
+func TestRenderDeltaNamesEveryChangedKey(t *testing.T) {
+	change := spec.Delta{
+		Intent:   &spec.FieldDelta{From: "old intent", To: "new intent"},
+		CodeRefs: &spec.StringSetDelta{Added: []string{"function:Subtract"}, Removed: []string{"package:calc"}},
+		Requirements: []spec.RequirementDelta{{
+			Op: spec.OpAdded, ID: "r.subtract",
+			To: &spec.Requirement{ID: "r.subtract", Level: spec.LevelShould, Text: "Subtract returns the difference.", CodeRefs: []string{"function:Subtract"}},
+		}, {
+			Op: spec.OpChanged, ID: "r.add", Fields: []string{spec.FieldLevel},
+			From: &spec.Requirement{ID: "r.add", Level: spec.LevelMust, Text: "Add returns the sum."},
+			To:   &spec.Requirement{ID: "r.add", Level: spec.LevelShould, Text: "Add returns the sum."},
+		}, {
+			Op: spec.OpRemoved, ID: "r.gone",
+			From: &spec.Requirement{ID: "r.gone", Level: spec.LevelMay, Text: "Gone."},
+		}},
+		Interfaces: []spec.InterfaceDelta{{
+			Op: spec.OpAdded, Name: "Subtract",
+			To: &spec.Interface{Name: "Subtract", Kind: "function", Signature: "func Subtract(a, b int) int", File: "calc/calc.go"},
+		}},
+	}
+	rendered := RenderDelta(change)
+	for _, want := range []string{
+		`intent: "old intent" -> "new intent"`,
+		"+ codeRefs: function:Subtract",
+		"- codeRefs: package:calc",
+		"+ requirement r.subtract [SHOULD] Subtract returns the difference.",
+		"~ requirement r.add (level)",
+		"~ requirement.r.add.level: \"MUST\" -> \"SHOULD\"",
+		"- requirement r.gone [MAY] Gone.",
+		"+ interface Subtract (function) func Subtract(a, b int) int in calc/calc.go",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("the render is missing %q:\n%s", want, rendered)
+		}
+	}
+	if got := RenderDelta(spec.Delta{}); !strings.Contains(got, "no change") {
+		t.Errorf("an empty delta rendered %q", got)
+	}
+}
+
+func TestRenderDeltaCoversObservedFacts(t *testing.T) {
+	change := spec.Delta{Observed: &spec.ObservedDelta{
+		Files: &spec.StringSetDelta{Added: []string{"calc/subtract_test.go"}},
+		Interfaces: []spec.ObservedInterfaceDelta{{
+			Op: spec.OpAdded, Name: "Subtract",
+			To: &spec.ObservedInterface{Name: "Subtract", Kind: "function", Signature: "(a, b int) int", File: "calc/calc.go", Line: 14, CodegraphID: "function:cc33"},
+		}},
+	}}
+	rendered := RenderDelta(change)
+	if !strings.Contains(rendered, "+ observed files: calc/subtract_test.go") {
+		t.Errorf("the file set is missing:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "+ observed interface Subtract function:cc33") {
+		t.Errorf("the added interface is missing:\n%s", rendered)
+	}
+}

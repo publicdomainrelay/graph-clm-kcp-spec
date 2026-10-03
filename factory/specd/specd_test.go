@@ -80,6 +80,10 @@ func (f *fakeCluster) Create(_ context.Context, object *unstructured.Unstructure
 	created := object.DeepCopy()
 	created.SetResourceVersion("1")
 	created.SetGeneration(1)
+	createdAt := created.GetCreationTimestamp()
+	if createdAt.IsZero() {
+		created.SetCreationTimestamp(metav1.Now())
+	}
 	f.objects[key] = created
 	return created.DeepCopy(), nil
 }
@@ -591,4 +595,206 @@ func repositoryConditionStatus(t *testing.T, object *unstructured.Unstructured, 
 	}
 	t.Fatalf("%s has no %s condition", object.GetName(), conditionType)
 	return ""
+}
+
+// TestSpecToCodeChangeCarriesTheDelta is the phase 6 contract for the spec ->
+// code direction: the change carries what changed, computed against the spec
+// that was last realized, never the whole spec.
+func TestSpecToCodeChangeCarriesTheDelta(t *testing.T) {
+	cluster := newFakeCluster()
+	realized := spec.SystemContextSpec{
+		Repository:   "calc",
+		Upstream:     spec.RefSelf,
+		Intent:       "Arithmetic on two integers.",
+		Requirements: []spec.Requirement{{ID: "r.add", Level: spec.LevelMust, Text: "Add returns the sum."}},
+		Interfaces:   []spec.Interface{{Name: "Add", Kind: "function"}},
+		CodeRefs:     []string{"file:calc/calc.go"},
+	}
+	applied := apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
+		systemContext.Spec = realized
+		systemContext.Spec.Interfaces = append(systemContext.Spec.Interfaces,
+			spec.Interface{Name: "Subtract", Kind: "function", Signature: "func Subtract(a, b int) int"})
+		systemContext.Spec.Requirements = append(systemContext.Spec.Requirements,
+			spec.Requirement{ID: "r.subtract", Level: spec.LevelShould, Text: "Subtract returns the difference."})
+		hash, err := spec.HashSystemContextSpec(realized)
+		if err != nil {
+			t.Fatal(err)
+		}
+		systemContext.Status.Observed = observedFacts("f1")
+		systemContext.Status.SyncedFingerprint = "f1"
+		systemContext.Status.RealizedSpecHash = hash
+		systemContext.Status.RealizedSpec = &realized
+	}))
+	controller := testController(cluster)
+
+	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+	names := cluster.names(specapi.SpecChangeGVR)
+	if len(names) != 1 {
+		t.Fatalf("spec changes = %v, want one", names)
+	}
+	object, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, names[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change := typed.(*spec.SpecChange)
+	if change.Spec.Direction != specapi.DirectionSpecToCode {
+		t.Fatalf("direction = %q", change.Spec.Direction)
+	}
+	if change.Spec.Delta == nil {
+		t.Fatal("the change carries no delta")
+	}
+	counts := change.Spec.Delta.Count()
+	if counts.Added != 2 || counts.Removed != 0 || counts.Changed != 0 {
+		t.Errorf("delta = %+v, want exactly the two added entries", counts)
+	}
+	if len(change.Spec.Delta.Interfaces) != 1 || change.Spec.Delta.Interfaces[0].Name != "Subtract" {
+		t.Errorf("interfaces = %+v", change.Spec.Delta.Interfaces)
+	}
+	if len(change.Spec.Delta.Requirements) != 1 || change.Spec.Delta.Requirements[0].ID != "r.subtract" {
+		t.Errorf("requirements = %+v", change.Spec.Delta.Requirements)
+	}
+	if change.Spec.FromSpecHash != applied.GetAnnotations()[specapi.OriginHashAnnotation] &&
+		change.Spec.FromSpecHash != realizedHashOf(t, realized) {
+		t.Errorf("fromSpecHash = %q", change.Spec.FromSpecHash)
+	}
+}
+
+// TestCodeToSpecChangeCarriesTheObservedDelta is the other direction: the
+// change says which facts the code gained since the synced baseline.
+func TestCodeToSpecChangeCarriesTheObservedDelta(t *testing.T) {
+	cluster := newFakeCluster()
+	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
+		systemContext.Status.Observed = observedFacts("f2")
+		systemContext.Status.ObservedCommit = "c2"
+		systemContext.Status.SyncedObserved = observedFacts("f1")
+		systemContext.Status.SyncedFingerprint = "f1"
+		systemContext.Status.SyncedCommit = "c1"
+	}))
+	controller := testController(cluster)
+
+	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+	names := cluster.names(specapi.SpecChangeGVR)
+	if len(names) != 1 {
+		t.Fatalf("spec changes = %v, want one", names)
+	}
+	object, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, names[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change := typed.(*spec.SpecChange)
+	if change.Spec.Direction != specapi.DirectionCodeToSpec {
+		t.Fatalf("direction = %q", change.Spec.Direction)
+	}
+	if change.Spec.Delta == nil || change.Spec.Delta.Observed == nil {
+		t.Fatal("the change carries no observed delta")
+	}
+	if change.Spec.Delta.Observed.Fingerprint == nil {
+		t.Error("the fingerprint change is missing")
+	}
+}
+
+func realizedHashOf(t *testing.T, specification spec.SystemContextSpec) string {
+	t.Helper()
+	hash, err := spec.HashSystemContextSpec(specification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
+}
+
+func TestRealizeBranchAndWorktreeAreNamedAfterTheChange(t *testing.T) {
+	if got := realizeBranch("calc", "0123456789abcdef"); got != "spec/calc/01234567" {
+		t.Errorf("branch = %q", got)
+	}
+	if got := realizeBranch("calc", "abc"); got != "spec/calc/abc" {
+		t.Errorf("branch = %q", got)
+	}
+	first, err := worktreeDir("calc-s2c-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := worktreeDir("calc-s2c-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Error("two attempts share one worktree directory")
+	}
+	if !strings.Contains(first, "calc-s2c-abc") {
+		t.Errorf("worktree = %q", first)
+	}
+}
+
+func TestRetryInstructionFeedsTheFailedVerifyBack(t *testing.T) {
+	cluster := newFakeCluster()
+	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
+		systemContext.Status.RealizedSpecHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	}))
+	base := spec.ChangeNameSpecToCode("calc", strings.Repeat("b", 64))
+	apply(t, cluster, &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: base, Namespace: specapi.DefaultNamespace},
+		Spec: spec.SpecChangeSpec{
+			SystemContext: "calc", Direction: specapi.DirectionSpecToCode,
+			ToSpecHash: strings.Repeat("b", 64),
+		},
+		Status: spec.SpecChangeStatus{Phase: specapi.PhaseFailed, AgentLog: "Subtract(5, 3) = 8, want 2"},
+	})
+	controller := testController(cluster)
+
+	change := &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: base, Namespace: specapi.DefaultNamespace},
+		Spec: spec.SpecChangeSpec{
+			SystemContext: "calc", Direction: specapi.DirectionSpecToCode,
+			ToSpecHash: strings.Repeat("b", 64),
+		},
+	}
+	instruction := controller.retryInstruction(context.Background(), specapi.DefaultNamespace, change)
+	if !strings.Contains(instruction, "Subtract(5, 3) = 8, want 2") {
+		t.Errorf("instruction = %q, want the failed verify output", instruction)
+	}
+	change.Spec.ToSpecHash = strings.Repeat("c", 64)
+	if got := controller.retryInstruction(context.Background(), specapi.DefaultNamespace, change); got != "" {
+		t.Errorf("a fresh episode got the instruction %q", got)
+	}
+}
+
+func TestSpecToCodeIsLeftForAHumanWithoutAnAgent(t *testing.T) {
+	cluster := newFakeCluster()
+	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {}))
+	apply(t, cluster, &spec.Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc", Namespace: specapi.DefaultNamespace},
+		Spec:       spec.RepositorySpec{Path: t.TempDir()},
+	})
+	apply(t, cluster, &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc-s2c-abc", Namespace: specapi.DefaultNamespace},
+		Spec: spec.SpecChangeSpec{
+			SystemContext: "calc", Direction: specapi.DirectionSpecToCode,
+			ToSpecHash: strings.Repeat("d", 64),
+		},
+		Status: spec.SpecChangeStatus{Phase: specapi.PhasePending},
+	})
+	controller := testController(cluster)
+
+	if _, err := controller.reconcileSpecChange(context.Background(), specapi.DefaultNamespace, "calc-s2c-abc"); err != nil {
+		t.Fatal(err)
+	}
+	object, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, "calc-s2c-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if phase, _, _ := unstructured.NestedString(object.Object, "status", "phase"); phase != specapi.PhasePending {
+		t.Errorf("phase = %q, want Pending: no agent is configured", phase)
+	}
 }

@@ -157,3 +157,73 @@ func TestDefaultsAreTheHeadlessCommand(t *testing.T) {
 		t.Error("a missing command was accepted")
 	}
 }
+
+// TestRealizePromptPutsTheDeltaFirst is the contract of the spec -> code ask:
+// the agent reads what changed before it reads the spec, and it is told the
+// verify command and that the tool owns the commit.
+func TestRealizePromptPutsTheDeltaFirst(t *testing.T) {
+	request := agent.RealizeRequest{
+		Context:    "calc",
+		Repository: "calc",
+		Delta: spec.Delta{
+			Interfaces: []spec.InterfaceDelta{{
+				Op: spec.OpAdded, Name: "Subtract",
+				To: &spec.Interface{Name: "Subtract", Kind: "function", Signature: "func Subtract(a, b int) int", File: "calc/calc.go"},
+			}},
+		},
+		ToSpec: spec.SystemContextSpec{
+			Repository: "calc",
+			Intent:     "Arithmetic on two integers.",
+		},
+		Verify:      []string{"go", "test", "./..."},
+		Instruction: "the previous attempt failed",
+	}
+	prompt := RealizePrompt(request)
+
+	deltaAt := strings.Index(prompt, "what changed in the specification")
+	specAt := strings.Index(prompt, "the specification the code must reach")
+	verifyAt := strings.Index(prompt, "go test ./...` must exit zero")
+	if deltaAt < 0 || specAt < 0 || verifyAt < 0 {
+		t.Fatalf("the prompt is missing a section:\n%s", prompt)
+	}
+	if !(deltaAt < specAt && specAt < verifyAt) {
+		t.Errorf("the sections are out of order: delta %d, spec %d, verify %d", deltaAt, specAt, verifyAt)
+	}
+	if !strings.Contains(prompt, "+ interface Subtract (function) func Subtract(a, b int) int in calc/calc.go") {
+		t.Errorf("the delta is not rendered:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Edit files only: do not run git and do not commit") {
+		t.Errorf("the rule is missing:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "the previous attempt failed") {
+		t.Errorf("the retry instruction is missing:\n%s", prompt)
+	}
+}
+
+// TestRealizeRunsInTheGivenDirectoryAndReportsItsOutput checks the other half:
+// the model runs where the worktree is, and its output comes back as the log.
+func TestRealizeRunsInTheGivenDirectoryAndReportsItsOutput(t *testing.T) {
+	command, dir := recorder(t)
+	worktree := filepath.Join(dir, "worktree")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	built := New(Options{Command: command, Dir: worktree})
+	result, err := built.Realize(context.Background(), agent.RealizeRequest{
+		Context: "calc",
+		ToSpec:  spec.SystemContextSpec{Repository: "calc", Intent: "Arithmetic."},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Log == "" {
+		t.Error("the realize result carries no log")
+	}
+	where, err := os.ReadFile(filepath.Join(dir, "where"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(where)) != worktree {
+		t.Errorf("the model ran in %q, want the worktree %q", strings.TrimSpace(string(where)), worktree)
+	}
+}

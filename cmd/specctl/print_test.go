@@ -207,3 +207,56 @@ func TestOneLineCollapsesWhitespace(t *testing.T) {
 		t.Errorf("oneLine truncation = %q", got)
 	}
 }
+
+func TestPrintTableShowsTheDeltaCompactly(t *testing.T) {
+	change := &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc-s2c-abc"},
+		Spec: spec.SpecChangeSpec{
+			SystemContext: "calc",
+			Direction:     specapi.DirectionSpecToCode,
+			ToSpecHash:    strings.Repeat("a", 64),
+			Delta: &spec.Delta{
+				Requirements: []spec.RequirementDelta{{
+					Op: spec.OpAdded, ID: "r.subtract",
+					To: &spec.Requirement{ID: "r.subtract", Level: spec.LevelShould, Text: "Subtract returns the difference."},
+				}},
+				Interfaces: []spec.InterfaceDelta{{
+					Op: spec.OpAdded, Name: "Subtract",
+					To: &spec.Interface{Name: "Subtract", Kind: "function"},
+				}},
+			},
+		},
+		Status: spec.SpecChangeStatus{Phase: specapi.PhaseSucceeded, Commit: "abcdef1234567890"},
+	}
+	change.SetDefaults()
+
+	out := &bytes.Buffer{}
+	if err := printObjects(out, []unstructured.Unstructured{testObject(t, change)}, "table"); err != nil {
+		t.Fatal(err)
+	}
+	printed := out.String()
+	for _, want := range []string{"DELTA", "COMMIT", "+2", "abcdef123..."} {
+		if !strings.Contains(printed, want) {
+			t.Errorf("change table is missing %q:\n%s", want, printed)
+		}
+	}
+
+	// A change from before phase 6 carries no delta and prints a dash.
+	plain := &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-old"},
+		Spec: spec.SpecChangeSpec{
+			SystemContext: "calc", Direction: specapi.DirectionCodeToSpec,
+			FromCommit: "a", ToCommit: "b",
+		},
+		Status: spec.SpecChangeStatus{Phase: specapi.PhasePending},
+	}
+	plain.SetDefaults()
+	out.Reset()
+	if err := printObjects(out, []unstructured.Unstructured{testObject(t, plain)}, "table"); err != nil {
+		t.Fatal(err)
+	}
+	row := out.String()
+	if !strings.Contains(row, "-") {
+		t.Errorf("a change with no delta printed no dash:\n%s", row)
+	}
+}

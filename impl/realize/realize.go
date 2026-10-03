@@ -34,6 +34,11 @@ const (
 
 	// ChangedFilesLimit bounds the diff stat the status carries.
 	ChangedFilesLimit = 100
+
+	// WaitDelay is the grace after the timeout or a cancel, before the output
+	// pipes of a killed verify are closed by force. A test runner that leaves a
+	// child behind would otherwise hold the pipes open past the timeout.
+	WaitDelay = 5 * time.Second
 )
 
 type Cluster interface {
@@ -308,6 +313,7 @@ func verify(ctx context.Context, command []string, dir string, timeout time.Dura
 	defer cancel()
 	process := exec.CommandContext(runCtx, command[0], command[1:]...)
 	process.Dir = dir
+	process.WaitDelay = WaitDelay
 	output, err := process.CombinedOutput()
 	if err == nil {
 		return 0, tail(string(output))
