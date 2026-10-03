@@ -30,6 +30,9 @@ const phase8ModelRepository = "phase8-model-calc"
 // is not deterministic.
 func TestPhase8LiveModelRealizesWithTheMod(t *testing.T) {
 	requireLiveModel(t, "deepseek-claude", "claude", "kcp", "kine", "kubectl", "go")
+	// The model gate is on top of the cluster gate, not instead of it: without
+	// SPECD_REQUIRE_LIVE=1 a missing kcp skips rather than fails.
+	requireLive(t, "kcp", "kine", "kubectl")
 	root := repoRoot(t)
 	startCluster(t, root)
 

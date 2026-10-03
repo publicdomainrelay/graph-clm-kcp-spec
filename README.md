@@ -734,7 +734,7 @@ the `specctl` path and the Bolt endpoint in its environment.
 it renders the document, makes the edit a model would make, applies it, shows
 the one entry delta and the raised `SpecToCode` change, folds a second edit into
 the running change, and reports a touched file. The gated live run —
-`SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase8LiveModel -count=1`
+`SPECD_REQUIRE_LIVE=1 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase8LiveModel -count=1`
 — does the same with `deepseek-claude` and the mod actually loaded.
 
 ## The open architecture document
