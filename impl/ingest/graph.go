@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -14,7 +15,16 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 )
 
+// rebuildMu serializes the whole-graph rewrite. A rebuild deletes every
+// managed vertex and writes them again, so two of them at once would interleave
+// and one would wipe the other's vertices; a controller with several workers
+// can have two ingests finish together.
+var rebuildMu sync.Mutex
+
 func RebuildGraph(ctx context.Context, cluster Cluster, writer graph.Writer, options Options) error {
+	rebuildMu.Lock()
+	defer rebuildMu.Unlock()
+
 	namespace := options.Namespace
 	if namespace == "" {
 		namespace = specapi.DefaultNamespace

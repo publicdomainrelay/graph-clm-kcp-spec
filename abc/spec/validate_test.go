@@ -307,3 +307,26 @@ func TestValidateSystemContextArch(t *testing.T) {
 		t.Fatalf("the document object must validate: %v", result.Err())
 	}
 }
+
+func TestNextChangeName(t *testing.T) {
+	base := ChangeNameCodeToSpec("calc", "aaaa", "bbbb")
+	if got := NextChangeName(nil, base); got != base {
+		t.Errorf("first attempt = %q, want the bare name %q", got, base)
+	}
+	if got := NextChangeName([]string{"other"}, base); got != base {
+		t.Errorf("an unrelated change does not take the name: %q", got)
+	}
+	first := NextChangeName([]string{base}, base)
+	if first != base+"-a2" {
+		t.Errorf("second attempt = %q, want %q", first, base+"-a2")
+	}
+	third := NextChangeName([]string{base, first}, base)
+	if third != base+"-a3" {
+		t.Errorf("third attempt = %q, want %q", third, base+"-a3")
+	}
+	// A different commit pair is a different episode and starts at the base.
+	other := ChangeNameCodeToSpec("calc", "aaaa", "cccc")
+	if got := NextChangeName([]string{base, first}, other); got != other {
+		t.Errorf("another episode = %q, want %q", got, other)
+	}
+}

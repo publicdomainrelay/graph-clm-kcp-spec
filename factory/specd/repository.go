@@ -56,7 +56,10 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 		return c.opts.Resync, nil
 	}
 	if head == repository.Status.IndexedCommit {
-		return c.opts.Resync, nil
+		// Nothing to index, but a condition left False by an earlier failure
+		// (a path that did not exist yet) has to come back to True.
+		return c.opts.Resync, c.setRepositoryCondition(ctx, repository, namespace,
+			metav1.ConditionTrue, specapi.ReasonIndexed, "the codegraph index is current")
 	}
 
 	result, err := ingest.Run(ctx, c.client, ingest.Options{
@@ -75,6 +78,12 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 			c.log.Error("could not record the failed ingest", "repository", name, "err", conditionErr)
 		}
 		return 0, err
+	}
+	for _, contextResult := range result.Contexts {
+		if contextResult.Skipped {
+			c.log.Warn("a context of another repository shares this name",
+				"repository", name, "systemcontext", contextResult.Name, "reason", contextResult.Reason)
+		}
 	}
 	c.log.Info("repository ingested",
 		"repository", name, "path", path, "commit", head, "contexts", len(result.Contexts))

@@ -55,6 +55,11 @@ type ContextResult struct {
 	Fingerprint string
 	Observed    spec.ObservedFacts
 	Conditions  []metav1.Condition
+	// Skipped marks a partition whose name already belongs to a SystemContext
+	// of another Repository. Two working trees that both hold a directory of
+	// the same name would otherwise take turns overwriting one context.
+	Skipped bool
+	Reason  string
 }
 
 type Result struct {
@@ -214,6 +219,12 @@ func ingestPartition(
 		result.Created = true
 	default:
 		return result, err
+	}
+
+	if owner := existingContext.Spec.Repository; owner != "" && owner != repositoryName {
+		result.Skipped = true
+		result.Reason = "the context belongs to repository " + owner
+		return result, nil
 	}
 
 	previousSpec := existingContext.Spec

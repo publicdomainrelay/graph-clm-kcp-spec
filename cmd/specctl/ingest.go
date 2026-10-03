@@ -73,9 +73,12 @@ func printIngest(out io.Writer, result ingest.Result, wroteGraph bool) {
 	fmt.Fprintln(table, "CONTEXT\tFILES\tINTERFACES\tFINGERPRINT\tVALID\tSYNCED\tCHANGE")
 	for _, context := range result.Contexts {
 		change := ""
-		if context.Created {
+		switch {
+		case context.Skipped:
+			change = "skipped"
+		case context.Created:
 			change = "created"
-		} else if context.SpecChanged {
+		case context.SpecChanged:
 			change = "spec"
 		}
 		fmt.Fprintf(table, "%s\t%d\t%d\t%s\t%s\t%s\t%s\n",

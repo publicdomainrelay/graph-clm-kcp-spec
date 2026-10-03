@@ -87,7 +87,9 @@ func (c *Controller) reconcileChanges(
 		return err
 	}
 	unfinished := map[string]bool{}
+	taken := make([]string, 0, len(changes))
 	for _, change := range changes {
+		taken = append(taken, change.Name)
 		switch change.Status.Phase {
 		case specapi.PhasePending, specapi.PhaseRunning:
 			unfinished[change.Spec.Direction] = true
@@ -97,7 +99,7 @@ func (c *Controller) reconcileChanges(
 	if driftDue && !unfinished[specapi.DirectionCodeToSpec] {
 		change := &spec.SpecChange{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      spec.ChangeNameCodeToSpec(systemContext.Name, fromCommit, toCommit),
+				Name:      spec.NextChangeName(taken, spec.ChangeNameCodeToSpec(systemContext.Name, fromCommit, toCommit)),
 				Namespace: namespace,
 			},
 			Spec: spec.SpecChangeSpec{
@@ -115,7 +117,7 @@ func (c *Controller) reconcileChanges(
 	if editDue && !unfinished[specapi.DirectionSpecToCode] {
 		change := &spec.SpecChange{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      spec.ChangeNameSpecToCode(systemContext.Name, specHash),
+				Name:      spec.NextChangeName(taken, spec.ChangeNameSpecToCode(systemContext.Name, specHash)),
 				Namespace: namespace,
 			},
 			Spec: spec.SpecChangeSpec{

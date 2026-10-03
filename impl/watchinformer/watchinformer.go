@@ -61,7 +61,9 @@ func (s *Source) Run(ctx context.Context, notify watch.Notify) error {
 		informer := s.factory.ForResource(resource.GVR).Informer()
 		notifyOf := func(event watch.Event) func(any) {
 			return func(object any) {
-				key, err := cache.MetaNamespaceKeyFunc(object)
+				// A delete can arrive as a tombstone when an informer relists,
+				// and only the deletion-aware key function unwraps it.
+				key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(object)
 				if err != nil {
 					s.log.Error("watch event without a key", "kind", resource.Kind, "err", err)
 					return

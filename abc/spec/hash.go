@@ -2,6 +2,8 @@ package spec
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
@@ -34,4 +36,24 @@ func shorten(value string) string {
 		return value
 	}
 	return value[:changeNameHashLength]
+}
+
+const attemptSuffix = "-a"
+
+// NextChangeName names the next attempt at one episode. The first attempt
+// carries the bare deterministic name; a later one is suffixed with its
+// attempt number. A change that failed is therefore retried as a new record
+// instead of colliding with its own name and being dropped, while an
+// unfinished change still blocks the caller before it ever asks.
+func NextChangeName(existing []string, base string) string {
+	attempts := 0
+	for _, name := range existing {
+		if name == base || strings.HasPrefix(name, base+attemptSuffix) {
+			attempts++
+		}
+	}
+	if attempts == 0 {
+		return base
+	}
+	return base + attemptSuffix + strconv.Itoa(attempts+1)
 }

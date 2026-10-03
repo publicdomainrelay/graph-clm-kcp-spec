@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -466,4 +467,126 @@ func hashOf(t *testing.T, intent string) string {
 		t.Fatal(err)
 	}
 	return hash
+}
+
+func TestSystemContextReconcileRetriesAFailedChange(t *testing.T) {
+	cluster := newFakeCluster()
+	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
+		systemContext.Status.Observed = observedFacts("f2")
+		systemContext.Status.ObservedCommit = "c2"
+		systemContext.Status.SyncedFingerprint = "f1"
+		systemContext.Status.SyncedCommit = "c1"
+	}))
+	// The first attempt exists and failed, so the drift is still work.
+	apply(t, cluster, &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-c1-c2", Namespace: specapi.DefaultNamespace},
+		Spec: spec.SpecChangeSpec{
+			SystemContext: "calc", Direction: specapi.DirectionCodeToSpec, FromCommit: "c1", ToCommit: "c2",
+		},
+		Status: spec.SpecChangeStatus{Phase: specapi.PhaseFailed},
+	})
+	controller := testController(cluster)
+
+	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+
+	names := cluster.names(specapi.SpecChangeGVR)
+	if strings.Join(names, ",") != "calc-c2s-c1-c2,calc-c2s-c1-c2-a2" {
+		t.Fatalf("spec changes = %v, want the failed attempt and a second one", names)
+	}
+	attempt, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, "calc-c2s-c1-c2-a2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if phase, _, _ := unstructured.NestedString(attempt.Object, "status", "phase"); phase != specapi.PhasePending {
+		t.Errorf("the retry is %q, want Pending", phase)
+	}
+	// The failed attempt keeps its record.
+	failed, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, "calc-c2s-c1-c2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if phase, _, _ := unstructured.NestedString(failed.Object, "status", "phase"); phase != specapi.PhaseFailed {
+		t.Errorf("the first attempt is %q, want Failed", phase)
+	}
+}
+
+func TestSystemContextReconcileLeavesACleanIndexedRepositoryAlone(t *testing.T) {
+	cluster := newFakeCluster()
+	apply(t, cluster, &spec.Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc", Namespace: specapi.DefaultNamespace},
+		Spec:       spec.RepositorySpec{Path: "/does/not/matter"},
+		Status: spec.RepositoryStatus{
+			HeadCommit:    "abc",
+			IndexedCommit: "abc",
+			Conditions: []metav1.Condition{{
+				Type: specapi.ConditionIndexed, Status: metav1.ConditionTrue,
+				Reason: specapi.ReasonIndexed, Message: "the codegraph index is current",
+				ObservedGeneration: 1,
+			}},
+		},
+	})
+	controller := testController(cluster)
+	object, err := cluster.Get(context.Background(), specapi.RepositoryGVR, specapi.DefaultNamespace, "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := object.GetResourceVersion()
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, ok := typed.(*spec.Repository)
+	if !ok {
+		t.Fatalf("read back a %T", typed)
+	}
+	if err := controller.setRepositoryCondition(context.Background(), repository, specapi.DefaultNamespace,
+		metav1.ConditionTrue, specapi.ReasonIndexed, "the codegraph index is current"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := cluster.Get(context.Background(), specapi.RepositoryGVR, specapi.DefaultNamespace, "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.GetResourceVersion() != before {
+		t.Errorf("an already true condition was rewritten: %s -> %s", before, after.GetResourceVersion())
+	}
+
+	// The same call has to bring a condition left False back to True.
+	stale := *repository
+	stale.ObjectMeta = *repository.ObjectMeta.DeepCopy()
+	stale.Status.Conditions = []metav1.Condition{{
+		Type: specapi.ConditionIndexed, Status: metav1.ConditionFalse,
+		Reason: specapi.ReasonHeadUnavailable, Message: "the path did not exist yet",
+		ObservedGeneration: 1,
+	}}
+	if err := controller.setRepositoryCondition(context.Background(), &stale, specapi.DefaultNamespace,
+		metav1.ConditionTrue, specapi.ReasonIndexed, "the codegraph index is current"); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := cluster.Get(context.Background(), specapi.RepositoryGVR, specapi.DefaultNamespace, "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := repositoryConditionStatus(t, recovered, specapi.ConditionIndexed); got != "True" {
+		t.Errorf("Indexed = %s, want True", got)
+	}
+}
+
+func repositoryConditionStatus(t *testing.T, object *unstructured.Unstructured, conditionType string) string {
+	t.Helper()
+	conditions, found, err := unstructured.NestedSlice(object.Object, "status", "conditions")
+	if err != nil || !found {
+		t.Fatalf("no conditions on %s", object.GetName())
+	}
+	for _, entry := range conditions {
+		condition, ok := entry.(map[string]any)
+		if ok && condition["type"] == conditionType {
+			status, _ := condition["status"].(string)
+			return status
+		}
+	}
+	t.Fatalf("%s has no %s condition", object.GetName(), conditionType)
+	return ""
 }

@@ -320,3 +320,65 @@ func snapshotCluster(t *testing.T, cluster *fakeCluster) map[string]string {
 	}
 	return out
 }
+
+func TestRunLeavesAContextOfAnotherRepositoryAlone(t *testing.T) {
+	fixture.Require(t, "codegraph", "git")
+	repoPath := fixture.Copy(t, "calc")
+	cluster := newFakeCluster()
+
+	// The calc directory of this tree partitions to a context name that a
+	// different Repository already owns.
+	foreign := &spec.SystemContext{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc", Namespace: specapi.DefaultNamespace},
+		Spec: spec.SystemContextSpec{
+			Repository: "someone-else",
+			Upstream:   spec.RefSelf,
+			Intent:     "owned elsewhere",
+			Interfaces: []spec.Interface{{Name: "Add", Kind: "function"}},
+		},
+	}
+	foreign.SetDefaults()
+	object, err := kcpclient.Unstructured(foreign)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cluster.Apply(context.Background(), object); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := stored.GetResourceVersion()
+
+	result, err := Run(context.Background(), cluster, Options{RepoPath: repoPath, Commit: "cafebabe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skipped := map[string]bool{}
+	for _, context := range result.Contexts {
+		if context.Skipped {
+			skipped[context.Name] = true
+			if context.Reason == "" {
+				t.Errorf("%s was skipped without a reason", context.Name)
+			}
+		}
+	}
+	if !skipped["calc"] {
+		t.Fatalf("contexts = %+v, want calc skipped", result.Contexts)
+	}
+	if skipped["cmd-calc"] {
+		t.Error("cmd-calc belongs to no one and must be ingested")
+	}
+
+	after, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.GetResourceVersion() != before {
+		t.Errorf("the foreign context was written: %s -> %s", before, after.GetResourceVersion())
+	}
+	if intent, _, _ := unstructured.NestedString(after.Object, "spec", "intent"); intent != "owned elsewhere" {
+		t.Errorf("spec.intent = %q, want the owner's value", intent)
+	}
+}
