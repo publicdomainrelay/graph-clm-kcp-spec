@@ -60,11 +60,16 @@ flowchart LR
   commit.
 
 **Why a graph database.** A model cannot read 3000 lines for every task.
-HydraDB indexes specs, requirements, interfaces and code references, so each
-task gets a small, relevant neighborhood: the context, its upstream, overlay
+A graph database indexes specs, requirements, interfaces and code references,
+so each task gets a small, relevant neighborhood: the context, its upstream, overlay
 and orchestrator, and the code it points at. The graph is a derived index; kcp
 stays the only source of truth, and the graph can be rebuilt from kcp and
 CodeGraph at any time.
+
+The engine is not the point: CLM + graph DB is. Any Bolt/openCypher engine
+that runs the portable Cypher subset works. ArcadeDB is the default because it
+is the more Cypher compliant of the two tested engines (38 of 40 probe cases
+against HydraDB's 26 of 40, `pi-hydradb-clm/docs/cypher-conformance.md`).
 
 **Why a context language model (CLM).** The model edits its own context
 document, which becomes its working memory. The `pi-hydradb-clm` extension
@@ -78,7 +83,7 @@ flowchart TB
     ctx[".specs/context/&lt;name&gt;.md<br/>model zone + managed zone"]
     kcp[("kcp<br/>SystemContext / SpecChange<br/>source of truth")]
     specd["specd controller"]
-    graph[("HydraDB graph<br/>derived index")]
+    gdb[("graph DB over Bolt<br/>ArcadeDB default, HydraDB option<br/>derived index")]
     cg[("CodeGraph index<br/>code facts")]
     repo["git repo"]
 
@@ -91,8 +96,8 @@ flowchart TB
     specd -- "realize: agent + verify + commit" --> repo
     repo -- "codegraph sync" --> cg
     cg -- "observed facts" --> specd
-    specd -- "index" --> graph
-    graph -- "neighborhood for prompts" --> pi
+    specd -- "index" --> gdb
+    gdb -- "neighborhood for prompts" --> pi
 ```
 
 **The end goal.** Spec driven development in which the spec is never stale:
