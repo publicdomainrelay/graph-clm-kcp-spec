@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -215,6 +216,47 @@ func TestPhase1SystemContextRoundTrip(t *testing.T) {
 	}
 	if nestedSpecString(t, after, "intent") != typed.Spec.Intent {
 		t.Fatal("a status write must not touch the spec")
+	}
+	statusBefore := fmt.Sprintf("%v", after.Object["status"])
+	generationBefore := after.GetGeneration()
+
+	// The other half of the subresource contract: a spec write bumps the
+	// generation and leaves status exactly as it was.
+	editedTyped, err := kcpclient.Typed(after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, ok := editedTyped.(*spec.SystemContext)
+	if !ok {
+		t.Fatalf("read back a %T", editedTyped)
+	}
+	edited := &spec.SystemContext{
+		ObjectMeta: *current.ObjectMeta.DeepCopy(),
+		Spec:       current.Spec,
+	}
+	edited.Spec.Intent = "A human edit, which must not touch status."
+	editedObject, err := kcpclient.Unstructured(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Apply(ctx, editedObject); err != nil {
+		t.Fatalf("apply a spec edit: %v", err)
+	}
+	editedBack, err := client.Get(ctx, specapi.SystemContextGVR, specapi.DefaultNamespace, roundTripName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := nestedSpecString(t, editedBack, "intent"); got != edited.Spec.Intent {
+		t.Fatalf("spec.intent = %q, want the edit", got)
+	}
+	if editedBack.GetGeneration() == generationBefore {
+		t.Error("a spec write must bump the generation")
+	}
+	if got := nestedStatusString(t, editedBack, "observedCommit"); got != "deadbeef" {
+		t.Errorf("a spec write changed status.observedCommit to %q", got)
+	}
+	if got := fmt.Sprintf("%v", editedBack.Object["status"]); got != statusBefore {
+		t.Errorf("a spec write changed status:\nbefore %s\nafter  %s", statusBefore, got)
 	}
 
 	if err := client.Delete(ctx, specapi.SystemContextGVR, specapi.DefaultNamespace, roundTripName); err != nil {
