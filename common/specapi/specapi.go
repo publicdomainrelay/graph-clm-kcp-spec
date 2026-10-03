@@ -46,6 +46,7 @@ const (
 	ConditionSpecValid  = "SpecValid"
 	ConditionCodeSynced = "CodeSynced"
 	ConditionDrifted    = "Drifted"
+	ConditionIndexed    = "Indexed"
 )
 
 const (
@@ -55,6 +56,7 @@ const (
 	ReasonInterfacesMissing  = "InterfacesMissing"
 	ReasonFingerprintEqual   = "FingerprintEqual"
 	ReasonFingerprintChanged = "FingerprintChanged"
+	ReasonIndexed            = "Indexed"
 )
 
 const (

@@ -124,6 +124,8 @@ spec:
                             type: string
                           line:
                             type: integer
+                          codegraphId:
+                            type: string
                     fingerprint:
                       type: string
                 realizedSpecHash:

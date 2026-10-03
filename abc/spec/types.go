@@ -31,9 +31,10 @@ type RepositorySpec struct {
 }
 
 type RepositoryStatus struct {
-	HeadCommit    string             `json:"headCommit,omitempty"`
-	IndexedCommit string             `json:"indexedCommit,omitempty"`
-	Conditions    []metav1.Condition `json:"conditions,omitempty"`
+	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
+	HeadCommit         string             `json:"headCommit,omitempty"`
+	IndexedCommit      string             `json:"indexedCommit,omitempty"`
+	Conditions         []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type Repository struct {
@@ -70,11 +71,12 @@ type SystemContextSpec struct {
 }
 
 type ObservedInterface struct {
-	Name      string `json:"name"`
-	Kind      string `json:"kind,omitempty"`
-	Signature string `json:"signature,omitempty"`
-	File      string `json:"file,omitempty"`
-	Line      int    `json:"line,omitempty"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind,omitempty"`
+	Signature   string `json:"signature,omitempty"`
+	File        string `json:"file,omitempty"`
+	Line        int    `json:"line,omitempty"`
+	CodegraphID string `json:"codegraphId,omitempty"`
 }
 
 type ObservedFacts struct {
