@@ -13,6 +13,31 @@ require (
 )
 
 require (
+	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
+	github.com/go-openapi/jsonpointer v1.0.0 // indirect
+	github.com/go-openapi/jsonreference v1.0.0 // indirect
+	github.com/go-openapi/swag v0.27.1 // indirect
+	github.com/go-openapi/swag/cmdutils v0.27.1 // indirect
+	github.com/go-openapi/swag/conv v0.27.1 // indirect
+	github.com/go-openapi/swag/fileutils v0.27.1 // indirect
+	github.com/go-openapi/swag/jsonutils v0.27.1 // indirect
+	github.com/go-openapi/swag/loading v0.27.1 // indirect
+	github.com/go-openapi/swag/mangling v0.27.1 // indirect
+	github.com/go-openapi/swag/netutils v0.27.1 // indirect
+	github.com/go-openapi/swag/pools v0.27.1 // indirect
+	github.com/go-openapi/swag/stringutils v0.27.1 // indirect
+	github.com/go-openapi/swag/typeutils v0.27.1 // indirect
+	github.com/go-openapi/swag/yamlutils v0.27.1 // indirect
+	github.com/google/gnostic-models v0.7.0 // indirect
+	github.com/kr/text v0.2.0 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
+	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
+	k8s.io/api v0.36.4 // indirect
+)
+
+require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
