@@ -110,12 +110,20 @@ func MergeDeclared(base, declared spec.SystemContextSpec) spec.SystemContextSpec
 // writes and what `specctl clm apply` reads back, so a render followed by an
 // apply with no edit is a no-op.
 func RenderModelZone(context, repository string, in spec.SystemContextSpec) (string, error) {
+	return RenderModelZoneWithProse(context, repository, in.Intent, in)
+}
+
+// RenderModelZoneWithProse is the same zone with the prose given separately from
+// the intent. The summarize path uses it: the model's prose there is its own
+// summary, and the block still carries the spec it produced, so a document
+// either direction writes is read by the same parser.
+func RenderModelZoneWithProse(context, repository, prose string, in spec.SystemContextSpec) (string, error) {
 	builder := strings.Builder{}
 	builder.WriteString(HeaderLine + context + "\n\n")
 	if repository != "" {
 		fmt.Fprintf(&builder, "Repository: `%s`\n\n", repository)
 	}
-	intent := strings.TrimSpace(in.Intent)
+	intent := strings.TrimSpace(prose)
 	if intent == "" {
 		intent = EmptyIntent
 	}

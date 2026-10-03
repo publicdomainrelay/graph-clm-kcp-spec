@@ -16,6 +16,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/clm"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
@@ -264,5 +266,38 @@ func TestSummarizingTwiceLeavesTheDocumentByteIdentical(t *testing.T) {
 	}
 	if !bytes.Equal(first, after) {
 		t.Errorf("the document changed:\nbefore %q\nafter  %q", first, after)
+	}
+}
+
+// The document the code -> spec direction writes and the document a host inside
+// a model renders are one format: either parses the other's spec block, which is
+// what lets the mod run `specctl clm apply` on a file summarize produced.
+func TestTheWrittenDocumentParsesAsACLMModelZone(t *testing.T) {
+	cluster, repository := setup(t)
+	if _, err := Run(context.Background(), Options{
+		Cluster: cluster, Context: "calc", Repository: repository, Agent: scripted(t, oneRequirement),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(filepath.Join(repository.Spec.Path, ".specs", "context", "calc.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, managed := agent.SplitContextDoc(string(contents))
+	if managed == "" {
+		t.Fatal("the document has no managed zone")
+	}
+	parsed, err := clm.ParseModelZone(model)
+	if err != nil {
+		t.Fatalf("the written document is not a CLM model zone: %v", err)
+	}
+	if len(parsed.Requirements) != 1 || parsed.Requirements[0].ID != "r.add" {
+		t.Errorf("requirements = %+v", parsed.Requirements)
+	}
+	if len(parsed.Interfaces) != 1 || parsed.Interfaces[0].Name != "Add" {
+		t.Errorf("interfaces = %+v", parsed.Interfaces)
+	}
+	if !strings.Contains(parsed.Intent, "Arithmetic.") {
+		t.Errorf("intent = %q, want the model's prose", parsed.Intent)
 	}
 }

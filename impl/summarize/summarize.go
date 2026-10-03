@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/clm"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
@@ -178,7 +179,14 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	}
 
 	if options.Repository != nil && options.Repository.WorkPath() != "" {
-		path, err := bundle.WriteContextDoc(options.Repository.WorkPath(), options.Context, draft.Summary,
+		// The document is the CLM one: the model's prose above a fenced spec
+		// block, so the file this direction writes and the file a host inside a
+		// model renders are one format and either parses the other.
+		modelZone, err := clm.RenderModelZoneWithProse(options.Context, options.Repository.Name, draft.Summary, merged)
+		if err != nil {
+			return result, err
+		}
+		path, err := bundle.WriteContextDoc(options.Repository.WorkPath(), options.Context, modelZone,
 			bundle.ResolvedRefs(observed), options.ManagedBudget)
 		if err != nil {
 			return result, err
