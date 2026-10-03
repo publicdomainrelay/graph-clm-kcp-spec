@@ -67,9 +67,12 @@ The same steps by hand:
 
 ```bash
 make build
-bin/specctl apply -f examples/calc/specs.yaml
 
-# phase 2: code -> facts -> kcp status + graph
+# the graph endpoint; the Makefile exports these two for you
+export SPECD_BOLT_URL=bolt://127.0.0.1:7687
+export SPECD_BOLT_PASSWORD_FILE=/tmp/hdb/token
+
+bin/specctl apply -f examples/calc/specs.yaml
 bin/specctl ingest --repo fixtures/calc
 bin/specctl get systemcontext calc -o yaml
 bin/specctl graph neighbors calc
