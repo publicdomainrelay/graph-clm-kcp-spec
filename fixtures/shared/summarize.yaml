@@ -1,0 +1,54 @@
+# The deterministic code -> spec answer for the shared fixture. It declares
+# exactly the surface the index observes, and every method by its receiver:
+# Indexer and Set each offer Add and List, so the bare names name neither. The
+# two requirement code refs go through the same parser a model answer does, so
+# the run also proves a qualified ref resolves to the one CodeGraph id.
+contexts:
+  shared:
+    summary: |
+      Two collections behind one exported surface: an ordered indexer and a
+      set, each offering Add and List.
+    intent: |
+      Two types that share a method name. It exists to prove the observed
+      surface keys a method by its receiver: keyed by the bare name, one of
+      each pair could not be described at all.
+    requirements:
+      - id: r.indexer-list
+        level: MUST
+        text: Indexer.List returns the items in the order they were added.
+        codeRefs: ["Indexer.List", "file:store.go"]
+      - id: r.set-list
+        level: MUST
+        text: Set.List returns the members in sorted order.
+        codeRefs: ["Set.List", "file:store.go"]
+    interfaces:
+      - name: Indexer
+        kind: struct
+        file: store.go
+      - name: Set
+        kind: struct
+        file: store.go
+      - name: NewIndexer
+        kind: function
+        signature: "() *Indexer"
+        file: store.go
+      - name: NewSet
+        kind: function
+        signature: "() *Set"
+        file: store.go
+      - name: Indexer.Add
+        kind: method
+        signature: "(item string)"
+        file: store.go
+      - name: Indexer.List
+        kind: method
+        signature: "() []string"
+        file: store.go
+      - name: Set.Add
+        kind: method
+        signature: "(item string)"
+        file: store.go
+      - name: Set.List
+        kind: method
+        signature: "() []string"
+        file: store.go

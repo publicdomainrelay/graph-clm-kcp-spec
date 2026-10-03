@@ -1,0 +1,118 @@
+# Difficulty 2: one new method name on each of two types. The delta carries two
+# added interfaces that differ only by their receiver, one requirement, and the
+# realization adds both methods to the same file. A delta keyed by the bare name
+# could not carry both entries.
+name: add-delete-to-both
+context: shared
+difficulty: 2
+description: add Delete to both collections
+specPatch:
+  interfaces:
+    - name: Indexer.Delete
+      kind: method
+      signature: "(item string) bool"
+      file: store.go
+    - name: Set.Delete
+      kind: method
+      signature: "(item string) bool"
+      file: store.go
+  requirements:
+    - id: r.delete
+      level: SHOULD
+      text: Delete removes one item and reports whether it was there.
+      codeRefs: ["Indexer.Delete", "Set.Delete", "file:store.go"]
+expectedInterfaces:
+  - Indexer
+  - Set
+  - NewIndexer
+  - NewSet
+  - Indexer.Add
+  - Indexer.List
+  - Indexer.Delete
+  - Set.Add
+  - Set.List
+  - Set.Delete
+expectedDeltaEntries: 3
+acceptance:
+  - path: delete_acceptance_test.go
+    contents: |
+      package shared
+
+      import (
+      	"reflect"
+      	"testing"
+      )
+
+      func TestAcceptanceDeleteFromBoth(t *testing.T) {
+      	indexer := NewIndexer()
+      	indexer.Add("a")
+      	indexer.Add("b")
+      	if !indexer.Delete("a") || indexer.Delete("a") {
+      		t.Fatal("Indexer.Delete must report whether the item was there")
+      	}
+      	if got := indexer.List(); !reflect.DeepEqual(got, []string{"b"}) {
+      		t.Fatalf("Indexer.List() = %v, want b", got)
+      	}
+      	set := NewSet()
+      	set.Add("a")
+      	set.Add("b")
+      	if !set.Delete("a") || set.Delete("a") {
+      		t.Fatal("Set.Delete must report whether the item was there")
+      	}
+      	if got := set.List(); !reflect.DeepEqual(got, []string{"b"}) {
+      		t.Fatalf("Set.List() = %v, want b", got)
+      	}
+      }
+realize:
+  - patch:
+      path: store.go
+      find: |
+        func (i *Indexer) List() []string {
+        	out := make([]string, len(i.items))
+        	copy(out, i.items)
+        	return out
+        }
+      replace: |
+        func (i *Indexer) List() []string {
+        	out := make([]string, len(i.items))
+        	copy(out, i.items)
+        	return out
+        }
+
+        func (i *Indexer) Delete(item string) bool {
+        	for index, existing := range i.items {
+        		if existing == item {
+        			i.items = append(i.items[:index], i.items[index+1:]...)
+        			return true
+        		}
+        	}
+        	return false
+        }
+  - patch:
+      path: store.go
+      find: |
+        func (s *Set) List() []string {
+        	out := make([]string, 0, len(s.items))
+        	for item := range s.items {
+        		out = append(out, item)
+        	}
+        	sort.Strings(out)
+        	return out
+        }
+      replace: |
+        func (s *Set) List() []string {
+        	out := make([]string, 0, len(s.items))
+        	for item := range s.items {
+        		out = append(out, item)
+        	}
+        	sort.Strings(out)
+        	return out
+        }
+
+        func (s *Set) Delete(item string) bool {
+        	if !s.items[item] {
+        		return false
+        	}
+        	delete(s.items, item)
+        	return true
+        }

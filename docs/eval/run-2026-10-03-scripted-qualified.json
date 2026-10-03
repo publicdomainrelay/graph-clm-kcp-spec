@@ -1,0 +1,411 @@
+{
+  "agent": "scripted",
+  "fixtures": "fixtures",
+  "startedAt": "2026-10-03T23:49:11Z",
+  "finishedAt": "2026-10-03T23:49:43Z",
+  "populate": [
+    {
+      "fixture": "calc",
+      "phase": "Populated",
+      "contexts": 2,
+      "summarized": 2,
+      "failed": 0,
+      "wallTimeSeconds": 1.7667721969999999
+    },
+    {
+      "fixture": "greet",
+      "phase": "Populated",
+      "contexts": 2,
+      "summarized": 2,
+      "failed": 0,
+      "wallTimeSeconds": 1.764556399
+    },
+    {
+      "fixture": "shared",
+      "phase": "Populated",
+      "contexts": 1,
+      "summarized": 1,
+      "failed": 0,
+      "wallTimeSeconds": 1.764420448
+    },
+    {
+      "fixture": "todo",
+      "phase": "Populated",
+      "contexts": 3,
+      "summarized": 3,
+      "failed": 0,
+      "wallTimeSeconds": 2.269031289
+    }
+  ],
+  "codeToSpec": [
+    {
+      "fixture": "calc",
+      "context": "calc",
+      "interfaces": {
+        "declared": 2,
+        "target": 2,
+        "matched": 2,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 2,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "calc",
+      "context": "cmd-calc",
+      "interfaces": {
+        "declared": 0,
+        "target": 0,
+        "matched": 0,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 1,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "greet",
+      "context": "format",
+      "interfaces": {
+        "declared": 2,
+        "target": 2,
+        "matched": 2,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 2,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "greet",
+      "context": "greet",
+      "interfaces": {
+        "declared": 6,
+        "target": 6,
+        "matched": 6,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 3,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "shared",
+      "context": "shared",
+      "interfaces": {
+        "declared": 8,
+        "target": 8,
+        "matched": 8,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 2,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "todo",
+      "context": "cmd-todo",
+      "interfaces": {
+        "declared": 0,
+        "target": 0,
+        "matched": 0,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 1,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "todo",
+      "context": "httpapi",
+      "interfaces": {
+        "declared": 1,
+        "target": 1,
+        "matched": 1,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 1,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "todo",
+      "context": "todo",
+      "interfaces": {
+        "declared": 7,
+        "target": 7,
+        "matched": 7,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 5,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    }
+  ],
+  "scenarios": [
+    {
+      "fixture": "calc",
+      "scenario": "add-divide-with-an-error",
+      "context": "calc",
+      "difficulty": 3,
+      "description": "add a function whose error spans a second file",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 2,
+        "removed": 0,
+        "changed": 0,
+        "entries": 2,
+        "expected": 2,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.072826622,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "calc",
+      "scenario": "add-subtract",
+      "context": "calc",
+      "difficulty": 1,
+      "description": "add an exported function to the library",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 2,
+        "removed": 0,
+        "changed": 0,
+        "entries": 2,
+        "expected": 2,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.18993099,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "calc",
+      "scenario": "change-add-to-variadic",
+      "context": "calc",
+      "difficulty": 2,
+      "description": "change the signature and the requirement of an existing function",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 0,
+        "removed": 0,
+        "changed": 2,
+        "entries": 2,
+        "expected": 2,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.19183259,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "greet",
+      "scenario": "add-a-person-module",
+      "context": "greet",
+      "difficulty": 3,
+      "description": "add a new module and a function that uses it",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 6,
+        "removed": 0,
+        "changed": 0,
+        "entries": 6,
+        "expected": 6,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.8003963870000002,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "greet",
+      "scenario": "add-farewell",
+      "context": "greet",
+      "difficulty": 1,
+      "description": "add an exported function to the module",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 2,
+        "removed": 0,
+        "changed": 0,
+        "entries": 2,
+        "expected": 2,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.724077884,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "greet",
+      "scenario": "change-the-greeting-text",
+      "context": "greet",
+      "difficulty": 2,
+      "description": "change the greeting text and the test that pins it",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 0,
+        "removed": 0,
+        "changed": 1,
+        "entries": 1,
+        "expected": 1,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.651532247,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "shared",
+      "scenario": "add-delete-to-both",
+      "context": "shared",
+      "difficulty": 2,
+      "description": "add Delete to both collections",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 3,
+        "removed": 0,
+        "changed": 0,
+        "entries": 3,
+        "expected": 3,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.298746124,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "todo",
+      "scenario": "add-delete",
+      "context": "todo",
+      "difficulty": 1,
+      "description": "add an exported method to the store",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 2,
+        "removed": 0,
+        "changed": 0,
+        "entries": 2,
+        "expected": 2,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.55100547,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "todo",
+      "scenario": "add-get-one-task-endpoint",
+      "context": "httpapi",
+      "difficulty": 3,
+      "description": "add an endpoint whose handler lives in a new file",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 2,
+        "removed": 0,
+        "changed": 0,
+        "entries": 2,
+        "expected": 2,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.134910084,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "todo",
+      "scenario": "list-newest-first",
+      "context": "todo",
+      "difficulty": 2,
+      "description": "change the order List answers in, and the test that pins it",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 0,
+        "removed": 0,
+        "changed": 1,
+        "entries": 1,
+        "expected": 1,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.410884915,
+      "agent": "scripted"
+    }
+  ],
+  "notes": [
+    "working trees under /tmp/specd-eval.1114978005"
+  ]
+}

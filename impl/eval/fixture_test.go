@@ -37,8 +37,18 @@ func TestLoadReadsEveryFixtureWithItsScenarios(t *testing.T) {
 		if len(entry.Config.Verify) == 0 || len(entry.Config.Accept) == 0 {
 			t.Errorf("%s names no verify or accept command", entry.Name)
 		}
-		if len(entry.Scenarios) < 3 {
-			t.Errorf("%s has %d scenarios, want at least three", entry.Name, len(entry.Scenarios))
+		// The three original fixtures carry three scenarios of increasing
+		// difficulty. A focused fixture may carry one: `shared` exists to make
+		// the two-receiver keying case cheap and deterministic, and a second
+		// scenario of it would measure the same thing twice.
+		want := 1
+		for _, name := range []string{"calc", "greet", "todo"} {
+			if entry.Name == name {
+				want = 3
+			}
+		}
+		if len(entry.Scenarios) < want {
+			t.Errorf("%s has %d scenarios, want at least %d", entry.Name, len(entry.Scenarios), want)
 		}
 		for _, scenario := range entry.Scenarios {
 			difficulties[scenario.Difficulty] = true

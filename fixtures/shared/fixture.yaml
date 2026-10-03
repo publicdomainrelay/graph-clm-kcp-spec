@@ -1,0 +1,7 @@
+# The eval manifest of the shared fixture. Two types that both offer a method
+# named List and one named Add: a surface keyed by the bare name could describe
+# only one of each, and the API server would refuse the duplicate key. The
+# repository name is the fixture directory name, so the one context is `shared`.
+name: shared
+verify: ["go", "test", "./..."]
+accept: ["go", "test", "./..."]

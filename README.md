@@ -150,7 +150,7 @@ realizes a change reports into the same state the controllers watch, the API
 is multi-tenant: an APIExport in a provider workspace, tenant workspaces that
 bind it, one `specd --mode export` that reconciles it all, and a `.specs/` git
 mirror so a pull request carries the spec and the code together, and the whole
-loop is measured: `specctl eval` runs three fixtures and an unknown real
+loop is measured: `specctl eval` runs four fixtures and an unknown real
 codebase through it and reports what actually happened.**
 
 - API group `specs.publicdomainrelay.dev/v1alpha1`, kinds `Repository`,
@@ -1047,6 +1047,7 @@ examples/populate/   the one Repository manifest and the scenario the phase 7 ex
 fixtures/calc/       a tiny Go working tree: the calc package and its CLI, with its scenarios
 fixtures/greet/      a tiny Deno/TypeScript module: a root module and format/, with its scenarios
 fixtures/todo/       a Go JSON service over net/http: a store, an HTTP front end and a command
+fixtures/shared/     two Go types that each offer Add and List: the two-receiver keying case
 fixtures/external/   a fixture that is not carried here: one manifest pointing at a real checkout
 docs/eval/           effectiveness reports, markdown and JSON, one run per date and agent
 scripts/demo.sh      the phase 10 demo: the loop end to end, then the eval table

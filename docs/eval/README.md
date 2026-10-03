@@ -18,6 +18,7 @@ bin/specctl eval --fixtures fixtures --out docs/eval/run-<date>.md
 | run | agent | scope | report |
 | --- | --- | --- | --- |
 | scripted baseline | `scripted` | 3 fixtures, 9 scenarios, both halves | `run-2026-10-03-scripted.md` |
+| scripted baseline, receiver-keyed | `scripted` | 4 fixtures, 10 scenarios, both halves | `run-2026-10-03-scripted-qualified.md` |
 | live, primary | `claude-mod` (`deepseek-claude` + `cc-clm-mod`) | 3 fixtures, 9 scenarios, both halves | `run-2026-10-03.md` |
 | live, code -> spec | `pi` (local `llama-cpp`, `ternary-bonsai-2-27b`) | 3 fixtures, code -> spec and the round trip | `run-2026-10-03-pi.md` |
 | unknown codebase | `claude-mod` | `../kcp-libs`, 34 contexts, populate only | `run-2026-10-03-kcp-libs.md` |
@@ -159,6 +160,9 @@ checkout after the fix, and it is the evidence.
   new run. Recall and precision are 98.8% and 98.2% against 88.7% and 89.1%. A
   spec stored before the key changed is migrated by the ingest itself when the
   facts name exactly one candidate; a name two types share is left for a person.
+  `fixtures/shared` is the carried case — two Go types that each offer `Add` and
+  `List`, with a scenario that adds `Delete` to both — and the scripted baseline
+  over four fixtures and ten scenarios is still 100% on every measure.
 
 ## What is left
 

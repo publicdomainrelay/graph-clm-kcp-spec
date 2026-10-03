@@ -1,0 +1,11 @@
+# The harness files, which are not part of the working tree: a fixture is a
+# tree under management plus the scenarios that grade it. The index honours
+# what git ignores, so they are invisible to codegraph too, and a scenario file
+# cannot become a context of its own.
+#
+# Nothing else is listed. `.specs/` and `.codegraph/` belong to whoever manages
+# the tree: a `.specs/<name>.yaml` the mirror writes has to be committable, and
+# codegraph skips its own directory without being told.
+scenarios/
+summarize.yaml
+fixture.yaml
