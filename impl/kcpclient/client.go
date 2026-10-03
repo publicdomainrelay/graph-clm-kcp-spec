@@ -91,10 +91,7 @@ func NewFromRestConfig(config *rest.Config, workspace, namespace string, qps flo
 // The dynamic client builds every resource URL from the host path, so the
 // logical cluster belongs in the host, not in an API path.
 func WorkspaceHost(host, workspace string) string {
-	trimmed := host
-	if index := strings.Index(host, clustersPath); index >= 0 {
-		trimmed = host[:index]
-	}
+	trimmed, _, _ := strings.Cut(host, clustersPath)
 	trimmed = strings.TrimSuffix(trimmed, "/")
 	if workspace == "" {
 		return trimmed
@@ -126,16 +123,20 @@ func (c *Client) Get(ctx context.Context, gvr schema.GroupVersionResource, names
 }
 
 func (c *Client) List(ctx context.Context, gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-	if namespace == metav1.NamespaceAll {
-		listed, err := c.dynamic.Resource(gvr).List(ctx, metav1.ListOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("kcpclient: list %s: %w", gvr.Resource, err)
-		}
-		return listed, nil
-	}
 	listed, err := c.dynamic.Resource(gvr).Namespace(c.resolveNamespace(namespace)).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("kcpclient: list %s: %w", gvr.Resource, err)
+	}
+	return listed, nil
+}
+
+// An empty namespace means the client's default, as it does everywhere else
+// here, so the cluster wide listing needs its own entry point: metav1.NamespaceAll
+// is the empty string and cannot be told apart from an unset namespace.
+func (c *Client) ListAll(ctx context.Context, gvr schema.GroupVersionResource) (*unstructured.UnstructuredList, error) {
+	listed, err := c.dynamic.Resource(gvr).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("kcpclient: list %s in every namespace: %w", gvr.Resource, err)
 	}
 	return listed, nil
 }

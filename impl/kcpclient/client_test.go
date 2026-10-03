@@ -129,6 +129,19 @@ func TestListDecodesItems(t *testing.T) {
 	}
 }
 
+func TestListAllDropsTheNamespaceSegment(t *testing.T) {
+	client, requests := newClient(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		writeJSON(w, 200, map[string]any{"kind": specapi.SystemContextListKind, "items": []any{}})
+	})
+	if _, err := client.ListAll(context.Background(), specapi.SystemContextGVR); err != nil {
+		t.Fatal(err)
+	}
+	want := "/clusters/root:specs/apis/specs.publicdomainrelay.dev/v1alpha1/systemcontexts"
+	if (*requests)[0].Path != want {
+		t.Fatalf("path = %q, want %q", (*requests)[0].Path, want)
+	}
+}
+
 func TestApplyCreatesWhenMissingAndUpdatesWhenPresent(t *testing.T) {
 	client, requests := newClient(t, func(w http.ResponseWriter, _ *http.Request, index int) {
 		if index == 0 {
