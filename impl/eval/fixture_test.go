@@ -146,3 +146,32 @@ func run(t *testing.T, dir string, command []string) {
 		t.Fatalf("%v in %s: %v\n%s", command, dir, err, output)
 	}
 }
+
+func TestLoadExpandsTheSourceThroughTheEnvironment(t *testing.T) {
+	t.Setenv("SPECD_EVAL_UNKNOWN_REPO", "/tmp/somewhere")
+	dir := t.TempDir()
+	manifest := "name: unseen\nsource:\n  url: ${SPECD_EVAL_UNKNOWN_REPO:-../nowhere}\nverify: [\"true\"]\n"
+	if err := os.WriteFile(filepath.Join(dir, "fixture.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fixtures, err := eval.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fixtures[0].Config.Source.URL; got != "/tmp/somewhere" {
+		t.Errorf("url = %q, want the environment's value", got)
+	}
+
+	t.Setenv("SPECD_EVAL_UNKNOWN_REPO", "")
+	if err := os.WriteFile(filepath.Join(dir, "fixture.yaml"),
+		[]byte("name: unseen\nsource:\n  url: ${SPECD_EVAL_UNKNOWN_REPO:-/tmp/fallback}\nverify: [\"true\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fixtures, err = eval.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fixtures[0].Config.Source.URL; got != "/tmp/fallback" {
+		t.Errorf("url = %q, want the fallback: os.ExpandEnv alone would make it empty", got)
+	}
+}

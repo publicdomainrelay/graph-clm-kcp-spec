@@ -55,6 +55,17 @@ func EnsureCheckout(ctx context.Context, url, ref, dir string) (string, error) {
 			return "", fmt.Errorf("gitrepo: clear %s: %w", dir, err)
 		}
 	}
+	// The cache is keyed by the repository, not by its url, so a manifest that
+	// points somewhere else would otherwise fetch from the remote the cache was
+	// first cloned from and index a different codebase without saying so. A
+	// url that moved is a different source: the cache is thrown away.
+	if IsRepo(ctx, dir) {
+		if origin, err := remoteURL(ctx, dir); err == nil && origin != url {
+			if err := os.RemoveAll(dir); err != nil {
+				return "", fmt.Errorf("gitrepo: clear %s: %w", dir, err)
+			}
+		}
+	}
 	if !IsRepo(ctx, dir) {
 		if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 			return "", fmt.Errorf("gitrepo: create %s: %w", filepath.Dir(dir), err)
@@ -69,6 +80,16 @@ func EnsureCheckout(ctx context.Context, url, ref, dir string) (string, error) {
 		return "", err
 	}
 	return Head(ctx, dir)
+}
+
+// remoteURL is where a cached clone was cloned from, empty when it has no
+// origin.
+func remoteURL(ctx context.Context, dir string) (string, error) {
+	output, err := run(ctx, dir, "remote", "get-url", "origin")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(output), nil
 }
 
 func checkout(ctx context.Context, dir, ref string) error {

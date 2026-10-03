@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -178,7 +179,10 @@ func loadFixture(root string) (Fixture, error) {
 		// The url may name the checkout through the environment and may be a
 		// relative path, because where an unknown codebase sits is a fact about
 		// the machine and not about this repository.
-		url := os.ExpandEnv(fixture.Config.Source.URL)
+		url := expandDefault(fixture.Config.Source.URL)
+		if url == "" {
+			return fixture, fmt.Errorf("eval: the source of %s expands to nothing", fixture.Name)
+		}
 		if !strings.Contains(url, "://") && !filepath.IsAbs(url) {
 			absolute, err := filepath.Abs(url)
 			if err != nil {
@@ -279,6 +283,24 @@ func SelectScenarios(fixtures []Fixture, pattern string) ([]Fixture, error) {
 		return nil, fmt.Errorf("eval: no scenario matches %q", pattern)
 	}
 	return selected, nil
+}
+
+// defaultPattern matches `${NAME:-fallback}`, which os.ExpandEnv does not
+// understand: it would read the whole thing as the variable name, find nothing,
+// and hand back an empty string. An empty source url is not an error to the
+// clone, it is the current directory, so the mistake would be silent and the
+// run would measure the wrong codebase.
+var defaultPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}`)
+
+func expandDefault(value string) string {
+	expanded := defaultPattern.ReplaceAllStringFunc(value, func(match string) string {
+		groups := defaultPattern.FindStringSubmatch(match)
+		if fromEnv := os.Getenv(groups[1]); fromEnv != "" {
+			return fromEnv
+		}
+		return groups[2]
+	})
+	return os.ExpandEnv(expanded)
 }
 
 func isYAML(name string) bool {

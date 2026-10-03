@@ -331,3 +331,42 @@ func TestEnsureCheckoutFollowsANamedRef(t *testing.T) {
 		t.Errorf("the checkout = %q, want the branch as it is now", contents)
 	}
 }
+
+// TestEnsureCheckoutDropsACacheFromAnotherSource is the unknown codebase's
+// finding: the cache is keyed by the repository, so a manifest that points at a
+// different url would otherwise fetch from the remote the cache was first
+// cloned from and index a codebase nobody asked for, silently.
+func TestEnsureCheckoutDropsACacheFromAnotherSource(t *testing.T) {
+	ctx := context.Background()
+	bare := func(name, contents string) string {
+		source := tempRepo(t)
+		if err := os.WriteFile(filepath.Join(source, "file.txt"), []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git(t, source, "add", "-A")
+		git(t, source, "-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-qm", "content")
+		target := filepath.Join(t.TempDir(), name+".git")
+		command := exec.Command("git", "clone", "-q", "--bare", source, target)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git clone --bare: %v: %s", err, output)
+		}
+		return target
+	}
+	first := bare("first", "from the first source\n")
+	second := bare("second", "from the second source\n")
+
+	dir := filepath.Join(t.TempDir(), "cache", "unseen")
+	if _, err := EnsureCheckout(ctx, "file://"+first, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureCheckout(ctx, "file://"+second, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(filepath.Join(dir, "file.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(contents)) != "from the second source" {
+		t.Fatalf("the cache still holds the first source: %q", contents)
+	}
+}
