@@ -7,6 +7,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
 
@@ -128,6 +129,15 @@ func conditionStatus(item unstructured.Unstructured, conditionType string) strin
 		if condition["type"] == conditionType {
 			status, _ := condition["status"].(string)
 			return status
+		}
+	}
+	return ""
+}
+
+func conditionStatusOf(conditions []metav1.Condition, conditionType string) string {
+	for _, condition := range conditions {
+		if condition.Type == conditionType {
+			return string(condition.Status)
 		}
 	}
 	return ""

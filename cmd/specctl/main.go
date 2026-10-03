@@ -98,6 +98,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runGet(rest, stdout, stderr)
 	case "delete":
 		return runDelete(rest, stdout, stderr)
+	case "ingest":
+		return runIngest(rest, stdout, stderr)
+	case "graph":
+		return runGraph(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return exitOK
@@ -289,6 +293,9 @@ usage:
   specctl apply -f <file> [-f <file>...] [--workspace root:specs]
   specctl get <kind> [name] [-o table|yaml|json|name]
   specctl delete <kind> <name>
+  specctl ingest --repo <path> [--repo-name <name>] [--bolt-url <url>]
+  specctl graph neighbors <context> [--bolt-url <url>]
+  specctl graph rebuild [--bolt-url <url>]
 
 kinds:
   repository, systemcontext, specchange
@@ -298,5 +305,12 @@ global flags:
   --context <name>      kubeconfig context
   --workspace <path>    logical cluster path (default root:specs, empty to use the kubeconfig as given)
   --namespace, -n <ns>  namespace (default default)
+
+graph flags:
+  --bolt-url <url>           bolt endpoint (default $SPECD_BOLT_URL, empty skips the graph)
+  --bolt-user <user>         bolt user (default $SPECD_BOLT_USER or neo4j)
+  --bolt-password <password> bolt password (default $SPECD_BOLT_PASSWORD)
+  --bolt-password-file <path> read the bolt password from a file (default $SPECD_BOLT_PASSWORD_FILE)
+  --bolt-database <name>     bolt database (default $SPECD_BOLT_DATABASE, needed by ArcadeDB)
 `)
 }

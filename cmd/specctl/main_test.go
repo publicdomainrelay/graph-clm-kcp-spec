@@ -1,0 +1,164 @@
+package main
+
+import (
+	"bytes"
+	"flag"
+	"strings"
+	"testing"
+
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+)
+
+func runWith(args ...string) (int, string, string) {
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	code := run(args, stdout, stderr)
+	return code, stdout.String(), stderr.String()
+}
+
+func TestRunDispatch(t *testing.T) {
+	t.Setenv("SPECD_BOLT_URL", "")
+
+	code, _, stderr := runWith()
+	if code != exitUsage || !strings.Contains(stderr, "usage:") {
+		t.Errorf("no arguments: code %d, stderr %q", code, stderr)
+	}
+
+	code, _, stderr = runWith("explode")
+	if code != exitUsage || !strings.Contains(stderr, "unknown command") {
+		t.Errorf("unknown command: code %d, stderr %q", code, stderr)
+	}
+
+	code, stdout, _ := runWith("help")
+	if code != exitOK || !strings.Contains(stdout, "specctl ingest") {
+		t.Errorf("help: code %d, stdout %q", code, stdout)
+	}
+
+	code, stdout, _ = runWith("--help")
+	if code != exitOK || !strings.Contains(stdout, "specctl graph") {
+		t.Errorf("--help: code %d, stdout %q", code, stdout)
+	}
+}
+
+func TestRunApplyNeedsAFile(t *testing.T) {
+	code, _, stderr := runWith("apply")
+	if code != exitUsage || !strings.Contains(stderr, "-f is required") {
+		t.Errorf("code %d, stderr %q", code, stderr)
+	}
+}
+
+func TestRunDeleteNeedsKindAndName(t *testing.T) {
+	code, _, stderr := runWith("delete", "systemcontext")
+	if code != exitUsage || !strings.Contains(stderr, "kind and a name") {
+		t.Errorf("code %d, stderr %q", code, stderr)
+	}
+}
+
+func TestRunGetRejectsAnUnknownKind(t *testing.T) {
+	code, _, stderr := runWith("get", "bananas")
+	if code != exitUsage || !strings.Contains(stderr, "unknown kind") {
+		t.Errorf("code %d, stderr %q", code, stderr)
+	}
+}
+
+func TestRunIngestNeedsARepo(t *testing.T) {
+	code, _, stderr := runWith("ingest")
+	if code != exitUsage || !strings.Contains(stderr, "--repo is required") {
+		t.Errorf("code %d, stderr %q", code, stderr)
+	}
+}
+
+func TestRunGraphSubcommands(t *testing.T) {
+	t.Setenv("SPECD_BOLT_URL", "")
+
+	code, _, stderr := runWith("graph")
+	if code != exitUsage || !strings.Contains(stderr, "neighbors or rebuild") {
+		t.Errorf("graph alone: code %d, stderr %q", code, stderr)
+	}
+
+	code, _, stderr = runWith("graph", "wat")
+	if code != exitUsage || !strings.Contains(stderr, "unknown subcommand") {
+		t.Errorf("graph wat: code %d, stderr %q", code, stderr)
+	}
+
+	code, _, stderr = runWith("graph", "neighbors", "calc")
+	if code != exitUsage || !strings.Contains(stderr, "--bolt-url") {
+		t.Errorf("neighbors without a bolt url: code %d, stderr %q", code, stderr)
+	}
+
+	code, _, stderr = runWith("graph", "neighbors")
+	if code != exitUsage || !strings.Contains(stderr, "one context name") {
+		t.Errorf("neighbors without a name: code %d, stderr %q", code, stderr)
+	}
+
+	code, _, stderr = runWith("graph", "rebuild")
+	if code != exitUsage || !strings.Contains(stderr, "--bolt-url") {
+		t.Errorf("rebuild without a bolt url: code %d, stderr %q", code, stderr)
+	}
+}
+
+func TestParseInterspersedKeepsPositionals(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	output := fs.String("o", "table", "output")
+	positional, err := parseInterspersed(fs, []string{"systemcontext", "-o", "yaml", "calc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(positional) != 2 || positional[0] != "systemcontext" || positional[1] != "calc" {
+		t.Fatalf("positional = %v", positional)
+	}
+	if *output != "yaml" {
+		t.Fatalf("output = %q", *output)
+	}
+}
+
+func TestGlobalsDefaultsAndEnv(t *testing.T) {
+	t.Setenv("SPECD_KUBECONFIG", "/tmp/custom.kubeconfig")
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	options := addGlobals(fs)
+	if options.kubeconfig != "/tmp/custom.kubeconfig" {
+		t.Errorf("kubeconfig = %q", options.kubeconfig)
+	}
+	if options.workspace != "root:specs" {
+		t.Errorf("workspace = %q", options.workspace)
+	}
+	if options.namespace != specapi.DefaultNamespace {
+		t.Errorf("namespace = %q", options.namespace)
+	}
+}
+
+func TestBoltOptionsReadTheEnvironment(t *testing.T) {
+	t.Setenv("SPECD_BOLT_URL", "bolt://example:7687")
+	t.Setenv("SPECD_BOLT_USER", "root")
+	t.Setenv("SPECD_BOLT_PASSWORD", "secret")
+	t.Setenv("SPECD_BOLT_PASSWORD_FILE", "/tmp/token")
+	t.Setenv("SPECD_BOLT_DATABASE", "clm")
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	options := addBolt(fs)
+	if options.url != "bolt://example:7687" || options.user != "root" || options.password != "secret" ||
+		options.passwordFile != "/tmp/token" || options.database != "clm" {
+		t.Errorf("bolt options = %+v", options)
+	}
+	if err := fs.Parse([]string{"--bolt-url", "bolt://other:7687"}); err != nil {
+		t.Fatal(err)
+	}
+	if options.url != "bolt://other:7687" {
+		t.Errorf("a flag must beat the environment: %q", options.url)
+	}
+}
+
+func TestBoltUserDefaults(t *testing.T) {
+	t.Setenv("SPECD_BOLT_USER", "")
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	options := addBolt(fs)
+	if options.user != "neo4j" {
+		t.Errorf("user = %q, want neo4j", options.user)
+	}
+}
+
+func TestDefaultKubeconfigFallsBackToTheRepositoryState(t *testing.T) {
+	t.Setenv("SPECD_KUBECONFIG", "")
+	if got := defaultKubeconfig(); got != ".kcp-specd/admin.kubeconfig" {
+		t.Errorf("kubeconfig = %q", got)
+	}
+}
