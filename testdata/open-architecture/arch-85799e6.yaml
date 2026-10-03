@@ -1,0 +1,488 @@
+$schema: https://intel.github.io/dffml/open-architecture.0.0.1.schema.json
+apiVersion: open-architecture.dffml.github.io/v0alpha1
+kind: OpenArchitecture
+metadata:
+  name: deno-kcp
+  repo: github.com/johnandersen777/deno-kcp
+  generated: 2026-09-28
+  root: sc.deno-kcp
+  src:
+    oa: https://github.com/dffml/dffml/blob/main/docs/arch/0009-Open-Architecture.rst
+    manifest: https://github.com/dffml/dffml/blob/main/docs/arch/0008-Manifest.md
+    sysctx: https://github.com/dffml/dffml/blob/main/docs/tutorials/rolling_alice/0000_architecting_alice/0002_shes_ariving_when.md#system-context
+    transport: https://github.com/dffml/dffml/blob/main/docs/tutorials/rolling_alice/0000_architecting_alice/0008_transport_acquisition.md
+    runtime: docs/DENO_RUNTIME_KCP.md
+    policy: docs/POLICY_ENGINE_KCP.md
+    pki: docs/OPENBAO_PKI.md
+    adr_0001: docs/adrs/0001-cancel-policy-workflow-runs.md
+    adr_0002: docs/adrs/0002-native-run-admission.md
+    adr_0003: docs/adrs/0003-event-driven-reconcile-loop.md
+
+conventions:
+  system_context: {fields: [upstream, overlay, orchestrator]}
+  upstream_self: "concept defined in this repo; upstream is its own schema"
+  overlay_none: []
+  ref_prefixes:
+    up: external upstream artifact
+    sc: system context
+    ov: overlay (manifest applied to an upstream)
+    orch: orchestrator
+    tb: trust boundary
+    x: boundary crossing
+  rules:
+    - {level: MUST, rule: "upstream is the document itself when already a domain specific manifest", src: oa}
+    - {level: MUST, rule: "overlay applied to upstream when given", src: oa}
+    - {level: SHOULD, rule: "orchestrator inspected against top level system context policy before execution", src: oa}
+    - {level: MUST, rule: "manifest data present is used", src: manifest}
+
+upstreams:
+  - {id: up.kcp, repo: https://github.com/kcp-dev/kcp, bin: kcp, bin_env: KCP_BIN, go_sdk: github.com/kcp-dev/sdk@v0.33.1}
+  - {id: up.kine, repo: https://github.com/k3s-io/kine, bin: kine, bin_env: KINE_BIN}
+  - {id: up.kubernetes, modules: [k8s.io/api@v0.36.4, k8s.io/apimachinery@v0.36.4, k8s.io/client-go@v0.36.4, sigs.k8s.io/yaml@v1.6.0]}
+  - {id: up.kubectl, bin: kubectl, bin_env: KUBECTL}
+  - {id: up.deno, bin: deno, bin_env: DENO_BIN, flag: --deno-bin}
+  - {id: up.go, version: "1.26.0"}
+  - {id: up.openbao, repo: https://github.com/openbao/openbao, rev: v2.7.0, commit: ca305a02daa68b203325daa1b25c18d7a252d4b3, path: third_party/openbao, kind: git_submodule}
+  - {id: up.policy-engine, path: ../policy-engine, lang: typescript, flag: --policy-engine-dir, env: POLICY_ENGINE_DIR}
+  - {id: up.gha-lite-bundled-actions, path: "<policy-engine-dir>/../policies/gha-lite/bundled-actions", flag: --bundled-actions-dir}
+  - {id: up.hono-pds, path: ../hono-pds, entry: main.ts}
+  - {id: up.hono-plc, path: ../atproto-market/hono-plc, entry: mod.ts}
+  - {id: up.hono-atproto-relay, path: ../atproto-relay/hono-atproto-relay, entry: mod.ts}
+
+orchestrators:
+  - {id: orch.start-kcp, path: deploy/start-kcp.sh, state: .kcp/, stop: deploy/stop-kcp.sh}
+  - {id: orch.start-openbao, path: deploy/start-openbao.sh}
+  - {id: orch.baoembed, path: internal/baoembed, builds: up.openbao, use: live_tests}
+  - {id: orch.install-provider, path: deploy/install-provider.sh}
+  - {id: orch.demo-deno-runtime, path: deploy/demo-deno-runtime.sh, state: [.kcp-demo/, runs/], composes: [orch.start-kcp, orch.install-provider]}
+  - {id: orch.demo, path: deploy/demo.sh}
+  - {id: orch.apply-market, path: deploy/examples/atproto/market/apply.sh, composes: [orch.start-openbao], per_workspace: [10-rbac.yaml, 15-openbao-<ws>.yaml]}
+  - {id: orch.livegate, path: internal/livegate, env: DENO_KCP_REQUIRE_LIVE}
+  - {id: orch.host-process, kind: fork_exec}
+  - {id: orch.deno-kcp, is: sc.deno-kcp}
+
+system_contexts:
+
+  - id: sc.deno-kcp
+    upstream: sc.kcp-local
+    overlay: [ov.deno-computer-api, sc.deno-kcp-provider, sc.openbao-server]
+    orchestrator: orch.demo-deno-runtime
+    introduces: [sc.kind.denopod, sc.kind.denorun, sc.kind.denojob, sc.kind.policyengine, sc.kind.policyworkflowpod, sc.kind.policyworkflowrun, sc.kind.runtrigger, sc.kind.openbao]
+
+  - id: sc.kcp-local
+    upstream: up.kcp
+    overlay: [ov.kcp-local-config]
+    orchestrator: orch.start-kcp
+    depends_on: [sc.kine-local]
+
+  - id: sc.kine-local
+    upstream: up.kine
+    overlay: [ov.kine-sqlite]
+    orchestrator: orch.start-kcp
+
+  - id: sc.deno-kcp-provider
+    upstream: self
+    overlay: [ov.provider-flags]
+    orchestrator: orch.host-process
+    code: {bin: cmd/deno-kcp-provider, pkgs: [internal/provider, internal/runner, internal/denoperm, internal/denopod, internal/denorun, internal/denojob, internal/policyengine, internal/policyworkflowpod, internal/policyworkflowrun, internal/trigger, internal/openbao, internal/baopki, internal/provider/kcpdns]}
+    watches: {via: apiexport_virtual_workspace, exports: [denoruntime, policyworkflowruns], model: event_driven, src: adr_0003}
+    per_workload: [mint_sa_token, write_tempdir, validate_permissions, inject_env, fork_deno]
+    serves: {metrics: --metrics-listen}
+
+  - id: sc.openbao-server
+    upstream: up.openbao
+    overlay: [ov.baopki]
+    orchestrator: [orch.start-openbao, orch.baoembed]
+    optional: true
+
+  # kinds: new concepts, upstream self, no overlays, orchestrated by the provider
+  - id: sc.kind.denopod
+    upstream: self
+    overlay: []
+    orchestrator: sc.deno-kcp-provider
+    api: {group: deno.computer, version: v1alpha1, resource: denopods, schema: v1alpha1-3.denopods.deno.computer, export: denoruntime, scope: Namespaced}
+    axis: long_running
+    spec: {embeds: DenoPodTemplate, fields: [restartPolicy, readinessProbe, livenessProbe, activeDeadlineSeconds, ttlSecondsAfterFinished]}
+    status: [phase, runID, restarts, startTime, completionTime, exitCode, message, outputs, ready, conditions]
+    phases: [Pending, Running, Succeeded, Failed]
+    conditions: [Ready]
+    finalizer: denopod.deno.computer/run
+    code: {types: api/v1alpha1/types_denopod.go, logic: internal/denopod, reconcile: internal/provider/reconcile_pod.go, registry: internal/provider/registry_pod.go, runner: internal/runner/pod_exec.go}
+    dffml: long_running_operation_implementation
+
+  - id: sc.kind.denorun
+    upstream: self
+    overlay: []
+    orchestrator: sc.deno-kcp-provider
+    api: {group: deno.computer, version: v1alpha1, resource: denoruns, schema: v1alpha1-2.denoruns.deno.computer, export: denoruntime, scope: Namespaced}
+    axis: one_shot
+    spec: {embeds: DenoPodTemplate, fields: [backoff, activeDeadlineSeconds, ttlSecondsAfterFinished]}
+    status: [phase, runID, startTime, completionTime, exitCode, message, outputs, retries, conditions]
+    phases: [Pending, Running, Succeeded, Failed]
+    finalizer: denorun.deno.computer/run
+    owned_by: [sc.kind.denojob]
+    code: {types: api/v1alpha1/types_denorun.go, logic: internal/denorun, reconcile: internal/provider/reconcile_run.go, registry: internal/provider/registry_run.go}
+    dffml: operation_run_with_parameter_set
+
+  - id: sc.kind.denojob
+    upstream: self
+    overlay: []
+    orchestrator: sc.deno-kcp-provider
+    api: {group: deno.computer, version: v1alpha1, resource: denojobs, schema: v1alpha1-4.denojobs.deno.computer, export: denoruntime, scope: Namespaced}
+    axis: one_shot
+    spec: {fields: [template, completions, parallelism, backoffLimit, suspend, activeDeadlineSeconds, ttlSecondsAfterFinished], template: DenoPodTemplate}
+    status: [phase, runName, runs, startTime, completionTime, active, ready, succeeded, failed, retries, exitCode, outputs, conditions]
+    phases: [Pending, Running, Succeeded, Failed]
+    owns: [sc.kind.denorun]
+    created_by: [sc.kind.runtrigger]
+    code: {types: api/v1alpha1/types_denojob.go, logic: internal/denojob, reconcile: internal/provider/reconcile_job.go, registry: internal/provider/registry_job.go}
+    dffml: batch_of_parameter_sets
+
+  - id: sc.kind.policyengine
+    upstream: self
+    overlay: []
+    orchestrator: sc.deno-kcp-provider
+    binds_upstream: up.policy-engine
+    api: {group: deno.computer, version: v1alpha1, resource: policyengines, schema: v1alpha1-2.policyengines.deno.computer, export: denoruntime, scope: Namespaced}
+    axis: long_running
+    spec: {fields: [denoJson, denoLock, permissions, serviceAccount, env, restartPolicy, readinessProbe, livenessProbe]}
+    status: [phase, runID, endpoint, restarts, ready, startTime, completionTime, message, conditions]
+    phases: [Pending, Running, Failed]
+    conditions: [Ready]
+    finalizer: policyengine.deno.computer/run
+    code: {types: api/v1alpha1/types_policyengine.go, logic: internal/policyengine, reconcile: internal/provider/reconcile_engine.go, registry: internal/provider/registry_engine.go, runner: internal/runner/engine_exec.go}
+    dffml: gatekeeper_service
+
+  - id: sc.kind.policyworkflowpod
+    upstream: self
+    overlay: []
+    orchestrator: sc.deno-kcp-provider
+    api: {group: deno.computer, version: v1alpha1, resource: policyworkflowpods, schema: v1alpha1-5.policyworkflowpods.deno.computer, export: denoruntime, scope: Namespaced}
+    axis: long_running
+    spec: {fields: [workflow, inputs, args, perspective, selfDid, policyEngine, concurrencyPolicy, maxConcurrent, runTTLSecondsAfterFinished]}
+    concurrency_policy: [Allow, Forbid, Replace]
+    status: [phase, endpoint, active, conditions]
+    phases: [Pending, Running, Failed]
+    refs: {policyEngine: sc.kind.policyengine}
+    owns: [sc.kind.policyworkflowrun]
+    admission: {model: per_pod_queue, cap: maxConcurrent, src: adr_0002}
+    code: {types: api/v1alpha1/types_policyworkflowpod.go, logic: internal/policyworkflowpod, reconcile: internal/provider/reconcile_workflowpod.go, registry: internal/provider/registry_workflowpod.go, admission: internal/provider/admission.go}
+    dffml: [policy_as_dataflow_holder, lock_network]
+
+  - id: sc.kind.policyworkflowrun
+    upstream: self
+    overlay: []
+    orchestrator: sc.deno-kcp-provider
+    api: {group: deno.computer, version: v1alpha1, resource: policyworkflowruns, schema: v1alpha1-4.policyworkflowruns.deno.computer, export: policyworkflowruns, scope: Namespaced}
+    axis: one_shot
+    spec: {fields: [workflow, inputs, args, perspective, selfDid, policyWorkflowPod, engineEndpoint, suspend, cancel, backoffLimit, activeDeadlineSeconds, ttlSecondsAfterFinished]}
+    status: [phase, runID, startTime, completionTime, active, succeeded, failed, retries, exitStatus, outputs, conditions]
+    phases: [Pending, Running, Succeeded, Failed, Cancelled]
+    conditions: [Cancelled]
+    finalizer: policyworkflowrun.deno.computer/run
+    refs: {policyWorkflowPod: sc.kind.policyworkflowpod, engineEndpoint: sc.kind.policyengine.status.endpoint}
+    owned_by: [sc.kind.policyworkflowpod]
+    output: status.outputs.allow
+    cancellation: {via: [spec.cancel, deletion], src: adr_0001}
+    code: {types: api/v1alpha1/types_policyworkflowrun.go, logic: internal/policyworkflowrun, client: internal/provider/policy_client.go}
+    dffml: dmz_policy_evaluation_job
+    src: transport
+
+  - id: sc.kind.runtrigger
+    upstream: self
+    overlay: []
+    orchestrator: sc.deno-kcp-provider
+    api: {group: deno.computer, version: v1alpha1, resource: runtriggers, schema: v1alpha1-3.runtriggers.deno.computer, export: denoruntime, scope: Namespaced}
+    axis: one_shot
+    spec: {fields: [policyWorkflowPod, match, jobTemplate], jobTemplate: DenoJobSpec}
+    status: [phase, matched, jobName, lastRun, conditions]
+    phases: [Pending, Triggered, Skipped, Failed]
+    watches: sc.kind.policyworkflowrun.status.outputs
+    creates: [sc.kind.denojob]
+    code: {types: api/v1alpha1/types_runtrigger.go, logic: internal/trigger, reconcile: internal/provider/reconcile_trigger.go, registry: internal/provider/registry_trigger.go}
+    dffml: conditional_flow_edge_on_output
+
+  - id: sc.kind.openbao
+    upstream: self
+    overlay: []
+    orchestrator: sc.deno-kcp-provider
+    binds_upstream: sc.openbao-server
+    api: {group: deno.computer, version: v1alpha1, resource: openbaos, schema: v1alpha1-1.openbaos.deno.computer, export: denoruntime, scope: Namespaced}
+    axis: binding
+    spec: {fields: [namespace]}
+    status: [namespace, serial, chain, ready, message, conditions]
+    conditions: [Ready]
+    finalizer: openbao.deno.computer/namespace
+    maps: "kubernetes namespace -> openbao namespace <workspace labels>.<namespace>"
+    code: {types: api/v1alpha1/types_openbao.go, logic: [internal/openbao, internal/baopki], reconcile: internal/provider/reconcile_openbao.go, registry: internal/provider/registry_openbao.go}
+    dffml: input_set_context_pki
+
+  # examples: instances; upstream is a kind, overlay is a system context
+  - id: sc.example.atproto-market
+    upstream: sc.deno-kcp
+    overlay: [ov.market-workspaces, ov.market-rbac, ov.market-openbao, sc.market.plc, sc.market.relay, sc.market.pds, sc.market.verifier]
+    orchestrator: orch.apply-market
+    path: deploy/examples/atproto/market
+
+  - id: sc.market.plc
+    upstream: sc.kind.denopod
+    overlay:
+      - id: sc.market.plc.service
+        upstream: up.hono-plc
+        overlay: [ov.service-launcher, {env: {SERVICE_ARGS: [--port, "2587", --hostname, 127.0.0.1], SERVICE_ENV: {PORT: "2587", HOSTNAME: 127.0.0.1}, SERVICE_TLS: "true"}}, {restartPolicy: Always}, {readinessProbe: [kcpdns, plc.default.global.svc.kcp.local]}]
+        orchestrator: orch.deno-kcp
+    orchestrator: orch.deno-kcp
+    placement: {workspace: root:global, namespace: default, fqdn: plc.default.global.svc.kcp.local, port: 2587}
+    pki: {openbao_namespace: global.default}
+    path: deploy/examples/atproto/market/20-global-plc.yaml
+
+  - id: sc.market.relay
+    upstream: sc.kind.denopod
+    overlay:
+      - id: sc.market.relay.service
+        upstream: up.hono-atproto-relay
+        overlay: [ov.service-launcher, {env: {SERVICE_ARGS: [--port, "2584", --hostname, 127.0.0.1], SERVICE_ENV: {PORT: "2584", HOSTNAME: relay.default.relay.svc.kcp.local}, SERVICE_TLS: "true"}}, {restartPolicy: Always}, {readinessProbe: [kcpdns, relay.default.relay.svc.kcp.local]}]
+        orchestrator: orch.deno-kcp
+    orchestrator: orch.deno-kcp
+    placement: {workspace: root:relay, namespace: default, fqdn: relay.default.relay.svc.kcp.local, port: 2584}
+    pki: {openbao_namespace: relay.default}
+    path: deploy/examples/atproto/market/30-relay-relay.yaml
+
+  - id: sc.market.pds
+    upstream: sc.kind.denopod
+    overlay:
+      - id: sc.market.pds.service
+        upstream: up.hono-pds
+        overlay:
+          - ov.service-launcher
+          - env:
+              SERVICE_ARGS: [--port, "2583", --hostname, 127.0.0.1]
+              SERVICE_DENO_FLAGS: [--unstable-kv]
+              SERVICE_TLS: "true"
+              SERVICE_ENV:
+                PORT: "2583"
+                HOSTNAME: 127.0.0.1
+                PDS_PUBLIC_HOSTNAME: pds.default.alice.svc.kcp.local
+                PDS_PLC_DIRECTORY_URL: {ref: sc.market.plc, url: https://plc.default.global.svc.kcp.local}
+                PDS_CRAWLERS: {ref: sc.market.relay, url: https://relay.default.relay.svc.kcp.local}
+                PDS_SUBSCRIBE_REPOS_FORMAT: json
+                PDS_PRIVATE_KEY_HEX: {secret: true, substituted_by: orch.apply-market, from: KEY_FILE}
+          - {restartPolicy: Always}
+          - {readinessProbe: [kcpdns, pds.default.alice.svc.kcp.local, /xrpc/_health]}
+        orchestrator: orch.deno-kcp
+    orchestrator: orch.deno-kcp
+    placement: {workspace: root:alice, namespace: default, fqdn: pds.default.alice.svc.kcp.local, port: 2583}
+    pki: {openbao_namespace: alice.default}
+    depends_on: [sc.market.plc, sc.market.relay]
+    path: deploy/examples/atproto/market/40-alice-pds.yaml
+
+  - id: sc.market.verifier
+    upstream: sc.kind.denopod
+    overlay:
+      - id: sc.market.verifier.check
+        upstream: self
+        overlay: [{env: {VERIFY_PDS: https://pds.default.alice.svc.kcp.local, VERIFY_PLC: https://plc.default.global.svc.kcp.local, VERIFY_RELAY: wss://relay.default.relay.svc.kcp.local/xrpc/com.atproto.sync.subscribeRepos}}, {restartPolicy: Never}]
+        orchestrator: orch.deno-kcp
+    orchestrator: orch.deno-kcp
+    placement: {workspace: root:alice, namespace: default}
+    calls: [com.atproto.server.createAccount, com.atproto.repo.createRecord, plc_resolve, com.atproto.sync.subscribeRepos]
+    outputs: [createAccountStatus, did, plcStatus, relayFrames, relaySawCommit, verdict]
+    depends_on: [sc.market.pds, sc.market.plc, sc.market.relay]
+    path: deploy/examples/atproto/market/50-verifier.yaml
+
+  - id: sc.example.deno-runtime
+    upstream: sc.deno-kcp
+    overlay: [ov.runtime-workspace, sc.demo.policy-engine, sc.demo.open-policy-pod, sc.demo.native-fire, sc.demo.on-policy-allow]
+    orchestrator: orch.demo-deno-runtime
+    path: deploy/examples
+
+  - id: sc.demo.policy-engine
+    upstream: sc.kind.policyengine
+    overlay:
+      - {upstream: up.policy-engine, overlay: [{env: {POLICY_ENGINE_LOG_LEVEL: warn}}, {restartPolicy: Always}], orchestrator: orch.deno-kcp}
+    orchestrator: orch.deno-kcp
+    path: deploy/examples/policyengine.yaml
+
+  - id: sc.demo.open-policy-pod
+    upstream: sc.kind.policyworkflowpod
+    overlay:
+      - {upstream: self, overlay: [{policyEngine: sc.demo.policy-engine}, {concurrencyPolicy: Forbid}, {maxConcurrent: 1}, {runTTLSecondsAfterFinished: 300}, {perspective: requester}, {selfDid: "did:plc:example"}, {workflow: {format: gha-lite, name: open policy, on: workflow_dispatch}}], orchestrator: orch.deno-kcp}
+    orchestrator: orch.deno-kcp
+    path: deploy/examples/policyworkflowpod.yaml
+
+  - id: sc.demo.native-fire
+    upstream: sc.kind.denopod
+    overlay:
+      - {upstream: self, overlay: [{restartPolicy: Never}, {script_creates: {kind: PolicyWorkflowRun, spec: {policyWorkflowPod: open-policy-pod}}}], orchestrator: orch.deno-kcp}
+    orchestrator: orch.deno-kcp
+    crosses: [x.workload-to-api]
+    path: deploy/examples/native-fire-pod.yaml
+
+  - id: sc.demo.on-policy-allow
+    upstream: sc.kind.runtrigger
+    overlay:
+      - upstream: self
+        overlay: [{policyWorkflowPod: sc.demo.open-policy-pod}, {match: {allow: "true"}}, {jobTemplate: {backoffLimit: 1, ttlSecondsAfterFinished: 300, template: {script: read_latest_policyworkflowrun, serviceAccount: deno-runner, permissions: {read: allow, write: [result.json], net: allow, env: [KCP_TOKEN, KCP_SERVER, KCP_WORKSPACE]}}}}]
+        orchestrator: orch.deno-kcp
+    orchestrator: orch.deno-kcp
+    path: deploy/examples/runtrigger.yaml
+
+  - id: sc.example.policy-workflow-run
+    upstream: sc.kind.policyworkflowrun
+    overlay:
+      - {upstream: self, overlay: [{engineEndpoint: "http://127.0.0.1:8080 (substituted)"}], orchestrator: orch.deno-kcp}
+    orchestrator: orch.demo
+    path: deploy/examples/policy-workflow-run.yaml
+
+overlays:
+  - id: ov.kcp-local-config
+    target: up.kcp
+    data: {secure_port: 6443, secure_port_env: KCP_SECURE_PORT, feature_gates: [WorkspaceMounts=true], feature_gates_env: KCP_FEATURE_GATES, etcd: kine, root_dir_env: ROOT, outputs: [admin.kubeconfig, apiserver.crt, apiserver.key, sa.key]}
+  - id: ov.kine-sqlite
+    target: up.kine
+    data: {endpoint: "sqlite://$ROOT/kine.db", listen: 127.0.0.1:23791, listen_env: KINE_ENDPOINT}
+  - id: ov.deno-computer-api
+    target: sc.kcp-local
+    applied_by: orch.install-provider
+    workspace: {path: root:deno-provider, type: root:universal}
+    apiresourceschemas: [deploy/policyworkflowrun-apiresourceschema.yaml, deploy/denopod-apiresourceschema.yaml, deploy/denorun-apiresourceschema.yaml, deploy/denojob-apiresourceschema.yaml, deploy/runtrigger-apiresourceschema.yaml, deploy/policyengine-apiresourceschema.yaml, deploy/policyworkflowpod-apiresourceschema.yaml, deploy/openbao-apiresourceschema.yaml]
+    apiexports:
+      - {name: denoruntime, path: deploy/denoruntime-apiexport.yaml, resources: [denopods, denoruns, denojobs, runtriggers, policyengines, policyworkflowpods, openbaos]}
+      - {name: policyworkflowruns, path: deploy/policyworkflowrun-apiexport.yaml, resources: [policyworkflowruns]}
+    workspacetypes:
+      - {name: workflow, path: deploy/workspacetype-workflow.yaml, extends: [root:universal], default_bindings: [root:deno-provider:policyworkflowruns]}
+      - {name: denoruntime, path: deploy/workspacetype-denoruntime.yaml, extends: [root:workflow, root:universal], default_bindings: [root:deno-provider:policyworkflowruns, root:deno-provider:denoruntime]}
+    ready_when: "APIExport condition IdentityValid=True"
+  - id: ov.provider-flags
+    target: sc.deno-kcp-provider
+    precedence: [flag, env, default]
+    data:
+      kubeconfig: {env: KUBECONFIG}
+      host: {env: KCP_HOST}
+      deno-bin: {env: DENO_BIN}
+      runs-dir: {env: RUNS_DIR}
+      policy-engine-dir: {env: POLICY_ENGINE_DIR, binds: up.policy-engine}
+      bundled-actions-dir: {binds: up.gha-lite-bundled-actions}
+      service-domain: {env: KCP_SERVICE_DOMAIN, default: kcp.local}
+      token-ttl: {default: 1h}
+      pod-timeout: {default: 5m}
+      write-status: {default: true}
+      metrics-listen: {env: METRICS_LISTEN}
+      openbao-addr: {env: OPENBAO_ADDR}
+      openbao-token: {env: OPENBAO_TOKEN, secret: true}
+      openbao-ca-cert: {env: OPENBAO_CACERT}
+      openbao-mount: {env: OPENBAO_MOUNT}
+      openbao-role: {env: OPENBAO_ROLE}
+      openbao-intermediate-ttl: {env: OPENBAO_INTERMEDIATE_TTL}
+      openbao-leaf-ttl: {env: OPENBAO_LEAF_TTL}
+  - id: ov.baopki
+    target: up.openbao
+    data:
+      root: {openbao_namespace: root, mount: pki, role: root_ca, signs: intermediates_only}
+      intermediate: {openbao_namespace: "<workspace labels>.<k8s namespace>", mount: pki, per: k8s_namespace, created_by: sc.kind.openbao}
+      leaf: {cn: "<name>.<ns>.<workspace labels>.svc.<service-domain>", san: [loopback], issued_to: [sc.kind.denopod], when: "env SERVICE_TLS=true"}
+    src: pki
+  - id: ov.workload-env
+    target: DenoPodTemplate
+    applied_by: sc.deno-kcp-provider
+    requires: "keys in spec.permissions.env allowList"
+    injects:
+      KCP_TOKEN: sa_token_own_workspace
+      KCP_SERVER: api_server_url
+      KCP_WORKSPACE: logical_cluster
+      KCP_NAMESPACE: namespace
+      KCP_SERVICE_DOMAIN: --service-domain
+      KCP_SHIM: kcpdns_preload_path
+      KCP_DNS_TABLE: "fqdn -> host:port"
+      KCP_TOKENS: "workspace -> sa_token, for each workspace in dns table"
+      DENO_CERT: ca.pem
+      KCP_TLS_CERT: {when: SERVICE_TLS}
+      KCP_TLS_KEY: {when: SERVICE_TLS, secret: true}
+      KCP_SERVICE_NAME: {when: SERVICE_TLS}
+      KCP_CA_BUNDLE: {when: SERVICE_TLS, is: "openbao root + kcp cluster CA"}
+    code: internal/provider/service_dns.go
+  - id: ov.service-launcher
+    target: DenoPodTemplate
+    kind: pattern
+    copies: [20-global-plc.yaml, 30-relay-relay.yaml, 40-alice-pds.yaml]
+    reads_env: [SERVICE_ENTRY, SERVICE_CWD, SERVICE_ARGS, SERVICE_DENO_FLAGS, SERVICE_ENV, SERVICE_TLS]
+    writes: [result.json, tls.crt, tls.key, ca.pem]
+    spawns: "deno run -A [--preload KCP_SHIM] <SERVICE_DENO_FLAGS> <SERVICE_ENTRY> <SERVICE_ARGS> [--tls-cert-file --tls-key-file]"
+    permissions: {read: allow, write: [result.json, tls.crt, tls.key, ca.pem], run: allow, env: allowList, noPrompt: true}
+    serviceAccount: deno-runner
+  - id: ov.market-workspaces
+    target: sc.kcp-local
+    data: [{path: root:global, type: root:denoruntime}, {path: root:relay, type: root:denoruntime}, {path: root:alice, type: root:denoruntime}]
+    path: deploy/examples/atproto/market/00-workspaces.yaml
+  - id: ov.market-rbac
+    target: [root:global, root:relay, root:alice]
+    data: {serviceaccount: default/deno-runner, clusterrole: {name: deno-runner-read-pods, rules: [{apiGroups: [deno.computer], resources: [denopods], verbs: [get, list]}]}}
+    purpose: kcpdns_peer_discovery
+    path: deploy/examples/atproto/market/10-rbac.yaml
+  - id: ov.market-openbao
+    target: [root:global, root:relay, root:alice]
+    data: [{workspace: root:global, openbao_namespace: global.default}, {workspace: root:relay, openbao_namespace: relay.default}, {workspace: root:alice, openbao_namespace: alice.default}]
+    instances_of: sc.kind.openbao
+    path: deploy/examples/atproto/market/15-openbao-*.yaml
+  - id: ov.runtime-workspace
+    target: sc.kcp-local
+    data: {path: root:runtime, type: root:denoruntime}
+
+trust_boundaries:
+  - {id: tb.host, contains: [sc.kine-local, sc.kcp-local, sc.deno-kcp-provider, sc.openbao-server, workload_processes], note: "provider forks deno on its own host; no OS level isolation between workloads"}
+  - {id: tb.kcp-admin, contains: [root, admin.kubeconfig], principals: [orch.install-provider, orch.apply-market]}
+  - {id: tb.provider-workspace, path: root:deno-provider, contains: [ov.deno-computer-api], owner: sc.deno-kcp-provider}
+  - {id: tb.apiexport-vw, contains: [denoruntime_vw, policyworkflowruns_vw], principal: sc.deno-kcp-provider, sees: all_bound_tenant_workspaces}
+  - {id: tb.tenant-workspace, unit: logical_cluster, examples: [root:runtime, root:global, root:relay, root:alice], binds: [denoruntime, policyworkflowruns]}
+  - {id: tb.namespace, parent: tb.tenant-workspace, isolation: [rbac, openbao_intermediate]}
+  - {id: tb.workload, parent: tb.namespace, unit: deno_process, isolation: [deno_permission_flags, per_workload_tempdir, sa_token], code: internal/denoperm}
+  - {id: tb.child-process, parent: tb.workload, note: "ov.service-launcher spawns deno run -A; inner service has no deno permission limits", basis: example}
+  - {id: tb.openbao-root, contains: [root_ca_key], principal: sc.deno-kcp-provider}
+  - {id: tb.openbao-namespace, per: k8s_namespace, contains: [intermediate_ca_key]}
+  - {id: tb.policy-engine, contains: [sc.kind.policyengine_process], reached_by: sc.kind.policyworkflowrun}
+
+crossings:
+  - {id: x.admin-install, from: tb.kcp-admin, to: tb.provider-workspace, carries: [apiresourceschemas, apiexports, workspacetypes], auth: admin.kubeconfig}
+  - {id: x.bind, from: tb.provider-workspace, to: tb.tenant-workspace, carries: apibinding, via: workspacetype_default_bindings}
+  - {id: x.watch, from: tb.tenant-workspace, to: tb.apiexport-vw, carries: [kind_objects], principal: sc.deno-kcp-provider}
+  - {id: x.mint-token, from: tb.apiexport-vw, to: tb.tenant-workspace, carries: TokenRequest, subject: spec.serviceAccount, ttl: --token-ttl, code: internal/provider/registry_runtime.go}
+  - {id: x.spawn, from: tb.host, to: tb.workload, carries: [script, denoJson, denoLock, permission_flags, ov.workload-env], gate: internal/denoperm.Validate}
+  - {id: x.workload-to-api, from: tb.workload, to: tb.tenant-workspace, carries: [get, list, create], auth: KCP_TOKEN, gate: [rbac, admission_queue], src: adr_0002}
+  - {id: x.peer-workspace-tokens, from: tb.tenant-workspace, to: tb.workload, carries: KCP_TOKENS, spans: dns_table_workspaces, gate: rbac_denopods_get_list}
+  - {id: x.issue-intermediate, from: tb.openbao-root, to: tb.openbao-namespace, trigger: sc.kind.openbao, auth: --openbao-token, trust: --openbao-ca-cert}
+  - {id: x.issue-leaf, from: tb.openbao-namespace, to: tb.workload, carries: [KCP_TLS_CERT, KCP_TLS_KEY, KCP_CA_BUNDLE], when: SERVICE_TLS}
+  - {id: x.workload-tls, from: tb.workload, to: tb.workload, via: kcpdns_shim, auth: leaf_cert_chain_to_openbao_root, name: "<name>.<ns>.<labels>.svc.<domain>"}
+  - {id: x.evaluate-policy, from: tb.apiexport-vw, to: tb.policy-engine, carries: [workflow, inputs, args, perspective, selfDid], returns: status.outputs, code: internal/provider/policy_client.go}
+  - {id: x.verdict-to-job, from: tb.policy-engine, to: tb.namespace, carries: status.outputs.allow, gate: sc.kind.runtrigger.spec.match, creates: sc.kind.denojob}
+  - {id: x.secret-substitution, from: tb.kcp-admin, to: tb.workload, carries: PDS_PRIVATE_KEY_HEX, via: plain_env_in_object, by: orch.apply-market}
+
+flows:
+  - id: flow.policy-gated-job
+    src: [runtime, transport]
+    edges:
+      - [sc.kind.denopod, sc.kind.policyworkflowrun, {op: create, auth: KCP_TOKEN, admission: sc.kind.policyworkflowpod.maxConcurrent}]
+      - [sc.kind.policyworkflowpod, sc.kind.policyworkflowrun, {op: own}]
+      - [sc.kind.policyworkflowrun, sc.kind.policyengine, {op: evaluatePolicy, inline_workflow: true}]
+      - [sc.kind.policyengine, sc.kind.policyworkflowrun, {op: write_outputs, field: status.outputs.allow}]
+      - [sc.kind.policyworkflowrun, sc.kind.runtrigger, {op: match, on: spec.match}]
+      - [sc.kind.runtrigger, sc.kind.denojob, {op: create, from: spec.jobTemplate}]
+      - [sc.kind.denojob, sc.kind.denorun, {op: own, count: completions, parallel: parallelism}]
+  - id: flow.tls-service
+    src: pki
+    edges:
+      - [sc.kind.openbao, sc.openbao-server, {op: ensure_intermediate, namespace: spec.namespace}]
+      - [sc.kind.denopod, sc.openbao-server, {op: issue_leaf, when: SERVICE_TLS}]
+      - [sc.deno-kcp-provider, sc.kind.denopod, {op: inject, overlay: ov.workload-env}]
+  - id: flow.market-e2e
+    edges:
+      - [sc.market.pds, sc.market.plc, {op: did_plc_register, url: PDS_PLC_DIRECTORY_URL}]
+      - [sc.market.pds, sc.market.relay, {op: requestCrawl, url: PDS_CRAWLERS}]
+      - [sc.market.relay, sc.market.pds, {op: subscribeRepos}]
+      - [sc.market.verifier, sc.market.pds, {op: [createAccount, createRecord]}]
+      - [sc.market.verifier, sc.market.plc, {op: resolve_did}]
+      - [sc.market.verifier, sc.market.relay, {op: subscribeRepos, expect: commit}]
+  - id: flow.gc
+    edges:
+      - [sc.kind.denojob, sc.kind.denorun, {via: ownerReferences, gc: kcp}]
+      - [sc.kind.policyworkflowpod, sc.kind.policyworkflowrun, {via: ownerReferences, gc: kcp}]
+      - [finalizers, live_process, {rule: "finalizer only where a live process must stop first"}]

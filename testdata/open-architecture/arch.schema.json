@@ -1,0 +1,632 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "arch.schema.json",
+  "title": "deno-kcp Open Architecture",
+  "description": "Open Architecture document for deno-kcp. Every node is a system context {upstream, overlay, orchestrator}, laid out as trees; refs are plain prefixed id strings.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "apiVersion", "kind", "metadata", "upstreams", "orchestrators", "types", "system_contexts"],
+  "properties": {
+    "$schema": {"type": "string", "description": "Path to this schema, relative to the document.", "const": "arch.schema.json"},
+    "apiVersion": {"type": "string", "description": "Document format version.", "const": "open-architecture.dffml.github.io/v0alpha1"},
+    "kind": {"type": "string", "description": "Document kind.", "const": "OpenArchitecture"},
+    "metadata": {"$ref": "#/$defs/metadata"},
+    "upstreams": {"type": "object", "description": "External artifacts this repo builds on, keyed by up.* id.", "propertyNames": {"$ref": "#/$defs/ref-up"}, "additionalProperties": {"$ref": "#/$defs/upstream"}},
+    "orchestrators": {"type": "object", "description": "Things that execute a system context (scripts, binaries, harnesses), keyed by orch.* id.", "propertyNames": {"$ref": "#/$defs/ref-orch"}, "additionalProperties": {"$ref": "#/$defs/orchestrator"}},
+    "types": {"type": "object", "description": "Shared Go types of api/v1alpha1 used by more than one kind, keyed by type.* id.", "propertyNames": {"$ref": "#/$defs/ref-type"}, "additionalProperties": {"$ref": "#/$defs/type-entry"}},
+    "system_contexts": {"type": "array", "description": "Trees of system contexts; the first is the repo, later ones are downstream contexts whose upstream is it.", "minItems": 1, "items": {"$ref": "#/$defs/system-context"}}
+  },
+  "$defs": {
+    "ref": {"type": "string", "description": "Any ref; a kind context ref may continue with .spec|.status[.field], a type ref with .field. Validator resolves it.", "pattern": "^(up|orch|type|cred|ov|sc|tb|x|r|rec|flow)\\.[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "ref-up": {"type": "string", "description": "Upstream id.", "pattern": "^up\\.[a-z0-9]+(-[a-z0-9]+)*$"},
+    "ref-orch": {"type": "string", "description": "Orchestrator id.", "pattern": "^orch\\.[a-z0-9]+(-[a-z0-9]+)*$"},
+    "ref-type": {"type": "string", "description": "Shared type id: Go type name, or kebab when no Go type exists.", "pattern": "^type\\.([A-Z][A-Za-z0-9]*|[a-z0-9]+(-[a-z0-9]+)*)$"},
+    "ref-cred": {"type": "string", "description": "Credential id.", "pattern": "^cred\\.[a-z0-9]+(-[a-z0-9]+)*$"},
+    "ref-ov": {"type": "string", "description": "Overlay id.", "pattern": "^ov\\.[a-z0-9]+(-[a-z0-9]+)*$"},
+    "ref-sc": {"type": "string", "description": "System context id; dot separated kebab segments.", "pattern": "^sc\\.[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)*$"},
+    "ref-tb": {"type": "string", "description": "Trust boundary id.", "pattern": "^tb\\.[a-z0-9]+(-[a-z0-9]+)*$"},
+    "ref-x": {"type": "string", "description": "Crossing id.", "pattern": "^x\\.[a-z0-9]+(-[a-z0-9]+)*$"},
+    "ref-r": {"type": "string", "description": "Risk id.", "pattern": "^r\\.[a-z0-9]+(-[a-z0-9]+)*$"},
+    "ref-rec": {"type": "string", "description": "Reconciler id.", "pattern": "^rec\\.[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+)*$"},
+    "ref-flow": {"type": "string", "description": "Flow id.", "pattern": "^flow\\.[a-z0-9]+(-[a-z0-9]+)*$"},
+    "ref-kind-object": {"type": "string", "description": "Whole spec or status of a kind context.", "pattern": "^sc\\.kind\\.[a-z0-9]+\\.(spec|status)$"},
+    "refs": {"type": "array", "description": "List of refs.", "uniqueItems": true, "items": {"$ref": "#/$defs/ref"}},
+    "carried": {"type": "array", "description": "Refs, or kcp resources as group/version/resource when no context in this document defines them.", "uniqueItems": true, "items": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "string", "description": "group/version/resource.", "pattern": "^[a-z0-9.]+/v[0-9a-z]+/[a-z]+$"}]}},
+    "path": {"type": "string", "description": "Repo-relative path, optionally with :Symbol where Symbol is an identifier (dotted allowed) present in the file. Validator checks the file exists and contains Symbol as a whole word.", "pattern": "^[A-Za-z0-9_.][^\\s:]*(:[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*)?$"},
+    "paths": {"description": "One path or a list of paths.", "anyOf": [{"$ref": "#/$defs/path"}, {"type": "array", "description": "List of repo-relative paths.", "items": {"$ref": "#/$defs/path"}, "minItems": 1}]},
+    "code": {"description": "Code location: one path, a list, or a map of role to path(s).", "anyOf": [{"$ref": "#/$defs/paths"}, {"type": "object", "description": "Role to path or paths.", "propertyNames": {"pattern": "^[a-z_]+$"}, "additionalProperties": {"$ref": "#/$defs/paths"}, "minProperties": 1}]},
+    "str-list": {"type": "array", "description": "List of strings.", "items": {"type": "string", "description": "Item."}},
+    "order": {"type": "object", "description": "Order the candidates are tried in.", "additionalProperties": false, "required": ["order"], "properties": {"order": {"$ref": "#/$defs/str-list", "description": "Candidates, first that resolves wins."}}},
+    "str-or-list": {"description": "String or list of strings.", "anyOf": [{"type": "string", "description": "Single value."}, {"$ref": "#/$defs/str-list"}]},
+    "env-name": {"type": "string", "description": "Environment variable name.", "pattern": "^[A-Z][A-Z0-9_]*$"},
+    "flag-name": {"type": "string", "description": "CLI flag.", "pattern": "^--[a-z][a-z0-9-]*$"},
+    "workspace": {"type": "string", "description": "kcp logical cluster path.", "pattern": "^root(:[a-z0-9-]+)*$"},
+    "src": {"type": "string", "description": "metadata.src key naming the source document.", "pattern": "^[a-z0-9_]+$"},
+    "basis": {"type": "string", "description": "What a claim rests on when not read directly from code.", "enum": ["code", "docs", "example", "inferred"]},
+    "axis-entry": {
+      "type": "object",
+      "description": "What carries one axis of the document: a top-level section, a ref prefix, or an id suffix. The validator checks each names something present, so an axis cannot point at nothing.",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "section": {"$ref": "#/$defs/str-or-list", "description": "Top-level section holding the axis."},
+        "prefix": {"$ref": "#/$defs/str-or-list", "description": "Ref prefix or prefixes whose ids are the axis members."},
+        "suffix": {"type": "string", "description": "Suffix that marks a system context id as a member of the axis."}
+      }
+    },
+
+    "metadata": {
+      "type": "object",
+      "description": "Document identity and source index.",
+      "additionalProperties": false,
+      "required": ["name", "repo", "generated", "root", "layout", "axes", "src"],
+      "properties": {
+        "name": {"type": "string", "description": "Architecture name."},
+        "repo": {"type": "string", "description": "Repository the document encodes."},
+        "generated": {"type": "string", "description": "Date written (YYYY-MM-DD).", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "axes": {
+          "type": "object",
+          "description": "The axes the document is sliced along, keyed by axis name, each naming what carries it, so a reader never has to infer the mapping.",
+          "additionalProperties": false,
+          "required": ["trust_boundaries", "systems", "services", "concepts"],
+          "properties": {
+            "trust_boundaries": {"$ref": "#/$defs/axis-entry", "description": "The tb.* execution contexts."},
+            "systems": {"$ref": "#/$defs/axis-entry", "description": "The system_contexts trees."},
+            "services": {"$ref": "#/$defs/axis-entry", "description": "The .service contexts."},
+            "concepts": {"$ref": "#/$defs/axis-entry", "description": "The kind contexts and the shared types."}
+          }
+        },
+        "root": {"$ref": "#/$defs/ref-sc", "description": "Top level system context."},
+        "format": {"$ref": "#/$defs/src", "description": "metadata.src key of the specification the document follows."},
+        "layout": {"type": "string", "description": "How the system context trees are laid out."},
+        "roots": {"type": "array", "description": "Entry points nothing references besides the top-level trees; each MUST still be unreferenced.", "uniqueItems": true, "items": {"$ref": "#/$defs/ref"}},
+        "src": {"type": "object", "description": "Source document index: key to URL or repo-relative path.", "propertyNames": {"pattern": "^[a-z0-9_]+$"}, "additionalProperties": {"type": "string", "description": "URL or repo-relative path."}}
+      }
+    },
+
+    "upstream": {
+      "type": "object",
+      "description": "External artifact.",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "repo": {"type": "string", "description": "Source repository URL.", "pattern": "^https://"},
+        "bin": {"type": "string", "description": "Binary name."},
+        "go_sdk": {"type": "string", "description": "Go module@version used (pinned in go.mod)."},
+        "modules": {"$ref": "#/$defs/str-list", "description": "Go module@version list."},
+        "version": {"type": "string", "description": "Version."},
+        "go": {"type": "string", "description": "Go version the artifact's go.mod declares, i.e. the toolchain its build requires."},
+        "path": {"type": "string", "description": "Path relative to repo (may leave it via ..)."},
+        "pin": {
+          "type": "object",
+          "description": "How the version in use is fixed; data only, nothing enforces it.",
+          "additionalProperties": false,
+          "required": ["by"],
+          "properties": {
+            "by": {"type": "string", "description": "go_mod: go.mod line; git_submodule: submodule commit; binary_on_path: whatever the name resolves to (unpinned); sibling_path: whatever commit the org-root checkout has (unpinned).", "enum": ["go_mod", "git_submodule", "binary_on_path", "sibling_path"]},
+            "override": {"$ref": "#/$defs/env-name", "description": "Env var that replaces the binary."},
+            "preflight": {"type": "string", "description": "path_only: the preflight target checks the bare name on PATH and ignores override.", "enum": ["path_only"]},
+            "rev": {"type": "string", "description": "Pinned tag."},
+            "commit": {"type": "string", "description": "Pinned commit.", "pattern": "^[0-9a-f]{40}$"},
+            "source": {"type": "string", "description": "Where the pin is written in this repo, as path:LINE.", "pattern": "^[^\\s:]+(:[0-9]+)?$"},
+            "order": {"$ref": "#/$defs/str-list", "description": "Resolution order of the binary actually used; the pin is only the last resort when listed last."}
+          }
+        },
+        "lang": {"type": "string", "description": "Implementation language."},
+        "entry": {"type": "string", "description": "Entry module relative to path."},
+        "executes": {"$ref": "#/$defs/code", "description": "How it is executed or imported: the call or import site(s)."}
+      }
+    },
+
+    "orchestrator": {
+      "type": "object",
+      "description": "Executor of a system context.",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "id": {"$ref": "#/$defs/ref-orch", "description": "Id, when written inline where used."},
+        "path": {"$ref": "#/$defs/path", "description": "Script, package, or binary source."},
+        "state": {"$ref": "#/$defs/str-or-list", "description": "State directories it writes."},
+        "stop": {"$ref": "#/$defs/path", "description": "Companion stop script."},
+        "stop_state": {"type": "string", "description": "State directory the stop script defaults to, when it differs from state."},
+        "bin": {"description": "Binary resolution order: a bare name, or the order tried for a built binary.", "anyOf": [{"type": "string", "description": "Binary name."}, {"$ref": "#/$defs/order"}]},
+        "module": {"$ref": "#/$defs/path", "description": "Separate Go module."},
+        "imports": {"type": "string", "description": "Go package a separate module exists to import across a module boundary."},
+        "builds": {"$ref": "#/$defs/ref-up", "description": "Upstream it builds."},
+        "use": {"type": "string", "description": "Where it is used.", "enum": ["live_tests", "unit_tests"]},
+        "used_by": {"$ref": "#/$defs/paths", "description": "Callers: the files that invoke it."},
+        "env": {"description": "Env var or vars it reads.", "anyOf": [{"$ref": "#/$defs/env-name"}, {"type": "array", "description": "Env var names.", "items": {"$ref": "#/$defs/env-name"}}]},
+        "composes": {"type": "array", "description": "Orchestrators it invokes: ref, or inline with id when used only here.", "items": {"anyOf": [{"$ref": "#/$defs/ref-orch"}, {"$ref": "#/$defs/orchestrator"}]}},
+        "workspace": {"description": "Workspace it targets.", "anyOf": [{"$ref": "#/$defs/workspace"}, {"type": "object", "description": "Env-selected workspace.", "additionalProperties": false, "required": ["env", "default"], "properties": {"env": {"$ref": "#/$defs/env-name"}, "default": {"type": "string", "description": "Default workspace name."}}}]},
+        "per_workspace": {"$ref": "#/$defs/str-list", "description": "Files applied once per workspace."},
+        "requires": {"type": "array", "description": "Upstreams that must be present for it to run.", "uniqueItems": true, "items": {"$ref": "#/$defs/ref-up"}},
+        "target": {"type": "string", "description": "Makefile target.", "pattern": "^[a-z][a-z0-9-]*$"},
+        "needs": {"type": "array", "description": "Makefile prerequisite targets.", "items": {"type": "string", "description": "Makefile target.", "pattern": "^[a-z][a-z0-9-]*$"}},
+        "cmd": {"$ref": "#/$defs/str-or-list", "description": "Command line(s) the target runs."},
+        "detached": {"type": "string", "description": "How the started process outlives the script that started it.", "enum": ["nohup"]},
+        "ready": {"type": "string", "description": "What the start waits for before reporting it is up."},
+        "already_up": {"type": "string", "description": "Condition under which a second start does nothing.", "enum": ["pidfile_alive"]},
+        "sets_env": {"type": "object", "description": "Env vars it sets for its children.", "propertyNames": {"$ref": "#/$defs/env-name"}, "additionalProperties": {"type": "string", "description": "Value."}},
+        "gate": {"$ref": "#/$defs/ref-orch", "description": "Orchestrator deciding skip versus fail."},
+        "tests": {"$ref": "#/$defs/paths", "description": "Test packages it runs."},
+        "funcs": {"$ref": "#/$defs/str-list", "description": "Exported functions."},
+        "cluster": {"type": "string", "description": "Cluster it runs against: own when the target starts kine and kcp itself, existing when it drives a cluster someone else started, none when it needs no cluster.", "enum": ["own", "existing", "none"]},
+        "fails": {"type": "string", "description": "How the target fails."},
+        "decides": {"type": "object", "description": "Env value to outcome when a live prerequisite is missing.", "additionalProperties": {"type": "string", "description": "Outcome.", "enum": ["fatal", "skip"]}}
+      }
+    },
+
+    "field-types": {"type": "object", "description": "Field to type.* ref, kind object ref, Go type string, or a single-use type inline with id.", "additionalProperties": {"anyOf": [{"type": "string", "description": "Ref or Go type."}, {"$ref": "#/$defs/type-entry"}]}},
+
+    "type-entry": {
+      "type": "object",
+      "description": "Shared Go type (struct fields or string enum).",
+      "additionalProperties": false,
+      "required": ["code"],
+      "anyOf": [{"required": ["fields"]}, {"required": ["enum"]}],
+      "properties": {
+        "id": {"$ref": "#/$defs/ref-type", "description": "Id, when written inline where used."},
+        "fields": {"$ref": "#/$defs/str-list", "description": "Field names (json)."},
+        "required": {"$ref": "#/$defs/str-list", "description": "Required fields."},
+        "field_types": {"$ref": "#/$defs/field-types"},
+        "permission": {"type": "object", "description": "Nested per-permission type.", "additionalProperties": false, "required": ["type", "fields"], "properties": {"type": {"type": "string", "description": "Go type name.", "pattern": "^[A-Z][A-Za-z]+$"}, "fields": {"$ref": "#/$defs/str-list"}, "used_by": {"$ref": "#/$defs/str-list", "description": "Parent fields of this type."}}},
+        "gate": {"$ref": "#/$defs/path", "description": "Package enforcing it."},
+        "held_by": {"$ref": "#/$defs/refs", "description": "Kind fields holding a value of it."},
+        "validate": {"type": "object", "description": "What the gate rejects; anything else passes.", "additionalProperties": false, "required": ["rejects", "code"], "properties": {"rejects": {"$ref": "#/$defs/str-list", "description": "Rejected inputs."}, "code": {"$ref": "#/$defs/code"}}},
+        "default": {"type": "string", "description": "Value in effect when the field holding this type is absent."},
+        "defaults": {"type": "object", "description": "Field to the value in effect when the field is absent; a field not listed defaults to its Go zero value.", "additionalProperties": {"type": "string", "description": "Default value."}},
+        "zero_default": {"type": "boolean", "description": "Every field of the type defaults to its Go zero value when absent."},
+        "unread": {"type": "array", "description": "Fields no code path reads a value from.", "uniqueItems": true, "items": {"type": "string", "description": "Field name."}},
+        "enum": {"$ref": "#/$defs/str-list", "description": "Allowed values."},
+        "code": {"$ref": "#/$defs/code"}
+      }
+    },
+
+    "credential": {
+      "type": "object",
+      "description": "Secret material some boundary holds.",
+      "additionalProperties": false,
+      "required": ["holder", "grants", "stored", "secret", "code"],
+      "properties": {
+        "holder": {"type": "array", "description": "Boundaries where the secret sits.", "minItems": 1, "items": {"$ref": "#/$defs/ref-tb"}},
+        "grants": {"type": "array", "description": "Boundaries it authenticates into or signs for; [] when none inside this system.", "items": {"$ref": "#/$defs/ref-tb"}},
+        "stored": {"type": "array", "description": "Storage forms.", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "description": "Storage form.", "enum": ["file", "env", "flag", "memory", "vault", "kcp_object"]}},
+        "secret": {"type": "boolean", "description": "True when disclosure is a compromise."},
+        "issued_by": {"$ref": "#/$defs/ref", "description": "Context or orchestrator that mints it."},
+        "issued_at": {"type": "string", "description": "The moment it comes into being.", "enum": ["cluster_start", "server_start", "provider_start", "pod_start", "run_start", "first_authority", "namespace_provision", "market_apply", "account_create"]},
+        "reissue": {"type": "string", "description": "The event that makes a new one in place of this one; none when it is made once.", "enum": ["none", "run_start", "pod_restart", "server_restart", "cluster_recreate", "namespace_delete", "mount_delete", "account_recreate"]},
+        "renewal": {"type": "string", "description": "What renews it in place while it is still valid; none when no code path renews it.", "enum": ["none"]},
+        "ttl": {"description": "Lifetime: a bare duration, or how it is set.", "anyOf": [{"type": "string", "description": "Duration."}, {"type": "object", "description": "How the lifetime is set.", "additionalProperties": false, "properties": {"from": {"type": "string", "description": "Flag or field the lifetime comes from."}, "default": {"type": "string", "description": "Value in effect when unset."}, "never": {"type": "boolean", "description": "Never expires."}}}]},
+        "default": {"type": "string", "description": "Value used when nobody sets one (a guessable secret)."},
+        "file_mode": {"type": "string", "description": "Mode of the file it rests in, when it rests in one."},
+        "at": {"description": "Where it sits: a location template, or the precedence that picks the file.", "anyOf": [{"type": "string", "description": "Location template."}, {"type": "object", "description": "Source precedence.", "additionalProperties": false, "required": ["precedence"], "properties": {"precedence": {"$ref": "#/$defs/str-list", "description": "Sources tried in order."}, "file_default": {"type": "string", "description": "Default file when no source names one."}, "else_create": {"type": "string", "description": "What is created when no source has it."}}}]},
+        "carried_as": {"$ref": "#/$defs/str-list", "description": "Env var, flag, header or file names it travels under."},
+        "code": {"$ref": "#/$defs/code"}
+      }
+    },
+
+    "manifest": {
+      "type": "object",
+      "description": "Upstream written inline: a kind (APIResourceSchema + Go types), a provider component or interface (Go source), a script/workflow field of an example manifest, or a single-use external artifact (path + pin). Keys beyond the listed ones mirror that document.",
+      "minProperties": 1,
+      "not": {"required": ["id"]},
+      "properties": {
+        "manifest": {"$ref": "#/$defs/paths", "description": "Manifest file(s)."},
+        "types": {"$ref": "#/$defs/path", "description": "Go types file."},
+        "code": {"$ref": "#/$defs/code"},
+        "api": {"type": "object", "description": "API identity.", "additionalProperties": false, "required": ["group", "version", "kind", "resource", "schema", "export", "scope"], "properties": {"group": {"type": "string", "description": "API group.", "const": "deno.computer"}, "version": {"type": "string", "description": "API version.", "pattern": "^v[0-9]+(alpha|beta)?[0-9]*$"}, "kind": {"type": "string", "description": "Kind.", "pattern": "^[A-Z][A-Za-z]+$"}, "resource": {"type": "string", "description": "Plural resource.", "pattern": "^[a-z]+$"}, "schema": {"type": "string", "description": "APIResourceSchema name.", "pattern": "^v[0-9a-z]+-[0-9]+\\.[a-z]+\\.deno\\.computer$"}, "export": {"type": "string", "description": "APIExport serving it.", "enum": ["denoruntime", "policyworkflowruns"]}, "scope": {"type": "string", "description": "Resource scope.", "enum": ["Namespaced", "Cluster"]}, "short": {"type": "string", "description": "Short name kubectl accepts for the resource (APIResourceSchema names.shortNames).", "pattern": "^[a-z]+$"}}},
+        "spec": {"$ref": "#/$defs/str-list", "description": "Own spec field names (json)."},
+        "embeds": {"$ref": "#/$defs/ref-type", "description": "Inlined shared type."},
+        "status": {"$ref": "#/$defs/str-list", "description": "Status field names (json)."},
+        "field_types": {"$ref": "#/$defs/field-types"},
+        "refs": {"type": "object", "description": "Spec field to the kind or kind field it names.", "additionalProperties": {"$ref": "#/$defs/ref"}},
+        "phases": {"$ref": "#/$defs/str-list", "description": "status.phase values."},
+        "conditions": {"$ref": "#/$defs/str-list", "description": "Condition types the reconciler sets."},
+        "condition_facts": {"type": "object", "description": "Condition type to the code that sets it and the reasons it holds each status, keyed by the types in conditions.", "propertyNames": {"pattern": "^[A-Z][A-Za-z]+$"}, "additionalProperties": {"type": "object", "description": "One condition's facts.", "additionalProperties": false, "required": ["by"], "properties": {"by": {"$ref": "#/$defs/path", "description": "Code that sets it."}, "true_reasons": {"$ref": "#/$defs/str-list", "description": "Reasons with status True."}, "false_reasons": {"$ref": "#/$defs/str-list", "description": "Reasons with status False."}, "cleared_by": {"$ref": "#/$defs/path", "description": "Code that removes it; absent when it is only ever re-set, never cleared."}, "replaced_each_pass": {"type": "boolean", "description": "The pass replaces the whole condition list, so a condition that no longer applies is dropped."}}}},
+        "status_facts": {"type": "object", "description": "Status field to what writes it, when it changes, and the condition or phase a reader decides the same fact from; keyed by exactly the fields in status.", "propertyNames": {"pattern": "^[a-z][A-Za-z0-9]*$"}, "additionalProperties": {"type": "object", "description": "One status field's facts.", "additionalProperties": false, "required": ["by", "when", "decides"], "properties": {"by": {"$ref": "#/$defs/path", "description": "Code that writes the field."}, "when": {"type": "string", "description": "The transition the field changes on.", "enum": ["on_every_pass", "on_create", "on_start", "on_running", "on_ready", "on_restart", "on_exit", "on_terminal", "on_deadline", "on_suspend", "on_cancel", "on_trigger"]}, "decides": {"type": "string", "description": "self when the field is the decision, a condition type it mirrors, or none when nothing is decided from it."}, "also": {"type": "string", "description": "Field that must be read with this one; this field alone does not carry the fact."}}}},
+        "unset_phases": {"$ref": "#/$defs/str-list", "description": "Declared phase values no code path writes; the phase starts empty instead."},
+        "finalizer": {"type": "object", "description": "Finalizer the kind's teardown waits on.", "additionalProperties": false, "required": ["name", "set_by", "code"], "properties": {"name": {"type": "string", "description": "Finalizer name.", "pattern": "^[a-z]+\\.deno\\.computer/[a-z]+$"}, "set_by": {"type": "array", "description": "Who puts it on the object: the example manifests (metadata.finalizers) and/or the provider.", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "description": "Setter.", "enum": ["manifest", "provider"]}}, "code": {"$ref": "#/$defs/code"}}},
+        "field": {"description": "Manifest field holding the script or workflow; a map of file name to field when it differs per file.", "anyOf": [{"type": "string", "description": "Field path."}, {"type": "object", "description": "File name to field path.", "additionalProperties": {"type": "string", "description": "Field path."}}]},
+        "libs": {"type": "array", "description": "Upstream libraries the code is built on.", "items": {"$ref": "#/$defs/ref-up"}},
+        "implements": {"description": "Interface context the code implements: ref, or the interface context inline.", "anyOf": [{"$ref": "#/$defs/ref-sc"}, {"$ref": "#/$defs/system-context"}]},
+        "reconcile": {"$ref": "#/$defs/reconcile"},
+        "src": {"$ref": "#/$defs/src"}
+      }
+    },
+
+    "overlay": {
+      "type": "object",
+      "description": "Named data applied to target; inline in the overlay list of the context using it.",
+      "additionalProperties": false,
+      "required": ["id", "data"],
+      "properties": {
+        "id": {"$ref": "#/$defs/ref-ov"},
+        "target": {"$ref": "#/$defs/ref", "description": "What the data is applied to; absent = the enclosing context's upstream."},
+        "data": {"type": ["object", "array"], "description": "Overlay content, mirroring source."},
+        "manifest": {"$ref": "#/$defs/paths", "description": "Example manifest file(s) this overlay is; data holds the spec fields that matter."},
+        "source": {"$ref": "#/$defs/paths", "description": "Code or script file(s) the data is read from."},
+        "applied_by": {"$ref": "#/$defs/ref", "description": "Who applies it."},
+        "kind": {"type": "string", "description": "Overlay kind.", "enum": ["pattern"]},
+        "purpose": {"type": "string", "description": "Why it exists."},
+        "src": {"$ref": "#/$defs/src"}
+      }
+    },
+
+    "object": {
+      "type": "object",
+      "description": "The real kcp object an instance context is.",
+      "additionalProperties": false,
+      "required": ["kind", "workspace", "namespace", "name"],
+      "properties": {
+        "kind": {"type": "string", "description": "Kind; must match the kind reached via upstream.", "pattern": "^[A-Z][A-Za-z]+$"},
+        "workspace": {"$ref": "#/$defs/workspace"},
+        "namespace": {"type": "string", "description": "k8s namespace.", "pattern": "^[a-z0-9-]+$"},
+        "name": {"type": "string", "description": "metadata.name.", "pattern": "^[a-z0-9-]+$"}
+      }
+    },
+
+    "system-context": {
+      "type": "object",
+      "description": "System context: id, the triple, its trust boundary, plus optional attributes.",
+      "additionalProperties": false,
+      "required": ["id", "upstream", "overlay", "orchestrator", "context"],
+      "properties": {
+        "id": {"$ref": "#/$defs/ref-sc"},
+        "upstream": {"description": "Upstream: ref, the upstream context inline, or the manifest inline.", "anyOf": [{"$ref": "#/$defs/ref"}, {"$ref": "#/$defs/system-context"}, {"$ref": "#/$defs/manifest"}]},
+        "overlay": {"type": "array", "description": "Overlays applied in order, inline where first used, ref elsewhere; [] when none.", "uniqueItems": true, "items": {"anyOf": [{"$ref": "#/$defs/ref"}, {"$ref": "#/$defs/overlay"}, {"$ref": "#/$defs/threat-model"}, {"$ref": "#/$defs/system-context"}]}},
+        "orchestrator": {"description": "Executor: orch.* or sc.* ref, or a single-use orchestrator inline with id.", "anyOf": [{"$ref": "#/$defs/ref"}, {"$ref": "#/$defs/orchestrator"}]},
+        "context": {"$ref": "#/$defs/ref-tb", "description": "Innermost execution context (trust boundary) it runs or is stored in."},
+        "object": {"$ref": "#/$defs/object"},
+        "axis": {"type": "string", "description": "Kind lifecycle axis.", "enum": ["long_running", "one_shot", "binding"]},
+        "binds": {"$ref": "#/$defs/ref", "description": "Implementation the kind fronts."},
+        "owns": {"$ref": "#/$defs/refs", "description": "Kinds the provider creates with an ownerReference to this kind."},
+        "owned_by": {"$ref": "#/$defs/refs", "description": "Kinds whose reconciler creates this kind with an ownerReference."},
+        "output": {"type": "string", "description": "Primary output field path."},
+        "cancellation": {"type": "object", "description": "Cancellation paths.", "additionalProperties": false, "required": ["via"], "properties": {"via": {"$ref": "#/$defs/str-list"}, "src": {"$ref": "#/$defs/src"}}},
+        "maps": {"type": "object", "description": "Mapping the kind performs: from, to, and how the target is chosen.", "required": ["from", "to"], "properties": {"from": {"type": "string", "description": "Source name space."}, "to": {"$ref": "#/$defs/ref", "description": "Field naming the target."}}},
+        "used_by": {"$ref": "#/$defs/refs", "description": "Kinds an interface context serves."},
+        "toolchain": {"$ref": "#/$defs/ref-up", "description": "Upstream toolchain the context is built with."},
+        "runtime": {"$ref": "#/$defs/ref-up", "description": "Upstream runtime that executes the upstream code (not itself the upstream)."},
+        "also_run_by": {"type": "array", "description": "Other orchestrators that start this context the same way.", "items": {"$ref": "#/$defs/ref-orch"}},
+        "depends_on": {"type": "array", "description": "Contexts that must be up first.", "items": {"$ref": "#/$defs/ref-sc"}},
+        "introduces": {"type": "array", "description": "Contexts this one brings into being, inline.", "items": {"anyOf": [{"$ref": "#/$defs/ref-sc"}, {"$ref": "#/$defs/system-context"}]}},
+        "source": {"$ref": "#/$defs/path", "description": "File or directory the context is read from."},
+        "code": {"$ref": "#/$defs/code"},
+        "calls": {"$ref": "#/$defs/str-list", "description": "Endpoints called."},
+        "outputs": {"$ref": "#/$defs/str-list", "description": "Output keys produced."},
+        "flows": {"type": "object", "description": "Application-level edges between the contexts under this one, keyed by flow.* id.", "propertyNames": {"$ref": "#/$defs/ref-flow"}, "additionalProperties": {"$ref": "#/$defs/flow"}},
+        "signs": {"type": "array", "description": "Contexts whose certificate this one signs, top-down: an OpenBao server context lists the OpenBao instances it holds intermediates for, an OpenBao instance the pods that get a leaf from it.", "minItems": 1, "items": {"$ref": "#/$defs/ref-sc"}},
+        "spec_from": {"$ref": "#/$defs/ref", "description": "Kind field whose value the provider copies into this context's spec."},
+        "optional": {"type": "boolean", "description": "Context is not required for the parent to run."},
+        "harness": {"type": "array", "description": "Test files under this context: the file, the example or code path it drives, the objects it creates, and the test functions that check the invariant.", "items": {"type": "object", "description": "One test file.", "additionalProperties": false, "required": ["file"], "properties": {"file": {"$ref": "#/$defs/path", "description": "Test file."}, "funcs": {"$ref": "#/$defs/str-list", "description": "Test functions; each names the invariant it checks."}, "drives": {"$ref": "#/$defs/paths", "description": "Example manifests or code paths it drives."}, "creates": {"$ref": "#/$defs/refs", "description": "Contexts or kinds whose objects it creates."}, "role": {"type": "string", "description": "What a file with no test function is for."}}}},
+        "serves": {
+          "type": "array",
+          "description": "HTTP surface this context must serve for this repo's examples to work: the path, the refs that call or probe it, and the example manifest that requires it.",
+          "items": {
+            "type": "object",
+            "description": "One served path.",
+            "additionalProperties": false,
+            "required": ["path", "required_by"],
+            "properties": {
+              "path": {"type": "string", "description": "URL path served, as the caller writes it."},
+              "required_by": {"$ref": "#/$defs/refs", "description": "Refs that call or probe it."},
+              "manifest": {"$ref": "#/$defs/paths", "description": "Example manifest that requires it."}
+            }
+          }
+        },
+        "use": {"type": "string", "description": "Where it is used.", "enum": ["live_tests", "unit_tests"]}
+      }
+    },
+
+    "threat-model": {
+      "type": "object",
+      "description": "Living threat model overlay: execution contexts (one nested tree), credentials, crossings grouped by the context that performs them, and risks ordered by severity.",
+      "additionalProperties": false,
+      "required": ["id", "contexts", "credentials", "crossings", "risks"],
+      "properties": {
+        "id": {"$ref": "#/$defs/ref-ov"},
+        "contexts": {"$ref": "#/$defs/trust-boundary", "description": "Root execution context; the rest nest under it in children."},
+        "credentials": {"type": "object", "description": "Secrets and tokens, keyed by cred.* id.", "propertyNames": {"$ref": "#/$defs/ref-cred"}, "additionalProperties": {"$ref": "#/$defs/credential"}},
+        "crossings": {"type": "object", "description": "Crossings grouped by the system context, orchestrator, or overlay code performing them: what that performer reaches.", "propertyNames": {"pattern": "^(sc|orch|ov)\\."}, "additionalProperties": {"type": "object", "description": "Crossings of one performer, keyed by x.* id.", "propertyNames": {"$ref": "#/$defs/ref-x"}, "additionalProperties": {"$ref": "#/$defs/crossing"}}},
+        "addresses": {"type": "object", "description": "Every address form the system uses, keyed by name: its shape, who writes and reads it, source precedence, and the unresolved case.", "additionalProperties": {"$ref": "#/$defs/address"}},
+        "surfaces": {"type": "object", "description": "Every artifact the system leaves behind that a human or another program can read, keyed by name: its writer, location, contents, lifetime and readers.", "additionalProperties": {"$ref": "#/$defs/surface"}},
+        "failures": {"type": "object", "description": "Every way the system fails, keyed by name: what triggers it, the signal a human or program sees, what alerts, and the risk recorded for a failure with no signal.", "additionalProperties": {"$ref": "#/$defs/failure"}},
+        "risks": {"type": "object", "description": "Verified weaknesses keyed by r.* id, high to info.", "propertyNames": {"$ref": "#/$defs/ref-r"}, "additionalProperties": {"$ref": "#/$defs/risk"}},
+        "identity": {"$ref": "#/$defs/identity", "description": "The identity systems this repo touches, keyed by name, and the value forms where they meet."}
+      }
+    },
+
+    "address": {
+      "type": "object",
+      "description": "One address form: its shape, who forms and connects to it, the sources that set it in order, and what happens when it does not resolve.",
+      "additionalProperties": false,
+      "required": ["form", "written_by", "read_by", "code"],
+      "properties": {
+        "form": {"type": "string", "description": "Address template."},
+        "written_by": {"$ref": "#/$defs/str-list", "description": "Contexts or code that form the address."},
+        "read_by": {"$ref": "#/$defs/str-list", "description": "Who resolves or connects to it."},
+        "precedence": {"$ref": "#/$defs/str-list", "description": "Sources that set it, first wins."},
+        "unresolved": {"type": "string", "description": "What happens when it does not resolve."},
+        "code": {"$ref": "#/$defs/code"}
+      }
+    },
+
+    "surface": {
+      "type": "object",
+      "description": "One readable artifact the system leaves behind: what writes it, where, when, what it holds, how long it survives, and who can read it.",
+      "additionalProperties": false,
+      "required": ["written_by", "at", "when", "contains", "survives", "read_by"],
+      "properties": {
+        "written_by": {"$ref": "#/$defs/str-list", "description": "Contexts or code that write it."},
+        "at": {"type": "string", "description": "Location template."},
+        "when": {"type": "string", "description": "When it is written."},
+        "contains": {"$ref": "#/$defs/str-list", "description": "What a reader finds in it."},
+        "survives": {"type": "string", "description": "How long it outlives its writer: none for a stream consumed as it is written, process_exit for a file that stays after the writer stops, forever for state that outlives the cluster.", "enum": ["none", "process_exit", "forever"]},
+        "read_by": {"$ref": "#/$defs/str-list", "description": "Who can read it."},
+        "mode": {"type": "string", "description": "File mode, when it is a file."},
+        "code": {"$ref": "#/$defs/code"}
+      }
+    },
+
+    "failure": {
+      "type": "object",
+      "description": "One way the system fails and where a human or another program sees it.",
+      "additionalProperties": false,
+      "required": ["trigger", "signal", "alerts"],
+      "properties": {
+        "trigger": {"$ref": "#/$defs/str-list", "description": "Conditions under which it happens."},
+        "signal": {"$ref": "#/$defs/str-list", "description": "What can be observed; [] when nothing can."},
+        "alerts": {"$ref": "#/$defs/str-list", "description": "What raises an alert; [] when nothing does."},
+        "risk": {"$ref": "#/$defs/ref", "description": "Risk recorded for this failure, when one exists."},
+        "code": {"$ref": "#/$defs/code"}
+      }
+    },
+
+    "trust-boundary": {
+      "type": "object",
+      "description": "Execution context (trust boundary); a node of one nested tree.",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": {"$ref": "#/$defs/ref-tb"},
+        "kind": {"type": "string", "description": "What draws the line.", "enum": ["os_user", "process", "api_server", "logical_cluster", "virtual_workspace", "namespace", "deno_sandbox", "vault", "vault_namespace"]},
+        "runs_in": {"$ref": "#/$defs/ref-tb", "description": "Process boundary hosting it, when its parent is a logical boundary."},
+        "workspaces": {"type": "array", "description": "kcp workspaces this boundary stands for.", "minItems": 1, "items": {"$ref": "#/$defs/workspace"}},
+        "contains": {"$ref": "#/$defs/refs", "description": "Overlays held here; system contexts join via their own context key."},
+        "principals": {"type": "object", "description": "Who authenticates inside it, keyed by the credential they present.", "propertyNames": {"$ref": "#/$defs/ref-cred"}, "additionalProperties": {"$ref": "#/$defs/refs"}},
+        "enforced_by": {"$ref": "#/$defs/refs", "description": "Mechanisms that draw the line; [] when nothing does."},
+        "isolation": {"type": "object", "description": "What the children share (os user, filesystem) and what process grouping is used for.", "additionalProperties": {"type": "string", "description": "Value."}},
+        "listen": {"type": "object", "description": "Listener this context serves.", "additionalProperties": false, "required": ["addr", "scheme", "client_auth"], "properties": {"addr": {"type": "string", "description": "Address and the variable or rule setting it."}, "protocol": {"type": "string", "description": "API spoken.", "enum": ["etcd", "openbao_api", "policy_engine_api"]}, "scheme": {"type": "string", "description": "Transport.", "enum": ["http", "https"]}, "client_auth": {"type": "string", "description": "Credential ref a client must present, or none."}}},
+        "storage": {"type": "object", "description": "Where the context keeps its state.", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"type": "string", "description": "Storage kind.", "enum": ["sqlite", "memory"]}, "at": {"type": "string", "description": "Location template."}, "mode": {"type": "string", "description": "Server mode.", "enum": ["dev"]}, "unsealed": {"type": "boolean", "description": "Server comes up unsealed, with no unseal key held."}}},
+        "spans": {"type": "object", "description": "What a view context covers.", "additionalProperties": {"type": "string", "description": "Coverage."}},
+        "policy_from": {"$ref": "#/$defs/ref", "description": "Field whose value sets the sandbox's rules."},
+        "entered_when": {"type": "object", "description": "Condition under which a process lands in this context instead of its parent's process context.", "additionalProperties": {"type": "string", "description": "Required value."}},
+        "code": {"$ref": "#/$defs/code"},
+        "basis": {"$ref": "#/$defs/basis"},
+        "children": {"type": "array", "description": "Execution contexts nested inside this one.", "minItems": 1, "items": {"$ref": "#/$defs/trust-boundary"}}
+      }
+    },
+
+    "crossing": {
+      "type": "object",
+      "description": "One call across an execution context boundary: the performer, running in from, reaches to.",
+      "additionalProperties": false,
+      "required": ["from", "to", "carries", "auth", "gate", "code"],
+      "anyOf": [{"properties": {"carries": {"minItems": 1}}}, {"required": ["returns"]}],
+      "properties": {
+        "from": {"$ref": "#/$defs/ref-tb", "description": "Execution context the performer runs in."},
+        "to": {"$ref": "#/$defs/ref-tb", "description": "Execution context it reaches."},
+        "carries": {"$ref": "#/$defs/carried", "description": "What is sent from -> to; [] when only returns matter."},
+        "returns": {"$ref": "#/$defs/carried", "description": "What comes back to -> from.", "minItems": 1},
+        "auth": {"description": "Credential presented, or none.", "anyOf": [{"$ref": "#/$defs/ref-cred"}, {"type": "string", "description": "No credential.", "const": "none"}]},
+        "gate": {"$ref": "#/$defs/refs", "description": "Checks the crossing passes; [] when none."},
+        "when": {"$ref": "#/$defs/str-list", "description": "Conditions that must all hold for the crossing to happen; absent = always."},
+        "route": {"description": "How the call reaches to: an address form, endpoint sources in precedence order, or a map of case to destination.", "anyOf": [{"type": "string", "description": "Address form."}, {"$ref": "#/$defs/refs"}, {"type": "object", "description": "Case to destination.", "additionalProperties": {"type": "string", "description": "Destination ref or action."}}]},
+        "into": {"$ref": "#/$defs/str-list", "description": "Where the carried data is written: field refs or object parts."},
+        "omits": {"$ref": "#/$defs/refs", "description": "Fields the performer has but does not send."},
+        "code": {"$ref": "#/$defs/code"},
+        "basis": {"$ref": "#/$defs/basis"},
+        "src": {"$ref": "#/$defs/src"}
+      }
+    },
+
+    "risk": {
+      "type": "object",
+      "description": "One verified weakness.",
+      "additionalProperties": false,
+      "required": ["severity", "context", "finding", "evidence"],
+      "properties": {
+        "context": {"$ref": "#/$defs/ref-tb", "description": "Execution context the weakness breaks; MUST be the crossing's from or to when crossing is set."},
+        "crossing": {"description": "Crossing or crossings the weakness rides on.", "anyOf": [{"$ref": "#/$defs/ref-x"}, {"type": "array", "description": "Several crossings with the same ends.", "minItems": 2, "items": {"$ref": "#/$defs/ref-x"}}]},
+        "upstream": {"$ref": "#/$defs/ref-up", "description": "Upstream the weakness is about, instead of a crossing; every unpinned executing upstream MUST be named by one risk."},
+        "finding": {"type": "string", "description": "One line."},
+        "evidence": {"type": "array", "description": "path:Symbol locations proving it.", "minItems": 1, "items": {"$ref": "#/$defs/path"}},
+        "severity": {"type": "string", "description": "Impact if exploited.", "enum": ["info", "low", "medium", "high"]},
+        "basis": {"$ref": "#/$defs/basis"}
+      }
+    },
+
+    "flow": {
+      "type": "object",
+      "description": "Ordered application-level edges between system contexts.",
+      "additionalProperties": false,
+      "required": ["edges"],
+      "properties": {
+        "basis": {"$ref": "#/$defs/basis"},
+        "edges": {"type": "array", "description": "Edges [from, to, attrs].", "minItems": 1, "items": {"type": "array", "description": "One edge.", "minItems": 3, "prefixItems": [{"$ref": "#/$defs/ref-sc", "description": "From."}, {"$ref": "#/$defs/ref-sc", "description": "To."}, {"type": "object", "description": "Edge attributes."}], "items": false}}
+      }
+    },
+
+    "reconcile": {
+      "type": "object",
+      "description": "The provider's reconcilers: what each reads and writes, what wakes it, and what it runs.",
+      "additionalProperties": false,
+      "required": ["reconcilers", "wakes", "applied", "model"],
+      "properties": {
+        "reconcilers": {"type": "object", "description": "Reconcilers keyed by rec.* id.", "propertyNames": {"$ref": "#/$defs/ref-rec"}, "additionalProperties": {"$ref": "#/$defs/reconciler"}},
+        "wakes": {"type": "object", "description": "How a reconciler is re-run, keyed by name.", "propertyNames": {"pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"}, "additionalProperties": {"$ref": "#/$defs/wake"}},
+        "applied": {
+          "type": "object",
+          "description": "Objects that enter from outside the provider.",
+          "additionalProperties": false,
+          "required": ["objects"],
+          "properties": {
+            "objects": {"type": "boolean", "description": "Every system context with object applies <kind>.spec."},
+            "by": {"type": "array", "description": "Orchestrators that apply objects.", "items": {"$ref": "#/$defs/ref-orch"}},
+            "also": {"type": "array", "description": "Specs created by something other than an applied example object.", "items": {"type": "object", "description": "One source.", "additionalProperties": false, "required": ["object", "from"], "properties": {"object": {"$ref": "#/$defs/ref-kind-object"}, "from": {"$ref": "#/$defs/ref-sc"}, "via": {"$ref": "#/$defs/ref-x"}}}},
+            "basis": {"$ref": "#/$defs/basis"}
+          }
+        },
+        "model": {"type": "object", "description": "Provider-wide reconcile facts, each code plus the structured facts that code establishes.", "additionalProperties": {"type": "object", "description": "One fact: code and keys naming what it establishes.", "required": ["code"], "properties": {"code": {"$ref": "#/$defs/code"}}}}
+      }
+    },
+
+    "reconciler": {
+      "type": "object",
+      "description": "One reconcile pass (on: reconcile) or finalizer teardown (on: finalize) of a kind.",
+      "additionalProperties": false,
+      "required": ["kind", "mode", "reads", "writes", "runner", "code"],
+      "properties": {
+        "kind": {"$ref": "#/$defs/ref-sc", "description": "Kind context reconciled."},
+        "mode": {"type": "string", "description": "When it runs.", "enum": ["reconcile", "finalize"]},
+        "reads": {
+          "type": "object",
+          "description": "Whole spec or status read, to the subfields read and where the value comes from.",
+          "propertyNames": {"$ref": "#/$defs/ref-kind-object"},
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "description": "One read.",
+            "additionalProperties": false,
+            "required": ["fields", "from"],
+            "properties": {
+              "fields": {"type": "array", "description": "Subfield names (json).", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "description": "Subfield.", "pattern": "^[a-z][A-Za-z0-9]*$"}},
+              "from": {"type": "array", "description": "applied, or the reconciler that writes it and the wakes that re-run this one.", "minItems": 1, "items": {"anyOf": [{"type": "string", "description": "Applied from outside.", "const": "applied"}, {"type": "object", "description": "Written by another reconciler.", "additionalProperties": false, "required": ["rec", "wake"], "properties": {"rec": {"$ref": "#/$defs/ref-rec"}, "wake": {"type": "array", "description": "reconcile.wakes names.", "minItems": 1, "items": {"type": "string", "description": "Wake name.", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"}}}}]}},
+              "scope": {"type": "string", "description": "Read wider than one named object.", "enum": ["namespace", "logical_cluster", "all_workspaces"]}
+            }
+          }
+        },
+        "unread": {"type": "array", "description": "Own spec fields no reconciler reads; on: reconcile only.", "uniqueItems": true, "items": {"type": "string", "description": "Spec field.", "pattern": "^[a-z][A-Za-z0-9]*$"}},
+        "writes": {"type": "array", "description": "Whole spec or status written.", "uniqueItems": true, "items": {"$ref": "#/$defs/ref-kind-object"}},
+        "select": {"type": "object", "description": "How a list read is narrowed.", "additionalProperties": false, "required": ["label", "equals", "pick"], "properties": {"label": {"type": "string", "description": "Label key matched."}, "equals": {"type": "string", "description": "Value the label must equal: a kind field ref or metadata.name."}, "pick": {"type": "string", "description": "Which matches are used.", "enum": ["all", "newest_terminal"]}}},
+        "admission": {"type": "object", "description": "Admission gate in front of the pass.", "additionalProperties": false, "required": ["by"], "properties": {"by": {"$ref": "#/$defs/ref-sc"}, "capacity": {"$ref": "#/$defs/ref"}, "policy": {"$ref": "#/$defs/ref"}, "lease": {"type": "string", "description": "counting: admitted runs hold a lease that counts against capacity, not a binary lock.", "enum": ["counting"]}}},
+        "runner": {"description": "Context whose code performs the pass's I/O (kcp writes, process start, HTTP or OpenBao calls), or none.", "anyOf": [{"$ref": "#/$defs/ref-sc"}, {"type": "string", "description": "Nothing acts.", "const": "none"}]},
+        "target": {"$ref": "#/$defs/ref-sc", "description": "Far end the runner acts on beyond kcp objects: the process it starts or the server it calls; absent when the pass only writes kcp objects."},
+        "crossings": {"type": "array", "description": "Crossings the pass performs.", "uniqueItems": true, "items": {"$ref": "#/$defs/ref-x"}},
+        "rules": {"type": "object", "description": "Conditional behaviour of the pass: rule name to the structured facts (conditions, precedence, thresholds) the code implements.", "additionalProperties": {"type": "object", "description": "One rule."}},
+        "deletes": {
+          "type": "array",
+          "description": "Objects this pass removes that are neither its own finalize teardown nor a status write: what is deleted, what triggers it, and how an object already gone and the workload process are treated.",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "description": "One non-teardown deletion.",
+            "additionalProperties": false,
+            "required": ["what", "by", "when", "code"],
+            "properties": {
+              "what": {"$ref": "#/$defs/ref", "description": "Kind context or object whose object is deleted."},
+              "by": {"type": "string", "description": "Who deletes it: this pass, the kind's owning pass, the pass of the run that supersedes it, or kcp garbage collection.", "enum": ["own_pass", "parent_pass", "sibling_pass", "owner_gc"]},
+              "when": {"$ref": "#/$defs/str-list", "description": "Conditions, all must hold."},
+              "siblings": {"type": "string", "description": "Which other objects of the same kind go with it.", "enum": ["all_children", "active_children", "older_non_terminal_of_same_pod"]},
+              "trigger": {"$ref": "#/$defs/str-list", "description": "Fields whose value sets the delay."},
+              "default": {"type": "string", "description": "Value in effect when no field sets one."},
+              "negative": {"type": "string", "description": "What a negative value means."},
+              "base": {"type": "string", "description": "Status field the delay is measured from."},
+              "then": {"$ref": "#/$defs/str-list", "description": "Steps in the order this pass runs them, when more than the deletion itself."},
+              "process": {"type": "string", "description": "What happens to the workload process.", "enum": ["keeps_running", "stopped_by_child_teardown", "already_exited", "none"]},
+              "already_gone": {"type": "string", "description": "How an object already gone is treated.", "enum": ["ok"]},
+              "code": {"$ref": "#/$defs/code"}
+            }
+          }
+        },
+        "teardown": {
+          "type": "object",
+          "description": "Teardown detail of a finalize pass: the steps in the order they run, what is removed outside kcp, and the absences treated as already removed.",
+          "additionalProperties": false,
+          "required": ["order"],
+          "properties": {
+            "order": {"type": "array", "description": "Steps of the teardown, in the order the pass runs them.", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "description": "One step.", "enum": ["stop-process", "write-status", "release-finalizer", "delete-authority"]}},
+            "deletes": {"type": "array", "description": "What the pass removes outside kcp objects.", "minItems": 1, "uniqueItems": true, "items": {"type": "object", "description": "One removal.", "additionalProperties": false, "required": ["what", "code"], "properties": {"what": {"type": "string", "description": "Removed thing.", "enum": ["process", "openbao-namespace"]}, "code": {"$ref": "#/$defs/code"}}}},
+            "if_gone": {"type": "array", "description": "Things already gone that the pass treats as already removed and proceeds past.", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "description": "One absence.", "enum": ["process", "finalizer", "object", "openbao-namespace"]}}
+          }
+        },
+        "code": {"$ref": "#/$defs/code"}
+      }
+    },
+
+    "wake": {
+      "type": "object",
+      "description": "How a reconciler is re-run after another writes.",
+      "additionalProperties": false,
+      "required": ["by", "code"],
+      "properties": {
+        "by": {"type": "string", "description": "Mechanism: informer event, label fanout, direct enqueue, or requeue.", "enum": ["informer", "fanout", "direct", "requeue"]},
+        "key": {"type": "string", "description": "Label the fanout follows."},
+        "when": {"type": "string", "description": "Event that fires it."},
+        "scope": {"type": "string", "description": "Which objects of the woken kind are enqueued.", "enum": ["namespace"]},
+        "after": {"type": "string", "description": "Delay for requeue.", "pattern": "^[0-9]+(ms|s|m|h)$"},
+        "code": {"$ref": "#/$defs/path", "description": "path:Symbol implementing it."}
+      }
+    },
+
+    "identity": {
+      "type": "object",
+      "description": "The identity systems this repo touches, keyed by name, and the value forms where they meet.",
+      "additionalProperties": false,
+      "required": ["systems", "meets"],
+      "properties": {
+        "systems": {"type": "object", "description": "Identity systems, keyed by name.", "additionalProperties": {"$ref": "#/$defs/identity-system"}},
+        "meets": {"type": "array", "description": "Value forms the identity systems share, and what carries each.", "items": {"$ref": "#/$defs/identity-meet"}}
+      }
+    },
+
+    "identity-system": {
+      "type": "object",
+      "description": "One identity system: what holding it establishes, what it names, who can check it, where it is minted, and where it is implemented.",
+      "additionalProperties": false,
+      "required": ["system", "proves", "names", "checked_by", "code"],
+      "properties": {
+        "system": {"type": "string", "description": "Identity system.", "enum": ["x509", "did"]},
+        "proves": {"type": "string", "description": "What holding it establishes.", "enum": ["service_name_authority", "account_registered"]},
+        "names": {"type": "string", "description": "What the identity names.", "enum": ["service_dns_name", "account"]},
+        "checked_by": {"$ref": "#/$defs/str-list", "description": "Contexts that can check it; [] when nothing in this repo does."},
+        "minted_by": {"$ref": "#/$defs/str-list", "description": "Contexts or upstreams that mint it."},
+        "minted_at": {"type": "string", "description": "The moment it comes into being.", "enum": ["cluster_start", "server_start", "provider_start", "pod_start", "run_start", "first_authority", "namespace_provision", "market_apply", "account_create"]},
+        "implemented_here": {"type": "boolean", "description": "True when code in this repo produces it."},
+        "signature_verified": {"type": "boolean", "description": "True when code in this repo verifies a signature over it."},
+        "methods": {"type": "object", "description": "Methods the system offers, keyed by method name.", "additionalProperties": {"$ref": "#/$defs/identity-method"}},
+        "check": {"type": "object", "description": "What a checker reads from it and which read decides.", "additionalProperties": false, "required": ["reads", "decides", "code"], "properties": {"reads": {"$ref": "#/$defs/str-list", "description": "Fields the checker reads."}, "decides": {"type": "string", "description": "The read a verdict is decided from.", "enum": ["http_status", "none"]}, "records_only": {"$ref": "#/$defs/str-list", "description": "Fields read and recorded but not acted on."}, "code": {"$ref": "#/$defs/code"}}},
+        "code": {"$ref": "#/$defs/code"}
+      }
+    },
+
+    "identity-method": {
+      "type": "object",
+      "description": "One identity method: what the identity is derived from and where its behaviour is implemented.",
+      "additionalProperties": false,
+      "required": ["implemented_here", "code"],
+      "properties": {
+        "basis": {"type": "string", "description": "What the identity is derived from; absent when it is minted."},
+        "implemented_here": {"type": "boolean", "description": "True when code in this repo produces it."},
+        "code": {"$ref": "#/$defs/code"}
+      }
+    },
+
+    "identity-meet": {
+      "type": "object",
+      "description": "A value form the identity systems share, and what carries it.",
+      "additionalProperties": false,
+      "required": ["value_form", "carries", "code"],
+      "properties": {
+        "value_form": {"type": "string", "description": "Shared value form.", "enum": ["service_dns_name", "account_identity", "tenant_identity"]},
+        "carries": {"$ref": "#/$defs/str-list", "description": "Fields or objects carrying the value."},
+        "value": {"type": "string", "description": "Literal value, when it is a fixed placeholder."},
+        "forwarded_to": {"$ref": "#/$defs/str-list", "description": "Contexts or upstreams the value is handed to."},
+        "assumed_by": {"$ref": "#/$defs/str-list", "description": "Examples that assume the value."},
+        "unread_by": {"$ref": "#/$defs/str-list", "description": "Contexts holding the field that never read it."},
+        "code": {"$ref": "#/$defs/code"}
+      }
+    }
+  }
+}
