@@ -1,0 +1,37 @@
+{
+  "name": "pi-hydradb-clm",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "license": "Unlicense",
+  "description": "Pi extension: durable graph-backed live context in HydraDB, in the Context Language Models style",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "hydradb",
+    "context-language-models"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --import tsx --test --test-force-exit test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "neo4j-driver": "~5.26.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.0.0",
+    "@types/node": "^22.19.15",
+    "tsx": "^4.21.0",
+    "typebox": "^1.1.12",
+    "typescript": "^5.9.3"
+  }
+}
