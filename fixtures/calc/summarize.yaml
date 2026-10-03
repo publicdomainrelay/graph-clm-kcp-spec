@@ -1,0 +1,48 @@
+# The deterministic code -> spec answer for the calc fixture. It is a scripted
+# agent scenario of the same shape every other example uses, so the drafts go
+# through the same strict parser a model answer does and a scenario cannot say
+# what a model could not.
+#
+# The drafts name exactly the surface the index observes, which is what makes
+# the baseline CodeSynced: an undeclared exported symbol would leave the context
+# unsynced before any scenario runs.
+contexts:
+  calc:
+    summary: |
+      The calc package is integer arithmetic behind one exported surface: two
+      functions, no state and no I/O.
+    intent: |
+      Arithmetic on two integers, as a library the command line front end
+      wraps. It exists to be a small, complete example of a managed context.
+    requirements:
+      - id: r.add
+        level: MUST
+        text: Add returns the sum of two integers.
+        codeRefs: ["Add", "file:calc/calc.go"]
+      - id: r.multiply
+        level: MUST
+        text: Multiply returns the product of two integers.
+        codeRefs: ["Multiply", "file:calc/calc.go"]
+    interfaces:
+      - name: Add
+        kind: function
+        signature: "(a, b int) int"
+        file: calc/calc.go
+      - name: Multiply
+        kind: function
+        signature: "(a, b int) int"
+        file: calc/calc.go
+  cmd-calc:
+    summary: |
+      The calc command line front end reads two operands and an operator and
+      prints the result.
+    intent: |
+      A command line front end over the calc package. It exists to prove the
+      ref syntax carries a real dependency: the CLI cannot be specified
+      without the library it wraps.
+    requirements:
+      - id: r.read-two-operands
+        level: MUST
+        text: The CLI reads two integers and an operator and prints the result.
+        codeRefs: ["file:cmd/calc/main.go"]
+    interfaces: []

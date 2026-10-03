@@ -1,0 +1,51 @@
+# Difficulty 1: add one exported function. The spec gains one interface and one
+# requirement, so the delta carries exactly two entries and the code change is
+# one new function in one file.
+name: add-subtract
+context: calc
+difficulty: 1
+description: add an exported function to the library
+specPatch:
+  interfaces:
+    - name: Subtract
+      kind: function
+      signature: "(a, b int) int"
+      file: calc/calc.go
+  requirements:
+    - id: r.subtract
+      level: SHOULD
+      text: Subtract returns the difference of two integers.
+      codeRefs: ["function:Subtract", "file:calc/calc.go"]
+expectedInterfaces: ["Subtract"]
+expectedDeltaEntries: 2
+acceptance:
+  - path: calc/acceptance_subtract_test.go
+    contents: |
+      package calc
+
+      import "testing"
+
+      func TestAcceptanceSubtract(t *testing.T) {
+      	if got := Subtract(5, 3); got != 2 {
+      		t.Fatalf("Subtract(5, 3) = %d, want 2", got)
+      	}
+      	if got := Subtract(3, 5); got != -2 {
+      		t.Fatalf("Subtract(3, 5) = %d, want -2", got)
+      	}
+      }
+realize:
+  - patch:
+      path: calc/calc.go
+      find: |
+        func Multiply(a, b int) int {
+        	return a * b
+        }
+      replace: |
+        func Multiply(a, b int) int {
+        	return a * b
+        }
+
+        // Subtract returns the difference of two integers.
+        func Subtract(a, b int) int {
+        	return a - b
+        }

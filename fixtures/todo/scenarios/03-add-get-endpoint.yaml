@@ -1,0 +1,104 @@
+# Difficulty 3: a feature that needs a second file in the same context. The
+# route handler lives in its own file and the mux learns about it, so the work
+# spans two files while the delta stays two entries.
+name: add-get-one-task-endpoint
+context: httpapi
+difficulty: 3
+description: add an endpoint whose handler lives in a new file
+specPatch:
+  interfaces:
+    - name: TaskHandler
+      kind: function
+      signature: "(store *todo.Store) http.HandlerFunc"
+      file: httpapi/task.go
+  requirements:
+    - id: r.get-one-task
+      level: MUST
+      text: GET /tasks/{id} returns one task as JSON, and 404 when there is no such task.
+      codeRefs: ["function:NewHandler", "file:httpapi/handler.go", "file:httpapi/task.go"]
+expectedInterfaces: ["TaskHandler"]
+expectedDeltaEntries: 2
+acceptance:
+  - path: httpapi/acceptance_get_test.go
+    contents: |
+      package httpapi
+
+      import (
+      	"encoding/json"
+      	"fmt"
+      	"net/http"
+      	"net/http/httptest"
+      	"testing"
+
+      	"example.com/todo/todo"
+      )
+
+      func TestAcceptanceGetOneTask(t *testing.T) {
+      	store := todo.NewStore()
+      	created := store.Add("write the spec")
+      	server := httptest.NewServer(NewHandler(store))
+      	defer server.Close()
+
+      	response, err := http.Get(fmt.Sprintf("%s/tasks/%d", server.URL, created.ID))
+      	if err != nil {
+      		t.Fatal(err)
+      	}
+      	defer response.Body.Close()
+      	if response.StatusCode != http.StatusOK {
+      		t.Fatalf("status = %d, want 200", response.StatusCode)
+      	}
+      	task := todo.Task{}
+      	if err := json.NewDecoder(response.Body).Decode(&task); err != nil {
+      		t.Fatal(err)
+      	}
+      	if task.ID != created.ID || task.Title != "write the spec" {
+      		t.Fatalf("task = %+v", task)
+      	}
+
+      	missing, err := http.Get(fmt.Sprintf("%s/tasks/99", server.URL))
+      	if err != nil {
+      		t.Fatal(err)
+      	}
+      	defer missing.Body.Close()
+      	if missing.StatusCode != http.StatusNotFound {
+      		t.Fatalf("status = %d, want 404", missing.StatusCode)
+      	}
+      }
+realize:
+  - write:
+      path: httpapi/task.go
+      contents: |
+        package httpapi
+
+        import (
+        	"errors"
+        	"net/http"
+        	"strconv"
+
+        	"example.com/todo/todo"
+        )
+
+        // TaskHandler serves one task by id.
+        func TaskHandler(store *todo.Store) http.HandlerFunc {
+        	return func(writer http.ResponseWriter, request *http.Request) {
+        		id, err := strconv.Atoi(request.PathValue("id"))
+        		if err != nil {
+        			writeError(writer, http.StatusBadRequest, "the id is not a number")
+        			return
+        		}
+        		task, err := store.Get(id)
+        		if errors.Is(err, todo.ErrNotFound) {
+        			writeError(writer, http.StatusNotFound, "no such task")
+        			return
+        		}
+        		if err != nil {
+        			writeError(writer, http.StatusInternalServerError, err.Error())
+        			return
+        		}
+        		writeJSON(writer, http.StatusOK, task)
+        	}
+        }
+  - patch:
+      path: httpapi/handler.go
+      find: "\tmux := http.NewServeMux()\n\tmux.HandleFunc(\"GET /tasks\", func(writer http.ResponseWriter, request *http.Request) {\n"
+      replace: "\tmux := http.NewServeMux()\n\tmux.HandleFunc(\"GET /tasks/{id}\", TaskHandler(store))\n\tmux.HandleFunc(\"GET /tasks\", func(writer http.ResponseWriter, request *http.Request) {\n"

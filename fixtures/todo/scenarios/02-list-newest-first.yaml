@@ -1,0 +1,83 @@
+# Difficulty 2: change a behaviour a test already pins. List has to answer
+# newest first, so the store and its own test move together or the verify
+# command rejects the attempt. One requirement changes, so the delta is one
+# changed entry and the work is two files.
+name: list-newest-first
+context: todo
+difficulty: 2
+description: change the order List answers in, and the test that pins it
+specPatch:
+  requirements:
+    - id: r.list
+      level: MUST
+      text: List returns every task, newest first.
+      codeRefs: ["List", "file:todo/todo.go"]
+expectedInterfaces: ["Add", "Complete", "Get", "List", "NewStore", "Store", "Task"]
+expectedDeltaEntries: 1
+acceptance:
+  - path: todo/acceptance_list_test.go
+    contents: |
+      package todo
+
+      import "testing"
+
+      func TestAcceptanceListIsNewestFirst(t *testing.T) {
+      	store := NewStore()
+      	store.Add("first")
+      	store.Add("second")
+      	store.Add("third")
+      	tasks := store.List()
+      	if len(tasks) != 3 {
+      		t.Fatalf("len = %d, want 3", len(tasks))
+      	}
+      	if tasks[0].Title != "third" || tasks[1].Title != "second" || tasks[2].Title != "first" {
+      		t.Fatalf("order = %q, %q, %q, want third, second, first", tasks[0].Title, tasks[1].Title, tasks[2].Title)
+      	}
+      }
+realize:
+  - patch:
+      path: todo/todo.go
+      find: |
+        // List returns every task, oldest first.
+        func (s *Store) List() []Task {
+        	out := make([]Task, len(s.tasks))
+        	copy(out, s.tasks)
+        	return out
+        }
+      replace: |
+        // List returns every task, newest first.
+        func (s *Store) List() []Task {
+        	out := make([]Task, len(s.tasks))
+        	for index, task := range s.tasks {
+        		out[len(s.tasks)-1-index] = task
+        	}
+        	return out
+        }
+  - patch:
+      path: todo/todo_test.go
+      find: |
+        func TestListReturnsEveryTaskOldestFirst(t *testing.T) {
+        	store := NewStore()
+        	store.Add("first")
+        	store.Add("second")
+        	tasks := store.List()
+        	if len(tasks) != 2 {
+        		t.Fatalf("len = %d, want 2", len(tasks))
+        	}
+        	if tasks[0].Title != "first" || tasks[1].Title != "second" {
+        		t.Fatalf("order = %q, %q, want first, second", tasks[0].Title, tasks[1].Title)
+        	}
+        }
+      replace: |
+        func TestListReturnsEveryTaskNewestFirst(t *testing.T) {
+        	store := NewStore()
+        	store.Add("first")
+        	store.Add("second")
+        	tasks := store.List()
+        	if len(tasks) != 2 {
+        		t.Fatalf("len = %d, want 2", len(tasks))
+        	}
+        	if tasks[0].Title != "second" || tasks[1].Title != "first" {
+        		t.Fatalf("order = %q, %q, want second, first", tasks[0].Title, tasks[1].Title)
+        	}
+        }

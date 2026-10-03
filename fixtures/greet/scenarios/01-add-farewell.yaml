@@ -1,0 +1,44 @@
+# Difficulty 1: add one exported function to the root module. One interface and
+# one requirement, so two added delta entries and one edited file.
+name: add-farewell
+context: greet
+difficulty: 1
+description: add an exported function to the module
+specPatch:
+  interfaces:
+    - name: farewell
+      kind: function
+      signature: "(name: string): string"
+      file: mod.ts
+  requirements:
+    - id: r.farewell
+      level: MAY
+      text: farewell returns a goodbye line for a name.
+      codeRefs: ["file:mod.ts"]
+expectedInterfaces: ["farewell"]
+expectedDeltaEntries: 2
+acceptance:
+  - path: acceptance_farewell_test.ts
+    contents: |
+      import { assertEquals } from "jsr:@std/assert@^1.0.19";
+
+      import { farewell } from "./mod.ts";
+
+      Deno.test("acceptance: farewell says goodbye", () => {
+        assertEquals(farewell("world"), "goodbye, world");
+      });
+realize:
+  - patch:
+      path: mod.ts
+      find: |
+        export function shout(name: string): string {
+          return greet(name).text.toUpperCase();
+        }
+      replace: |
+        export function shout(name: string): string {
+          return greet(name).text.toUpperCase();
+        }
+
+        export function farewell(name: string): string {
+          return `goodbye, ${name}`;
+        }

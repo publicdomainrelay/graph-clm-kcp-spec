@@ -1,0 +1,65 @@
+# The deterministic code -> spec answer for the greet fixture. It declares
+# exactly the surface the index observes: an exported interface, two exported
+# functions and an exported class in the root module, two exported functions in
+# format/.
+contexts:
+  greet:
+    summary: |
+      The root module builds greetings: a value type, two functions over it and
+      a class that prefixes one.
+    intent: |
+      Greeting text for a name. It exists to prove the observed surface of a
+      TypeScript module: an exported interface, exported functions and an
+      exported class all become declared interfaces of one context.
+    requirements:
+      - id: r.greet
+        level: MUST
+        text: greet returns the name and the greeting text for it.
+        codeRefs: ["greet", "file:mod.ts"]
+      - id: r.shout
+        level: SHOULD
+        text: shout returns the greeting text in upper case.
+        codeRefs: ["shout", "file:mod.ts"]
+      - id: r.greeter
+        level: MAY
+        text: Greeter prefixes a greeting with the prefix it was built with.
+        codeRefs: ["Greeter", "file:mod.ts"]
+    interfaces:
+      - name: Greeting
+        kind: interface
+        file: mod.ts
+      - name: greet
+        kind: function
+        signature: "(name: string): Greeting"
+        file: mod.ts
+      - name: shout
+        kind: function
+        signature: "(name: string): string"
+        file: mod.ts
+      - name: Greeter
+        kind: class
+        file: mod.ts
+  format:
+    summary: |
+      The format module holds the string helpers the root module builds on.
+    intent: |
+      Small string helpers, kept in their own directory so the directory
+      partition produces a second context from one working tree.
+    requirements:
+      - id: r.title-case
+        level: MUST
+        text: titleCase capitalises every word of a string.
+        codeRefs: ["titleCase", "file:format/mod.ts"]
+      - id: r.trim-all
+        level: SHOULD
+        text: trimAll trims every value of a list.
+        codeRefs: ["trimAll", "file:format/mod.ts"]
+    interfaces:
+      - name: titleCase
+        kind: function
+        signature: "(value: string): string"
+        file: format/mod.ts
+      - name: trimAll
+        kind: function
+        signature: "(values: string[]): string[]"
+        file: format/mod.ts

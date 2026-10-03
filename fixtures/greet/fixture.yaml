@@ -1,0 +1,5 @@
+# The eval manifest of the greet fixture. The root module becomes the context
+# named after the repository (greet), format/ becomes `format`.
+name: greet
+verify: ["deno", "test"]
+accept: ["deno", "test"]

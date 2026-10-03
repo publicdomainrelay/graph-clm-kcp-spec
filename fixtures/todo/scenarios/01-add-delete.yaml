@@ -1,0 +1,63 @@
+# Difficulty 1: add one exported method. One interface and one requirement, so
+# two added delta entries, and the method joins the store's own test file's
+# neighbour.
+name: add-delete
+context: todo
+difficulty: 1
+description: add an exported method to the store
+specPatch:
+  interfaces:
+    - name: Delete
+      kind: method
+      signature: "(id int) error"
+      file: todo/todo.go
+  requirements:
+    - id: r.delete
+      level: SHOULD
+      text: Delete removes a task by id and reports ErrNotFound when there is none.
+      codeRefs: ["function:Delete", "file:todo/todo.go"]
+expectedInterfaces: ["Delete"]
+expectedDeltaEntries: 2
+acceptance:
+  - path: todo/acceptance_delete_test.go
+    contents: |
+      package todo
+
+      import (
+      	"errors"
+      	"testing"
+      )
+
+      func TestAcceptanceDelete(t *testing.T) {
+      	store := NewStore()
+      	kept := store.Add("keep me")
+      	removed := store.Add("remove me")
+      	if err := store.Delete(removed.ID); err != nil {
+      		t.Fatalf("Delete(%d) = %v, want nil", removed.ID, err)
+      	}
+      	tasks := store.List()
+      	if len(tasks) != 1 || tasks[0].ID != kept.ID {
+      		t.Fatalf("tasks = %+v, want only the kept one", tasks)
+      	}
+      	if err := store.Delete(removed.ID); !errors.Is(err, ErrNotFound) {
+      		t.Fatalf("Delete again = %v, want ErrNotFound", err)
+      	}
+      }
+realize:
+  - patch:
+      path: todo/todo.go
+      find: |
+        // Complete marks a task done and returns it.
+      replace: |
+        // Delete removes a task by id.
+        func (s *Store) Delete(id int) error {
+        	for index, task := range s.tasks {
+        		if task.ID == id {
+        			s.tasks = append(s.tasks[:index], s.tasks[index+1:]...)
+        			return nil
+        		}
+        	}
+        	return ErrNotFound
+        }
+
+        // Complete marks a task done and returns it.

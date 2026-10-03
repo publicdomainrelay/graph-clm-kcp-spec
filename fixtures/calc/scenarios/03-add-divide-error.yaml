@@ -1,0 +1,70 @@
+# Difficulty 3: a feature that spans two files of the same context. Divide has
+# to report the division by zero, so the sentinel error lives in its own file
+# and the function joins the library file. The delta is still two entries; what
+# grew is the work.
+name: add-divide-with-an-error
+context: calc
+difficulty: 3
+description: add a function whose error spans a second file
+specPatch:
+  interfaces:
+    - name: Divide
+      kind: function
+      signature: "(a, b int) (int, error)"
+      file: calc/calc.go
+  requirements:
+    - id: r.divide
+      level: MUST
+      text: Divide returns the quotient of two integers and ErrDivideByZero when the divisor is zero.
+      codeRefs: ["function:Divide", "file:calc/calc.go", "file:calc/errors.go"]
+expectedInterfaces: ["Add", "Divide", "Multiply"]
+expectedDeltaEntries: 2
+acceptance:
+  - path: calc/acceptance_divide_test.go
+    contents: |
+      package calc
+
+      import (
+      	"errors"
+      	"testing"
+      )
+
+      func TestAcceptanceDivide(t *testing.T) {
+      	got, err := Divide(6, 3)
+      	if err != nil || got != 2 {
+      		t.Fatalf("Divide(6, 3) = %d, %v, want 2, nil", got, err)
+      	}
+      	if _, err := Divide(1, 0); !errors.Is(err, ErrDivideByZero) {
+      		t.Fatalf("Divide(1, 0) error = %v, want ErrDivideByZero", err)
+      	}
+      }
+realize:
+  - write:
+      path: calc/errors.go
+      contents: |
+        package calc
+
+        import "errors"
+
+        // ErrDivideByZero is returned when a divisor is zero.
+        var ErrDivideByZero = errors.New("calc: division by zero")
+  - patch:
+      path: calc/calc.go
+      find: |
+        // Multiply returns the product of two integers.
+        func Multiply(a, b int) int {
+        	return a * b
+        }
+      replace: |
+        // Multiply returns the product of two integers.
+        func Multiply(a, b int) int {
+        	return a * b
+        }
+
+        // Divide returns the quotient of two integers.
+        func Divide(a, b int) (int, error) {
+        	if b == 0 {
+        		return 0, ErrDivideByZero
+        	}
+        	return a / b, nil
+        }

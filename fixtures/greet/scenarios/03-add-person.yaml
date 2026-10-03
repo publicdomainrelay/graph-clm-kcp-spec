@@ -1,0 +1,80 @@
+# Difficulty 3: a feature that needs a new file and an edit to the module that
+# uses it. person.ts carries the type and its formatter, the root module gains a
+# function built on both. Three interfaces and one requirement are added, so
+# four delta entries, and the work spans two files of one context.
+name: add-a-person-module
+context: greet
+difficulty: 3
+description: add a new module and a function that uses it
+specPatch:
+  interfaces:
+    - name: Person
+      kind: interface
+      file: person.ts
+    - name: formatPerson
+      kind: function
+      signature: "(person: Person): string"
+      file: person.ts
+    - name: greetPerson
+      kind: function
+      signature: "(person: Person): Greeting"
+      file: mod.ts
+  requirements:
+    - id: r.greet-person
+      level: SHOULD
+      text: greetPerson greets a person by their formatted name and age.
+      codeRefs: ["file:mod.ts", "file:person.ts"]
+expectedInterfaces: ["Person", "formatPerson", "greetPerson"]
+expectedDeltaEntries: 4
+acceptance:
+  - path: acceptance_person_test.ts
+    contents: |
+      import { assertEquals } from "jsr:@std/assert@^1.0.19";
+
+      import { greetPerson } from "./mod.ts";
+      import { formatPerson } from "./person.ts";
+
+      Deno.test("acceptance: formatPerson writes the name and the age", () => {
+        assertEquals(formatPerson({ name: "ada", age: 36 }), "ada (36)");
+      });
+
+      Deno.test("acceptance: greetPerson greets a person", () => {
+        assertEquals(greetPerson({ name: "ada", age: 36 }), {
+          name: "ada",
+          text: "hello, ada (36)",
+        });
+      });
+realize:
+  - write:
+      path: person.ts
+      contents: |
+        export interface Person {
+          name: string;
+          age: number;
+        }
+
+        export function formatPerson(person: Person): string {
+          return `${person.name} (${person.age})`;
+        }
+  - patch:
+      path: mod.ts
+      find: |
+        export interface Greeting {
+      replace: |
+        import { formatPerson, type Person } from "./person.ts";
+
+        export interface Greeting {
+  - patch:
+      path: mod.ts
+      find: |
+        export function shout(name: string): string {
+          return greet(name).text.toUpperCase();
+        }
+      replace: |
+        export function shout(name: string): string {
+          return greet(name).text.toUpperCase();
+        }
+
+        export function greetPerson(person: Person): Greeting {
+          return { name: person.name, text: `hello, ${formatPerson(person)}` };
+        }

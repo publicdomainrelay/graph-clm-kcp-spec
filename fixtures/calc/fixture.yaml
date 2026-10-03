@@ -1,0 +1,6 @@
+# The eval manifest of the calc fixture. The repository name a run uses is the
+# fixture directory name, so the partitions and the context names a scenario
+# names are stable: calc/ becomes `calc`, cmd/calc/ becomes `cmd-calc`.
+name: calc
+verify: ["go", "test", "./..."]
+accept: ["go", "test", "./..."]

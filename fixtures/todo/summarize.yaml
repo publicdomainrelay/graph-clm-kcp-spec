@@ -1,0 +1,88 @@
+# The deterministic code -> spec answer for the todo fixture. The store's
+# methods are part of the observed surface, which is the point of this fixture:
+# a Go service whose API is mostly methods would otherwise be specified as an
+# empty package.
+contexts:
+  todo:
+    summary: |
+      The task store: one value type, one stateful type and the operations over
+      it.
+    intent: |
+      An in-memory task list behind one exported surface. It holds the state and
+      the rules; the HTTP front end only translates.
+    requirements:
+      - id: r.new-store
+        level: MUST
+        text: NewStore returns an empty store whose first task gets id 1.
+        codeRefs: ["NewStore", "file:todo/todo.go"]
+      - id: r.add
+        level: MUST
+        text: Add appends a task with the given title and returns it.
+        codeRefs: ["Add", "file:todo/todo.go"]
+      - id: r.list
+        level: MUST
+        text: List returns every task, oldest first.
+        codeRefs: ["List", "file:todo/todo.go"]
+      - id: r.get
+        level: MUST
+        text: Get returns one task by id, or ErrNotFound.
+        codeRefs: ["Get", "file:todo/todo.go"]
+      - id: r.complete
+        level: MUST
+        text: Complete marks a task done and returns it, or ErrNotFound.
+        codeRefs: ["Complete", "file:todo/todo.go"]
+    interfaces:
+      - name: Task
+        kind: struct
+        file: todo/todo.go
+      - name: Store
+        kind: struct
+        file: todo/todo.go
+      - name: NewStore
+        kind: function
+        signature: "() *Store"
+        file: todo/todo.go
+      - name: Add
+        kind: method
+        signature: "(title string) Task"
+        file: todo/todo.go
+      - name: List
+        kind: method
+        signature: "() []Task"
+        file: todo/todo.go
+      - name: Get
+        kind: method
+        signature: "(id int) (Task, error)"
+        file: todo/todo.go
+      - name: Complete
+        kind: method
+        signature: "(id int) (Task, error)"
+        file: todo/todo.go
+  httpapi:
+    summary: |
+      The JSON front end: three routes over the store, no framework.
+    intent: |
+      The HTTP surface of the task list. It owns the wire format and the status
+      codes, and it holds no state of its own.
+    requirements:
+      - id: r.new-handler
+        level: MUST
+        text: NewHandler returns the service's routes over one store.
+        codeRefs: ["NewHandler", "file:httpapi/handler.go"]
+    interfaces:
+      - name: NewHandler
+        kind: function
+        signature: "(store *todo.Store) http.Handler"
+        file: httpapi/handler.go
+  cmd-todo:
+    summary: |
+      The command that serves the task list on an address.
+    intent: |
+      The process entry point: it builds a store, mounts the front end and
+      listens.
+    requirements:
+      - id: r.serve
+        level: MUST
+        text: The command serves the task list over HTTP on the address it is given.
+        codeRefs: ["file:cmd/todo/main.go"]
+    interfaces: []

@@ -1,0 +1,56 @@
+# Difficulty 2: change a behaviour, not add one. Add becomes variadic, so the
+# declared signature of an interface that already exists changes and the
+# requirement that describes it changes with it. The delta is two changed
+# entries, not two added ones, and the code has to keep the old calls working.
+name: change-add-to-variadic
+context: calc
+difficulty: 2
+description: change the signature and the requirement of an existing function
+specPatch:
+  interfaces:
+    - name: Add
+      kind: function
+      signature: "(values ...int) int"
+      file: calc/calc.go
+  requirements:
+    - id: r.add
+      level: MUST
+      text: Add returns the sum of every integer it is given, and zero when it is given none.
+      codeRefs: ["function:Add", "file:calc/calc.go"]
+expectedInterfaces: ["Add", "Multiply"]
+expectedDeltaEntries: 2
+acceptance:
+  - path: calc/acceptance_variadic_test.go
+    contents: |
+      package calc
+
+      import "testing"
+
+      func TestAcceptanceAddIsVariadic(t *testing.T) {
+      	if got := Add(1, 2, 3); got != 6 {
+      		t.Fatalf("Add(1, 2, 3) = %d, want 6", got)
+      	}
+      	if got := Add(2, 3); got != 5 {
+      		t.Fatalf("Add(2, 3) = %d, want 5", got)
+      	}
+      	if got := Add(); got != 0 {
+      		t.Fatalf("Add() = %d, want 0", got)
+      	}
+      }
+realize:
+  - patch:
+      path: calc/calc.go
+      find: |
+        // Add returns the sum of two integers.
+        func Add(a, b int) int {
+        	return a + b
+        }
+      replace: |
+        // Add returns the sum of every integer it is given.
+        func Add(values ...int) int {
+        	total := 0
+        	for _, value := range values {
+        		total += value
+        	}
+        	return total
+        }

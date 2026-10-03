@@ -1,0 +1,40 @@
+# Difficulty 2: change a behaviour that a test already pins. The greeting gains
+# an exclamation mark, so the module and its own test have to move together or
+# the verify command rejects the attempt. One requirement changes, so the delta
+# is one changed entry and the work is two files.
+name: change-the-greeting-text
+context: greet
+difficulty: 2
+description: change the greeting text and the test that pins it
+specPatch:
+  requirements:
+    - id: r.greet
+      level: MUST
+      text: greet returns the name and the greeting text for it, which ends with an exclamation mark.
+      codeRefs: ["greet", "file:mod.ts"]
+expectedInterfaces: ["Greeting", "Greeter", "greet", "shout"]
+expectedDeltaEntries: 1
+acceptance:
+  - path: acceptance_greeting_test.ts
+    contents: |
+      import { assertEquals } from "jsr:@std/assert@^1.0.19";
+
+      import { greet, shout } from "./mod.ts";
+
+      Deno.test("acceptance: the greeting ends with an exclamation mark", () => {
+        assertEquals(greet("world"), { name: "world", text: "hello, world!" });
+        assertEquals(shout("world"), "HELLO, WORLD!");
+      });
+realize:
+  - patch:
+      path: mod.ts
+      find: "  return { name, text: `hello, ${name}` };"
+      replace: "  return { name, text: `hello, ${name}!` };"
+  - patch:
+      path: mod_test.ts
+      find: '  assertEquals(greet("world"), { name: "world", text: "hello, world" });'
+      replace: '  assertEquals(greet("world"), { name: "world", text: "hello, world!" });'
+  - patch:
+      path: mod_test.ts
+      find: '  assertEquals(shout("world"), "HELLO, WORLD");'
+      replace: '  assertEquals(shout("world"), "HELLO, WORLD!");'

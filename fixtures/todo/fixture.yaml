@@ -1,0 +1,6 @@
+# The eval manifest of the todo fixture: a Go JSON service over net/http, split
+# by directory into the store, the HTTP front end and the command that serves
+# both.
+name: todo
+verify: ["go", "test", "./..."]
+accept: ["go", "test", "./..."]
