@@ -207,12 +207,7 @@ func New(opts Options) (*Controller, error) {
 		opts.RetryBackoff = DefaultRetryBackoff
 	}
 
-	// A controller handed a mod folder and no agent of its own realizes changes
-	// with the mod loaded: a host inside the model is the point of phase 8, and
-	// the folder existing is the caller saying so.
-	if opts.Agent == "" && opts.ClmMod != "" {
-		opts.Agent = agentfactory.ClaudeMod
-	}
+	opts.Agent = agentKind(opts)
 	agents, err := agentfactory.New(agentfactory.Options{
 		Kind:    opts.Agent,
 		Command: opts.AgentCommand,
@@ -248,6 +243,17 @@ func New(opts Options) (*Controller, error) {
 		agents: agents,
 		log:    opts.Log,
 	}, nil
+}
+
+// agentKind is the controller's own agent selection. A controller handed a mod
+// folder and no agent of its own realizes changes with the mod loaded: a host
+// inside the model is the point of phase 8, and the folder being named is the
+// caller saying so. An explicitly named agent always wins.
+func agentKind(opts Options) string {
+	if opts.Agent == "" && opts.ClmMod != "" {
+		return agentfactory.ClaudeMod
+	}
+	return opts.Agent
 }
 
 func newSource(opts Options, client *kcpclient.Client) (watch.Source, error) {

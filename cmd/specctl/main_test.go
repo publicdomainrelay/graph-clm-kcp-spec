@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"flag"
+	"io"
 	"strings"
 	"testing"
 
@@ -189,5 +190,34 @@ func TestDefaultKubeconfigFallsBackToTheRepositoryState(t *testing.T) {
 	t.Setenv("SPECD_KUBECONFIG", "")
 	if got := defaultKubeconfig(); got != ".kcp-specd/admin.kubeconfig" {
 		t.Errorf("kubeconfig = %q", got)
+	}
+}
+
+// `clm render --context <name>` names a SystemContext, and the global --context
+// names a kubeconfig context: the subcommand must not register the same flag
+// twice, which would panic, and must not read the wrong one.
+func TestCLMContextNamesTheSystemContext(t *testing.T) {
+	contextName := ""
+	options, err := newCLMFlags([]string{"--context", "calc", "--workspace", "root:tenant"}, io.Discard, "render",
+		func(fs *flag.FlagSet) {
+			fs.StringVar(&contextName, "context", "", "SystemContext to render")
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contextName != "calc" {
+		t.Errorf("--context = %q, want the SystemContext name", contextName)
+	}
+	if options.kube.workspace != "root:tenant" {
+		t.Errorf("workspace = %q", options.kube.workspace)
+	}
+	if options.kube.context != "" {
+		t.Errorf("the kubeconfig context must not be read from --context: %q", options.kube.context)
+	}
+}
+
+func TestCLMWithoutASubcommandIsUsage(t *testing.T) {
+	if code := run([]string{"clm"}, io.Discard, io.Discard); code != exitUsage {
+		t.Errorf("exit = %d, want %d", code, exitUsage)
 	}
 }

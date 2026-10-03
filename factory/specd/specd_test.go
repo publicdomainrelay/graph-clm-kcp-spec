@@ -19,6 +19,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/agentfactory"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
@@ -861,5 +862,20 @@ func TestACLMSpecEditWhileAChangeRunsRaisesNoSecondChange(t *testing.T) {
 	}
 	if after := busy.names(specapi.SpecChangeGVR); len(after) != 1 {
 		t.Errorf("changes = %v, want only the running one: the clm edit folded into it", after)
+	}
+}
+
+// A mod folder with no other agent makes the mod the realize agent: that is
+// what "specd launches the subagent with the mod loaded" means for a caller
+// that only knows where the folder is. An agent named explicitly still wins.
+func TestAModFolderMakesTheModTheAgent(t *testing.T) {
+	if got := agentKind(Options{ClmMod: "/repo/cc-clm-mod"}); got != agentfactory.ClaudeMod {
+		t.Errorf("kind = %q, want %q", got, agentfactory.ClaudeMod)
+	}
+	if got := agentKind(Options{ClmMod: "/repo/cc-clm-mod", Agent: "scripted:/tmp/s.yaml"}); got != "scripted:/tmp/s.yaml" {
+		t.Errorf("an explicitly named agent lost to the mod folder: %q", got)
+	}
+	if got := agentKind(Options{}); got != "" {
+		t.Errorf("kind = %q, want no agent at all", got)
 	}
 }
