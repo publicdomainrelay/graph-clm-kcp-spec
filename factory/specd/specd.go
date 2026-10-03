@@ -19,6 +19,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/agentfactory"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/bundle"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/claudecli"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/exportwatch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/watchinformer"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/watchpoll"
@@ -28,6 +29,16 @@ const (
 	WatchInformer = "informer"
 
 	WatchPoll = "poll"
+
+	// ModeWorkspace is the plain mode: the controller watches the one logical
+	// cluster named by Options.Workspace and writes back to it.
+	ModeWorkspace = "workspace"
+
+	// ModeExport is the multi workspace mode: the controller watches every
+	// workspace that bound the APIExport, through the export's virtual
+	// workspace, and writes each object back to the logical cluster it came
+	// from. Specs stay per workspace; the API is shared.
+	ModeExport = "export"
 
 	DefaultResync = 5 * time.Second
 
@@ -69,6 +80,16 @@ type Options struct {
 	Burst int
 
 	Watch string
+
+	// Mode selects the workspace mode or the export mode. Empty is the
+	// workspace mode.
+	Mode string
+
+	// ProviderWorkspace and ExportName name the APIExport the export mode
+	// watches every binding of.
+	ProviderWorkspace string
+
+	ExportName string
 
 	PollInterval time.Duration
 
@@ -120,6 +141,10 @@ type Options struct {
 type key struct {
 	Kind string
 
+	// Cluster is the logical cluster the object lives in, empty in the
+	// workspace mode and the object's own cluster in the export mode.
+	Cluster string
+
 	Namespace string
 
 	Name string
@@ -143,6 +168,8 @@ type Controller struct {
 	opts Options
 
 	client Cluster
+
+	router *clusterRouter
 
 	source watch.Source
 
@@ -231,18 +258,30 @@ func New(opts Options) (*Controller, error) {
 	if err != nil {
 		return nil, err
 	}
-	source, err := newSource(opts, client)
-	if err != nil {
-		return nil, err
-	}
-	return &Controller{
+	controller := &Controller{
 		opts:   opts,
 		client: client,
-		source: source,
 		queue:  workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[key]()),
 		agents: agents,
 		log:    opts.Log,
-	}, nil
+	}
+	if mode(opts) == ModeExport {
+		controller.router = newClusterRouter(client, opts.Kubeconfig, opts.Context, opts.Namespace, opts.QPS, opts.Burst)
+		controller.client = controller.router
+	}
+	source, err := newSource(opts, controller.client)
+	if err != nil {
+		return nil, err
+	}
+	controller.source = source
+	return controller, nil
+}
+
+func mode(opts Options) string {
+	if opts.Mode == "" {
+		return ModeWorkspace
+	}
+	return opts.Mode
 }
 
 // agentKind is the controller's own agent selection. A controller handed a mod
@@ -256,11 +295,31 @@ func agentKind(opts Options) string {
 	return opts.Agent
 }
 
-func newSource(opts Options, client *kcpclient.Client) (watch.Source, error) {
+func newSource(opts Options, client Cluster) (watch.Source, error) {
+	if mode(opts) == ModeExport {
+		if opts.Watch != WatchInformer {
+			return nil, fmt.Errorf("specd: the export mode needs the %s watch, not %q", WatchInformer, opts.Watch)
+		}
+		return exportwatch.New(exportwatch.Options{
+			Kubeconfig:        opts.Kubeconfig,
+			Context:           opts.Context,
+			ProviderWorkspace: opts.ProviderWorkspace,
+			Export:            opts.ExportName,
+			Resources:         Resources(),
+			Resync:            opts.Resync,
+			QPS:               opts.QPS,
+			Burst:             opts.Burst,
+			Log:               opts.Log,
+		})
+	}
 	switch opts.Watch {
 	case WatchPoll:
+		lister, ok := client.(watch.Cluster)
+		if !ok {
+			return nil, fmt.Errorf("specd: the %s watch needs a client that can list every namespace", WatchPoll)
+		}
 		return watchpoll.New(watchpoll.Options{
-			Cluster:   client,
+			Cluster:   lister,
 			Resources: Resources(),
 			Interval:  opts.PollInterval,
 			Log:       opts.Log,
@@ -290,12 +349,26 @@ func (c *Controller) Enqueue(resource watch.Resource, object watch.Key) {
 	if namespace == "" {
 		namespace = c.opts.Namespace
 	}
-	c.queue.Add(key{Kind: resource.Kind, Namespace: namespace, Name: object.Name})
+	c.queue.Add(key{Kind: resource.Kind, Cluster: object.Cluster, Namespace: namespace, Name: object.Name})
 }
 
 func (c *Controller) Run(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	if c.router != nil {
+		source, ok := c.source.(*exportwatch.Source)
+		if !ok {
+			return errors.New("specd: the export mode has no APIExport watch")
+		}
+		endpoint, err := source.Endpoint(runCtx)
+		if err != nil {
+			return err
+		}
+		if err := c.router.SetEndpoint(endpoint); err != nil {
+			return err
+		}
+	}
 
 	watchErr := make(chan error, 1)
 	go func() {
@@ -357,6 +430,10 @@ func (c *Controller) reconcile(ctx context.Context, item key) (time.Duration, er
 	if namespace == "" {
 		namespace = c.opts.Namespace
 	}
+	// Every read and write of this reconcile goes to the object's own logical
+	// cluster: empty in the workspace mode, the bound workspace in the export
+	// mode.
+	ctx = watch.WithCluster(ctx, item.Cluster)
 	switch item.Kind {
 	case specapi.RepositoryKind:
 		return c.reconcileRepository(ctx, namespace, item.Name)

@@ -1,0 +1,26 @@
+# The APIExport a tenant workspace binds. It is applied inside the provider
+# workspace (root:specs-provider), not at the root, and it publishes the three
+# APIResourceSchemas generated from deploy/crds/. A test holds its schema names
+# to the generator, so the API a tenant binds cannot drift from the API the
+# single workspace serves.
+apiVersion: apis.kcp.io/v1alpha2
+kind: APIExport
+metadata:
+  name: specs.publicdomainrelay.dev
+spec:
+  resources:
+    - group: specs.publicdomainrelay.dev
+      name: repositories
+      schema: v1alpha1-1.repositories.specs.publicdomainrelay.dev
+      storage:
+        crd: {}
+    - group: specs.publicdomainrelay.dev
+      name: systemcontexts
+      schema: v1alpha1-1.systemcontexts.specs.publicdomainrelay.dev
+      storage:
+        crd: {}
+    - group: specs.publicdomainrelay.dev
+      name: specchanges
+      schema: v1alpha1-1.specchanges.specs.publicdomainrelay.dev
+      storage:
+        crd: {}

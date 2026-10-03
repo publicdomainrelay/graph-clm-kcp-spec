@@ -1,0 +1,198 @@
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  name: v1alpha1-1.repositories.specs.publicdomainrelay.dev
+spec:
+  group: specs.publicdomainrelay.dev
+  names:
+    categories:
+    - specs
+    kind: Repository
+    listKind: RepositoryList
+    plural: repositories
+    shortNames:
+    - repo
+    - repos
+    singular: repository
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.source.path
+      name: Source
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.contexts.total
+      name: Contexts
+      type: string
+    - jsonPath: .status.headCommit
+      name: Head
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      properties:
+        spec:
+          properties:
+            agent:
+              description: Per repository agent selection for spec to code; it wins
+                over the controller's --agent.
+              properties:
+                args:
+                  items:
+                    type: string
+                  type: array
+                command:
+                  type: string
+                kind:
+                  description: claude, or scripted:<scenario file>. Empty keeps the
+                    controller's choice.
+                  type: string
+              type: object
+            branch:
+              default: main
+              type: string
+            path:
+              description: Local working tree; the phase 1 form of spec.source.path.
+              type: string
+            populate:
+              description: What the controller does with the tree once it has one.
+              properties:
+                agent:
+                  description: Agent of the populate step; it wins over spec.agent
+                    and the controller's --agent for code to spec.
+                  properties:
+                    args:
+                      items:
+                        type: string
+                      type: array
+                    command:
+                      type: string
+                    kind:
+                      type: string
+                  type: object
+                exclude:
+                  description: Globs of repository-relative paths to drop; an exclude
+                    wins over an include.
+                  items:
+                    type: string
+                  type: array
+                include:
+                  description: Globs of repository-relative paths to keep; empty keeps
+                    every file. ** crosses directories, and a pattern without a slash
+                    also matches a base name.
+                  items:
+                    type: string
+                  type: array
+                partition:
+                  default: directory
+                  description: directory is one SystemContext per directory that holds
+                    a source file; package is one per package or module root.
+                  enum:
+                  - directory
+                  - package
+                  type: string
+                summarize:
+                  description: Send a model over every new context, one CodeToSpec
+                    change per context.
+                  type: boolean
+              type: object
+            source:
+              description: Where the working tree comes from. A path is used as it
+                is; a git url is cloned into the controller's cache.
+              properties:
+                git:
+                  properties:
+                    ref:
+                      description: Branch, tag or commit to check out; empty is the
+                        remote's default branch.
+                      type: string
+                    url:
+                      description: Any url git can clone, including file:// for a
+                        local bare repository.
+                      type: string
+                  required:
+                  - url
+                  type: object
+                path:
+                  type: string
+              type: object
+            verify:
+              description: Command that must exit zero before spec to code lands.
+              items:
+                type: string
+              type: array
+          type: object
+        status:
+          properties:
+            conditions:
+              items:
+                properties:
+                  lastTransitionTime:
+                    format: date-time
+                    type: string
+                  message:
+                    type: string
+                  observedGeneration:
+                    format: int64
+                    type: integer
+                  reason:
+                    type: string
+                  status:
+                    enum:
+                    - "True"
+                    - "False"
+                    - Unknown
+                    type: string
+                  type:
+                    type: string
+                required:
+                - type
+                - status
+                type: object
+              type: array
+              x-kubernetes-list-map-keys:
+              - type
+              x-kubernetes-list-type: map
+            contexts:
+              properties:
+                failed:
+                  type: integer
+                summarized:
+                  type: integer
+                total:
+                  type: integer
+              type: object
+            headCommit:
+              type: string
+            indexedCommit:
+              type: string
+            observedGeneration:
+              format: int64
+              type: integer
+            phase:
+              enum:
+              - Cloning
+              - Indexing
+              - Populating
+              - Populated
+              - Failed
+              type: string
+            populateRequest:
+              description: The specs.publicdomainrelay.dev/populate-request annotation
+                value this status answers.
+              type: string
+            resolvedPath:
+              description: The working tree the controller resolved the source to.
+              type: string
+          type: object
+      required:
+      - spec
+      type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

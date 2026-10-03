@@ -8,6 +8,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/watch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphcli"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
@@ -132,11 +133,16 @@ func (c *Controller) failChange(ctx context.Context, namespace string, change *s
 		return
 	}
 	c.log.Warn("code to spec failed", "change", change.Name, "systemcontext", change.Spec.SystemContext, "err", message)
-	c.enqueueContext(namespace, change.Spec.SystemContext)
+	c.enqueueContext(ctx, namespace, change.Spec.SystemContext)
 }
 
-func (c *Controller) enqueueContext(namespace, name string) {
-	c.queue.Add(key{Kind: specapi.SystemContextKind, Namespace: namespace, Name: name})
+func (c *Controller) enqueueContext(ctx context.Context, namespace, name string) {
+	c.queue.Add(key{
+		Kind:      specapi.SystemContextKind,
+		Cluster:   watch.ClusterOf(ctx),
+		Namespace: namespace,
+		Name:      name,
+	})
 }
 
 func tailMessage(message string) string {

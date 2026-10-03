@@ -129,7 +129,7 @@ func (c *Controller) recordRealizeFailure(ctx context.Context, namespace string,
 	}
 	c.log.Warn("spec to code failed",
 		"change", change.Name, "systemcontext", change.Spec.SystemContext, "err", message)
-	c.enqueueContext(namespace, change.Spec.SystemContext)
+	c.enqueueContext(ctx, namespace, change.Spec.SystemContext)
 }
 
 // realizeTarget reads the context and the repository of one change and reports

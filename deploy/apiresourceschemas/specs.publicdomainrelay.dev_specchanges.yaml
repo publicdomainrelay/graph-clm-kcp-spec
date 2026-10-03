@@ -1,0 +1,380 @@
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  name: v1alpha1-1.specchanges.specs.publicdomainrelay.dev
+spec:
+  group: specs.publicdomainrelay.dev
+  names:
+    categories:
+    - specs
+    kind: SpecChange
+    listKind: SpecChangeList
+    plural: specchanges
+    shortNames:
+    - change
+    singular: specchange
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.systemContext
+      name: Context
+      type: string
+    - jsonPath: .spec.direction
+      name: Direction
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.commit
+      name: Commit
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      properties:
+        spec:
+          properties:
+            delta:
+              description: What the change asks for, never the whole spec.
+              properties:
+                codeRefs:
+                  properties:
+                    added:
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                    removed:
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                  type: object
+                dependsOn:
+                  properties:
+                    added:
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                    removed:
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                  type: object
+                intent:
+                  properties:
+                    from:
+                      type: string
+                    to:
+                      type: string
+                  type: object
+                interfaces:
+                  items:
+                    properties:
+                      fields:
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
+                      from:
+                        properties:
+                          file:
+                            type: string
+                          kind:
+                            type: string
+                          name:
+                            type: string
+                          signature:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      name:
+                        type: string
+                      op:
+                        enum:
+                        - added
+                        - removed
+                        - changed
+                        type: string
+                      to:
+                        properties:
+                          file:
+                            type: string
+                          kind:
+                            type: string
+                          name:
+                            type: string
+                          signature:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                    required:
+                    - op
+                    - name
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                  - name
+                  x-kubernetes-list-type: map
+                introduces:
+                  properties:
+                    added:
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                    removed:
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                  type: object
+                observed:
+                  properties:
+                    files:
+                      properties:
+                        added:
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: set
+                        removed:
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: set
+                      type: object
+                    fingerprint:
+                      properties:
+                        from:
+                          type: string
+                        to:
+                          type: string
+                      type: object
+                    interfaces:
+                      items:
+                        properties:
+                          fields:
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: set
+                          from:
+                            properties:
+                              codegraphId:
+                                type: string
+                              file:
+                                type: string
+                              kind:
+                                type: string
+                              line:
+                                type: integer
+                              name:
+                                type: string
+                              signature:
+                                type: string
+                            type: object
+                          name:
+                            type: string
+                          op:
+                            enum:
+                            - added
+                            - removed
+                            - changed
+                            type: string
+                          to:
+                            properties:
+                              codegraphId:
+                                type: string
+                              file:
+                                type: string
+                              kind:
+                                type: string
+                              line:
+                                type: integer
+                              name:
+                                type: string
+                              signature:
+                                type: string
+                            type: object
+                        required:
+                        - op
+                        - name
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
+                  type: object
+                orchestrator:
+                  properties:
+                    from:
+                      type: string
+                    to:
+                      type: string
+                  type: object
+                overlay:
+                  properties:
+                    added:
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                    removed:
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                  type: object
+                requirements:
+                  items:
+                    properties:
+                      fields:
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
+                      from:
+                        properties:
+                          codeRefs:
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: set
+                          id:
+                            type: string
+                          level:
+                            enum:
+                            - MUST
+                            - SHOULD
+                            - MAY
+                            type: string
+                          text:
+                            type: string
+                        required:
+                        - id
+                        - level
+                        - text
+                        type: object
+                      id:
+                        type: string
+                      op:
+                        enum:
+                        - added
+                        - removed
+                        - changed
+                        type: string
+                      to:
+                        properties:
+                          codeRefs:
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: set
+                          id:
+                            type: string
+                          level:
+                            enum:
+                            - MUST
+                            - SHOULD
+                            - MAY
+                            type: string
+                          text:
+                            type: string
+                        required:
+                        - id
+                        - level
+                        - text
+                        type: object
+                    required:
+                    - op
+                    - id
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                  - id
+                  x-kubernetes-list-type: map
+                upstream:
+                  properties:
+                    from:
+                      type: string
+                    to:
+                      type: string
+                  type: object
+              type: object
+            direction:
+              enum:
+              - SpecToCode
+              - CodeToSpec
+              type: string
+            fromCommit:
+              type: string
+            fromSpecHash:
+              type: string
+            systemContext:
+              type: string
+            toCommit:
+              type: string
+            toSpecHash:
+              type: string
+          required:
+          - systemContext
+          - direction
+          type: object
+        status:
+          properties:
+            agentLog:
+              type: string
+            branch:
+              type: string
+            commit:
+              type: string
+            filesTouched:
+              items:
+                type: string
+              type: array
+              x-kubernetes-list-type: set
+            message:
+              type: string
+            phase:
+              enum:
+              - Pending
+              - Running
+              - Succeeded
+              - Failed
+              type: string
+            progress:
+              description: what the host running the change reported while it ran
+              items:
+                properties:
+                  at:
+                    type: string
+                  files:
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: set
+                  note:
+                    type: string
+                  tool:
+                    type: string
+                  turn:
+                    type: integer
+                type: object
+              type: array
+            verifyExitCode:
+              type: integer
+          type: object
+      required:
+      - spec
+      type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

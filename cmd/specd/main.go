@@ -17,6 +17,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/cmd/internal/boltflags"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/exportwatch"
 	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
@@ -46,6 +47,12 @@ type config struct {
 	burst int
 
 	watch string
+
+	mode string
+
+	providerWorkspace string
+
+	exportName string
 
 	pollInterval time.Duration
 
@@ -96,6 +103,9 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	fs.Float64Var(&config.qps, "qps", 50, "requests per second against kcp")
 	fs.IntVar(&config.burst, "burst", 100, "request burst against kcp")
 	fs.StringVar(&config.watch, "watch", specd.WatchInformer, "how to watch the workspace: informer or poll")
+	fs.StringVar(&config.mode, "mode", specd.ModeWorkspace, "workspace (one logical cluster) or export (every workspace bound to the APIExport)")
+	fs.StringVar(&config.providerWorkspace, "provider-workspace", exportwatch.DefaultProviderWorkspace, "workspace that publishes the APIExport, export mode only")
+	fs.StringVar(&config.exportName, "export-name", exportwatch.DefaultExport, "APIExport to watch every binding of, export mode only")
 	fs.DurationVar(&config.pollInterval, "poll-interval", specd.DefaultPollInterval, "list interval of the poll watch")
 	fs.DurationVar(&config.resync, "resync", specd.DefaultResync, "how often a Repository is asked for its git HEAD")
 	fs.IntVar(&config.workers, "workers", specd.DefaultWorkers, "concurrent reconciles")
@@ -193,6 +203,9 @@ func (c config) options(writer graph.Writer, bolt *boltflags.Options, log *slog.
 		QPS:                    float32(c.qps),
 		Burst:                  c.burst,
 		Watch:                  c.watch,
+		Mode:                   c.mode,
+		ProviderWorkspace:      c.providerWorkspace,
+		ExportName:             c.exportName,
 		PollInterval:           c.pollInterval,
 		Resync:                 c.resync,
 		Workers:                c.workers,

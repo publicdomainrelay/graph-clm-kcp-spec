@@ -1,0 +1,16 @@
+# The provider workspace of the multi workspace mode. It publishes the specs
+# API (deploy/apiresourceschemas/, generated from deploy/crds/ by
+# impl/schemagen) and exports it (deploy/specs-apiexport.yaml); a tenant
+# workspace binds that export and gets the API in its own logical cluster.
+#
+# deploy/install-specs-provider.sh applies this file, the schemas and the
+# export, then waits for the export's identity.
+# deploy/bind-workspace.sh <name> creates a tenant workspace and binds it.
+apiVersion: tenancy.kcp.io/v1alpha1
+kind: Workspace
+metadata:
+  name: specs-provider
+spec:
+  type:
+    name: universal
+    path: root
