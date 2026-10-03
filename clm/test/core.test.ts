@@ -77,15 +77,77 @@ function subtractObserved(): ObservedFacts {
   return next;
 }
 
+// Two types that both offer a method named List. The keys carry the receiver,
+// which is what lets a delta tell one List from the other.
+function methodSpec(): SystemContextSpec {
+  return {
+    repository: "store",
+    upstream: "self",
+    intent: "A key store indexed two ways.",
+    requirements: [
+      { id: "r.list", level: "MUST", text: "List returns the keys.", codeRefs: ["function:Indexer.List"] },
+    ],
+    interfaces: [
+      { name: "Indexer.List", kind: "method", signature: "() []string", file: "store/store.go" },
+      { name: "Set.List", kind: "method", signature: "() []string", file: "store/store.go" },
+    ],
+    codeRefs: ["file:store/store.go"],
+  };
+}
+
+function methodSpecNext(): SystemContextSpec {
+  const next = methodSpec();
+  next.interfaces = [
+    { name: "Indexer.List", kind: "method", signature: "(limit int) []string", file: "store/store.go" },
+    { name: "Set.List", kind: "method", signature: "() []string", file: "store/store.go" },
+    { name: "Set.Add", kind: "method", signature: "(item string)", file: "store/store.go" },
+  ];
+  return next;
+}
+
+function methodObserved(): ObservedFacts {
+  return {
+    files: ["store/store.go"],
+    interfaces: [
+      { name: "Indexer.List", kind: "method", signature: "() []string", file: "store/store.go", line: 5, codegraphId: "method:ii11" },
+      { name: "Set.List", kind: "method", signature: "() []string", file: "store/store.go", line: 15, codegraphId: "method:ss22" },
+    ],
+    fingerprint: "3".repeat(64),
+  };
+}
+
+function methodObservedNext(): ObservedFacts {
+  const next = methodObserved();
+  next.interfaces = [
+    { name: "Set.List", kind: "method", signature: "() []string", file: "store/store.go", line: 15, codegraphId: "method:ss22" },
+    { name: "Set.Add", kind: "method", signature: "(item string)", file: "store/store.go", line: 22, codegraphId: "method:aa44" },
+  ];
+  next.fingerprint = "4".repeat(64);
+  return next;
+}
+
 function golden(name: string): Delta {
   return JSON.parse(readFileSync(new URL(`../../testdata/delta/${name}`, import.meta.url), "utf8")) as Delta;
 }
 
 // The golden files are the contract: Go pins them in abc/delta, and this reads
-// the same two. A drift in either language fails on its own side.
+// the same four. A drift in either language fails on its own side.
 test("the delta mirror matches the Go golden files", () => {
   assert.deepEqual(diff(calcSpec(), subtractSpec()), golden("spec-edit.json"));
   assert.deepEqual(diffObserved(calcObserved(), subtractObserved()), golden("observed-edit.json"));
+  assert.deepEqual(diff(methodSpec(), methodSpecNext()), golden("method-edit.json"));
+  assert.deepEqual(diffObserved(methodObserved(), methodObservedNext()), golden("method-observed-edit.json"));
+});
+
+test("a method keyed by its receiver is one entry of its own", () => {
+  const change = diff(methodSpec(), methodSpecNext());
+  assert.deepEqual(
+    (change.interfaces ?? []).map((entry) => `${entry.op}:${entry.name}`),
+    ["changed:Indexer.List", "added:Set.Add"],
+  );
+  // Set.List is in both specs, so it is not work; a surface keyed by the bare
+  // name could not have told the two Lists apart.
+  assert.deepEqual(count(change), { added: 1, removed: 0, changed: 1 });
 });
 
 test("apply is the inverse of diff", () => {

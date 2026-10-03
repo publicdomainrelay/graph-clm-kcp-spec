@@ -49,6 +49,11 @@ type Edge struct {
 
 type DB struct {
 	sql *sql.DB
+
+	// root is the working tree the index describes. The index carries no
+	// visibility for a TypeScript class member, so the reader has to see the
+	// declaration line to tell a public member from a private one.
+	root string
 }
 
 func DatabasePath(repoPath string) string {
@@ -95,6 +100,7 @@ func OpenRepo(repoPath string) (*DB, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
+	database.root = repoPath
 	return database, true, nil
 }
 
@@ -108,7 +114,8 @@ func Open(dbPath string) (*DB, error) {
 		handle.Close()
 		return nil, fmt.Errorf("codegraphsqlite: ping %s: %w", dbPath, err)
 	}
-	return &DB{sql: handle}, nil
+	// The index sits at <tree>/.codegraph/<name>, so the tree is two levels up.
+	return &DB{sql: handle, root: filepath.Dir(filepath.Dir(dbPath))}, nil
 }
 
 func (db *DB) Close() error {
@@ -215,13 +222,16 @@ func (db *DB) Facts(ctx context.Context, commit string) (specsync.Facts, error) 
 	for _, file := range files {
 		facts.Files = append(facts.Files, specsync.SourceFile{Path: file.Path, Language: file.Language})
 	}
+	types := exportedTypes(nodes)
+	sources := map[string][]string{}
 	for _, node := range nodes {
-		if !node.IsExported {
+		if !db.exported(node, types, sources) {
 			continue
 		}
 		facts.Symbols = append(facts.Symbols, specsync.Symbol{
 			ID:        node.ID,
 			Name:      node.Name,
+			Qualified: qualifiedName(node),
 			Kind:      node.Kind,
 			Signature: node.Signature,
 			File:      node.FilePath,
@@ -230,6 +240,168 @@ func (db *DB) Facts(ctx context.Context, commit string) (specsync.Facts, error) 
 		})
 	}
 	return facts, nil
+}
+
+// typeKinds are the nodes a member's visibility depends on: a public member of
+// an unexported class is not part of the package's surface.
+var typeKinds = map[string]bool{
+	"class": true, "interface": true, "struct": true,
+	"enum": true, "type_alias": true,
+}
+
+func exportedTypes(nodes []Node) map[string]bool {
+	out := map[string]bool{}
+	for _, node := range nodes {
+		if node.IsExported && typeKinds[node.Kind] {
+			out[node.FilePath+"\x00"+node.Name] = true
+		}
+	}
+	return out
+}
+
+// qualifiedName is the index's qualified name with the key separator a spec
+// uses: `Type::Method` becomes `Type.Method`. A symbol the index did not
+// qualify keeps its bare name.
+func qualifiedName(node Node) string {
+	qualified := strings.TrimSpace(node.QualifiedName)
+	if qualified == "" {
+		return node.Name
+	}
+	if index := strings.Index(qualified, "::"); index >= 0 {
+		return qualified[:index] + "." + qualified[index+2:]
+	}
+	return qualified
+}
+
+// exported reports whether a node is part of the observed public surface. The
+// index answers for most nodes; the two gaps it leaves are Go methods, every
+// one of them reported unexported, and TypeScript class members, every one of
+// them reported unexported although a member is public unless it says
+// otherwise.
+func (db *DB) exported(node Node, types map[string]bool, sources map[string][]string) bool {
+	if node.IsExported {
+		return true
+	}
+	if exportedMethod(node) {
+		return true
+	}
+	if node.Language == "typescript" && node.Kind == "method" {
+		return db.exportedTypeScriptMethod(node, types, sources)
+	}
+	return false
+}
+
+// exportedTypeScriptMethod applies TypeScript's own rule: a class member is
+// public unless it is declared private or protected, or its name is a `#`
+// private one, and a member of a class that is not exported is not part of the
+// surface either. The index carries no modifier, so the declaration line is
+// read; an unreadable line leaves the member public, which is the language's
+// default.
+func (db *DB) exportedTypeScriptMethod(node Node, types map[string]bool, sources map[string][]string) bool {
+	if strings.HasPrefix(node.Name, "#") {
+		return false
+	}
+	parent := qualifiedName(node)
+	if index := strings.LastIndex(parent, "."); index >= 0 {
+		parent = parent[:index]
+	}
+	if parent != "" && !types[node.FilePath+"\x00"+parent] {
+		return false
+	}
+	return typescriptMemberPublic(db.sourceLine(node, sources), node.Name)
+}
+
+// sourceLine is the declaration line of a node, read once per file.
+func (db *DB) sourceLine(node Node, sources map[string][]string) string {
+	lines, ok := sources[node.FilePath]
+	if !ok {
+		data, err := os.ReadFile(filepath.Join(db.root, filepath.FromSlash(node.FilePath)))
+		if err != nil {
+			lines = nil
+		} else {
+			lines = strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+		}
+		sources[node.FilePath] = lines
+	}
+	if node.StartLine <= 0 || node.StartLine > len(lines) {
+		return ""
+	}
+	return lines[node.StartLine-1]
+}
+
+// typescriptMemberPublic reports whether a declaration line declares a public
+// member. The modifier is looked for only before the member's own name, so the
+// `private` of a constructor's parameter property does not hide a public
+// constructor.
+func typescriptMemberPublic(line, name string) bool {
+	index := tokenIndex(line, name)
+	if index < 0 {
+		return true
+	}
+	prefix := line[:index]
+	for _, modifier := range []string{"private", "protected"} {
+		if containsWord(prefix, modifier) {
+			return false
+		}
+	}
+	return true
+}
+
+func tokenIndex(line, name string) int {
+	from := 0
+	for from <= len(line) {
+		index := strings.Index(line[from:], name)
+		if index < 0 {
+			return -1
+		}
+		index += from
+		before := byte(' ')
+		if index > 0 {
+			before = line[index-1]
+		}
+		after := byte(' ')
+		if end := index + len(name); end < len(line) {
+			after = line[end]
+		}
+		if !identifierByte(before) && !identifierByte(after) {
+			return index
+		}
+		from = index + 1
+	}
+	return -1
+}
+
+func identifierByte(char byte) bool {
+	switch {
+	case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z', char >= '0' && char <= '9':
+		return true
+	case char == '_', char == '$', char == '#':
+		return true
+	}
+	return false
+}
+
+func containsWord(text, word string) bool {
+	for from := 0; from <= len(text)-len(word); {
+		index := strings.Index(text[from:], word)
+		if index < 0 {
+			return false
+		}
+		index += from
+		before := byte(' ')
+		if index > 0 {
+			before = text[index-1]
+		}
+		after := byte(' ')
+		if end := index + len(word); end < len(text) {
+			after = text[end]
+		}
+		if !identifierByte(before) && !identifierByte(after) {
+			return true
+		}
+		from = index + 1
+	}
+	return false
 }
 
 // Resolve turns a code ref payload into codegraph nodes. It never computes an
@@ -245,6 +417,18 @@ func (db *DB) Resolve(ctx context.Context, reference string) ([]Node, error) {
 		return nil, err
 	} else if len(nodes) > 0 {
 		return nodes, nil
+	}
+	// A spec keys a method by its receiver with a dot; the index spells the
+	// same thing with `::`. Either spelling names the one symbol, so a ref the
+	// spec stores resolves here rather than through the bare-name fallback,
+	// which cannot tell two receivers apart.
+	if index := strings.LastIndex(reference, "."); index >= 0 {
+		spelling := reference[:index] + "::" + reference[index+1:]
+		if nodes, err := db.query(ctx, `SELECT `+nodeColumns+` FROM nodes WHERE qualified_name = ? LIMIT 2`, spelling); err != nil {
+			return nil, err
+		} else if len(nodes) > 0 {
+			return nodes, nil
+		}
 	}
 	if strings.ContainsAny(reference, "/\\") {
 		if nodes, err := db.nodesByFilePath(ctx, reference); err != nil {

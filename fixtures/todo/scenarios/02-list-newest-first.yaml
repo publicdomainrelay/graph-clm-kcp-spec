@@ -12,7 +12,7 @@ specPatch:
       level: MUST
       text: List returns every task, newest first.
       codeRefs: ["List", "file:todo/todo.go"]
-expectedInterfaces: ["Add", "Complete", "Get", "List", "NewStore", "Store", "Task"]
+expectedInterfaces: ["Store.Add", "Store.Complete", "Store.Get", "Store.List", "NewStore", "Store", "Task"]
 expectedDeltaEntries: 1
 acceptance:
   - path: todo/acceptance_list_test.go

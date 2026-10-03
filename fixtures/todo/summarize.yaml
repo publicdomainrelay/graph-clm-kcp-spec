@@ -1,7 +1,8 @@
 # The deterministic code -> spec answer for the todo fixture. The store's
 # methods are part of the observed surface, which is the point of this fixture:
 # a Go service whose API is mostly methods would otherwise be specified as an
-# empty package.
+# empty package. A method is keyed by its receiver, Store.Add, so two types
+# that both offer a method named List are two describable interfaces.
 contexts:
   todo:
     summary: |
@@ -42,19 +43,19 @@ contexts:
         kind: function
         signature: "() *Store"
         file: todo/todo.go
-      - name: Add
+      - name: Store.Add
         kind: method
         signature: "(title string) Task"
         file: todo/todo.go
-      - name: List
+      - name: Store.List
         kind: method
         signature: "() []Task"
         file: todo/todo.go
-      - name: Get
+      - name: Store.Get
         kind: method
         signature: "(id int) (Task, error)"
         file: todo/todo.go
-      - name: Complete
+      - name: Store.Complete
         kind: method
         signature: "(id int) (Task, error)"
         file: todo/todo.go

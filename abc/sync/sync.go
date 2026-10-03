@@ -22,13 +22,36 @@ type SourceFile struct {
 }
 
 type Symbol struct {
-	ID        string
-	Name      string
+	ID string
+
+	Name string
+
+	// Qualified is the index's qualified name of the symbol: `Type.Method` for
+	// a method, the bare name for a free function or a type. It is the list-map
+	// key of the observed surface, because two types may both offer a method
+	// named List and the declared surface, keyed by name, could hold only one
+	// of them.
+	Qualified string
+
 	Kind      string
 	Signature string
 	File      string
 	Line      int
 	Exported  bool
+}
+
+// InterfaceKey is the key a symbol takes in the observed surface and in a
+// spec's declared interfaces: a method is keyed by its qualified name, so two
+// types that share a method name are two entries; everything else keeps its
+// bare name, so a function's key reads the way it is called.
+func InterfaceKey(symbol Symbol) string {
+	switch symbol.Kind {
+	case "method", "constructor":
+		if symbol.Qualified != "" {
+			return symbol.Qualified
+		}
+	}
+	return symbol.Name
 }
 
 type Facts struct {
@@ -362,22 +385,26 @@ func Observed(partition Partition) spec.ObservedFacts {
 	sort.Strings(files)
 	files = dedupe(files)
 
-	// The observed interfaces are keyed by name everywhere they are written,
-	// read and diffed, so two symbols that share a name are one entry. A real
-	// codebase has them: two files may each declare a `Section`, and a spec
-	// that carries both cannot be stored at all, because the API server
-	// refuses a keyed list with a duplicate key. The symbols arrive sorted, so
-	// the entry kept is the first one in file and line order and two runs over
-	// the same tree produce the same facts.
+	// The observed interfaces are keyed by InterfaceKey everywhere they are
+	// written, read and diffed, so two symbols that share a key are one entry.
+	// A method's key is its qualified name, so two types that both offer a
+	// method named List are two describable entries; a free function and a type
+	// keep their bare name. Two symbols that still share a key — two files may
+	// each declare a `Section` — are one entry: a spec that carried both could
+	// not be stored at all, because the API server refuses a keyed list with a
+	// duplicate key. The symbols arrive sorted, so the entry kept is the first
+	// one in file and line order and two runs over the same tree produce the
+	// same facts.
 	interfaces := make([]spec.ObservedInterface, 0, len(partition.Symbols))
-	named := map[string]bool{}
+	keyed := map[string]bool{}
 	for _, symbol := range partition.Symbols {
-		if named[symbol.Name] {
+		key := InterfaceKey(symbol)
+		if keyed[key] {
 			continue
 		}
-		named[symbol.Name] = true
+		keyed[key] = true
 		interfaces = append(interfaces, spec.ObservedInterface{
-			Name:        symbol.Name,
+			Name:        key,
 			Kind:        symbol.Kind,
 			Signature:   symbol.Signature,
 			File:        symbol.File,
@@ -388,6 +415,82 @@ func Observed(partition Partition) spec.ObservedFacts {
 	observed := spec.ObservedFacts{Files: files, Interfaces: interfaces}
 	observed.Fingerprint = Fingerprint(observed)
 	return observed
+}
+
+// QualifiedRewrites maps a method's bare name to the qualified key the
+// observed facts now use, for the bare names they answer to exactly once. A
+// name two types share is left out: nothing may guess which receiver was meant,
+// and a spec that names it must be edited by a person.
+func QualifiedRewrites(observed spec.ObservedFacts) map[string]string {
+	exact := map[string]bool{}
+	for _, entry := range observed.Interfaces {
+		exact[entry.Name] = true
+	}
+	counts := map[string]int{}
+	keys := map[string]string{}
+	for _, entry := range observed.Interfaces {
+		index := strings.LastIndex(entry.Name, ".")
+		if index < 0 || index == len(entry.Name)-1 {
+			continue
+		}
+		bare := entry.Name[index+1:]
+		counts[bare]++
+		keys[bare] = entry.Name
+	}
+	out := map[string]string{}
+	for bare, count := range counts {
+		if count == 1 && !exact[bare] {
+			out[bare] = keys[bare]
+		}
+	}
+	return out
+}
+
+// MigrateDeclared moves a stored spec onto the qualified keys the observed
+// facts use: a declared interface that carries a method's bare name, and a
+// requirement code ref that names one, take the receiver with them when the
+// observed facts name exactly one candidate. A spec keyed before the receiver
+// was part of the key stays usable, which is what lets an ingest run over an
+// existing cluster without a rewrite of every object.
+func MigrateDeclared(declared spec.SystemContextSpec, observed spec.ObservedFacts) spec.SystemContextSpec {
+	rewrites := QualifiedRewrites(observed)
+	if len(rewrites) == 0 {
+		return declared
+	}
+	out := declared
+	out.Interfaces = append([]spec.Interface{}, declared.Interfaces...)
+	for index, entry := range out.Interfaces {
+		if key, ok := rewrites[entry.Name]; ok {
+			out.Interfaces[index].Name = key
+		}
+	}
+	out.Requirements = append([]spec.Requirement{}, declared.Requirements...)
+	for index, requirement := range out.Requirements {
+		refs := append([]string{}, requirement.CodeRefs...)
+		changed := false
+		for refIndex, ref := range refs {
+			if key, ok := rewrites[ref]; ok {
+				refs[refIndex] = key
+				changed = true
+				continue
+			}
+			for _, prefix := range spec.CodeRefPrefixes {
+				bare, ok := strings.CutPrefix(ref, prefix)
+				if !ok {
+					continue
+				}
+				if key, ok := rewrites[bare]; ok {
+					refs[refIndex] = prefix + key
+					changed = true
+				}
+				break
+			}
+		}
+		if changed {
+			out.Requirements[index].CodeRefs = refs
+		}
+	}
+	return out
 }
 
 type fingerprintPayload struct {

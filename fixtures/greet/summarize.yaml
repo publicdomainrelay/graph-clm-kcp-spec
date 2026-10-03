@@ -1,7 +1,9 @@
 # The deterministic code -> spec answer for the greet fixture. It declares
 # exactly the surface the index observes: an exported interface, two exported
-# functions and an exported class in the root module, two exported functions in
-# format/.
+# functions and an exported class with its public members in the root module,
+# two exported functions in format/. A class member is public unless it says
+# private or protected, so the class's constructor and its greeting method are
+# part of the surface and are keyed Greeter.constructor and Greeter.greeting.
 contexts:
   greet:
     summary: |
@@ -38,6 +40,13 @@ contexts:
         file: mod.ts
       - name: Greeter
         kind: class
+        file: mod.ts
+      - name: Greeter.constructor
+        kind: method
+        file: mod.ts
+      - name: Greeter.greeting
+        kind: method
+        signature: "(name: string): string"
         file: mod.ts
   format:
     summary: |

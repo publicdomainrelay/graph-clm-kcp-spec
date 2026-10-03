@@ -1,0 +1,33 @@
+{
+  "interfaces": [
+    {
+      "op": "changed",
+      "name": "Indexer.List",
+      "from": {
+        "name": "Indexer.List",
+        "kind": "method",
+        "signature": "() []string",
+        "file": "store/store.go"
+      },
+      "to": {
+        "name": "Indexer.List",
+        "kind": "method",
+        "signature": "(limit int) []string",
+        "file": "store/store.go"
+      },
+      "fields": [
+        "signature"
+      ]
+    },
+    {
+      "op": "added",
+      "name": "Set.Add",
+      "to": {
+        "name": "Set.Add",
+        "kind": "method",
+        "signature": "(item string)",
+        "file": "store/store.go"
+      }
+    }
+  ]
+}

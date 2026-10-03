@@ -289,6 +289,81 @@ func TestRunPreservesHumanSpecFields(t *testing.T) {
 	}
 }
 
+// TestRunMigratesABareMethodNameOntoItsReceiver proves a spec stored before a
+// method's receiver was part of the key keeps working: the ingest renames the
+// declared interface and the requirement ref onto the qualified key when the
+// observed facts name exactly one candidate.
+func TestRunMigratesABareMethodNameOntoItsReceiver(t *testing.T) {
+	fixture.Require(t, "codegraph", "git")
+	repoPath := fixture.Copy(t, "todo")
+	cluster := newFakeCluster()
+
+	declared := &spec.SystemContext{
+		ObjectMeta: metav1.ObjectMeta{Name: "todo", Namespace: specapi.DefaultNamespace},
+		Spec: spec.SystemContextSpec{
+			Repository: "todo",
+			Intent:     "the task store",
+			Requirements: []spec.Requirement{
+				{ID: "r.add", Level: spec.LevelMust, Text: "Add appends a task.", CodeRefs: []string{"Add", "file:todo/todo.go"}},
+			},
+			Interfaces: []spec.Interface{
+				{Name: "Task", Kind: "struct"},
+				{Name: "Store", Kind: "struct"},
+				{Name: "NewStore", Kind: "function"},
+				{Name: "Add", Kind: "method"},
+				{Name: "List", Kind: "method"},
+				{Name: "Get", Kind: "method"},
+				{Name: "Complete", Kind: "method"},
+			},
+			CodeRefs: []string{"file:todo/todo.go"},
+		},
+	}
+	declared.SetDefaults()
+	object, err := kcpclient.Unstructured(declared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cluster.Apply(context.Background(), object); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Run(context.Background(), cluster, Options{RepoPath: repoPath, Commit: "cafebabe"}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, "todo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := kcpclient.Typed(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	context := typed.(*spec.SystemContext)
+	names := map[string]bool{}
+	for _, entry := range context.Spec.Interfaces {
+		names[entry.Name] = true
+	}
+	for _, want := range []string{"Store.Add", "Store.List", "Store.Get", "Store.Complete", "Task", "Store", "NewStore"} {
+		if !names[want] {
+			t.Errorf("%s is not declared; interfaces = %v", want, names)
+		}
+	}
+	for _, unwanted := range []string{"Add", "List", "Get", "Complete"} {
+		if names[unwanted] {
+			t.Errorf("the bare method name %s was not migrated", unwanted)
+		}
+	}
+	if refs := context.Spec.Requirements[0].CodeRefs; len(refs) != 2 || refs[0] != "Store.Add" {
+		t.Errorf("requirement refs = %v, want the qualified name", refs)
+	}
+	// The migration is what keeps the context synced; without it the bare names
+	// would read as a missing and an undeclared interface at once.
+	synced := conditionOf(context.Status.Conditions, specapi.ConditionCodeSynced)
+	if synced == nil || synced.Status != metav1.ConditionTrue {
+		t.Errorf("CodeSynced = %+v, want True", synced)
+	}
+}
+
 // A context that has never been acknowledged gets its baseline from the first
 // ingest, and the object says which spec that was, so a reconcile running
 // before the status lands does not read the tool's own write as a human edit.

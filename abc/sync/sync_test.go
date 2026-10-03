@@ -61,6 +61,81 @@ func TestPartitionFactsKeepsExportedNonTestSymbols(t *testing.T) {
 	}
 }
 
+// sharedMethodFacts is a package whose two types each offer a method named
+// List, which is ordinary Go and which a surface keyed by bare name could not
+// describe.
+func sharedMethodFacts() Facts {
+	return Facts{
+		Files: []SourceFile{{Path: "store/store.go", Language: "go"}},
+		Symbols: []Symbol{
+			{ID: "method:setlist", Name: "List", Qualified: "Set.List", Kind: "method", File: "store/store.go", Line: 10, Exported: true},
+			{ID: "method:indexerlist", Name: "List", Qualified: "Indexer.List", Kind: "method", File: "store/store.go", Line: 20, Exported: true},
+			{ID: "function:newstore", Name: "NewStore", Kind: "function", File: "store/store.go", Line: 2, Exported: true},
+		},
+	}
+}
+
+func TestObservedKeepsTwoTypesThatShareAMethodName(t *testing.T) {
+	partitions := PartitionFacts(sharedMethodFacts(), "store")
+	observed := Observed(partitions[0])
+	names := []string{}
+	for _, entry := range observed.Interfaces {
+		names = append(names, entry.Name)
+	}
+	want := map[string]bool{"Set.List": true, "Indexer.List": true, "NewStore": true}
+	if len(names) != len(want) {
+		t.Fatalf("interfaces = %v, want %v", names, want)
+	}
+	for _, name := range names {
+		if !want[name] {
+			t.Errorf("interface %q is not one of %v", name, want)
+		}
+	}
+	// A function keeps its bare name: only a method takes its receiver.
+	for _, entry := range observed.Interfaces {
+		if entry.Name == "NewStore" && entry.Kind != "function" {
+			t.Errorf("NewStore kind = %q", entry.Kind)
+		}
+		if entry.Name == "List" {
+			t.Errorf("a method was keyed by its bare name")
+		}
+	}
+}
+
+func TestMigrateDeclaredTakesTheReceiverWhenItIsUnambiguous(t *testing.T) {
+	observed := Observed(PartitionFacts(sharedMethodFacts(), "store")[0])
+	// Two types offer List, so its bare name resolves to nothing and is left
+	// exactly as it was.
+	collided := MigrateDeclared(spec.SystemContextSpec{
+		Interfaces:   []spec.Interface{{Name: "List"}},
+		Requirements: []spec.Requirement{{ID: "r.list", CodeRefs: []string{"function:List"}}},
+	}, observed)
+	if collided.Interfaces[0].Name != "List" || collided.Requirements[0].CodeRefs[0] != "function:List" {
+		t.Fatalf("an ambiguous name was rewritten: %+v", collided)
+	}
+
+	single := Observed(PartitionFacts(Facts{
+		Files: []SourceFile{{Path: "store/store.go", Language: "go"}},
+		Symbols: []Symbol{
+			{ID: "method:indexerlist", Name: "List", Qualified: "Indexer.List", Kind: "method", File: "store/store.go", Line: 20, Exported: true},
+		},
+	}, "store")[0])
+	migrated := MigrateDeclared(spec.SystemContextSpec{
+		Interfaces:   []spec.Interface{{Name: "List"}, {Name: "Indexer"}},
+		Requirements: []spec.Requirement{{ID: "r.list", CodeRefs: []string{"List", "function:List", "file:store/store.go"}}},
+	}, single)
+	if migrated.Interfaces[0].Name != "Indexer.List" {
+		t.Errorf("declared interface = %q, want Indexer.List", migrated.Interfaces[0].Name)
+	}
+	if migrated.Interfaces[1].Name != "Indexer" {
+		t.Errorf("an unqualified name must not move: %q", migrated.Interfaces[1].Name)
+	}
+	got := migrated.Requirements[0].CodeRefs
+	if got[0] != "Indexer.List" || got[1] != "function:Indexer.List" || got[2] != "file:store/store.go" {
+		t.Errorf("code refs = %v", got)
+	}
+}
+
 func TestPartitionFactsNamesRootFilesAfterTheRepository(t *testing.T) {
 	partitions := PartitionFacts(Facts{
 		Files: []SourceFile{{Path: "main.go", Language: "go"}},

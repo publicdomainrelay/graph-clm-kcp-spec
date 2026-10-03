@@ -220,7 +220,9 @@ Rules:
   dropped, which leaves its requirement anchored to nothing.
 - requirement ids are unique inside the context.
 - Name every interface the observed facts export, with the kind and signature
-  the facts carry.
+  the facts carry. Spell a method's name exactly as the facts do, receiver
+  first: a method of a type is Type.Method, never the bare method name, so two
+  types that both offer a method named List stay two describable entries.
 - Prefer the observed facts over the prose. The spec must describe the code
   that is there, not the code you would have written.
 `

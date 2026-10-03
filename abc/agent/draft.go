@@ -117,11 +117,19 @@ func ParseDraft(raw string, observed spec.ObservedFacts) (SpecDraft, error) {
 		})
 	}
 
+	// A model names a method the way it reads it: `List`, not `Indexer.List`.
+	// When the observed facts answer to the bare name exactly once, the
+	// receiver is unambiguous and the spec stores the qualified key, which is
+	// what the observed surface is keyed by and what CodeSynced compares.
+	keys := observedInterfaceKeys(observed)
 	seenInterfaces := map[string]bool{}
 	for index, declared := range payload.Interfaces {
 		name := strings.TrimSpace(declared.Name)
 		if name == "" {
 			return SpecDraft{}, fmt.Errorf("agent: interfaces[%d] has no name", index)
+		}
+		if key, ok := keys[name]; ok {
+			name = key
 		}
 		if seenInterfaces[name] {
 			return SpecDraft{}, fmt.Errorf("agent: interface %q is not unique", name)
@@ -137,6 +145,39 @@ func ParseDraft(raw string, observed spec.ObservedFacts) (SpecDraft, error) {
 	return draft, nil
 }
 
+// observedInterfaceKeys maps every spelling of an interface name the observed
+// facts answer to onto the key the spec stores. The key itself always
+// resolves. A method's bare name resolves too when exactly one observed
+// interface carries it and no observed interface is named it outright: `List`
+// is the `Indexer.List` when that is the only List, and is nothing when two
+// receivers offer one.
+func observedInterfaceKeys(observed spec.ObservedFacts) map[string]string {
+	out := map[string]string{}
+	exact := map[string]bool{}
+	for _, entry := range observed.Interfaces {
+		exact[entry.Name] = true
+	}
+	counts := map[string]int{}
+	for _, entry := range observed.Interfaces {
+		index := strings.LastIndex(entry.Name, ".")
+		if index < 0 || index == len(entry.Name)-1 {
+			continue
+		}
+		bare := entry.Name[index+1:]
+		counts[bare]++
+		out[bare] = entry.Name
+	}
+	for bare, count := range counts {
+		if count != 1 || exact[bare] {
+			delete(out, bare)
+		}
+	}
+	for _, entry := range observed.Interfaces {
+		out[entry.Name] = entry.Name
+	}
+	return out
+}
+
 // canonicalRefs maps every spelling of a reference the observed facts answer to
 // the one spelling the spec stores: the CodeGraph id of the interface, or its
 // kind and name when the index gave no id. It uses the same resolution rule as
@@ -147,6 +188,11 @@ func canonicalRefs(observed spec.ObservedFacts) map[string]string {
 	for _, file := range observed.Files {
 		ref := spec.CodeRefPrefixFile + file
 		out[ref] = ref
+	}
+	bare := map[string]int{}
+	exact := map[string]bool{}
+	for _, entry := range observed.Interfaces {
+		exact[entry.Name] = true
 	}
 	for _, observedInterface := range observed.Interfaces {
 		canonical := observedInterface.CodegraphID
@@ -165,6 +211,21 @@ func canonicalRefs(observed spec.ObservedFacts) map[string]string {
 		}
 		if observedInterface.CodegraphID != "" {
 			out[observedInterface.CodegraphID] = canonical
+		}
+		if index := strings.LastIndex(observedInterface.Name, "."); index >= 0 && index < len(observedInterface.Name)-1 {
+			bareName := observedInterface.Name[index+1:]
+			bare[bareName]++
+			if bare[bareName] > 1 || exact[bareName] {
+				delete(out, bareName)
+				for _, prefix := range spec.CodeRefPrefixes {
+					delete(out, prefix+bareName)
+				}
+				continue
+			}
+			out[bareName] = canonical
+			for _, prefix := range spec.CodeRefPrefixes {
+				out[prefix+bareName] = canonical
+			}
 		}
 	}
 	return out

@@ -101,6 +101,63 @@ func TestParseDraftCanonicalizesABareNameToTheObservedID(t *testing.T) {
 	}
 }
 
+// methodObserved is a context whose two types each offer a method named List,
+// so the surface can only describe them by their receivers.
+func methodObserved() spec.ObservedFacts {
+	return spec.ObservedFacts{
+		Files: []string{"store/store.go"},
+		Interfaces: []spec.ObservedInterface{
+			{Name: "Indexer.List", Kind: "method", File: "store/store.go", Line: 20, CodegraphID: "method:indexer"},
+			{Name: "Set.List", Kind: "method", File: "store/store.go", Line: 10, CodegraphID: "method:set"},
+			{Name: "NewStore", Kind: "function", File: "store/store.go", Line: 2, CodegraphID: "function:new"},
+		},
+	}
+}
+
+func TestParseDraftQualifiesAMethodNameWithItsReceiver(t *testing.T) {
+	raw := `{"intent": "i", "requirements": [
+	  {"id": "r.list", "level": "MUST", "text": "t", "codeRefs": ["Set.List", "method:set", "function:Set.List"]}
+	], "interfaces": [
+	  {"name": "Set.List", "kind": "method", "file": "store/store.go"},
+	  {"name": "NewStore", "kind": "function", "file": "store/store.go"}
+	]}`
+	draft, err := ParseDraft(raw, methodObserved())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(draft.Interfaces) != 2 || draft.Interfaces[0].Name != "Set.List" || draft.Interfaces[1].Name != "NewStore" {
+		t.Fatalf("interfaces = %+v", draft.Interfaces)
+	}
+	if refs := draft.Requirements[0].CodeRefs; len(refs) != 1 || refs[0] != "method:set" {
+		t.Errorf("codeRefs = %v, want the one canonical id", refs)
+	}
+	if len(draft.Dropped) != 0 {
+		t.Errorf("dropped = %+v", draft.Dropped)
+	}
+}
+
+func TestParseDraftResolvesABareMethodNameOnlyWhenItIsUnique(t *testing.T) {
+	raw := `{"intent": "i", "requirements": [
+	  {"id": "r.list", "level": "MUST", "text": "t", "codeRefs": ["Set.List"]},
+	  {"id": "r.ambiguous", "level": "MUST", "text": "t", "codeRefs": ["List"]}
+	]}`
+	draft, err := ParseDraft(raw, methodObserved())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refs := draft.Requirements[0].CodeRefs; len(refs) != 1 || refs[0] != "method:set" {
+		t.Errorf("qualified ref = %v", refs)
+	}
+	// Two types offer List, so the bare name names neither and is dropped
+	// rather than guessed.
+	if refs := draft.Requirements[1].CodeRefs; len(refs) != 0 {
+		t.Errorf("an ambiguous bare name resolved to %v", refs)
+	}
+	if len(draft.Dropped) != 1 || draft.Dropped[0].Ref != "List" {
+		t.Errorf("dropped = %+v, want the ambiguous List", draft.Dropped)
+	}
+}
+
 func TestParseDraftRejectsAnUnknownLevel(t *testing.T) {
 	raw := `{"intent": "i", "requirements": [{"id": "r", "level": "MUSTARD", "text": "t"}]}`
 	if _, err := ParseDraft(raw, observed()); err == nil {

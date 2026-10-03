@@ -289,6 +289,11 @@ func ingestPartition(
 		merged.Upstream = spec.RefSelf
 	}
 	merged.CodeRefs = mergeCodeRefs(merged.CodeRefs, observed.Files)
+	// A spec stored before a method's receiver was part of its key still names
+	// the method bare. The observed facts say which receiver was meant when
+	// exactly one offers the name, so the ingest moves the stored spec onto the
+	// qualified key itself instead of reporting drift for a spelling.
+	merged = specsync.MigrateDeclared(merged, observed)
 
 	specChanged := !reflect.DeepEqual(merged, previousSpec)
 	generation := existingContext.GetGeneration()

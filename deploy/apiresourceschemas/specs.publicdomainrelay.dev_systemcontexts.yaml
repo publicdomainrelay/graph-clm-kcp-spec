@@ -58,7 +58,10 @@ spec:
               description: One paragraph of what this context is and why.
               type: string
             interfaces:
-              description: Declared public surface, keyed by name.
+              description: Declared public surface, keyed by name. A method is keyed
+                by its qualified name, Type.Method (the Go receiver type or the TypeScript
+                class), so two types that share a method name are two entries; every
+                other symbol keeps its bare name.
               items:
                 properties:
                   file:
@@ -161,7 +164,9 @@ spec:
               - type
               x-kubernetes-list-type: map
             observed:
-              description: The code facts the index reports, deterministic.
+              description: 'The code facts the index reports, deterministic. Interfaces
+                are keyed the same way the declared surface is: a method by its qualified
+                name Type.Method, everything else by its bare name.'
               properties:
                 files:
                   items:

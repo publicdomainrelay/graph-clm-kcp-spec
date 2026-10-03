@@ -16,7 +16,7 @@ specPatch:
       level: SHOULD
       text: Delete removes a task by id and reports ErrNotFound when there is none.
       codeRefs: ["function:Delete", "file:todo/todo.go"]
-expectedInterfaces: ["Delete"]
+expectedInterfaces: ["Store.Delete"]
 expectedDeltaEntries: 2
 acceptance:
   - path: todo/acceptance_delete_test.go

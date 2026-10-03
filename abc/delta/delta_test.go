@@ -65,6 +65,56 @@ func subtractObserved() spec.ObservedFacts {
 	return next
 }
 
+// methodSpec describes a store whose two types both offer a method named List.
+// The keys carry the receiver, which is what lets a delta tell one List from
+// the other; a surface keyed by bare name could not.
+func methodSpec() spec.SystemContextSpec {
+	return spec.SystemContextSpec{
+		Repository: "store",
+		Upstream:   spec.RefSelf,
+		Intent:     "A key store indexed two ways.",
+		Requirements: []spec.Requirement{
+			{ID: "r.list", Level: spec.LevelMust, Text: "List returns the keys.", CodeRefs: []string{"function:Indexer.List"}},
+		},
+		Interfaces: []spec.Interface{
+			{Name: "Indexer.List", Kind: "method", Signature: "() []string", File: "store/store.go"},
+			{Name: "Set.List", Kind: "method", Signature: "() []string", File: "store/store.go"},
+		},
+		CodeRefs: []string{"file:store/store.go"},
+	}
+}
+
+func methodSpecNext() spec.SystemContextSpec {
+	next := methodSpec()
+	next.Interfaces = []spec.Interface{
+		{Name: "Indexer.List", Kind: "method", Signature: "(limit int) []string", File: "store/store.go"},
+		{Name: "Set.List", Kind: "method", Signature: "() []string", File: "store/store.go"},
+		{Name: "Set.Add", Kind: "method", Signature: "(item string)", File: "store/store.go"},
+	}
+	return next
+}
+
+func methodObserved() spec.ObservedFacts {
+	return spec.ObservedFacts{
+		Files: []string{"store/store.go"},
+		Interfaces: []spec.ObservedInterface{
+			{Name: "Indexer.List", Kind: "method", Signature: "() []string", File: "store/store.go", Line: 5, CodegraphID: "method:ii11"},
+			{Name: "Set.List", Kind: "method", Signature: "() []string", File: "store/store.go", Line: 15, CodegraphID: "method:ss22"},
+		},
+		Fingerprint: "3333333333333333333333333333333333333333333333333333333333333333",
+	}
+}
+
+func methodObservedNext() spec.ObservedFacts {
+	next := methodObserved()
+	next.Interfaces = []spec.ObservedInterface{
+		{Name: "Set.List", Kind: "method", Signature: "() []string", File: "store/store.go", Line: 15, CodegraphID: "method:ss22"},
+		{Name: "Set.Add", Kind: "method", Signature: "(item string)", File: "store/store.go", Line: 22, CodegraphID: "method:aa44"},
+	}
+	next.Fingerprint = "4444444444444444444444444444444444444444444444444444444444444444"
+	return next
+}
+
 // TestDeltaGolden pins the JSON form. It is the shape phase 8 mirrors in
 // TypeScript, so a change to it is a change to a shared contract.
 func TestDeltaGolden(t *testing.T) {
@@ -74,6 +124,8 @@ func TestDeltaGolden(t *testing.T) {
 	}{
 		{"spec-edit", delta.Diff(calcSpec(), subtractSpec())},
 		{"observed-edit", delta.DiffObserved(calcObserved(), subtractObserved())},
+		{"method-edit", delta.Diff(methodSpec(), methodSpecNext())},
+		{"method-observed-edit", delta.DiffObserved(methodObserved(), methodObservedNext())},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
