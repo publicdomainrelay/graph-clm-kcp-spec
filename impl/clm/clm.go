@@ -141,6 +141,22 @@ func Apply(ctx context.Context, options Options, modelZone string) (ApplyResult,
 		return result, nil
 	}
 
+	// A context whose own change is Running is being realized right now, and the
+	// spec is the target that change is working to. A model that rewrites the
+	// spec block mid-realize would move the target while the code is being
+	// brought to it, so the edit is folded into the running change's record
+	// instead of written: the work is auditable, and the spec holds still until
+	// the change settles.
+	folded, err := foldIntoRunningChange(ctx, options, systemContext.Name, change)
+	if err != nil {
+		return result, err
+	}
+	if folded != "" {
+		result.Folded = folded
+		result.Message = "folded into the running change " + folded
+		return result, nil
+	}
+
 	candidate := &spec.SystemContext{
 		ObjectMeta: *systemContext.ObjectMeta.DeepCopy(),
 		Spec:       merged,
@@ -174,22 +190,15 @@ func Apply(ctx context.Context, options Options, modelZone string) (ApplyResult,
 	}
 	result.Applied = true
 
-	folded, err := foldIntoRunningChange(ctx, options, systemContext.Name, change, result.SpecHash)
-	if err != nil {
-		return result, err
-	}
-	result.Folded = folded
-	if folded != "" {
-		result.Message = "folded into the running change " + folded
-	}
 	return result, nil
 }
 
 // foldIntoRunningChange records a model's spec edit on the change that is
 // already running for the context. It is what keeps a realizing agent from
 // raising a change for itself: the controller would otherwise see a spec edit
-// and a Running change of the same direction.
-func foldIntoRunningChange(ctx context.Context, options Options, systemContext string, change spec.Delta, specHash string) (string, error) {
+// and a Running change of the same direction, and it would move the target the
+// running change is working to.
+func foldIntoRunningChange(ctx context.Context, options Options, systemContext string, change spec.Delta) (string, error) {
 	running, err := runningChange(ctx, options, systemContext)
 	if err != nil {
 		return "", err
@@ -198,12 +207,9 @@ func foldIntoRunningChange(ctx context.Context, options Options, systemContext s
 		return "", nil
 	}
 	event := Event{
-		Note: fmt.Sprintf("clm edited the spec (%s); the delta is folded into this change",
+		Note: fmt.Sprintf("clm edited the spec (%s); the edit is folded into this change and the spec holds still until it settles",
 			delta.Summary(change)),
 		At: options.now(),
-	}
-	if specHash != "" {
-		event.Note += fmt.Sprintf(" [%s]", specHash[:8])
 	}
 	if _, err := Report(ctx, options, ReportOptions{Change: running.Name, Event: event}); err != nil {
 		return "", err

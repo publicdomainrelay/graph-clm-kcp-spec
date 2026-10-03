@@ -27,7 +27,7 @@ type clmFlags struct {
 func newCLMFlags(args []string, stderr io.Writer, name string, extra func(*flag.FlagSet)) (*clmFlags, error) {
 	fs := flag.NewFlagSet("specctl clm "+name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	kube := addGlobals(fs)
+	kube := addGlobalsExcept(fs, "context")
 	bolt := boltflags.Add(fs)
 	if extra != nil {
 		extra(fs)

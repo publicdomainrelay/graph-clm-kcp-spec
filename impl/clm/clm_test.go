@@ -219,6 +219,13 @@ func TestApplyFoldsAnEditIntoTheRunningChange(t *testing.T) {
 	if result.Folded != "calc-s2c-abc" {
 		t.Fatalf("folded = %q, want the running change", result.Folded)
 	}
+	if result.Applied {
+		t.Error("the spec was written while the change that realizes it is Running")
+	}
+	merged := contextOf(t, cluster)
+	if len(merged.Spec.Interfaces) != 1 {
+		t.Errorf("interfaces = %+v, want the spec to hold still", merged.Spec.Interfaces)
+	}
 	object, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, "calc-s2c-abc")
 	if err != nil {
 		t.Fatal(err)
@@ -231,7 +238,7 @@ func TestApplyFoldsAnEditIntoTheRunningChange(t *testing.T) {
 	if len(change.Status.Progress) != 1 {
 		t.Fatalf("progress = %+v", change.Status.Progress)
 	}
-	if !strings.Contains(change.Status.Progress[0].Note, "clm edited the spec") {
+	if !strings.Contains(change.Status.Progress[0].Note, "folded into this change") {
 		t.Errorf("note = %q", change.Status.Progress[0].Note)
 	}
 	if len(cluster.objects) != 3 {

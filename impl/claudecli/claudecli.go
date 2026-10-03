@@ -119,7 +119,12 @@ func RealizePrompt(request agent.RealizeRequest) string {
 	builder := strings.Builder{}
 	builder.WriteString("You change a working tree so the code matches its specification.\n\n")
 	builder.WriteString("Edit the files in place. Do not ask questions and do not print a plan.\n")
-	builder.WriteString("Edit files only: do not run git and do not commit. The tool commits for you.\n\n")
+	builder.WriteString("Edit files only: do not run git and do not commit. The tool commits for you.\n")
+	// A host inside the model injects the context document, whose spec block is
+	// the specification being realized. Rewriting it during the realize would
+	// change the target while the code is being brought to it, so the ask names
+	// it: the model changes code, the tool owns the spec.
+	builder.WriteString("Do not rewrite the spec block of the context document; it is the specification you are implementing.\n\n")
 
 	builder.WriteString("## what changed in the specification\n\n")
 	builder.WriteString(agent.RenderDelta(request.Delta))

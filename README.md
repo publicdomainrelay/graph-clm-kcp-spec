@@ -80,7 +80,9 @@ becomes a spec change automatically.
 flowchart TB
     human["person<br/>kubectl / specctl"]
     pi["model in pi<br/>+ pi-hydradb-clm"]
+    mod["model in Claude Code<br/>+ cc-clm-mod"]
     ctx[".specs/context/&lt;name&gt;.md<br/>model zone + managed zone"]
+    cli["specctl clm<br/>render / apply / report<br/>the one state bridge"]
     kcp[("kcp<br/>SystemContext / SpecChange<br/>source of truth")]
     specd["specd controller"]
     gdb[("graph DB over Bolt<br/>ArcadeDB default, HydraDB option<br/>derived index")]
@@ -89,11 +91,15 @@ flowchart TB
 
     human -- "edit spec" --> kcp
     pi -- "edits" --> ctx
-    ctx -- "delta, origin=clm" --> kcp
-    kcp -- "render spec + status" --> ctx
+    mod -- "edits" --> ctx
+    ctx -- "delta, origin=clm" --> cli
+    cli -- "PATCH spec, report progress" --> kcp
+    cli -- "TOUCHED / OCCURRED edges" --> gdb
+    kcp -- "render spec + status" --> cli
+    cli -- "the context file" --> ctx
     kcp -- "watch" --> specd
     specd -- "status, SpecChange" --> kcp
-    specd -- "realize: agent + verify + commit" --> repo
+    specd -- "realize: agent + mod + verify + commit" --> repo
     repo -- "codegraph sync" --> cg
     cg -- "observed facts" --> specd
     specd -- "index" --> gdb
@@ -133,12 +139,14 @@ sequenceDiagram
 
 ## Status
 
-Phases 1 to 7 of 10 are done: **kcp holds specs, code becomes facts in `status`
+Phases 1 to 8 of 10 are done: **kcp holds specs, code becomes facts in `status`
 and in the graph, a hand written `arch.yaml` round trips through kcp, `specd`
 keeps the facts, the conditions and the work queue true to the code, an agent
 turns the code back into a spec, a spec edit becomes a structured delta that
-drives an agent to change the code under a test gate, and one `Repository`
-manifest populates a codebase kcp has never seen.**
+drives an agent to change the code under a test gate, one `Repository` manifest
+populates a codebase kcp has never seen, and the CLM loop is a library with two
+hosts — the `pi-hydradb-clm` extension and a Claude Code mod — so the model that
+realizes a change reports into the same state the controllers watch.**
 
 - API group `specs.publicdomainrelay.dev/v1alpha1`, kinds `Repository`,
   `SystemContext`, `SpecChange`, namespaced, with a status subresource and
@@ -197,9 +205,31 @@ manifest populates a codebase kcp has never seen.**
   work raises no opposite change. A failing verify keeps the branch, leaves the
   spec and the managed branch untouched and hands the output to the next
   attempt.
-- `Repository.spec.agent.kind` selects the agent per repository (`claude` or
-  `scripted:<file>`; `pi` is named and refused until phase 8) and wins over the
-  controller's `--agent`.
+- `Repository.spec.agent.kind` selects the agent per repository (`claude`,
+  `claude-mod`, `pi` or `scripted:<file>`) and wins over the controller's
+  `--agent`.
+- `clm/core` is the CLM logic that is the same in every host, as pure TypeScript
+  with no `node:` import and no I/O: the context document (a prose intent plus a
+  fenced spec block above a managed zone of resolved refs), the token budget,
+  FNV-1a ids, the Cypher row builders, a mirror of `abc/delta` validated against
+  the same golden files, and the ports `StateBridge`, `FileStore` and `Runner`.
+  `clm/adapters-node` is the Node side of those ports, including the state
+  bridge over `specctl clm`.
+- `cc-clm-mod` is the Claude Code host: a plugin of function hooks that renders
+  the context at session start, injects it before every model request, reports
+  every file a tool touched, and applies the model zone at the end of a turn.
+  `clm/core` is vendored into it by `npm run build:mod`, with a test that fails
+  when the vendored copy is stale.
+- `specctl clm render|apply|report` is the one state bridge, so kcp access, the
+  delta authority and the graph writes have one implementation (Go) that both
+  hosts and every language reach the same way. `apply` writes with
+  `origin: clm` and folds its edit into the context's running `SpecToCode`
+  change instead of moving the target that change is working to, so a realizing
+  agent can never spawn a change for itself.
+- `SpecChange.status.progress` is a bounded list of what the host reported while
+  the change ran (turn, tool, files, note, time), and `report` writes the
+  matching `TOUCHED` and `OCCURRED` edges into the graph, so
+  `kubectl get specchange -w` shows the work while it happens.
 - Live tests that round trip a `SystemContext` through a real kcp, that ingest a
   real git working tree twice and check the graph on both backends, that take
   the open architecture document through kcp and diff the two models, that drive
@@ -242,6 +272,7 @@ make example-phase4  # run specd, commit a change, watch drift and the SpecChang
 make example-phase5  # run specd with an agent, watch the spec fill itself in
 make example-phase6  # edit the spec, watch the agent land the code and the tests pass
 make example-phase7  # one manifest populates a codebase kcp has never seen
+make example-phase8  # the mod path: render, apply, fold, report
 make demo            # every phase, in order, against one cluster
 make kcp-down        # stop the cluster this repo started
 ```
@@ -657,6 +688,55 @@ bin/specd --agent scripted:examples/phase6/scenario.yaml    # deterministic
 the controller's `--agent`, so one manifest can say how its own changes are
 worked off.
 
+## Two CLM hosts, one state bridge
+
+The CLM logic is a library with two hosts: the `pi-hydradb-clm` extension and
+`cc-clm-mod`, a Claude Code mod. Both do the same four things — render the
+context at session start, inject it before every model request, report every
+file a tool touched, apply the model zone at the end of a turn — and both reach
+the state the same way, by running `specctl clm`:
+
+```
+specctl clm render --context <name>          the context document, from kcp
+specctl clm apply  --context <name> < zone   the model zone becomes a delta
+specctl clm report --change <name> --event   one progress record, and the edges
+```
+
+The bridge is Go on purpose. kcp access, the delta authority (`abc/delta`) and
+the graph writes then have one implementation, and a host needs neither a kube
+client nor a Bolt driver — which matters, because a mod has no Node and no
+sockets: it reaches the host only through `$.fs` and `$.process.run`.
+
+`apply` writes with `origin: clm`, which specd reads as a spec edit. The
+exception is a context whose own `SpecToCode` change is `Running`: there the
+edit is recorded on that change and the spec holds still, because the spec is
+the target that change is realizing, and a model rewriting it mid-realize would
+move the target while the code is being brought to it. That is also what makes
+it impossible for a realizing agent to spawn a change for itself.
+
+`report` appends to `SpecChange.status.progress` — a bounded list of turn, tool,
+files, note and time — and writes `TOUCHED` and `OCCURRED` edges into the graph,
+the touched file landing on the same `CodeRef` vertex an ingest writes for it.
+So while a change runs:
+
+```bash
+kubectl get specchange -w          # status.progress grows with the files touched
+cat <repo>/.specs/context/calc.md  # the document the model is reading
+specctl graph neighbors calc       # the edges the report wrote, one hop out
+```
+
+`specd --clm-mod <repo>/cc-clm-mod` runs the realize with the mod loaded (and
+`--clm-mod` alone is enough: it becomes the agent when no other is named). The
+model gets `SPECD_CLM_CONTEXT`, `SPECD_CLM_CHANGE`, the workspace kubeconfig,
+the `specctl` path and the Bolt endpoint in its environment.
+
+`make example-phase8` shows the whole mod path deterministically, with no model:
+it renders the document, makes the edit a model would make, applies it, shows
+the one entry delta and the raised `SpecToCode` change, folds a second edit into
+the running change, and reports a touched file. The gated live run —
+`SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase8LiveModel -count=1`
+— does the same with `deepseek-claude` and the mod actually loaded.
+
 ## The open architecture document
 
 `deno-kcp/.tools/open-architecture/arch.yaml` is a hand written spec of a whole
@@ -757,8 +837,11 @@ impl/boltgraph       Bolt client; ArcadeDB is the default backend, HydraDB an op
 abc/watch            the watch contract: resources in, Added/Updated/Deleted out
 impl/watchinformer   dynamic informer watches against the workspace
 impl/watchpoll       the list-and-diff fallback for a watch that cannot be held
+abc/clm              pure: the model zone of a context document, the spec block parse/render, the merge of what a model owns
+impl/clm             render, apply and report: the state bridge the CLM hosts call
+impl/piagent         the pi host of the same agent contract
 factory/specd        wires the watch, the workqueue, the three reconcilers and the agent
-cmd/specctl          apply -f, get, delete, ingest [--summarize], import-arch, export, graph neighbors|rebuild
+cmd/specctl          apply -f, get, delete, ingest [--summarize], import-arch, export, graph neighbors|rebuild, clm render|apply|report
 cmd/specd            the controller binary; the only place that handles signals
 cmd/hydradb-bins     extracts the HydraDB binaries from their OCI image
 deploy/start-kcp.sh  start kcp + kine, then install the workspace and CRDs
@@ -771,14 +854,22 @@ examples/phase6/     the baseline spec, the spec edit and the two scripted agent
 examples/populate/   the one Repository manifest and the scenario the phase 7 example applies
 fixtures/calc/       a tiny Go working tree: the calc package and its CLI
 fixtures/greet/      a tiny Deno/TypeScript module: a root module and format/
+clm/core             pure TypeScript: the context document, the delta mirror, the row builders, the ports
+clm/adapters-node    the Node ports: child_process, node:fs, and the specctl state bridge
+cc-clm-mod           the Claude Code mod: the plugin, its vendored core, its hooks and its tests
 testdata/open-architecture/  three revisions of arch.yaml and its schema
+testdata/delta/      the golden delta JSON both Go and TypeScript are held to
+testdata/ids.json    the golden graph ids both Go and TypeScript are held to
 test/fixture         copies a fixture into a temp dir and commits it as a real git repo
 test/e2e             the live round trip, ingest + graph, arch.yaml and the two CLM directions
 ```
 
-Dependencies point one way: `common` <- `abc` <- `impl` <- `cmd`. `abc` does no
-I/O, so the validator, the partitioner and the graph row builders run in unit
-tests with no cluster, no index and no database.
+Dependencies point one way: `common` <- `abc` <- `impl` <- `factory` <- `cmd`.
+`abc` does no I/O, so the validator, the partitioner, the graph row builders and
+the CLM spec block run in unit tests with no cluster, no index and no database.
+The TypeScript does the same: `clm/core` is pure and imports nothing from Node,
+`clm/adapters-node` is the only place `node:child_process` and `node:fs` appear,
+and the two hosts (`pi-hydradb-clm`, `cc-clm-mod`) sit on top of both.
 
 ## Tests
 
@@ -791,7 +882,13 @@ make test-live  # SPECD_REQUIRE_LIVE=1; starts kcp, needs codegraph and a Bolt b
 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase5LiveModel -count=1 -v
 SPECD_REQUIRE_LIVE_MODEL=1 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase6LiveModelRealizesSubtract -count=1 -v
 SPECD_REQUIRE_LIVE_MODEL=1 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase7LiveModelPopulatesAnUnknownCodebase -count=1 -v
+SPECD_REQUIRE_LIVE_MODEL=1 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase8LiveModelRealizesWithTheMod -count=1 -v
 ```
+
+The TypeScript has its own three: `cd clm && npm test` (the core, including the
+delta and the ids against the same golden files Go uses), `cd cc-clm-mod &&
+npm test && npm run typecheck && claude plugin validate . && claude plugin test .`,
+and `cd pi-hydradb-clm && npm test` (live against ArcadeDB by default).
 
 The live tests start the cluster with `deploy/start-kcp.sh` if needed and leave
 it running; `make kcp-down` stops it. The phase 7 test builds a bare git
@@ -832,10 +929,10 @@ machine. The graph defaults to ArcadeDB on `bolt://127.0.0.1:7688` (HydraDB on
 
 ## What is next
 
-Phase 8 turns the CLM "context as file plus graph" logic into a library with two
-hosts, the `pi-hydradb-clm` extension and a Claude Code mod, so the subagent
-specd launches to realize a `SpecChange` reports into the same context file,
-graph and kcp state the controllers watch, with the same delta shape mirrored in
-TypeScript against the golden files in `testdata/delta/`. Phase 9 adds
-APIExport/APIBinding for tenant workspaces and `.specs/*.yaml` mirroring; phase
-10 builds the fixture set and `specctl eval`.
+Phase 9 adds APIExport/APIBinding so tenant workspaces bind the spec API, and
+`.specs/*.yaml` mirroring so a pull request carries spec and code together.
+Phase 10 builds the fixture set (a Go library, a Go HTTP service, a TS/Deno
+module, each with tests), `scenarios/*.yaml`, and `specctl eval`: interface
+recall, requirement anchoring, delta precision, the share of scenarios whose
+hidden acceptance tests pass, and the same pass rate when a scenario is driven
+through the pi extension instead of a kubectl patch.

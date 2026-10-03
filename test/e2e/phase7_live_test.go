@@ -344,3 +344,112 @@ func phase7Phase(t *testing.T, ctx context.Context, client *kcpclient.Client) st
 	phase, _, _ := unstructured.NestedString(object.Object, "status", "phase")
 	return phase
 }
+
+// TestPhase7PackagePartitionAndGlobs covers the two populate inputs the
+// directory-only example never exercised: `partition: package`, which groups by
+// the directory that holds a package manifest, and include/exclude globs, which
+// decide what is indexed at all. The tree is the same unseen one, so the
+// difference is entirely the manifest.
+func TestPhase7PackagePartitionAndGlobs(t *testing.T) {
+	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
+	root := repoRoot(t)
+	startCluster(t, root)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	client := liveClient(t, root)
+	if err := client.Ping(ctx); err != nil {
+		t.Fatalf("kcp is not serving the specs API: %v", err)
+	}
+	source := phase7Source(t)
+	// Only Go files, and no test files: the greet module is a Deno one, so the
+	// package partition of what is left is the calc module alone.
+	wantContexts := []string{"calc"}
+	forgetObjects(t, ctx, client, []string{phase7Repository}, append(wantContexts, phase7Contexts...))
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cleanupCancel()
+		forgetObjects(t, cleanupCtx, client, []string{phase7Repository}, append(wantContexts, phase7Contexts...))
+	})
+
+	applyTyped(t, ctx, client, &spec.Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: phase7Repository, Namespace: specapi.DefaultNamespace},
+		Spec: spec.RepositorySpec{
+			Source: &spec.RepositorySource{Git: &spec.GitSource{URL: source, Ref: "main"}},
+			Populate: &spec.RepositoryPopulate{
+				Partition: spec.PartitionPackage,
+				Include:   []string{"**/*.go"},
+				Exclude:   []string{"**/*_test.go"},
+			},
+		},
+	})
+
+	controller, err := specd.New(specd.Options{
+		Kubeconfig:   filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
+		Workspace:    "root:specs",
+		Namespace:    specapi.DefaultNamespace,
+		QPS:          50,
+		Burst:        100,
+		Resync:       500 * time.Millisecond,
+		CacheDir:     filepath.Join(t.TempDir(), "cache"),
+		MaxAttempts:  2,
+		RetryBackoff: time.Second,
+		Log:          logging.Discard(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCtx, stop := context.WithCancel(ctx)
+	stopped := make(chan error, 1)
+	go func() { stopped <- controller.Run(runCtx) }()
+	t.Cleanup(func() {
+		stop()
+		select {
+		case err := <-stopped:
+			if err != nil {
+				t.Errorf("the controller stopped with %v", err)
+			}
+		case <-time.After(60 * time.Second):
+			t.Error("the controller did not stop")
+		}
+	})
+
+	waitForPopulated(t, ctx, client, 3*time.Minute)
+	repository := phase7RepositoryObject(t, ctx, client)
+	if repository.Status.Contexts == nil {
+		t.Fatal("status.contexts is empty")
+	}
+	if got := repository.Status.Contexts.Total; got != len(wantContexts) {
+		t.Errorf("contexts.total = %d, want %d: the package partition and the globs decide it", got, len(wantContexts))
+	}
+
+	created := []string{}
+	for _, context := range liveContexts(t, ctx, client) {
+		created = append(created, context.GetName())
+	}
+	sort.Strings(created)
+	if strings.Join(created, ",") != strings.Join(wantContexts, ",") {
+		t.Errorf("contexts = %v, want %v: one per package root, filtered by the globs", created, wantContexts)
+	}
+
+	// The include/exclude globs decided the files the partition saw.
+	object, err := client.Get(ctx, specapi.SystemContextGVR, specapi.DefaultNamespace, wantContexts[0])
+	if err != nil {
+		t.Fatalf("read the calc context: %v", err)
+	}
+	files, _, _ := unstructured.NestedStringSlice(object.Object, "status", "observed", "files")
+	sort.Strings(files)
+	if strings.Join(files, ",") != "calc/calc/calc.go,calc/cmd/calc/main.go" {
+		t.Errorf("observed.files = %v, want the Go files and no test file", files)
+	}
+}
+
+func liveContexts(t *testing.T, ctx context.Context, client *kcpclient.Client) []unstructured.Unstructured {
+	t.Helper()
+	listed, err := client.List(ctx, specapi.SystemContextGVR, specapi.DefaultNamespace)
+	if err != nil {
+		t.Fatalf("list systemcontexts: %v", err)
+	}
+	return listed.Items
+}

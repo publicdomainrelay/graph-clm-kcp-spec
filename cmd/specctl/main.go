@@ -65,9 +65,18 @@ type globals struct {
 // hundred objects take minutes; specctl raises it, and the flags let a caller
 // back off again.
 func addGlobals(fs *flag.FlagSet) *globals {
+	return addGlobalsExcept(fs, "")
+}
+
+// addGlobalsExcept leaves one global out, for the subcommands that need the
+// name for something of their own: `clm render --context` names a
+// SystemContext, and a second `--context` for the kubeconfig would collide.
+func addGlobalsExcept(fs *flag.FlagSet, skip string) *globals {
 	options := &globals{}
 	fs.StringVar(&options.kubeconfig, "kubeconfig", defaultKubeconfig(), "path to the kcp kubeconfig")
-	fs.StringVar(&options.context, "context", "", "kubeconfig context to use")
+	if skip != "context" {
+		fs.StringVar(&options.context, "context", "", "kubeconfig context to use")
+	}
 	fs.StringVar(&options.workspace, "workspace", "root:specs", "logical cluster path, empty to use the kubeconfig as given")
 	fs.StringVar(&options.namespace, "namespace", specapi.DefaultNamespace, "namespace to work in")
 	fs.StringVar(&options.namespace, "n", specapi.DefaultNamespace, "namespace to work in")

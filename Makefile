@@ -16,7 +16,7 @@ export SPECD_BOLT_BACKEND ?= arcadedb
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 demo clean
+.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 demo clean
 
 ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
 ARCH_REPOSITORY ?= deno-kcp
@@ -98,6 +98,12 @@ example-phase6: $(SPECCTL) $(SPECD) kcp-up
 example-phase7: $(SPECCTL) $(SPECD) kcp-up
 	./scripts/example-phase7.sh
 
+# The mod path, deterministically: the context document rendered, the edit a
+# model would make applied as a Go-computed delta, the fold into a running
+# change, and a progress report — the three verbs cc-clm-mod runs.
+example-phase8: $(SPECCTL) $(SPECD) kcp-up
+	./scripts/example-phase8.sh
+
 # The failing verify path of the same example: the change ends Failed with its
 # branch kept and the managed branch untouched.
 example-phase6-failing: $(SPECCTL) $(SPECD) kcp-up
@@ -123,6 +129,8 @@ demo: $(SPECCTL) $(SPECD) kcp-up
 	$(MAKE) --no-print-directory example-phase6-failing
 	@echo "=== one manifest populates an unknown codebase ==="
 	$(MAKE) --no-print-directory example-phase7
+	@echo "=== the CLM mod path: render, apply, fold, report ==="
+	$(MAKE) --no-print-directory example-phase8
 
 clean:
 	rm -f $(SPECCTL) $(SPECD) $(BIN)/hydradb-bins

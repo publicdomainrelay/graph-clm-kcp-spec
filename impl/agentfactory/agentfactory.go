@@ -228,6 +228,11 @@ func (f *Factory) Agent(repository *spec.Repository, dir string) (agent.Agent, e
 		if err := f.checkMod(); err != nil {
 			return nil, err
 		}
+		if len(args) == 0 {
+			// The mod's arguments are the headless ones plus the plugin folder;
+			// claudecli fills its own defaults only when it is given none.
+			args = claudecli.DefaultArgs()
+		}
 		return claudecli.New(claudecli.Options{
 			Command: command,
 			Args:    modArgs(args, f.options.ClmMod),
