@@ -147,6 +147,91 @@ func TestValidateRepository(t *testing.T) {
 	}
 }
 
+func TestValidateRepositorySourceAndPopulate(t *testing.T) {
+	git := &Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: "unseen"},
+		Spec: RepositorySpec{
+			Source:   &RepositorySource{Git: &GitSource{URL: "file:///tmp/unseen.git", Ref: "main"}},
+			Populate: &RepositoryPopulate{Partition: PartitionPackage, Summarize: true, Agent: &AgentSpec{Kind: "scripted:/tmp/s.yaml"}},
+		},
+	}
+	git.SetDefaults()
+	if result := ValidateRepository(git); !result.OK() {
+		t.Fatalf("a git source with populate is valid: %v", result.Err())
+	}
+	if git.Spec.Populate.Partition != PartitionPackage {
+		t.Errorf("partition = %q", git.Spec.Populate.Partition)
+	}
+	if git.WorkPath() != "" || git.Source().Git.URL != "file:///tmp/unseen.git" {
+		t.Errorf("source = %+v workPath = %q", git.Source(), git.WorkPath())
+	}
+
+	cases := map[string]*Repository{
+		"no source": {
+			ObjectMeta: metav1.ObjectMeta{Name: "none"},
+			Spec:       RepositorySpec{},
+		},
+		"both sources": {
+			ObjectMeta: metav1.ObjectMeta{Name: "both"},
+			Spec: RepositorySpec{
+				Source: &RepositorySource{Path: "/src", Git: &GitSource{URL: "file:///tmp/x.git"}},
+			},
+		},
+		"git without a url": {
+			ObjectMeta: metav1.ObjectMeta{Name: "nourl"},
+			Spec:       RepositorySpec{Source: &RepositorySource{Git: &GitSource{}}},
+		},
+		"unknown partition": {
+			ObjectMeta: metav1.ObjectMeta{Name: "partition"},
+			Spec: RepositorySpec{
+				Path:     "/src",
+				Populate: &RepositoryPopulate{Partition: "module"},
+			},
+		},
+		"bad populate agent": {
+			ObjectMeta: metav1.ObjectMeta{Name: "agent"},
+			Spec: RepositorySpec{
+				Path:     "/src",
+				Populate: &RepositoryPopulate{Agent: &AgentSpec{Kind: "pi"}},
+			},
+		},
+	}
+	for name, repository := range cases {
+		if ValidateRepository(repository).OK() {
+			t.Errorf("%s: the repository was accepted", name)
+		}
+	}
+}
+
+func TestRepositoryHelpers(t *testing.T) {
+	repository := &Repository{
+		Spec: RepositorySpec{
+			Source:   &RepositorySource{Git: &GitSource{URL: "file:///tmp/unseen.git"}},
+			Populate: &RepositoryPopulate{Summarize: true, Agent: &AgentSpec{Kind: "claude"}},
+		},
+		Status: RepositoryStatus{ResolvedPath: "/cache/unseen"},
+	}
+	repository.SetDefaults()
+	if repository.Partition() != PartitionDirectory {
+		t.Errorf("a missing partition must default to directory, got %q", repository.Partition())
+	}
+	if !repository.Summarize() || repository.PopulateAgent().Kind != "claude" {
+		t.Errorf("populate = %+v", repository.Spec.Populate)
+	}
+	// The resolved path the controller wrote wins over the declared source.
+	if repository.WorkPath() != "/cache/unseen" {
+		t.Errorf("workPath = %q, want the resolved path", repository.WorkPath())
+	}
+	repository.Status.ResolvedPath = ""
+	if repository.WorkPath() != "/cache/unseen" && repository.WorkPath() != "" {
+		t.Errorf("workPath = %q, want empty: a git source has no local path", repository.WorkPath())
+	}
+	plain := &Repository{Spec: RepositorySpec{Path: "/src/calc"}}
+	if plain.WorkPath() != "/src/calc" || plain.Source().Path != "/src/calc" {
+		t.Errorf("the phase 1 path field must read as a path source: %q %+v", plain.WorkPath(), plain.Source())
+	}
+}
+
 func TestValidateSpecChange(t *testing.T) {
 	change := &SpecChange{
 		ObjectMeta: metav1.ObjectMeta{Name: "calc-to-code"},

@@ -45,6 +45,14 @@ const (
 	DefaultRetryBackoff = 5 * time.Second
 
 	DefaultAgentTimeout = claudecli.DefaultTimeout
+
+	// DefaultCacheDir is where a Repository with a git source is cloned. It
+	// lives under the state directory this repository already keeps.
+	DefaultCacheDir = ".kcp-specd/cache"
+
+	// DefaultMaxConcurrentSummaries is how many contexts of one populate may be
+	// summarized at the same time across the namespace.
+	DefaultMaxConcurrentSummaries = 2
 )
 
 type Options struct {
@@ -69,6 +77,13 @@ type Options struct {
 	Workers int
 
 	Tool string
+
+	// CacheDir is where a git source is cloned.
+	CacheDir string
+
+	// MaxConcurrentSummaries limits how many CodeToSpec changes one populate
+	// lets run at once. Zero means the default.
+	MaxConcurrentSummaries int
 
 	Graph graph.Writer
 
@@ -169,6 +184,12 @@ func New(opts Options) (*Controller, error) {
 	}
 	if opts.ManagedBudget <= 0 {
 		opts.ManagedBudget = agent.DefaultManagedBudget
+	}
+	if opts.CacheDir == "" {
+		opts.CacheDir = DefaultCacheDir
+	}
+	if opts.MaxConcurrentSummaries <= 0 {
+		opts.MaxConcurrentSummaries = DefaultMaxConcurrentSummaries
 	}
 	if opts.MaxAttempts < 0 {
 		opts.MaxAttempts = DefaultMaxAttempts

@@ -19,12 +19,15 @@ spec:
       subresources:
         status: {}
       additionalPrinterColumns:
-        - name: Path
+        - name: Source
           type: string
-          jsonPath: .spec.path
-        - name: Branch
+          jsonPath: .spec.source.path
+        - name: Phase
           type: string
-          jsonPath: .spec.branch
+          jsonPath: .status.phase
+        - name: Contexts
+          type: string
+          jsonPath: .status.contexts.total
         - name: Head
           type: string
           jsonPath: .status.headCommit
@@ -38,11 +41,26 @@ spec:
           properties:
             spec:
               type: object
-              required: [path]
               properties:
                 path:
                   type: string
-                  description: Absolute path to the git working tree under management.
+                  description: Local working tree; the phase 1 form of spec.source.path.
+                source:
+                  type: object
+                  description: Where the working tree comes from. A path is used as it is; a git url is cloned into the controller's cache.
+                  properties:
+                    path:
+                      type: string
+                    git:
+                      type: object
+                      required: [url]
+                      properties:
+                        url:
+                          type: string
+                          description: Any url git can clone, including file:// for a local bare repository.
+                        ref:
+                          type: string
+                          description: Branch, tag or commit to check out; empty is the remote's default branch.
                 branch:
                   type: string
                   default: main
@@ -53,7 +71,7 @@ spec:
                     type: string
                 agent:
                   type: object
-                  description: Per repository agent selection; it wins over the controller's --agent.
+                  description: Per repository agent selection for spec to code; it wins over the controller's --agent.
                   properties:
                     kind:
                       type: string
@@ -64,18 +82,72 @@ spec:
                       type: array
                       items:
                         type: string
+                populate:
+                  type: object
+                  description: What the controller does with the tree once it has one.
+                  properties:
+                    partition:
+                      type: string
+                      enum: [directory, package]
+                      default: directory
+                      description: directory is one SystemContext per directory that holds a source file; package is one per package or module root.
+                    include:
+                      type: array
+                      description: Globs of repository-relative paths to keep; empty keeps every file. ** crosses directories, and a pattern without a slash also matches a base name.
+                      items:
+                        type: string
+                    exclude:
+                      type: array
+                      description: Globs of repository-relative paths to drop; an exclude wins over an include.
+                      items:
+                        type: string
+                    summarize:
+                      type: boolean
+                      description: Send a model over every new context, one CodeToSpec change per context.
+                    agent:
+                      type: object
+                      description: Agent of the populate step; it wins over spec.agent and the controller's --agent for code to spec.
+                      properties:
+                        kind:
+                          type: string
+                        command:
+                          type: string
+                        args:
+                          type: array
+                          items:
+                            type: string
             status:
               type: object
               properties:
                 observedGeneration:
                   type: integer
                   format: int64
+                resolvedPath:
+                  type: string
+                  description: The working tree the controller resolved the source to.
                 headCommit:
                   type: string
                 indexedCommit:
                   type: string
+                populateRequest:
+                  type: string
+                  description: The specs.publicdomainrelay.dev/populate-request annotation value this status answers.
+                phase:
+                  type: string
+                  enum: [Cloning, Indexing, Populating, Populated, Failed]
+                contexts:
+                  type: object
+                  properties:
+                    total:
+                      type: integer
+                    summarized:
+                      type: integer
+                    failed:
+                      type: integer
                 conditions:
                   type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
                   items:
                     type: object
                     required: [type, status]

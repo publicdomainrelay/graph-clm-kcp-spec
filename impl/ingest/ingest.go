@@ -44,6 +44,14 @@ type Options struct {
 
 	Commit string
 
+	// Partition is directory (the default) or package; Include and Exclude are
+	// globs over the repository-relative path applied before the split.
+	Partition string
+
+	Include []string
+
+	Exclude []string
+
 	// Adopt is the spec a realize has just landed. When the stored spec still
 	// says the same thing about the fields a human owns, this ingest is the
 	// tail of that realize: it moves the synced baseline onto the facts it just
@@ -120,7 +128,20 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 	if err != nil {
 		return Result{}, err
 	}
-	partitions := specsync.PartitionFacts(facts, repositoryName)
+	partitionOptions := specsync.PartitionOptions{
+		Mode:           options.Partition,
+		Include:        options.Include,
+		Exclude:        options.Exclude,
+		RepositoryName: repositoryName,
+	}
+	if options.Partition == spec.PartitionPackage {
+		roots, err := PackageRoots(repoPath)
+		if err != nil {
+			return Result{}, err
+		}
+		partitionOptions.Roots = roots
+	}
+	partitions := specsync.PartitionFactsWith(facts, partitionOptions)
 
 	result := Result{Repository: repositoryName, Commit: commit, SpecPath: specPath}
 
@@ -387,6 +408,13 @@ func mergeCodeRefs(existing []string, files []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// SanitizeName is the DNS-1123 label a Repository or partition name is built
+// from, so a manifest that names a path never carries a character the API
+// server would reject.
+func SanitizeName(value string) string {
+	return sanitizeName(value)
 }
 
 func sanitizeName(value string) string {

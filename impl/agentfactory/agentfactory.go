@@ -113,6 +113,37 @@ func (f *Factory) ConfiguredFor(repository *spec.Repository) bool {
 	return f.KindFor(repository) != ""
 }
 
+// PopulateConfiguredFor reports whether the populate step of one Repository has
+// an agent at all: the controller's --agent, the repository's spec.agent, or
+// the populate step's own agent.
+func (f *Factory) PopulateConfiguredFor(repository *spec.Repository) bool {
+	if f == nil {
+		return false
+	}
+	if f.Configured() {
+		return true
+	}
+	if agent := repository.PopulateAgent(); agent != nil && agent.Kind != "" {
+		return true
+	}
+	return f.KindFor(repository) != ""
+}
+
+// AgentFor builds an agent with an explicit selection: the populate step names
+// its own agent, which wins over spec.agent, which wins over the controller's
+// --agent. A nil selection is the repository's own choice.
+func (f *Factory) AgentFor(selection *spec.AgentSpec, repository *spec.Repository, dir string) (agent.Agent, error) {
+	if selection == nil {
+		return f.Agent(repository, dir)
+	}
+	scoped := spec.Repository{}
+	if repository != nil {
+		scoped = *repository
+	}
+	scoped.Spec.Agent = selection
+	return f.Agent(&scoped, dir)
+}
+
 // Agent builds the agent of one working tree. A Repository that names its own
 // kind wins over the controller's, and one that names a command overrides the
 // model command. The scripted kind answers from the file the kind names, so a

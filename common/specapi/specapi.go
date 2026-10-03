@@ -47,6 +47,13 @@ const (
 	OriginIngest  = "ingest"
 	OriginRealize = "realize"
 	OriginHuman   = "human"
+
+	// PopulateRequestAnnotation is a caller asking the controller to index a
+	// Repository again right now, even though its git HEAD has not moved. The
+	// value is any token the caller can recognise; the controller records the
+	// one it handled in status.populateRequest, so a request is answered once
+	// and a restart does not answer it twice.
+	PopulateRequestAnnotation = Group + "/populate-request"
 )
 
 const (
@@ -59,6 +66,17 @@ const (
 	ConditionCodeSynced = "CodeSynced"
 	ConditionDrifted    = "Drifted"
 	ConditionIndexed    = "Indexed"
+	ConditionPopulated  = "Populated"
+)
+
+// Phases of Repository.status.phase: one manifest takes an unknown codebase
+// from clone to populated specs. A failed populate ends in PhaseFailed, which
+// is also a SpecChange phase.
+const (
+	PhaseCloning    = "Cloning"
+	PhaseIndexing   = "Indexing"
+	PhasePopulating = "Populating"
+	PhasePopulated  = "Populated"
 )
 
 const (
@@ -74,6 +92,11 @@ const (
 	ReasonHeadUnavailable    = "HeadUnavailable"
 	ReasonIndexFailed        = "IndexFailed"
 	ReasonPathMissing        = "PathMissing"
+	ReasonSourceInvalid      = "SourceInvalid"
+	ReasonCloneFailed        = "CloneFailed"
+	ReasonPopulated          = "Populated"
+	ReasonPopulating         = "Populating"
+	ReasonPopulateFailed     = "PopulateFailed"
 )
 
 const (

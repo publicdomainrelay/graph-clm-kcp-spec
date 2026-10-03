@@ -62,11 +62,27 @@ func ValidateRepository(repository *Repository) Result {
 	}
 	b.checkName("metadata.name", repository.Name)
 
-	if repository.Spec.Path == "" {
-		b.add("spec.path", "is required")
+	source := repository.Source()
+	switch {
+	case source.Path == "" && source.Git == nil:
+		b.add("spec.source", "needs a path or a git url")
+	case source.Path != "" && source.Git != nil:
+		b.add("spec.source", "is a path or a git url, not both")
+	case source.Git != nil && source.Git.URL == "":
+		b.add("spec.source.git.url", "is required")
 	}
 	if agent := repository.Spec.Agent; agent != nil {
 		b.checkAgent("spec.agent", agent)
+	}
+	if populate := repository.Spec.Populate; populate != nil {
+		switch populate.Partition {
+		case "", PartitionDirectory, PartitionPackage:
+		default:
+			b.add("spec.populate.partition", "%q is not %s or %s", populate.Partition, PartitionDirectory, PartitionPackage)
+		}
+		if populate.Agent != nil {
+			b.checkAgent("spec.populate.agent", populate.Agent)
+		}
 	}
 
 	return b.result()

@@ -160,7 +160,7 @@ func (c *Controller) realizeTarget(ctx context.Context, namespace string, change
 		}
 		return nil, false, err
 	}
-	if repository.Spec.Path == "" {
+	if repository.WorkPath() == "" {
 		return nil, false, fmt.Errorf("specd: repository %s names no path", repository.Name)
 	}
 	if !c.agents.ConfiguredFor(repository) {
@@ -179,7 +179,7 @@ func (c *Controller) realizeOptions(ctx context.Context, namespace string, chang
 	if err != nil {
 		return realize.Options{}, err
 	}
-	repoPath, err := filepath.Abs(repository.Spec.Path)
+	repoPath, err := filepath.Abs(repository.WorkPath())
 	if err != nil {
 		return realize.Options{}, err
 	}
@@ -196,6 +196,7 @@ func (c *Controller) realizeOptions(ctx context.Context, namespace string, chang
 	}
 	scoped := *repository
 	scoped.Spec.Path = repoPath
+	scoped.Status.ResolvedPath = repoPath
 	built, err := c.agents.Agent(&scoped, worktree)
 	if err != nil {
 		return realize.Options{}, err

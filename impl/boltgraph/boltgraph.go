@@ -82,6 +82,13 @@ func (c *Client) Run(ctx context.Context, query string, params map[string]any) (
 	return rows, nil
 }
 
+// writeBatch is how many rows one UNWIND carries. A whole label at once is
+// not safe: ArcadeDB stops writing part way through a large parameter list and
+// answers without an error, which showed up as a rebuild that wrote 100 of 167
+// contexts depending on the run. A batch small enough to be one transaction
+// makes the write deterministic on both engines.
+const writeBatch = 64
+
 func (c *Client) WriteVertices(ctx context.Context, set graph.VertexSet) error {
 	if len(set.Rows) == 0 {
 		return nil
@@ -92,8 +99,7 @@ func (c *Client) WriteVertices(ctx context.Context, set graph.VertexSet) error {
 	for _, vertex := range set.Rows {
 		rows = append(rows, vertex.Row())
 	}
-	_, err := c.Run(ctx, query, map[string]any{"rows": rows})
-	return err
+	return c.writeBatched(ctx, query, rows)
 }
 
 func (c *Client) WriteEdges(ctx context.Context, set graph.EdgeSet) error {
@@ -105,8 +111,7 @@ func (c *Client) WriteEdges(ctx context.Context, set graph.EdgeSet) error {
 	for _, edge := range set.Rows {
 		rows = append(rows, edge.Row())
 	}
-	_, err := c.Run(ctx, query, map[string]any{"rows": rows})
-	return err
+	return c.writeBatched(ctx, query, rows)
 }
 
 func (c *Client) DeleteVertices(ctx context.Context, ids []int64) error {
@@ -117,8 +122,20 @@ func (c *Client) DeleteVertices(ctx context.Context, ids []int64) error {
 	for _, id := range ids {
 		rows = append(rows, map[string]any{"id": id})
 	}
-	_, err := c.Run(ctx, graph.VertexDelete(), map[string]any{"rows": rows})
-	return err
+	return c.writeBatched(ctx, graph.VertexDelete(), rows)
+}
+
+func (c *Client) writeBatched(ctx context.Context, query string, rows []map[string]any) error {
+	for start := 0; start < len(rows); start += writeBatch {
+		end := start + writeBatch
+		if end > len(rows) {
+			end = len(rows)
+		}
+		if _, err := c.Run(ctx, query, map[string]any{"rows": rows[start:end]}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *Client) SelectIDs(ctx context.Context, label string) ([]int64, error) {

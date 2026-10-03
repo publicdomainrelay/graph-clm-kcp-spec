@@ -101,7 +101,7 @@ func Build(ctx context.Context, options Options) (agent.ContextBundle, error) {
 	repositoryName := systemContext.Spec.Repository
 	repoPath := ""
 	if repository != nil {
-		repoPath = repository.Spec.Path
+		repoPath = repository.WorkPath()
 	}
 
 	bundle := agent.ContextBundle{

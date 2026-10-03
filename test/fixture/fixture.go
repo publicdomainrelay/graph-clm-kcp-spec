@@ -48,6 +48,16 @@ func CopyAs(t *testing.T, name, as string) string {
 	return target
 }
 
+// Stage copies a fixture into target as a plain tree, with no git repository of
+// its own, so a test can build one working tree out of several fixtures.
+func Stage(t *testing.T, name, target string) {
+	t.Helper()
+	source := filepath.Join(Root(t), "fixtures", name)
+	if err := copyTree(source, target); err != nil {
+		t.Fatalf("stage fixture %s at %s: %v", name, target, err)
+	}
+}
+
 // Commit stages everything in a fixture working tree and commits it, which is
 // how a test simulates the code moving under the controller.
 func Commit(t *testing.T, dir, message string) string {

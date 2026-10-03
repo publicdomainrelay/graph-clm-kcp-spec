@@ -204,3 +204,90 @@ func TestErrorsOutsideARepository(t *testing.T) {
 		t.Fatal("branch in a missing directory must fail")
 	}
 }
+
+func TestEnsureCheckoutClonesAndFollowsTheSource(t *testing.T) {
+	ctx := context.Background()
+	source := tempRepo(t)
+	bare := filepath.Join(t.TempDir(), "origin.git")
+	command := exec.Command("git", "clone", "-q", "--bare", source, bare)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git clone --bare: %v: %s", err, output)
+	}
+
+	dir := filepath.Join(t.TempDir(), "cache", "unseen")
+	first, err := EnsureCheckout(ctx, "file://"+bare, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !IsRepo(ctx, dir) {
+		t.Fatal("the checkout was not cloned")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "file.txt")); err != nil {
+		t.Fatalf("the clone has no working tree: %v", err)
+	}
+
+	// A second call is idempotent and does not move the checkout.
+	again, err := EnsureCheckout(ctx, "file://"+bare, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != first {
+		t.Errorf("HEAD = %s, want %s", again, first)
+	}
+
+	// A new commit on the source is what the next call has to pick up.
+	if err := os.WriteFile(filepath.Join(source, "file.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, source, "add", "-A")
+	git(t, source, "-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-qm", "second")
+	git(t, source, "push", "-q", bare, "main")
+	third, err := EnsureCheckout(ctx, "file://"+bare, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third == first {
+		t.Error("the checkout did not follow the source")
+	}
+	contents, err := os.ReadFile(filepath.Join(dir, "file.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(contents)) != "two" {
+		t.Errorf("the working tree = %q, want the new commit", contents)
+	}
+}
+
+func TestEnsureCheckoutHonoursARef(t *testing.T) {
+	ctx := context.Background()
+	source := tempRepo(t)
+	git(t, source, "tag", "v1")
+	if err := os.WriteFile(filepath.Join(source, "file.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, source, "add", "-A")
+	git(t, source, "-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-qm", "second")
+
+	dir := filepath.Join(t.TempDir(), "cache", "ref")
+	if _, err := EnsureCheckout(ctx, source, "v1", dir); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(filepath.Join(dir, "file.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(contents)) != "one" {
+		t.Errorf("the working tree = %q, want the tagged commit", contents)
+	}
+	// A relative local url resolves against the caller's directory, not the
+	// cache's, even though the clone runs with -C there.
+	if _, err := EnsureCheckout(ctx, source, "main", filepath.Join(t.TempDir(), "cache", "again")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEnsureCheckoutRejectsAnEmptyURL(t *testing.T) {
+	if _, err := EnsureCheckout(context.Background(), "", "", filepath.Join(t.TempDir(), "x")); err == nil {
+		t.Error("an empty url was accepted")
+	}
+}

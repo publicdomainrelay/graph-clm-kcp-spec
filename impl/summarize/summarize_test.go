@@ -1,6 +1,7 @@
 package summarize
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -232,5 +233,36 @@ func TestRunRefusesAMissingContext(t *testing.T) {
 		Cluster: cluster, Context: "other", Repository: repository, Agent: scripted(t, oneRequirement),
 	}); err == nil {
 		t.Fatal("a missing context was summarized")
+	}
+}
+
+// A second summarize over the same facts must not rewrite the context
+// document. The model zone is the model's; the managed zone is derived. If a
+// re-run changed either byte the file would churn on every resync and a diff
+// would never be empty.
+func TestSummarizingTwiceLeavesTheDocumentByteIdentical(t *testing.T) {
+	cluster, repository := setup(t)
+	options := Options{Cluster: cluster, Context: "calc", Repository: repository, Agent: scripted(t, oneRequirement)}
+	if _, err := Run(context.Background(), options); err != nil {
+		t.Fatal(err)
+	}
+	document := filepath.Join(repository.Spec.Path, ".specs", "context", "calc.md")
+	first, err := os.ReadFile(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Run(context.Background(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Applied {
+		t.Error("the second summarize rewrote the spec")
+	}
+	after, err := os.ReadFile(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, after) {
+		t.Errorf("the document changed:\nbefore %q\nafter  %q", first, after)
 	}
 }

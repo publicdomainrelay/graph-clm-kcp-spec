@@ -2,6 +2,7 @@ package specsync
 
 import (
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -76,16 +77,60 @@ func IsTestFile(file string) bool {
 	return false
 }
 
+// PartitionOptions is how a Repository asks for its tree to be split. Mode is
+// directory (one context per directory that holds a source file) or package
+// (one context per package or module root); include and exclude are globs over
+// the repository-relative path, applied before the split.
+type PartitionOptions struct {
+	Mode string
+
+	Include []string
+
+	Exclude []string
+
+	// Roots are the package roots the package partition groups by. The caller
+	// reads them off the working tree, because a manifest file is not indexed
+	// and so is not in Facts.Files. "." is always a root; an empty list means
+	// only the repository root.
+	Roots []string
+
+	RepositoryName string
+}
+
 // PartitionFacts splits the facts into one partition per directory that holds
 // a source file. The name is the directory path with slashes turned into
 // dashes, which is a DNS-1123 label; root files take the repository name.
 func PartitionFacts(facts Facts, repositoryName string) []Partition {
+	return PartitionFactsWith(facts, PartitionOptions{RepositoryName: repositoryName})
+}
+
+func PartitionFactsWith(facts Facts, options PartitionOptions) []Partition {
+	files := filterFiles(facts.Files, options.Include, options.Exclude)
+	switch options.Mode {
+	case spec.PartitionPackage:
+		roots := options.Roots
+		if len(roots) == 0 {
+			roots = []string{"."}
+		}
+		return partitionsByKey(files, facts.Symbols, options.RepositoryName, roots)
+	default:
+		return partitionsByKey(files, facts.Symbols, options.RepositoryName, nil)
+	}
+}
+
+// partitionsByKey groups the files by directory, or by the longest package
+// root above them when roots are given. Both forms produce the same Partition
+// shape, so the rest of the pipeline never asks which mode produced it.
+func partitionsByKey(files []SourceFile, symbols []Symbol, repositoryName string, roots []string) []Partition {
 	byDirectory := map[string]*Partition{}
 	order := []string{}
-	for _, file := range facts.Files {
+	for _, file := range files {
 		directory := path.Dir(file.Path)
 		if directory == "" {
 			directory = "."
+		}
+		if roots != nil {
+			directory = enclosingRoot(directory, roots)
 		}
 		partition, ok := byDirectory[directory]
 		if !ok {
@@ -106,9 +151,115 @@ func PartitionFacts(facts Facts, repositoryName string) []Partition {
 		partitions = append(partitions, *partition)
 	}
 	for index := range partitions {
-		partitions[index].Symbols = symbolsUnder(partitions[index], facts.Symbols)
+		partitions[index].Symbols = symbolsUnder(partitions[index], symbols)
 	}
 	return partitions
+}
+
+// PackageManifests are the files that mark a directory as a package or module
+// root. A nested one starts its own context; files under no root belong to the
+// repository's own context.
+var PackageManifests = []string{
+	"go.mod", "go.work", "deno.json", "deno.jsonc", "package.json",
+	"Cargo.toml", "pyproject.toml", "setup.py", "pom.xml", "build.gradle",
+	"Gemfile", "composer.json",
+}
+
+func enclosingRoot(directory string, roots []string) string {
+	best := "."
+	for _, root := range roots {
+		if root == "." || directory == root || strings.HasPrefix(directory, root+"/") {
+			if len(root) > len(best) {
+				best = root
+			}
+		}
+	}
+	return best
+}
+
+// filterFiles applies the include and exclude globs. An empty include list
+// keeps every file; an exclude always wins.
+func filterFiles(files []SourceFile, include, exclude []string) []SourceFile {
+	includes := compileGlobs(include)
+	excludes := compileGlobs(exclude)
+	out := make([]SourceFile, 0, len(files))
+	for _, file := range files {
+		if len(includes) > 0 && !matchAny(includes, file.Path) {
+			continue
+		}
+		if matchAny(excludes, file.Path) {
+			continue
+		}
+		out = append(out, file)
+	}
+	return out
+}
+
+// MatchGlob matches one repository-relative path against one glob. `*` and `?`
+// stay inside a path segment, `**` crosses segments, and a pattern without a
+// slash also matches the base name, so `*_test.go` means every test file.
+func MatchGlob(pattern, name string) bool {
+	return matchAny(compileGlobs([]string{pattern}), name)
+}
+
+type glob struct {
+	full *regexp.Regexp
+
+	base *regexp.Regexp
+}
+
+func compileGlobs(patterns []string) []glob {
+	out := make([]glob, 0, len(patterns))
+	for _, pattern := range patterns {
+		if pattern == "" {
+			continue
+		}
+		compiled := glob{full: regexp.MustCompile(globRegexp(pattern))}
+		if !strings.Contains(pattern, "/") {
+			compiled.base = regexp.MustCompile(globRegexp(pattern))
+		}
+		out = append(out, compiled)
+	}
+	return out
+}
+
+func matchAny(globs []glob, name string) bool {
+	for _, compiled := range globs {
+		if compiled.full.MatchString(name) {
+			return true
+		}
+		if compiled.base != nil && compiled.base.MatchString(path.Base(name)) {
+			return true
+		}
+	}
+	return false
+}
+
+func globRegexp(pattern string) string {
+	builder := strings.Builder{}
+	builder.WriteString("^")
+	for index := 0; index < len(pattern); index++ {
+		switch char := pattern[index]; char {
+		case '*':
+			if index+1 < len(pattern) && pattern[index+1] == '*' {
+				if index+2 < len(pattern) && pattern[index+2] == '/' {
+					builder.WriteString("(?:.*/)?")
+					index += 2
+					continue
+				}
+				builder.WriteString(".*")
+				index++
+				continue
+			}
+			builder.WriteString("[^/]*")
+		case '?':
+			builder.WriteString("[^/]")
+		default:
+			builder.WriteString(regexp.QuoteMeta(string(char)))
+		}
+	}
+	builder.WriteString("$")
+	return builder.String()
 }
 
 func partitionName(directory, repositoryName string) string {

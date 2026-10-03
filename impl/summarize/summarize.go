@@ -177,8 +177,8 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		}
 	}
 
-	if options.Repository != nil && options.Repository.Spec.Path != "" {
-		path, err := bundle.WriteContextDoc(options.Repository.Spec.Path, options.Context, draft.Summary,
+	if options.Repository != nil && options.Repository.WorkPath() != "" {
+		path, err := bundle.WriteContextDoc(options.Repository.WorkPath(), options.Context, draft.Summary,
 			bundle.ResolvedRefs(observed), options.ManagedBudget)
 		if err != nil {
 			return result, err

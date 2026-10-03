@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -28,6 +29,66 @@ const (
 
 func Head(ctx context.Context, path string) (string, error) {
 	return run(ctx, path, "rev-parse", "--verify", "HEAD")
+}
+
+// EnsureCheckout makes dir a checkout of url at ref and returns its commit. A
+// missing directory is cloned; an existing one is fetched and moved to the ref
+// (or to the remote's default branch when ref is empty), so a Repository whose
+// source moves forward is indexed at its new HEAD. It is idempotent, so a
+// controller restart re-runs it without harm.
+func EnsureCheckout(ctx context.Context, url, ref, dir string) (string, error) {
+	if url == "" {
+		return "", fmt.Errorf("gitrepo: a git source needs a url")
+	}
+	// A relative local url has to be resolved against the caller's working
+	// directory: the clone runs with -C in the cache's parent, so git would
+	// otherwise resolve it there.
+	if !strings.Contains(url, "://") && !filepath.IsAbs(url) {
+		absolute, err := filepath.Abs(url)
+		if err != nil {
+			return "", fmt.Errorf("gitrepo: resolve %s: %w", url, err)
+		}
+		url = absolute
+	}
+	if _, err := os.Stat(dir); err == nil && !IsRepo(ctx, dir) {
+		if err := os.RemoveAll(dir); err != nil {
+			return "", fmt.Errorf("gitrepo: clear %s: %w", dir, err)
+		}
+	}
+	if !IsRepo(ctx, dir) {
+		if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+			return "", fmt.Errorf("gitrepo: create %s: %w", filepath.Dir(dir), err)
+		}
+		if _, err := run(ctx, filepath.Dir(dir), "clone", "--quiet", "--", url, dir); err != nil {
+			return "", err
+		}
+	} else if _, err := run(ctx, dir, "fetch", "--quiet", "--all", "--prune", "--tags"); err != nil {
+		return "", err
+	}
+	if err := checkout(ctx, dir, ref); err != nil {
+		return "", err
+	}
+	return Head(ctx, dir)
+}
+
+func checkout(ctx context.Context, dir, ref string) error {
+	if ref != "" {
+		if _, err := run(ctx, dir, "checkout", "--force", "--quiet", ref); err != nil {
+			if _, remoteErr := run(ctx, dir, "checkout", "--force", "--quiet", "origin/"+ref); remoteErr != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	// An empty ref is the remote's default branch. A clone has an upstream, so
+	// the fast-forward is what moves a cache forward; a detached checkout has
+	// none and is left where the caller put it.
+	if _, err := run(ctx, dir, "merge", "--ff-only", "--quiet", "@{u}"); err != nil {
+		if _, fallbackErr := run(ctx, dir, "reset", "--hard", "--quiet", "origin/HEAD"); fallbackErr != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Branch(ctx context.Context, path string) (string, error) {

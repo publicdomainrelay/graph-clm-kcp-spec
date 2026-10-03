@@ -3,6 +3,7 @@ package specd
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -11,15 +12,17 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/gitrepo"
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/populate"
 	"github.com/publicdomainrelay/kcp-libs/common/condition"
 )
 
-// reconcileRepository keeps the index of one working tree at its HEAD. A new
-// commit runs the phase 2 ingest, which rewrites the observed facts of every
-// context and records the drift it finds. The resync keeps asking, because a
-// commit is invisible to the API server.
+// reconcileRepository is the one manifest that populates an unknown codebase:
+// resolve the source (clone a git url into the cache), index it, create one
+// SystemContext per partition, and, when the Repository asks for it, raise one
+// CodeToSpec change per context whose spec is still empty. The resync keeps
+// asking, because neither a commit nor a remote HEAD is visible to the API
+// server.
 func (c *Controller) reconcileRepository(ctx context.Context, namespace, name string) (time.Duration, error) {
 	object, err := c.client.Get(ctx, specapi.RepositoryGVR, namespace, name)
 	if err != nil {
@@ -37,29 +40,18 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 		return 0, fmt.Errorf("specd: %s is not a Repository", name)
 	}
 
-	if repository.Spec.Path == "" {
+	if result := spec.ValidateRepository(repository); !result.OK() {
 		return c.opts.Resync, c.setRepositoryCondition(ctx, repository, namespace,
-			metav1.ConditionFalse, specapi.ReasonPathMissing, "spec.path is empty")
-	}
-	path, err := filepath.Abs(repository.Spec.Path)
-	if err != nil {
-		return 0, fmt.Errorf("specd: resolve %s: %w", repository.Spec.Path, err)
+			metav1.ConditionFalse, specapi.ReasonSourceInvalid, result.Err().Error())
 	}
 
-	head, err := gitrepo.Head(ctx, path)
+	path, commit, err := c.resolveSource(ctx, repository, namespace)
 	if err != nil {
-		message := err.Error()
-		if conditionErr := c.setRepositoryCondition(ctx, repository, namespace,
-			metav1.ConditionFalse, specapi.ReasonHeadUnavailable, message); conditionErr != nil {
+		c.log.Error("could not resolve the repository source", "repository", name, "err", err)
+		if conditionErr := c.failRepository(ctx, repository, namespace, specapi.ReasonCloneFailed, err.Error()); conditionErr != nil {
 			return 0, conditionErr
 		}
 		return c.opts.Resync, nil
-	}
-	if head == repository.Status.IndexedCommit {
-		// Nothing to index, but a condition left False by an earlier failure
-		// (a path that did not exist yet) has to come back to True.
-		return c.opts.Resync, c.setRepositoryCondition(ctx, repository, namespace,
-			metav1.ConditionTrue, specapi.ReasonIndexed, "the codegraph index is current")
 	}
 
 	// A realize moves the branch as part of its own work, and the ingest that
@@ -74,20 +66,23 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 		return c.opts.Resync, nil
 	}
 
-	result, err := ingest.Run(ctx, c.client, ingest.Options{
-		RepoPath:       path,
-		RepositoryName: name,
-		Namespace:      namespace,
-		SpecPath:       path,
-		Tool:           c.opts.Tool,
-		Commit:         head,
-		Writer:         c.opts.Graph,
+	request := repository.Annotations[specapi.PopulateRequestAnnotation]
+	result, err := populate.Run(ctx, populate.Options{
+		Cluster:       c.client,
+		Namespace:     namespace,
+		Repository:    repository,
+		Path:          path,
+		Index:         c.needsIndex(repository, path, commit, request),
+		Commit:        commit,
+		Tool:          c.opts.Tool,
+		Writer:        c.opts.Graph,
+		MaxConcurrent: c.opts.MaxConcurrentSummaries,
+		MaxAttempts:   c.opts.MaxAttempts,
 	})
 	if err != nil {
-		c.log.Error("ingest failed", "repository", name, "path", path, "commit", head, "err", err)
-		if conditionErr := c.setRepositoryCondition(ctx, repository, namespace,
-			metav1.ConditionFalse, specapi.ReasonIndexFailed, err.Error()); conditionErr != nil {
-			c.log.Error("could not record the failed ingest", "repository", name, "err", conditionErr)
+		c.log.Error("populate failed", "repository", name, "path", path, "err", err)
+		if conditionErr := c.failRepository(ctx, repository, namespace, specapi.ReasonIndexFailed, err.Error()); conditionErr != nil {
+			c.log.Error("could not record the failed populate", "repository", name, "err", conditionErr)
 		}
 		return 0, err
 	}
@@ -97,9 +92,85 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 				"repository", name, "systemcontext", contextResult.Name, "reason", contextResult.Reason)
 		}
 	}
-	c.log.Info("repository ingested",
-		"repository", name, "path", path, "commit", head, "contexts", len(result.Contexts))
+	c.log.Info("repository populated",
+		"repository", name, "path", path, "commit", commit, "phase", result.Phase,
+		"contexts", result.Total, "summarized", result.Summarized, "raised", result.Raised)
 	return c.opts.Resync, nil
+}
+
+// resolveSource turns a Repository into a working tree. A path is used as it
+// is, if it is there; a git url is cloned into the controller's cache and
+// fetched up to date there. The returned commit is empty for a tree that is not
+// a git working tree, which is allowed: such a tree is indexed once and cannot
+// drift.
+func (c *Controller) resolveSource(ctx context.Context, repository *spec.Repository, namespace string) (string, string, error) {
+	source := repository.Source()
+	switch {
+	case source.Git != nil:
+		dir, err := c.cacheDirFor(repository.Name)
+		if err != nil {
+			return "", "", err
+		}
+		if repository.Status.ResolvedPath != dir || repository.Status.Phase == "" {
+			if err := c.setRepositoryPhase(ctx, repository, namespace, specapi.PhaseCloning); err != nil {
+				return "", "", err
+			}
+		}
+		commit, err := gitrepo.EnsureCheckout(ctx, source.Git.URL, source.Git.Ref, dir)
+		if err != nil {
+			return "", "", err
+		}
+		return dir, commit, nil
+	case source.Path != "":
+		path, err := filepath.Abs(source.Path)
+		if err != nil {
+			return "", "", fmt.Errorf("specd: resolve %s: %w", source.Path, err)
+		}
+		if _, err := os.Stat(path); err != nil {
+			return "", "", fmt.Errorf("specd: %s: %w", path, err)
+		}
+		commit, _ := gitrepo.Head(ctx, path)
+		return path, commit, nil
+	}
+	return "", "", fmt.Errorf("specd: %s names no source", repository.Name)
+}
+
+// needsIndex decides whether the working tree has to be indexed again. A
+// populate request, an unknown or moved resolved path, a first run, a missing
+// indexed commit and a moved HEAD all ask for it; a pipeline that is merely
+// Populating or that already ran over this HEAD does not.
+func (c *Controller) needsIndex(repository *spec.Repository, path, commit, request string) bool {
+	if repository.Status.ResolvedPath != path {
+		return true
+	}
+	if request != "" && request != repository.Status.PopulateRequest {
+		return true
+	}
+	switch repository.Status.Phase {
+	case "":
+		return true
+	case specapi.PhasePopulated, specapi.PhasePopulating, specapi.PhaseFailed:
+	default:
+		return true
+	}
+	if repository.Status.IndexedCommit == "" && commit != "" {
+		return true
+	}
+	return commit != "" && commit != repository.Status.IndexedCommit
+}
+
+// cacheDirFor is where one Repository's git source is cloned. The name is a
+// DNS-1123 label by the time it is here, so it cannot escape the cache.
+func (c *Controller) cacheDirFor(name string) (string, error) {
+	root := c.opts.CacheDir
+	if root == "" {
+		root = DefaultCacheDir
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("specd: resolve the cache dir %s: %w", root, err)
+	}
+	return filepath.Join(absolute, name), nil
 }
 
 // anyRunningRealize reports whether a spec -> code change is mid-flight
@@ -129,6 +200,25 @@ func (c *Controller) anyRunningRealize(ctx context.Context, namespace string) (b
 	return false, nil
 }
 
+// failRepository records a phase and a condition for a source that could not be
+// resolved or indexed. The Indexed condition carries the reason, so a reader
+// sees what went wrong without the message having to be parsed.
+func (c *Controller) failRepository(ctx context.Context, repository *spec.Repository, namespace, reason, message string) error {
+	conditions := condition.Copy(repository.Status.Conditions)
+	condition.SetFalse(&conditions, repository.GetGeneration(), specapi.ConditionIndexed, reason, message)
+	populated := condition.Copy(conditions)
+	condition.SetFalse(&populated, repository.GetGeneration(), specapi.ConditionPopulated, reason, message)
+	status := map[string]any{
+		"phase":      specapi.PhaseFailed,
+		"conditions": populated,
+	}
+	if specapi.StatusMatches(repository.Status, status) {
+		return nil
+	}
+	_, err := c.client.PatchStatus(ctx, specapi.RepositoryGVR, namespace, repository.Name, status)
+	return err
+}
+
 func (c *Controller) setRepositoryCondition(
 	ctx context.Context,
 	repository *spec.Repository,
@@ -143,5 +233,14 @@ func (c *Controller) setRepositoryCondition(
 	}
 	_, err := c.client.PatchStatus(ctx, specapi.RepositoryGVR, namespace, repository.Name,
 		map[string]any{"conditions": conditions})
+	return err
+}
+
+func (c *Controller) setRepositoryPhase(ctx context.Context, repository *spec.Repository, namespace, phase string) error {
+	if repository.Status.Phase == phase {
+		return nil
+	}
+	_, err := c.client.PatchStatus(ctx, specapi.RepositoryGVR, namespace, repository.Name,
+		map[string]any{"phase": phase})
 	return err
 }

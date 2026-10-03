@@ -35,7 +35,7 @@ func (c *Controller) reconcileSpecChange(ctx context.Context, namespace, name st
 
 	switch {
 	case change.Spec.Direction == specapi.DirectionCodeToSpec &&
-		change.Status.Phase == specapi.PhasePending && c.agents.Configured():
+		change.Status.Phase == specapi.PhasePending && c.codeToSpecAgent(ctx, namespace, change):
 		return c.reconcileCodeToSpec(ctx, namespace, name, change)
 	case change.Spec.Direction == specapi.DirectionSpecToCode &&
 		change.Status.Phase == specapi.PhasePending:
@@ -65,6 +65,31 @@ func (c *Controller) reconcileSpecChange(ctx context.Context, namespace, name st
 	}
 	c.log.Info("spec change updated", "change", name, "status", status)
 	return 0, nil
+}
+
+// codeToSpecAgent reports whether an agent can work one code -> spec change
+// off. It resolves the context's repository, so a Repository that names an
+// agent in spec.populate.agent makes a controller started with no --agent work
+// a populate's changes off. A lookup that fails answers no: the change stays
+// Pending for a human rather than failing for a reason nobody asked for.
+func (c *Controller) codeToSpecAgent(ctx context.Context, namespace string, change *spec.SpecChange) bool {
+	object, err := c.client.Get(ctx, specapi.SystemContextGVR, namespace, change.Spec.SystemContext)
+	if err != nil {
+		return false
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		return false
+	}
+	systemContext, ok := typed.(*spec.SystemContext)
+	if !ok || systemContext.Spec.Repository == "" {
+		return false
+	}
+	repository, err := c.readRepository(ctx, namespace, systemContext.Spec.Repository)
+	if err != nil {
+		return false
+	}
+	return c.agents.PopulateConfiguredFor(repository)
 }
 
 func (c *Controller) runningChanges(ctx context.Context, namespace, systemContext string) ([]string, error) {

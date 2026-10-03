@@ -36,6 +36,12 @@ func ChangeNameSpecToCode(context, specHash string) string {
 }
 
 func shorten(value string) string {
+	// An empty commit names "none" rather than the empty string: the name is a
+	// DNS-1123 label, and a populate of a working tree that is not a git
+	// repository has no commit pair to carry.
+	if value == "" {
+		return "none"
+	}
 	if len(value) <= changeNameHashLength {
 		return value
 	}
@@ -49,11 +55,17 @@ const attemptSuffix = "-a"
 func AttemptCount(existing []string, base string) int {
 	attempts := 0
 	for _, name := range existing {
-		if name == base || strings.HasPrefix(name, base+attemptSuffix) {
+		if ChangeNameMatches(name, base) {
 			attempts++
 		}
 	}
 	return attempts
+}
+
+// ChangeNameMatches reports whether a change name belongs to one episode: the
+// bare deterministic name or one of its numbered retries.
+func ChangeNameMatches(name, base string) bool {
+	return name == base || strings.HasPrefix(name, base+attemptSuffix)
 }
 
 // NextChangeName names the next attempt at one episode. The first attempt

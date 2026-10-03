@@ -110,7 +110,7 @@ func codeRefsOf(ctx context.Context, repository *spec.Repository, contexts []spe
 	if len(refs) == 0 {
 		return map[string]graph.CodeRef{}, nil
 	}
-	repoPath := repository.Spec.Path
+	repoPath := repository.WorkPath()
 	if !filepath.IsAbs(repoPath) {
 		absolute, err := filepath.Abs(repoPath)
 		if err != nil {

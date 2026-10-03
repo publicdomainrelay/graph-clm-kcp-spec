@@ -100,7 +100,7 @@ func (c *Controller) summarize(ctx context.Context, namespace string, change *sp
 		return summarize.Result{}, fmt.Errorf("specd: %s is not a Repository", systemContext.Spec.Repository)
 	}
 
-	agentFor, err := c.agents.Agent(repository, repository.Spec.Path)
+	agentFor, err := c.agents.AgentFor(repository.PopulateAgent(), repository, repository.WorkPath())
 	if err != nil {
 		return summarize.Result{}, err
 	}
@@ -112,7 +112,7 @@ func (c *Controller) summarize(ctx context.Context, namespace string, change *sp
 		Repository:    repository,
 		Agent:         agentFor,
 		Writer:        c.opts.Graph,
-		Codegraph:     codegraphcli.Runner{Tool: c.opts.Tool, Dir: repository.Spec.Path},
+		Codegraph:     codegraphcli.Runner{Tool: c.opts.Tool, Dir: repository.WorkPath()},
 		Budget:        c.opts.Budget,
 		NodeLimit:     c.opts.NodeLimit,
 		ManagedBudget: c.opts.ManagedBudget,

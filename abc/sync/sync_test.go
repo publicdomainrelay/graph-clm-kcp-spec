@@ -1,6 +1,7 @@
 package specsync
 
 import (
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -280,5 +281,115 @@ func TestSpecChangeDue(t *testing.T) {
 	}
 	if !SpecEditDue("hash-c", "hash-b", "hash-a") {
 		t.Error("a spec that is neither the realized hash nor the tool's write is a pending edit")
+	}
+}
+
+func moduleFacts() Facts {
+	return Facts{
+		Commit: "abc123",
+		Files: []SourceFile{
+			{Path: "greet/mod.ts", Language: "typescript"},
+			{Path: "greet/format/mod.ts", Language: "typescript"},
+			{Path: "calc/calc/calc.go", Language: "go"},
+		},
+		Symbols: []Symbol{
+			{ID: "function:greet", Name: "greet", Kind: "function", File: "greet/mod.ts", Line: 6, Exported: true},
+			{ID: "function:format", Name: "format", Kind: "function", File: "greet/format/mod.ts", Line: 1, Exported: true},
+			{ID: "function:add", Name: "Add", Kind: "function", File: "calc/calc/calc.go", Line: 4, Exported: true},
+		},
+	}
+}
+
+// moduleRoots is what the caller reads off the tree: greet/deno.json and
+// calc/go.mod, plus the repository root.
+func moduleRoots() []string {
+	return []string{".", "calc", "greet"}
+}
+
+func TestPartitionByPackageGroupsByManifestRoot(t *testing.T) {
+	partitions := PartitionFactsWith(moduleFacts(), PartitionOptions{
+		Mode:           spec.PartitionPackage,
+		Roots:          moduleRoots(),
+		RepositoryName: "unseen",
+	})
+	if len(partitions) != 2 {
+		t.Fatalf("got %d partitions, want 2: %+v", len(partitions), partitions)
+	}
+	if partitions[0].Name != "calc" || partitions[0].Directory != "calc" {
+		t.Errorf("first partition = %+v, want the calc module", partitions[0])
+	}
+	if got := partitions[0].Files; len(got) != 1 {
+		t.Errorf("calc files = %v, want the module's one file", got)
+	}
+	if partitions[1].Name != "greet" || partitions[1].Directory != "greet" {
+		t.Errorf("second partition = %+v, want the greet module", partitions[1])
+	}
+	if got := partitions[1].Files; len(got) != 2 {
+		t.Errorf("greet files = %v, want the module's two files", got)
+	}
+}
+
+func TestPartitionByDirectorySplitsTheSameTreeFurther(t *testing.T) {
+	partitions := PartitionFactsWith(moduleFacts(), PartitionOptions{RepositoryName: "unseen"})
+	names := []string{}
+	for _, partition := range partitions {
+		names = append(names, partition.Name)
+	}
+	want := []string{"calc-calc", "greet", "greet-format"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Errorf("directory partition = %v, want %v", names, want)
+	}
+}
+
+func TestIncludeAndExcludeGlobsFilterTheTree(t *testing.T) {
+	partitions := PartitionFactsWith(moduleFacts(), PartitionOptions{
+		Mode:           spec.PartitionPackage,
+		Roots:          moduleRoots(),
+		Exclude:        []string{"calc/**"},
+		RepositoryName: "unseen",
+	})
+	if len(partitions) != 1 || partitions[0].Name != "greet" {
+		t.Fatalf("partitions = %+v, want only greet", partitions)
+	}
+	// A pattern without a slash matches the base name anywhere in the tree.
+	if partitions := PartitionFactsWith(moduleFacts(), PartitionOptions{
+		Include:        []string{"*.ts"},
+		RepositoryName: "unseen",
+	}); len(partitions) != 2 {
+		t.Errorf("include *.ts kept %d partitions, want the two TypeScript directories: %+v", len(partitions), partitions)
+	}
+	if partitions := PartitionFactsWith(moduleFacts(), PartitionOptions{
+		Exclude:        []string{"*_test.go"},
+		RepositoryName: "unseen",
+	}); len(partitions) != 3 {
+		t.Errorf("exclude *_test.go changed a tree with no test files: %+v", partitions)
+	}
+}
+
+func TestMatchGlob(t *testing.T) {
+	cases := []struct {
+		pattern string
+		name    string
+		want    bool
+	}{
+		{"calc/**", "calc/calc.go", true},
+		{"calc/**", "calc", false},
+		{"calc/**", "calc2/calc.go", false},
+		{"**/*.go", "cmd/calc/main.go", true},
+		{"**/*.go", "main.go", true},
+		{"a/**/b.go", "a/b.go", true},
+		{"a/**/b.go", "a/x/y/b.go", true},
+		{"*.go", "cmd/calc/main.go", true},
+		{"*_test.go", "calc/calc_test.go", true},
+		{"*_test.go", "calc/calc.go", false},
+		{"cmd/?/main.go", "cmd/calc/main.go", false},
+		{"cmd/*/main.go", "cmd/calc/main.go", true},
+		{"vendor", "vendor/x.go", false},
+		{"vendor", "a/vendor/x.go", false},
+	}
+	for _, testCase := range cases {
+		if got := MatchGlob(testCase.pattern, testCase.name); got != testCase.want {
+			t.Errorf("MatchGlob(%q, %q) = %v, want %v", testCase.pattern, testCase.name, got, testCase.want)
+		}
 	}
 }

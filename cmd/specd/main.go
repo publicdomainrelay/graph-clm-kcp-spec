@@ -55,6 +55,10 @@ type config struct {
 
 	tool string
 
+	cacheDir string
+
+	maxConcurrentSummaries int
+
 	logLevel string
 
 	agent string
@@ -92,6 +96,8 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	fs.DurationVar(&config.resync, "resync", specd.DefaultResync, "how often a Repository is asked for its git HEAD")
 	fs.IntVar(&config.workers, "workers", specd.DefaultWorkers, "concurrent reconciles")
 	fs.StringVar(&config.tool, "codegraph", "", "codegraph command to run")
+	fs.StringVar(&config.cacheDir, "cache-dir", specd.DefaultCacheDir, "where a Repository git source is cloned (env SPECD_CACHE_DIR)")
+	fs.IntVar(&config.maxConcurrentSummaries, "max-concurrent-summaries", specd.DefaultMaxConcurrentSummaries, "how many contexts one populate summarizes at once")
 	fs.StringVar(&config.logLevel, "log-level", "info", "debug, info, warn or error")
 	fs.StringVar(&config.agent, "agent", "", "how CodeToSpec changes are worked off: claude, scripted:<file>, or empty to leave them for a human")
 	fs.StringVar(&config.agentCommand, "agent-command", "", "model command to run (default deepseek-claude)")
@@ -121,28 +127,30 @@ func (c config) options(writer graph.Writer, log *slog.Logger) (specd.Options, e
 		log = logging.New(logging.Options{Service: "specd", Level: level})
 	}
 	return specd.Options{
-		Kubeconfig:    c.kubeconfig,
-		Context:       c.contextName,
-		Workspace:     c.workspace,
-		Namespace:     c.namespace,
-		QPS:           float32(c.qps),
-		Burst:         c.burst,
-		Watch:         c.watch,
-		PollInterval:  c.pollInterval,
-		Resync:        c.resync,
-		Workers:       c.workers,
-		Tool:          c.tool,
-		Graph:         writer,
-		Agent:         c.agent,
-		AgentCommand:  c.agentCommand,
-		AgentArgs:     strings.Fields(c.agentArgs),
-		AgentTimeout:  c.agentTimeout,
-		Budget:        c.budget,
-		NodeLimit:     c.nodeLimit,
-		ManagedBudget: c.managedBudget,
-		MaxAttempts:   c.maxAttempts,
-		RetryBackoff:  c.retryBackoff,
-		Log:           log,
+		Kubeconfig:             c.kubeconfig,
+		Context:                c.contextName,
+		Workspace:              c.workspace,
+		Namespace:              c.namespace,
+		QPS:                    float32(c.qps),
+		Burst:                  c.burst,
+		Watch:                  c.watch,
+		PollInterval:           c.pollInterval,
+		Resync:                 c.resync,
+		Workers:                c.workers,
+		Tool:                   c.tool,
+		CacheDir:               cacheDir(c.cacheDir),
+		MaxConcurrentSummaries: c.maxConcurrentSummaries,
+		Graph:                  writer,
+		Agent:                  c.agent,
+		AgentCommand:           c.agentCommand,
+		AgentArgs:              strings.Fields(c.agentArgs),
+		AgentTimeout:           c.agentTimeout,
+		Budget:                 c.budget,
+		NodeLimit:              c.nodeLimit,
+		ManagedBudget:          c.managedBudget,
+		MaxAttempts:            c.maxAttempts,
+		RetryBackoff:           c.retryBackoff,
+		Log:                    log,
 	}, nil
 }
 
@@ -202,6 +210,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 	logger.Info("stopped")
 	fmt.Fprintln(stdout, "specd stopped")
 	return exitOK
+}
+
+// cacheDir reads the cache directory from the flag, or from SPECD_CACHE_DIR
+// when the flag was left at its default, so a deployment can point every
+// Repository checkout at one volume.
+func cacheDir(fromFlag string) string {
+	if fromFlag != specd.DefaultCacheDir {
+		return fromFlag
+	}
+	if fromEnv := os.Getenv("SPECD_CACHE_DIR"); fromEnv != "" {
+		return fromEnv
+	}
+	return fromFlag
 }
 
 func defaultKubeconfig() string {

@@ -27,18 +27,123 @@ type AgentSpec struct {
 	Args    []string `json:"args,omitempty"`
 }
 
+// GitSource is a remote working tree: where to clone from and which ref to
+// check out. An empty ref is the remote's default branch.
+type GitSource struct {
+	URL string `json:"url"`
+	Ref string `json:"ref,omitempty"`
+}
+
+// RepositorySource is where the working tree under management comes from. A
+// path is used as it is; a git url is cloned into the controller's cache and
+// kept up to date there. It is the phase 7 trigger: one manifest names either
+// kind of source and the controller populates it.
+type RepositorySource struct {
+	Path string     `json:"path,omitempty"`
+	Git  *GitSource `json:"git,omitempty"`
+}
+
+// RepositoryPopulate is what the controller does with a working tree once it
+// has one: which files to index, how to split them into SystemContexts, and
+// whether to send a model over each new context.
+type RepositoryPopulate struct {
+	Partition string     `json:"partition,omitempty"`
+	Include   []string   `json:"include,omitempty"`
+	Exclude   []string   `json:"exclude,omitempty"`
+	Summarize bool       `json:"summarize,omitempty"`
+	Agent     *AgentSpec `json:"agent,omitempty"`
+}
+
+const (
+	// PartitionDirectory is one context per directory that holds a source file.
+	PartitionDirectory = "directory"
+	// PartitionPackage is one context per package or module root.
+	PartitionPackage = "package"
+)
+
 type RepositorySpec struct {
-	Path   string     `json:"path"`
-	Branch string     `json:"branch,omitempty"`
-	Verify []string   `json:"verify,omitempty"`
-	Agent  *AgentSpec `json:"agent,omitempty"`
+	Path   string            `json:"path,omitempty"`
+	Source *RepositorySource `json:"source,omitempty"`
+	Branch string            `json:"branch,omitempty"`
+	Verify []string          `json:"verify,omitempty"`
+	Agent  *AgentSpec        `json:"agent,omitempty"`
+
+	Populate *RepositoryPopulate `json:"populate,omitempty"`
+}
+
+// PopulateCounts is the tally Repository.status.contexts carries: how many
+// SystemContexts the repository has, how many of them a model has summarized,
+// and how many of the rest could not be summarized at all.
+type PopulateCounts struct {
+	Total      int `json:"total"`
+	Summarized int `json:"summarized"`
+	Failed     int `json:"failed"`
 }
 
 type RepositoryStatus struct {
-	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
-	HeadCommit         string             `json:"headCommit,omitempty"`
-	IndexedCommit      string             `json:"indexedCommit,omitempty"`
-	Conditions         []metav1.Condition `json:"conditions,omitempty"`
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// ResolvedPath is the working tree the controller resolved the source to:
+	// spec.path for a path source, a directory under --cache-dir for a git one.
+	// Everything that needs to read or write the tree reads it through
+	// Repository.WorkPath.
+	ResolvedPath  string `json:"resolvedPath,omitempty"`
+	HeadCommit    string `json:"headCommit,omitempty"`
+	IndexedCommit string `json:"indexedCommit,omitempty"`
+	// Phase runs Cloning -> Indexing -> Populating -> Populated, or Failed.
+	Phase    string          `json:"phase,omitempty"`
+	Contexts *PopulateCounts `json:"contexts,omitempty"`
+	// PopulateRequest is the specs.publicdomainrelay.dev/populate-request
+	// annotation value this status answers, so a caller can ask for a re-index
+	// and wait for it to have happened.
+	PopulateRequest string             `json:"populateRequest,omitempty"`
+	Conditions      []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// Source is the declared source, with the phase 1 path field read as a path
+// source so an older manifest keeps working.
+func (r *Repository) Source() RepositorySource {
+	if r.Spec.Source != nil {
+		return *r.Spec.Source
+	}
+	return RepositorySource{Path: r.Spec.Path}
+}
+
+// WorkPath is the working tree the controller resolved the source to. A reader
+// that needs the tree itself asks for this, never for spec.path: a git source
+// has no spec.path at all.
+func (r *Repository) WorkPath() string {
+	if r.Status.ResolvedPath != "" {
+		return r.Status.ResolvedPath
+	}
+	if r.Spec.Path != "" {
+		return r.Spec.Path
+	}
+	if r.Spec.Source != nil {
+		return r.Spec.Source.Path
+	}
+	return ""
+}
+
+// Partition is the partition mode of the populate step, defaulted to the
+// directory partition so an older manifest means what it always meant.
+func (r *Repository) Partition() string {
+	if r.Spec.Populate != nil && r.Spec.Populate.Partition != "" {
+		return r.Spec.Populate.Partition
+	}
+	return PartitionDirectory
+}
+
+func (r *Repository) Summarize() bool {
+	return r.Spec.Populate != nil && r.Spec.Populate.Summarize
+}
+
+// PopulateAgent is the agent the populate step uses. It is separate from
+// spec.agent, which selects the agent of a spec -> code realize.
+func (r *Repository) PopulateAgent() *AgentSpec {
+	if r.Spec.Populate != nil {
+		return r.Spec.Populate.Agent
+	}
+	return nil
 }
 
 type Repository struct {
@@ -210,6 +315,9 @@ func (r *Repository) SetDefaults() {
 	}
 	if r.Spec.Branch == "" {
 		r.Spec.Branch = "main"
+	}
+	if r.Spec.Populate != nil && r.Spec.Populate.Partition == "" {
+		r.Spec.Populate.Partition = PartitionDirectory
 	}
 }
 

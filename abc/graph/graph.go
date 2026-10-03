@@ -157,7 +157,7 @@ func Build(snapshot Snapshot) ([]VertexSet, []EdgeSet) {
 		ID: repoID,
 		Props: map[string]any{
 			"name": repository.Name,
-			"path": repository.Spec.Path,
+			"path": repository.WorkPath(),
 		},
 	})
 

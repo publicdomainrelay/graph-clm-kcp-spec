@@ -133,7 +133,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	if options.Repository == nil {
 		return result, fmt.Errorf("realize: no repository for %s", options.Context)
 	}
-	repoPath := options.Repository.Spec.Path
+	repoPath := options.Repository.WorkPath()
 	branch := options.Repository.Spec.Branch
 	if branch == "" {
 		branch = "main"
@@ -266,7 +266,7 @@ func Settle(ctx context.Context, options Options) error {
 // which is what ends the episode: no drift is reported for the tool's own work,
 // so the controller cannot raise the opposite change.
 func settle(ctx context.Context, options Options, namespace string, adopted *spec.SystemContextSpec) error {
-	repoPath := options.Repository.Spec.Path
+	repoPath := options.Repository.WorkPath()
 	head, err := gitrepo.Head(ctx, repoPath)
 	if err != nil {
 		return err
