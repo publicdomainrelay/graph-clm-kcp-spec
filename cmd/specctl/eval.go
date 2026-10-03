@@ -12,6 +12,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 	eval "github.com/publicdomainrelay/graph-clm-kcp-spec/impl/eval"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/runlock"
 )
 
 // evalWorkspace is where an eval run keeps its state. It is deliberately not
@@ -39,6 +40,12 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	timeout := fs.Duration("timeout", eval.DefaultTimeout, "how long one scenario may take")
 	maxAttempts := fs.Int("max-attempts", eval.DefaultScenarioAttempts, "how many attempts one scenario's change gets")
 	tool := fs.String("codegraph", "", "codegraph command to run")
+	lockPath := os.Getenv("SPECD_LIVE_LOCK")
+	if lockPath == "" {
+		lockPath = runlock.DefaultPath
+	}
+	liveLock := fs.String("live-lock", lockPath,
+		"file the live lock is taken on, so two live runs that share it serialize instead of corrupting each other; empty takes no lock")
 	options := addGlobals(fs)
 	bolt := boltflags.Add(fs)
 	if err := fs.Parse(args); err != nil {
@@ -67,6 +74,18 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 		}
 		defer boltClient.Close(context.Background())
 		writer = boltClient
+	}
+
+	// One run at a time. An eval creates, changes and deletes whole
+	// repositories, and a live suite drives the same kcp workspace and the same
+	// working trees; two at once would measure one another's writes.
+	if *liveLock != "" {
+		lock, err := runlock.Acquire(*liveLock, runlock.Options{Name: "specctl eval", Wait: stderr})
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl eval: %v\n", err)
+			return exitError
+		}
+		defer lock.Release()
 	}
 
 	report, err := eval.Run(ctx, eval.Options{
