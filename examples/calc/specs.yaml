@@ -1,0 +1,68 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: Repository
+metadata:
+  name: calc
+  namespace: default
+spec:
+  path: examples/calc
+  branch: main
+  verify: ["go", "test", "./..."]
+---
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: SystemContext
+metadata:
+  name: calc
+  namespace: default
+spec:
+  repository: calc
+  upstream: self
+  intent: |
+    The calc package is the smallest complete unit of the spec loop: two
+    integer operations behind one exported surface, so an agent can be asked
+    for a change and the verify command can decide whether it landed.
+  requirements:
+    - id: r.add-two-ints
+      level: MUST
+      text: Add returns the sum of two integers.
+      codeRefs: ["function:calc.Add", "file:calc/calc.go"]
+    - id: r.subtract-two-ints
+      level: SHOULD
+      text: Subtract returns the difference of two integers.
+      codeRefs: ["file:calc/calc.go"]
+    - id: r.reject-overflow
+      level: MAY
+      text: Operations may report overflow instead of wrapping.
+  interfaces:
+    - name: Add
+      kind: function
+      signature: "func Add(a, b int) int"
+      file: calc/calc.go
+    - name: Subtract
+      kind: function
+      signature: "func Subtract(a, b int) int"
+      file: calc/calc.go
+  codeRefs: ["file:calc/calc.go", "file:calc/calc_test.go"]
+---
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: SystemContext
+metadata:
+  name: calc-cli
+  namespace: default
+spec:
+  repository: calc
+  upstream: sc.calc
+  overlay: [sc.calc]
+  intent: |
+    A command line front end over the calc package. It exists to prove the ref
+    syntax carries a real dependency: the CLI cannot be specified without the
+    library it wraps.
+  requirements:
+    - id: r.read-two-operands
+      level: MUST
+      text: The CLI reads two integers and an operator from the arguments.
+  interfaces:
+    - name: main
+      kind: function
+      signature: "func main()"
+      file: cmd/calc/main.go
+  codeRefs: ["file:cmd/calc/main.go"]
