@@ -22,6 +22,10 @@ bin/specctl eval --fixtures fixtures --out docs/eval/run-<date>.md
 | live, code -> spec | `pi` (local `llama-cpp`, `ternary-bonsai-2-27b`) | 3 fixtures, code -> spec and the round trip | `run-2026-10-03-pi.md` |
 | unknown codebase | `claude-mod` | `../kcp-libs`, populate only | `run-2026-10-03-kcp-libs.md` |
 
+The gated live model tests are recorded beside them, as they ran:
+`live-model-tests.log` holds the output of the five tests that spend a real
+model call (`SPECD_REQUIRE_LIVE_MODEL=1`), all five passing.
+
 ## What the plan asked for, and where it is
 
 | plan metric | where it is |

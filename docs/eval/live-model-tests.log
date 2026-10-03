@@ -1,0 +1,21 @@
+# SPECD_REQUIRE_LIVE_MODEL tests, 2026-10-03T22:56:02Z
+# go test ./test/e2e/ -count=1 -v -run 'the five tests that spend a real model call'
+
+=== RUN   TestPhase5LiveModelSummarizesCalc
+    phase5_live_model_test.go:116: the model wrote 5 requirement(s) and 2 interface(s)
+--- PASS: TestPhase5LiveModelSummarizesCalc (7.77s)
+=== RUN   TestPhase6LiveModelRealizesSubtract
+    phase6_live_model_test.go:120: the model realized calc on spec/calc/4b0de6bd, commit 12076581b4c44c9f0707ed76a5b990721bdf313f, files [calc/calc.go]
+--- PASS: TestPhase6LiveModelRealizesSubtract (11.24s)
+=== RUN   TestPhase7LiveModelPopulatesAnUnknownCodebase
+--- PASS: TestPhase7LiveModelPopulatesAnUnknownCodebase (11.70s)
+=== RUN   TestPhase8LiveModelRealizesWithTheMod
+    phase8_live_model_test.go:175: change calc-s2c-86cbeb0f63f5 ended Running with 2 progress record(s)
+--- PASS: TestPhase8LiveModelRealizesWithTheMod (12.89s)
+=== RUN   TestPhase8PiHostSummarizesCalc
+    phase8_pi_live_model_test.go:75: the pi host runs npx [--yes @earendil-works/pi-coding-agent@1.0.0 --provider llama-cpp --model ternary-bonsai-2-27b -p --no-session]
+    phase8_pi_live_model_test.go:97: the pi host wrote 4 requirement(s) and 2 interface(s)
+--- PASS: TestPhase8PiHostSummarizesCalc (79.30s)
+PASS
+ok  	github.com/publicdomainrelay/graph-clm-kcp-spec/test/e2e	122.899s
+EXIT=0

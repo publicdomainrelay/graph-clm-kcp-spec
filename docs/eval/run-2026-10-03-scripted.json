@@ -1,8 +1,8 @@
 {
   "agent": "scripted",
   "fixtures": "/home/johnandersen777/src/publicdomainrelay-kcp/hydradb/fixtures",
-  "startedAt": "2026-10-03T21:41:15Z",
-  "finishedAt": "2026-10-03T21:41:44Z",
+  "startedAt": "2026-10-03T22:58:30Z",
+  "finishedAt": "2026-10-03T22:58:57Z",
   "populate": [
     {
       "fixture": "calc",
@@ -10,7 +10,7 @@
       "contexts": 2,
       "summarized": 2,
       "failed": 0,
-      "wallTimeSeconds": 1.259279345
+      "wallTimeSeconds": 1.262946872
     },
     {
       "fixture": "greet",
@@ -18,7 +18,7 @@
       "contexts": 2,
       "summarized": 2,
       "failed": 0,
-      "wallTimeSeconds": 1.765591026
+      "wallTimeSeconds": 1.764672233
     },
     {
       "fixture": "todo",
@@ -26,7 +26,7 @@
       "contexts": 3,
       "summarized": 3,
       "failed": 0,
-      "wallTimeSeconds": 2.28610529
+      "wallTimeSeconds": 2.268002634
     }
   ],
   "codeToSpec": [
@@ -177,7 +177,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.065633015,
+      "wallTimeSeconds": 1.050112035,
       "agent": "scripted"
     },
     {
@@ -199,7 +199,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.567501988,
+      "wallTimeSeconds": 1.199646519,
       "agent": "scripted"
     },
     {
@@ -221,7 +221,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.883454506,
+      "wallTimeSeconds": 1.187151646,
       "agent": "scripted"
     },
     {
@@ -234,16 +234,16 @@
       "verifyPass": true,
       "acceptancePass": true,
       "delta": {
-        "added": 4,
+        "added": 6,
         "removed": 0,
         "changed": 0,
-        "entries": 4,
-        "expected": 4,
+        "entries": 6,
+        "expected": 6,
         "precise": true
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.801629138,
+      "wallTimeSeconds": 1.797750765,
       "agent": "scripted"
     },
     {
@@ -265,7 +265,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 2.262987492,
+      "wallTimeSeconds": 1.712077193,
       "agent": "scripted"
     },
     {
@@ -287,7 +287,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 2.334497546,
+      "wallTimeSeconds": 1.7129770629999999,
       "agent": "scripted"
     },
     {
@@ -309,7 +309,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.557014504,
+      "wallTimeSeconds": 1.5482400379999999,
       "agent": "scripted"
     },
     {
@@ -331,7 +331,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.23173173,
+      "wallTimeSeconds": 1.19687601,
       "agent": "scripted"
     },
     {
@@ -353,11 +353,11 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.5501574059999998,
+      "wallTimeSeconds": 1.460444078,
       "agent": "scripted"
     }
   ],
   "notes": [
-    "working trees under /tmp/specd-eval.721353444"
+    "working trees under /tmp/specd-eval.3115400888"
   ]
 }

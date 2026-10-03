@@ -132,6 +132,13 @@ func TestFilesOutsideContextOwnsTheDirectoryNotOneFile(t *testing.T) {
 	if len(outside) != 1 || outside[0] != "cmd/calc/main.go" {
 		t.Fatalf("outside = %v, want only the other context's file", outside)
 	}
+	// The host inside the model renders the context document into the tree and
+	// the commit carries it. That is the CLM loop working, not the agent
+	// leaving the context it was given.
+	withDoc := eval.FilesOutsideContext([]string{".specs/context/calc.md", "calc/calc.go"}, facts)
+	if len(withDoc) != 0 {
+		t.Fatalf("outside = %v, want the spec artifact ignored", withDoc)
+	}
 	if got := eval.FilesOutsideContext(nil, facts); len(got) != 0 {
 		t.Fatalf("outside = %v, want none", got)
 	}

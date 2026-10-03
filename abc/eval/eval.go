@@ -162,6 +162,10 @@ func ScoreDelta(change *spec.Delta, expected int) DeltaScore {
 // or when it is a new file in a directory the context already has files in,
 // because adding a file next to the ones a context owns is the context growing,
 // not the agent wandering.
+//
+// The spec artifacts are not counted at all. A host inside the model renders
+// the context's own document into the tree and the commit carries it, which is
+// the CLM loop working, not the agent leaving the context it was given.
 func FilesOutsideContext(touched []string, observed spec.ObservedFacts) []string {
 	ownedFiles := map[string]bool{}
 	ownedDirs := map[string]bool{}
@@ -172,7 +176,7 @@ func FilesOutsideContext(touched []string, observed spec.ObservedFacts) []string
 	outside := []string{}
 	seen := map[string]bool{}
 	for _, file := range touched {
-		if file == "" || seen[file] {
+		if file == "" || seen[file] || specsync.IsSpecArtifact(file) {
 			continue
 		}
 		seen[file] = true

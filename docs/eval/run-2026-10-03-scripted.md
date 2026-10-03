@@ -2,8 +2,8 @@
 
 - agent: `scripted`
 - fixtures: `/home/johnandersen777/src/publicdomainrelay-kcp/hydradb/fixtures`
-- started: 2026-10-03T21:41:15Z
-- finished: 2026-10-03T21:41:44Z
+- started: 2026-10-03T22:58:30Z
+- finished: 2026-10-03T22:58:57Z
 - scenarios: 9
 
 ## Measures
@@ -25,8 +25,8 @@
 | fixture | phase | contexts | summarized | failed | wall time |
 | --- | --- | --- | --- | --- | --- |
 | calc | Populated | 2 | 2 | 0 | 1.26s |
-| greet | Populated | 2 | 2 | 0 | 1.77s |
-| todo | Populated | 3 | 3 | 0 | 2.29s |
+| greet | Populated | 2 | 2 | 0 | 1.76s |
+| todo | Populated | 3 | 3 | 0 | 2.27s |
 
 ## Code -> spec
 
@@ -44,17 +44,17 @@
 
 | fixture | scenario | level | context | pass | verify | acceptance | delta | attempts | outside | progress | wall time |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| calc | add-divide-with-an-error | 3 | calc | yes | yes | yes | 2/2 | 1 | none | 0 | 1.07s |
-| calc | add-subtract | 1 | calc | yes | yes | yes | 2/2 | 1 | none | 0 | 1.57s |
-| calc | change-add-to-variadic | 2 | calc | yes | yes | yes | 2/2 | 1 | none | 0 | 1.88s |
-| greet | add-a-person-module | 3 | greet | yes | yes | yes | 4/4 | 1 | none | 0 | 1.80s |
-| greet | add-farewell | 1 | greet | yes | yes | yes | 2/2 | 1 | none | 0 | 2.26s |
-| greet | change-the-greeting-text | 2 | greet | yes | yes | yes | 1/1 | 1 | none | 0 | 2.33s |
-| todo | add-delete | 1 | todo | yes | yes | yes | 2/2 | 1 | none | 0 | 1.56s |
-| todo | add-get-one-task-endpoint | 3 | httpapi | yes | yes | yes | 2/2 | 1 | none | 0 | 1.23s |
-| todo | list-newest-first | 2 | todo | yes | yes | yes | 1/1 | 1 | none | 0 | 1.55s |
+| calc | add-divide-with-an-error | 3 | calc | yes | yes | yes | 2/2 | 1 | none | 0 | 1.05s |
+| calc | add-subtract | 1 | calc | yes | yes | yes | 2/2 | 1 | none | 0 | 1.20s |
+| calc | change-add-to-variadic | 2 | calc | yes | yes | yes | 2/2 | 1 | none | 0 | 1.19s |
+| greet | add-a-person-module | 3 | greet | yes | yes | yes | 6/6 | 1 | none | 0 | 1.80s |
+| greet | add-farewell | 1 | greet | yes | yes | yes | 2/2 | 1 | none | 0 | 1.71s |
+| greet | change-the-greeting-text | 2 | greet | yes | yes | yes | 1/1 | 1 | none | 0 | 1.71s |
+| todo | add-delete | 1 | todo | yes | yes | yes | 2/2 | 1 | none | 0 | 1.55s |
+| todo | add-get-one-task-endpoint | 3 | httpapi | yes | yes | yes | 2/2 | 1 | none | 0 | 1.20s |
+| todo | list-newest-first | 2 | todo | yes | yes | yes | 1/1 | 1 | none | 0 | 1.46s |
 
 ## Notes
 
-- working trees under /tmp/specd-eval.721353444
+- working trees under /tmp/specd-eval.3115400888
 
