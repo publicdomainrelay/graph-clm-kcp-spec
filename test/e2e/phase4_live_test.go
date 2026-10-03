@@ -380,8 +380,8 @@ func TestPhase4TypeScriptIngest(t *testing.T) {
 		t.Fatalf("no format context in %+v", byName)
 	}
 
-	if got := observedNames(module.Observed); strings.Join(got, ",") != "Greeter,Greeting,greet,shout" {
-		t.Errorf("greet interfaces = %v, want Greeter, Greeting, greet, shout", got)
+	if got := observedNames(module.Observed); strings.Join(got, ",") != "Greeter,Greeter.constructor,Greeter.greeting,Greeting,greet,shout" {
+		t.Errorf("greet interfaces = %v, want the class with its public members, the interface and the two functions", got)
 	}
 	if got := observedNames(format.Observed); strings.Join(got, ",") != "titleCase,trimAll" {
 		t.Errorf("format interfaces = %v, want titleCase, trimAll", got)

@@ -19,9 +19,16 @@ import (
 )
 
 // Revision is the APIResourceSchema revision this generator writes. kcp names a
-// schema <version>-<revision>.<plural>.<group>, so a changed CRD that must not
-// break a bound consumer gets the next revision instead of an edit in place.
-const Revision = 1
+// schema <version>-<revision>.<plural>.<group>, and an APIResourceSchema is
+// immutable, so a changed CRD that must not break a bound consumer gets the
+// next revision instead of an edit in place. deploy/specs-apiexport.yaml names
+// the revision it publishes, and a test holds the two together.
+//
+// 1: the first published API.
+// 2: the interface list's `name` descriptions say a method is keyed by its
+//
+//	receiver, which is what the wire format already meant.
+const Revision = 2
 
 // Name is the APIResourceSchema name for a CustomResourceDefinition.
 func Name(crd map[string]any) (string, error) {

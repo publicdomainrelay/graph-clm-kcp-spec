@@ -1,6 +1,7 @@
 package specsync
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -133,6 +134,27 @@ func TestMigrateDeclaredTakesTheReceiverWhenItIsUnambiguous(t *testing.T) {
 	got := migrated.Requirements[0].CodeRefs
 	if got[0] != "Indexer.List" || got[1] != "function:Indexer.List" || got[2] != "file:store/store.go" {
 		t.Errorf("code refs = %v", got)
+	}
+}
+
+// A migration that has nothing to move must leave the spec exactly as it was.
+// Rebuilding an empty list as a non-nil one would read as an edit and raise a
+// change for a tree nobody touched.
+func TestMigrateDeclaredLeavesASpecWithNothingToMigrateAlone(t *testing.T) {
+	observed := Observed(PartitionFacts(sharedMethodFacts(), "store")[0])
+	declared := spec.SystemContextSpec{
+		Repository:   "store",
+		Requirements: []spec.Requirement{{ID: "r.list", CodeRefs: []string{"file:store/store.go"}}},
+		Interfaces:   nil,
+		CodeRefs:     []string{"file:store/store.go"},
+	}
+	migrated := MigrateDeclared(declared, observed)
+	if !reflect.DeepEqual(migrated, declared) {
+		t.Errorf("a spec with nothing to migrate moved:\n got %+v\nwant %+v", migrated, declared)
+	}
+	empty := spec.SystemContextSpec{Repository: "store"}
+	if got := MigrateDeclared(empty, observed); !reflect.DeepEqual(got, empty) {
+		t.Errorf("an empty spec moved: %+v", got)
 	}
 }
 

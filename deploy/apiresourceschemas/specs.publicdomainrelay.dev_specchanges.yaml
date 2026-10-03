@@ -1,7 +1,7 @@
 apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
-  name: v1alpha1-1.specchanges.specs.publicdomainrelay.dev
+  name: v1alpha1-2.specchanges.specs.publicdomainrelay.dev
 spec:
   group: specs.publicdomainrelay.dev
   names:

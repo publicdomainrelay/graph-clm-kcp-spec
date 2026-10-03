@@ -457,40 +457,75 @@ func MigrateDeclared(declared spec.SystemContextSpec, observed spec.ObservedFact
 	if len(rewrites) == 0 {
 		return declared
 	}
+	// A copy is taken only when something really moves, so a spec with nothing
+	// to migrate comes back untouched: an empty list rebuilt as a non-nil one
+	// would read as an edit and raise a change.
 	out := declared
-	out.Interfaces = append([]spec.Interface{}, declared.Interfaces...)
-	for index, entry := range out.Interfaces {
-		if key, ok := rewrites[entry.Name]; ok {
-			out.Interfaces[index].Name = key
+	interfaces := declared.Interfaces
+	copiedInterfaces := false
+	for index, entry := range declared.Interfaces {
+		key, ok := rewrites[entry.Name]
+		if !ok {
+			continue
 		}
+		if !copiedInterfaces {
+			interfaces = append([]spec.Interface{}, declared.Interfaces...)
+			copiedInterfaces = true
+		}
+		interfaces[index].Name = key
 	}
-	out.Requirements = append([]spec.Requirement{}, declared.Requirements...)
-	for index, requirement := range out.Requirements {
-		refs := append([]string{}, requirement.CodeRefs...)
+	if copiedInterfaces {
+		out.Interfaces = interfaces
+	}
+
+	requirements := declared.Requirements
+	copiedRequirements := false
+	for index, requirement := range declared.Requirements {
+		refs := requirement.CodeRefs
 		changed := false
-		for refIndex, ref := range refs {
-			if key, ok := rewrites[ref]; ok {
-				refs[refIndex] = key
-				changed = true
+		for refIndex, ref := range requirement.CodeRefs {
+			qualified, ok := qualifiedRef(ref, rewrites)
+			if !ok {
 				continue
 			}
-			for _, prefix := range spec.CodeRefPrefixes {
-				bare, ok := strings.CutPrefix(ref, prefix)
-				if !ok {
-					continue
-				}
-				if key, ok := rewrites[bare]; ok {
-					refs[refIndex] = prefix + key
-					changed = true
-				}
-				break
+			if !changed {
+				refs = append([]string{}, requirement.CodeRefs...)
+				changed = true
 			}
+			refs[refIndex] = qualified
 		}
-		if changed {
-			out.Requirements[index].CodeRefs = refs
+		if !changed {
+			continue
 		}
+		if !copiedRequirements {
+			requirements = append([]spec.Requirement{}, declared.Requirements...)
+			copiedRequirements = true
+		}
+		requirements[index].CodeRefs = refs
+	}
+	if copiedRequirements {
+		out.Requirements = requirements
 	}
 	return out
+}
+
+// qualifiedRef is the qualified spelling of one code ref, or false when it is
+// not a bare method name the observed facts name exactly once.
+func qualifiedRef(ref string, rewrites map[string]string) (string, bool) {
+	if key, ok := rewrites[ref]; ok {
+		return key, true
+	}
+	for _, prefix := range spec.CodeRefPrefixes {
+		bare, ok := strings.CutPrefix(ref, prefix)
+		if !ok {
+			continue
+		}
+		if key, ok := rewrites[bare]; ok {
+			return prefix + key, true
+		}
+		return "", false
+	}
+	return "", false
 }
 
 type fingerprintPayload struct {
