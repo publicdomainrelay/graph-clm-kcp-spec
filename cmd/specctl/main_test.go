@@ -97,6 +97,40 @@ func TestRunGraphSubcommands(t *testing.T) {
 	}
 }
 
+func TestRunImportArchNeedsAPath(t *testing.T) {
+	code, _, stderr := runWith("import-arch")
+	if code != exitUsage || !strings.Contains(stderr, "arch.yaml path is required") {
+		t.Errorf("code %d, stderr %q", code, stderr)
+	}
+}
+
+func TestRunExportRejectsAnUnknownFormat(t *testing.T) {
+	code, _, stderr := runWith("export", "--format", "json")
+	if code != exitUsage || !strings.Contains(stderr, "only arch is supported") {
+		t.Errorf("code %d, stderr %q", code, stderr)
+	}
+}
+
+func TestRunExportHelpMentionsTheCommands(t *testing.T) {
+	code, stdout, _ := runWith("help")
+	if code != exitOK || !strings.Contains(stdout, "specctl import-arch") || !strings.Contains(stdout, "specctl export") {
+		t.Errorf("code %d, stdout %q", code, stdout)
+	}
+}
+
+func TestResolveContextName(t *testing.T) {
+	for value, want := range map[string]string{
+		"sc.deno-kcp":     "sc-deno-kcp",
+		"sc.kind.denopod": "sc-kind-denopod",
+		"sc-deno-kcp":     "sc-deno-kcp",
+		"calc":            "calc",
+	} {
+		if got := resolveContextName(value); got != want {
+			t.Errorf("resolveContextName(%q) = %q, want %q", value, got, want)
+		}
+	}
+}
+
 func TestParseInterspersedKeepsPositionals(t *testing.T) {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	output := fs.String("o", "table", "output")

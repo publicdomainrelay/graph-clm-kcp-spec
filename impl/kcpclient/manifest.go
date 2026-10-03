@@ -2,9 +2,11 @@ package kcpclient
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -55,26 +57,41 @@ func Encode(object *unstructured.Unstructured) ([]byte, error) {
 func Typed(object *unstructured.Unstructured) (any, error) {
 	switch object.GetKind() {
 	case specapi.RepositoryKind:
-		out := &spec.Repository{}
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.Object, out); err != nil {
-			return nil, fmt.Errorf("kcpclient: decode Repository %s: %w", object.GetName(), err)
-		}
-		return out, nil
+		return decode(object, func() any { return &spec.Repository{} })
 	case specapi.SystemContextKind:
-		out := &spec.SystemContext{}
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.Object, out); err != nil {
-			return nil, fmt.Errorf("kcpclient: decode SystemContext %s: %w", object.GetName(), err)
-		}
-		return out, nil
+		return decode(object, func() any { return &spec.SystemContext{} })
 	case specapi.SpecChangeKind:
-		out := &spec.SpecChange{}
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.Object, out); err != nil {
-			return nil, fmt.Errorf("kcpclient: decode SpecChange %s: %w", object.GetName(), err)
-		}
-		return out, nil
+		return decode(object, func() any { return &spec.SpecChange{} })
 	}
 	return nil, fmt.Errorf("kcpclient: kind %q is not a spec object", object.GetKind())
 }
+
+func decode(object *unstructured.Unstructured, factory func() any) (any, error) {
+	out := factory()
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.Object, out); err != nil {
+		return nil, fmt.Errorf("kcpclient: decode %s %s: %s: %w", object.GetKind(), object.GetName(), fieldPath(object, factory), err)
+	}
+	return out, nil
+}
+
+// fieldPath names the field a decode failed on. The unstructured converter
+// reports only the reason ("cannot restore slice from string"), so the object
+// goes through encoding/json as well, whose error names the path
+// (spec.requirements.codeRefs).
+func fieldPath(object *unstructured.Unstructured, factory func() any) string {
+	encoded, err := json.Marshal(object.Object)
+	if err != nil {
+		return "spec"
+	}
+	if err := json.Unmarshal(encoded, factory()); err != nil {
+		if match := jsonPathPattern.FindStringSubmatch(err.Error()); len(match) == 2 {
+			return match[1]
+		}
+	}
+	return "spec"
+}
+
+var jsonPathPattern = regexp.MustCompile(`Go struct field [A-Za-z0-9_]+\.([A-Za-z0-9_.\[\]]+) of type`)
 
 func Unstructured(value any) (*unstructured.Unstructured, error) {
 	converted, err := runtime.DefaultUnstructuredConverter.ToUnstructured(value)

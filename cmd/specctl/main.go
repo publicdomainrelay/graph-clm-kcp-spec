@@ -102,6 +102,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runIngest(rest, stdout, stderr)
 	case "graph":
 		return runGraph(rest, stdout, stderr)
+	case "import-arch":
+		return runImportArch(rest, stdout, stderr)
+	case "export":
+		return runExport(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return exitOK
@@ -296,6 +300,8 @@ usage:
   specctl ingest --repo <path> [--repo-name <name>] [--bolt-url <url>]
   specctl graph neighbors <context> [--bolt-url <url>]
   specctl graph rebuild [--bolt-url <url>]
+  specctl import-arch <arch.yaml> [--repository <name>] [--bolt-url <url>]
+  specctl export --format arch [--repository <name>] [-o <file>]
 
 kinds:
   repository, systemcontext, specchange

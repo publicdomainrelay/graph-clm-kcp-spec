@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
@@ -80,6 +82,27 @@ func TestTypedAndUnstructuredRoundTrip(t *testing.T) {
 		if back.GetKind() == specapi.SystemContextKind && back.GetNamespace() != "default" {
 			t.Fatalf("namespace = %q", back.GetNamespace())
 		}
+	}
+}
+
+func TestTypedReportsTheOffendingFieldPath(t *testing.T) {
+	object := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": specapi.APIVersion,
+		"kind":       specapi.SystemContextKind,
+		"metadata":   map[string]any{"name": "calc"},
+		"spec": map[string]any{
+			"repository": "calc",
+			"requirements": []any{map[string]any{
+				"id": "r.add", "level": "MUST", "text": "add", "codeRefs": "not-a-list",
+			}},
+		},
+	}}
+	_, err := Typed(object)
+	if err == nil {
+		t.Fatal("a wrong field type must not decode")
+	}
+	if !strings.Contains(err.Error(), "spec.requirements.codeRefs") {
+		t.Fatalf("the error must name the field path: %v", err)
 	}
 }
 

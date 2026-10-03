@@ -60,7 +60,7 @@ func runGraphNeighbors(args []string, stdout, stderr io.Writer) int {
 	}
 	defer client.Close(ctx)
 
-	name := positional[0]
+	name := resolveContextName(positional[0])
 	contextID := graph.ContextID(name)
 	found, err := client.Select(ctx, graph.LabelContext, []string{"name", "repo"}, map[string]any{"id": contextID})
 	if err != nil {
