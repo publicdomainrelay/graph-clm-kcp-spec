@@ -48,8 +48,9 @@ and in the graph, and a hand written `arch.yaml` round trips through kcp.**
 `go` (1.26 or newer), `kcp` v0.33, `kine`, `kubectl`, and `codegraph` on
 `PATH` for ingest. The graph needs a Bolt endpoint: HydraDB on
 `bolt://127.0.0.1:7687` (password in `/tmp/hdb/token` by default) or ArcadeDB
-on `bolt://127.0.0.1:7688` (database `clm`). Phase 2 uses the graph, so only
-`specctl apply|get|delete` work without one.
+on `bolt://127.0.0.1:7688` (database `clm`). The graph commands need one;
+`apply`, `get`, `delete`, `import-arch` and `export` work without one (pass
+`--no-graph` to `ingest` and `import-arch`).
 
 ## Quick start
 
