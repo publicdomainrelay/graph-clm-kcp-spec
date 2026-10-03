@@ -56,6 +56,18 @@ spec:
                     type: string
                 orchestrator:
                   type: string
+                dependsOn:
+                  type: array
+                  items:
+                    type: string
+                introduces:
+                  type: array
+                  items:
+                    type: string
+                arch:
+                  type: object
+                  description: The open architecture view of this context, written by specctl import-arch.
+                  x-kubernetes-preserve-unknown-fields: true
                 intent:
                   type: string
                   description: One paragraph of what this context is and why.

@@ -59,15 +59,62 @@ type Interface struct {
 	File      string `json:"file,omitempty"`
 }
 
+const (
+	// ArchKindNode marks a SystemContext that is one node of an arch.yaml.
+	ArchKindNode = "node"
+	// ArchKindDocument marks the one SystemContext that carries the arch.yaml
+	// top-level header and the order of its sections.
+	ArchKindDocument = "document"
+)
+
+// ArchSpec is the open architecture (arch.yaml) view of a SystemContext. Every
+// node of an imported arch.yaml becomes one SystemContext; this block carries
+// the id the document used, where the node sat in the tree, and the node body
+// with its inline children replaced by their id refs, so export can put the
+// document back together. The document object (Kind document) carries the
+// top-level header instead of a node body.
+type ArchSpec struct {
+	ID       string `json:"id"`
+	Kind     string `json:"kind,omitempty"`
+	Section  string `json:"section,omitempty"`
+	Form     string `json:"form,omitempty"`
+	Position int    `json:"position,omitempty"`
+
+	Parent string `json:"parent,omitempty"`
+	Slot   string `json:"slot,omitempty"`
+
+	Upstream     string   `json:"upstream,omitempty"`
+	Overlay      []string `json:"overlay,omitempty"`
+	Orchestrator string   `json:"orchestrator,omitempty"`
+	DependsOn    []string `json:"dependsOn,omitempty"`
+	Introduces   []string `json:"introduces,omitempty"`
+	Code         []string `json:"code,omitempty"`
+
+	Sections []ArchSection `json:"sections,omitempty"`
+
+	Node     map[string]any `json:"node,omitempty"`
+	Document map[string]any `json:"document,omitempty"`
+}
+
+// ArchSection is one top-level section of the document, in document order: the
+// key and whether it is a map (id is the key) or a list of nodes.
+type ArchSection struct {
+	Key  string `json:"key"`
+	Form string `json:"form,omitempty"`
+}
+
 type SystemContextSpec struct {
 	Repository   string        `json:"repository"`
 	Upstream     string        `json:"upstream,omitempty"`
 	Overlay      []string      `json:"overlay,omitempty"`
 	Orchestrator string        `json:"orchestrator,omitempty"`
+	DependsOn    []string      `json:"dependsOn,omitempty"`
+	Introduces   []string      `json:"introduces,omitempty"`
 	Intent       string        `json:"intent,omitempty"`
 	Requirements []Requirement `json:"requirements,omitempty"`
 	Interfaces   []Interface   `json:"interfaces,omitempty"`
 	CodeRefs     []string      `json:"codeRefs,omitempty"`
+	Arch         *ArchSpec     `json:"arch,omitempty"`
 }
 
 type ObservedInterface struct {

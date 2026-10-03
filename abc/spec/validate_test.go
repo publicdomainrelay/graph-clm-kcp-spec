@@ -186,12 +186,12 @@ func TestValidateSpecChange(t *testing.T) {
 }
 
 func TestIsRefAndIsCodeRef(t *testing.T) {
-	for _, good := range []string{"self", "sc.calc", "up.calc", "sc.a-b-c"} {
+	for _, good := range []string{"self", "sc.calc", "up.calc", "sc.a-b-c", "ov.baopki", "orch.demo-deno-runtime", "sc.kind.denopod", "up.hono-pds"} {
 		if !IsRef(good) {
 			t.Fatalf("%q must be a ref", good)
 		}
 	}
-	for _, bad := range []string{"", "calc", "sc.", "sc.Calc", "SC.calc", "up.calc.extra"} {
+	for _, bad := range []string{"", "calc", "sc.", "sc.Calc", "SC.calc", "zz.calc", "ov."} {
 		if IsRef(bad) {
 			t.Fatalf("%q must not be a ref", bad)
 		}
@@ -211,5 +211,99 @@ func TestIsRefAndIsCodeRef(t *testing.T) {
 	}
 	if _, ok := RefName("self"); ok {
 		t.Fatal("self has no ref name")
+	}
+	for id, want := range map[string]string{
+		"sc.kind.denopod":        "sc-kind-denopod",
+		"type.DenoPermissions":   "type-denopermissions",
+		"orch.demo-deno-runtime": "orch-demo-deno-runtime",
+		"up.kcp":                 "up-kcp",
+		"tb.openbao-root":        "tb-openbao-root",
+		"sc.deno-kcp":            "sc-deno-kcp",
+	} {
+		if got := ArchName(id); got != want {
+			t.Errorf("ArchName(%q) = %q, want %q", id, got, want)
+		}
+		if !IsArchID(id) {
+			t.Errorf("%q must be an arch id", id)
+		}
+	}
+	for id, want := range map[string]string{
+		"type.DenoPermissions": "type-denopermissions",
+		"tb.openbao-root":      "tb-openbao-root",
+		"x.1":                  "x-1",
+	} {
+		if got := ArchName(id); got != want {
+			t.Errorf("ArchName(%q) = %q, want %q", id, got, want)
+		}
+		if !IsArchID(id) {
+			t.Errorf("%q must be an arch id", id)
+		}
+	}
+	if IsArchID("self") || IsArchID("") || IsArchID("calc") {
+		t.Fatal("self and a bare name are not arch ids")
+	}
+}
+
+func TestValidateSystemContextArch(t *testing.T) {
+	context := &SystemContext{
+		ObjectMeta: metav1.ObjectMeta{Name: "sc-kind-denopod"},
+		Spec: SystemContextSpec{
+			Repository:   "deno-kcp",
+			Upstream:     "sc.deno-kcp",
+			Overlay:      []string{"ov.kcp-local-config", "sc.kcp.workspaces"},
+			Orchestrator: "orch.demo-deno-runtime",
+			DependsOn:    []string{"sc.deno-kcp-provider"},
+			Introduces:   []string{"sc.kind.denopod"},
+			CodeRefs:     []string{"file:api/v1alpha1/types.go"},
+			Arch: &ArchSpec{
+				ID:           "sc.kind.denopod",
+				Kind:         ArchKindNode,
+				Section:      "system_contexts",
+				Form:         "list",
+				Parent:       "sc.deno-kcp",
+				Slot:         "overlay[3]",
+				Upstream:     "sc.deno-kcp",
+				Overlay:      []string{"ov.kcp-local-config"},
+				Orchestrator: "orch.demo-deno-runtime",
+				DependsOn:    []string{"sc.deno-kcp-provider"},
+				Code:         []string{"file:api/v1alpha1/types.go"},
+				Node:         map[string]any{"id": "sc.kind.denopod"},
+			},
+		},
+	}
+	context.SetDefaults()
+	if result := ValidateSystemContext(context); !result.OK() {
+		t.Fatalf("an imported context must validate: %v", result.Err())
+	}
+
+	bad := *context
+	badArch := *context.Spec.Arch
+	badArch.Kind = "banana"
+	bad.Spec.Arch = &badArch
+	if result := ValidateSystemContext(&bad); result.OK() {
+		t.Fatal("an unknown arch kind must fail")
+	}
+
+	badOverlay := *context
+	badOverlay.Spec.Overlay = []string{"up.kcp"}
+	if result := ValidateSystemContext(&badOverlay); result.OK() {
+		t.Fatal("an overlay that is not sc. or ov. must fail")
+	}
+
+	document := &SystemContext{
+		ObjectMeta: metav1.ObjectMeta{Name: "arch-document-deno-kcp"},
+		Spec: SystemContextSpec{
+			Repository: "deno-kcp",
+			Arch: &ArchSpec{
+				ID:       "document",
+				Kind:     ArchKindDocument,
+				Document: map[string]any{"kind": "OpenArchitecture"},
+				Sections: []ArchSection{{Key: "system_contexts", Form: "list"}},
+			},
+		},
+	}
+	document.SetDefaults()
+	if result := ValidateSystemContext(document); !result.OK() {
+		t.Fatalf("the document object must validate: %v", result.Err())
 	}
 }

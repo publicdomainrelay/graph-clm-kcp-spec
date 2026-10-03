@@ -83,17 +83,20 @@ func ValidateSystemContext(context *SystemContext) Result {
 		b.add("spec.upstream", "%q is not self, sc.<name> or up.<name>", context.Spec.Upstream)
 	}
 	for index, overlay := range context.Spec.Overlay {
-		if !IsRef(overlay) || !strings.HasPrefix(overlay, RefPrefixContext) {
-			b.add(fmt.Sprintf("spec.overlay[%d]", index), "%q is not sc.<name>", overlay)
+		if !IsRef(overlay) || !hasAnyPrefix(overlay, RefPrefixContext, RefPrefixOverlay) {
+			b.add(fmt.Sprintf("spec.overlay[%d]", index), "%q is not sc.<name> or ov.<name>", overlay)
 		}
 	}
 	if context.Spec.Orchestrator != "" && !IsRef(context.Spec.Orchestrator) {
-		b.add("spec.orchestrator", "%q is not self, sc.<name> or up.<name>", context.Spec.Orchestrator)
+		b.add("spec.orchestrator", "%q is not self, sc.<name>, up.<name>, ov.<name> or orch.<name>", context.Spec.Orchestrator)
 	}
+	b.checkRefs("spec.dependsOn", context.Spec.DependsOn)
+	b.checkRefs("spec.introduces", context.Spec.Introduces)
 
 	b.checkRequirements(context.Spec.Requirements)
 	b.checkInterfaces(context.Spec.Interfaces)
 	b.checkCodeRefs("spec.codeRefs", context.Spec.CodeRefs)
+	b.checkArch(context.Spec.Arch)
 
 	if context.Status.RealizedSpecHash != "" && !specapi.IsHash(context.Status.RealizedSpecHash) {
 		b.add("status.realizedSpecHash", "%q is not a sha256 hex digest", context.Status.RealizedSpecHash)
@@ -209,6 +212,73 @@ func (b *builder) checkInterfaces(interfaces []Interface) {
 			seen[declared.Name] = true
 		}
 	}
+}
+
+func (b *builder) checkRefs(path string, refs []string) {
+	seen := map[string]bool{}
+	for index, ref := range refs {
+		at := fmt.Sprintf("%s[%d]", path, index)
+		if !IsRef(ref) || ref == RefSelf {
+			b.add(at, "%q is not sc.<name>, up.<name>, ov.<name> or orch.<name>", ref)
+			continue
+		}
+		if seen[ref] {
+			b.add(at, "%q is not unique", ref)
+			continue
+		}
+		seen[ref] = true
+	}
+}
+
+// checkArch gates what the arch.yaml importer writes. The node body is opaque
+// by design; the fields the importer derives from it are checked, because the
+// graph and the validator read those.
+func (b *builder) checkArch(arch *ArchSpec) {
+	if arch == nil {
+		return
+	}
+	if arch.ID == "" {
+		b.add("spec.arch.id", "is required")
+	}
+	switch arch.Kind {
+	case ArchKindNode, ArchKindDocument:
+	default:
+		b.add("spec.arch.kind", "%q is not %s or %s", arch.Kind, ArchKindNode, ArchKindDocument)
+	}
+	if arch.Kind == ArchKindDocument {
+		if arch.Document == nil {
+			b.add("spec.arch.document", "is required on the document object")
+		}
+		return
+	}
+	if arch.Node == nil {
+		b.add("spec.arch.node", "is required on a node object")
+	}
+	if arch.Upstream != "" {
+		if !IsRef(arch.Upstream) || arch.Upstream == RefSelf {
+			b.add("spec.arch.upstream", "%q is not a ref", arch.Upstream)
+		}
+	}
+	for index, overlay := range arch.Overlay {
+		if !IsRef(overlay) || !hasAnyPrefix(overlay, RefPrefixContext, RefPrefixOverlay) {
+			b.add(fmt.Sprintf("spec.arch.overlay[%d]", index), "%q is not sc.<name> or ov.<name>", overlay)
+		}
+	}
+	if arch.Orchestrator != "" && !IsRef(arch.Orchestrator) {
+		b.add("spec.arch.orchestrator", "%q is not a ref", arch.Orchestrator)
+	}
+	b.checkRefs("spec.arch.dependsOn", arch.DependsOn)
+	b.checkRefs("spec.arch.introduces", arch.Introduces)
+	b.checkCodeRefs("spec.arch.code", arch.Code)
+}
+
+func hasAnyPrefix(value string, prefixes ...string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *builder) checkCodeRefs(path string, refs []string) {

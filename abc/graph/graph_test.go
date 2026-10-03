@@ -111,6 +111,71 @@ func TestBuildVertices(t *testing.T) {
 	}
 }
 
+func TestBuildResolvesArchRefsAndExtraEdges(t *testing.T) {
+	parent := spec.SystemContext{
+		ObjectMeta: metav1.ObjectMeta{Name: "sc-deno-kcp"},
+		Spec: spec.SystemContextSpec{
+			Repository: "deno-kcp",
+			Upstream:   "up.kcp",
+			Arch:       &spec.ArchSpec{ID: "sc.deno-kcp", Kind: spec.ArchKindNode},
+		},
+	}
+	child := spec.SystemContext{
+		ObjectMeta: metav1.ObjectMeta{Name: "sc-kind-denopod"},
+		Spec: spec.SystemContextSpec{
+			Repository:   "deno-kcp",
+			Upstream:     "sc.deno-kcp",
+			Overlay:      []string{"ov.kcp-local-config"},
+			Orchestrator: "orch.demo-deno-runtime",
+			DependsOn:    []string{"sc.kcp.workspaces"},
+			Introduces:   []string{"sc.deno-kcp-provider"},
+			Arch:         &spec.ArchSpec{ID: "sc.kind.denopod", Kind: spec.ArchKindNode},
+		},
+	}
+	snapshot := Snapshot{
+		Repository: spec.Repository{ObjectMeta: metav1.ObjectMeta{Name: "deno-kcp"}},
+		Contexts:   []spec.SystemContext{parent, child},
+	}
+	_, edges := Build(snapshot)
+	want := map[string]string{
+		EdgeUpstream:     "sc-deno-kcp",
+		EdgeOverlay:      "ov-kcp-local-config",
+		EdgeOrchestrator: "orch-demo-deno-runtime",
+		EdgeDependsOn:    "sc-kcp-workspaces",
+		EdgeIntroduces:   "sc-deno-kcp-provider",
+	}
+	for edgeType, name := range want {
+		found := false
+		for _, row := range findEdgeSet(edges, edgeType, LabelContext).Rows {
+			if row.To == ContextID(name) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s has no edge to the context named %s", edgeType, name)
+		}
+	}
+	// The parent's up.kcp and the child's sc.deno-kcp are both upstream edges.
+	if got := len(findEdgeSet(edges, EdgeUpstream, LabelContext).Rows); got != 2 {
+		t.Fatalf("upstream edges = %d, want 2", got)
+	}
+}
+
+func TestRefTargetKnowsBothVocabularies(t *testing.T) {
+	if name, ok := RefTarget("sc.calc", false); !ok || name != "calc" {
+		t.Fatalf("plain ref = %q %v", name, ok)
+	}
+	if name, ok := RefTarget("sc.kind.denopod", true); !ok || name != "sc-kind-denopod" {
+		t.Fatalf("arch ref = %q %v", name, ok)
+	}
+	if _, ok := RefTarget(spec.RefSelf, true); ok {
+		t.Fatal("self points at nothing")
+	}
+	if _, ok := RefTarget("sc.calc", true); !ok {
+		t.Fatal("sc.calc is also a valid arch id")
+	}
+}
+
 func TestStableIDsAreContentKeyed(t *testing.T) {
 	first := RepoID("calc")
 	if first != RepoID("calc") {

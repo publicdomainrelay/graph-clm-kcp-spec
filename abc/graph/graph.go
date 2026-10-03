@@ -29,6 +29,8 @@ const (
 	EdgeUpstream     = "UPSTREAM"
 	EdgeOverlay      = "OVERLAY"
 	EdgeOrchestrator = "ORCHESTRATOR"
+	EdgeDependsOn    = "DEPENDS_ON"
+	EdgeIntroduces   = "INTRODUCES"
 )
 
 func RepoID(name string) int64 {
@@ -121,6 +123,8 @@ var EdgeSpecs = []EdgeSpec{
 	{Type: EdgeDeclares, FromLabel: LabelContext, ToLabel: LabelInterface},
 	{Type: EdgeReferences, FromLabel: LabelContext, ToLabel: LabelCodeRef},
 	{Type: EdgeReferences, FromLabel: LabelRequirement, ToLabel: LabelCodeRef},
+	{Type: EdgeDependsOn, FromLabel: LabelContext, ToLabel: LabelContext},
+	{Type: EdgeIntroduces, FromLabel: LabelContext, ToLabel: LabelContext},
 }
 
 var LabelProperties = map[string][]string{
@@ -145,6 +149,7 @@ func Build(snapshot Snapshot) ([]VertexSet, []EdgeSet) {
 	requirementIndex, interfaceIndex, codeRefIndex := 2, 3, 4
 	hasContextIndex, upstreamIndex, overlayIndex, orchestratorIndex := 0, 1, 2, 3
 	requiresIndex, declaresIndex, contextRefsIndex, requirementRefsIndex := 4, 5, 6, 7
+	dependsOnIndex, introducesIndex := 8, 9
 
 	repository := snapshot.Repository
 	repoID := RepoID(repository.Name)
@@ -233,21 +238,47 @@ func Build(snapshot Snapshot) ([]VertexSet, []EdgeSet) {
 			}
 		}
 
-		edges[upstreamIndex].Rows = appendRef(edges[upstreamIndex].Rows, contextID, context.Spec.Upstream)
+		// A context imported from arch.yaml keeps its refs as open architecture
+		// ids (sc.kind.denopod), whose dots are part of the id, so the object
+		// it points at is named by ArchName, not by RefName.
+		arch := context.Spec.Arch != nil
+		edges[upstreamIndex].Rows = appendRef(edges[upstreamIndex].Rows, contextID, context.Spec.Upstream, arch)
 		for _, overlay := range context.Spec.Overlay {
-			edges[overlayIndex].Rows = appendRef(edges[overlayIndex].Rows, contextID, overlay)
+			edges[overlayIndex].Rows = appendRef(edges[overlayIndex].Rows, contextID, overlay, arch)
 		}
-		edges[orchestratorIndex].Rows = appendRef(edges[orchestratorIndex].Rows, contextID, context.Spec.Orchestrator)
+		edges[orchestratorIndex].Rows = appendRef(edges[orchestratorIndex].Rows, contextID, context.Spec.Orchestrator, arch)
+		for _, dependency := range context.Spec.DependsOn {
+			edges[dependsOnIndex].Rows = appendRef(edges[dependsOnIndex].Rows, contextID, dependency, arch)
+		}
+		for _, introduced := range context.Spec.Introduces {
+			edges[introducesIndex].Rows = appendRef(edges[introducesIndex].Rows, contextID, introduced, arch)
+		}
 	}
 	return vertices, edges
 }
 
-func appendRef(rows []Edge, from int64, ref string) []Edge {
-	name, ok := spec.RefName(ref)
+func appendRef(rows []Edge, from int64, ref string, arch bool) []Edge {
+	name, ok := RefTarget(ref, arch)
 	if !ok {
 		return rows
 	}
 	return append(rows, Edge{From: from, To: ContextID(name)})
+}
+
+// RefTarget is the object name a ref points at. A plain ref strips the prefix
+// (sc.calc is the context named calc); an open architecture id keeps it in the
+// name (sc.kind.denopod is the context named sc-kind-denopod).
+func RefTarget(ref string, arch bool) (string, bool) {
+	if ref == spec.RefSelf {
+		return "", false
+	}
+	if arch {
+		if !spec.IsArchID(ref) {
+			return "", false
+		}
+		return spec.ArchName(ref), true
+	}
+	return spec.RefName(ref)
 }
 
 func specHash(context spec.SystemContext) string {
