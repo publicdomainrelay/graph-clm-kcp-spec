@@ -139,17 +139,19 @@ sequenceDiagram
 
 ## Status
 
-Phases 1 to 9 of 10 are done: **kcp holds specs, code becomes facts in `status`
+All ten phases are done: **kcp holds specs, code becomes facts in `status`
 and in the graph, a hand written `arch.yaml` round trips through kcp, `specd`
 keeps the facts, the conditions and the work queue true to the code, an agent
 turns the code back into a spec, a spec edit becomes a structured delta that
 drives an agent to change the code under a test gate, one `Repository` manifest
 populates a codebase kcp has never seen, the CLM loop is a library with two
 hosts — the `pi-hydradb-clm` extension and a Claude Code mod — so the model that
-realizes a change reports into the same state the controllers watch, and the API
+realizes a change reports into the same state the controllers watch, the API
 is multi-tenant: an APIExport in a provider workspace, tenant workspaces that
-bind it, one `specd --mode export` that reconciles them all, and a `.specs/` git
-mirror so a pull request carries the spec and the code together.**
+bind it, one `specd --mode export` that reconciles it all, and a `.specs/` git
+mirror so a pull request carries the spec and the code together, and the whole
+loop is measured: `specctl eval` runs three fixtures and an unknown real
+codebase through it and reports what actually happened.**
 
 - API group `specs.publicdomainrelay.dev/v1alpha1`, kinds `Repository`,
   `SystemContext`, `SpecChange`, namespaced, with a status subresource and
@@ -263,6 +265,40 @@ mirror so a pull request carries the spec and the code together.**
   package as its default command, and the pi extension writes
   `(PiMemory)-[:SPECIFIES]->(SpecRequirement)` for the requirements a remembered
   code reference anchors to.
+- `fixtures/` holds three small repositories with tests — `calc` (a Go
+  library), `greet` (a Deno/TypeScript module) and `todo` (a Go JSON service
+  over `net/http`) — and each carries `scenarios/*.yaml`: a spec patch to
+  apply, the hidden acceptance tests that grade it, the interfaces the change
+  should make observable, and the deterministic realize steps. The scenarios
+  are of increasing difficulty (add a function, change a behaviour a test
+  already pins, add a feature that spans two files). The harness files are
+  named in the fixture's `.gitignore`, which the index honours as well as git,
+  so a fixture stays a working tree and a scenario file can never become a
+  context of its own.
+- `specctl eval --fixtures fixtures [--agent claude|claude-mod|pi]
+  [--scenarios <glob>] [--out docs/eval/run-<date>.md]` measures the loop, one
+  fixture at a time: it copies the tree into a fresh git repository, applies
+  one `Repository` manifest and lets the controller populate it, then applies
+  each scenario's spec patch, waits for the `SpecToCode` change, and grades the
+  result with the verification command and the hidden acceptance tests, which
+  are copied in only for grading. It resets the tree and the spec between
+  scenarios and defaults to the workspace `root:specs-eval`, so a run never
+  disturbs the objects another suite owns.
+- The measures are pure and unit tested in `abc/eval`: interface recall and
+  precision of the declared surface against the observed one, requirement
+  anchoring (the share of requirements whose code refs resolve), validator
+  pass, round trip stability (a second summarize, compared by the Jaccard of
+  the interface sets and the requirement count delta), delta precision (the
+  entries a change carried against the scenario's intent), the files a realize
+  touched outside its context, attempts used, and wall time. The report is a
+  markdown table and the same numbers as JSON beside it.
+- `fixtures/external/kcp-libs` is a fixture that is not in this repository: one
+  `Repository` manifest with a `git` source clones a read-only checkout of the
+  sibling `kcp-libs` into the controller's cache and populates it, so the
+  measures are also taken on a real codebase nobody wrote for the harness.
+- A Go method is exported when its name is capitalised, which the index does
+  not say, so the reader applies Go's own rule; without it a package whose API
+  is mostly methods is observed as an almost empty surface.
 - Live tests that round trip a `SystemContext` through a real kcp, that ingest a
   real git working tree twice and check the graph on both backends, that take
   the open architecture document through kcp and diff the two models, that drive
@@ -940,6 +976,7 @@ abc/graph            pure: the graph model, row builders, Cypher builders, Graph
 abc/agent            pure: the context bundle, the token budget, the strict draft parser, the context document, the delta render
 abc/delta            pure: Diff/Apply of two specs and of two observed fact sets, and the compact summary
 abc/mirror           pure: the `.specs/<name>.yaml` document and the sync conflict rule
+abc/eval             pure: interface recall/precision, anchoring, round trip Jaccard, delta precision, the report
 impl/kcpclient       dynamic client for a kcp workspace: CRUD, status, manifests, server side apply
 impl/codegraphsqlite run codegraph, read .codegraph/codegraph.db, resolve code refs
 impl/codegraphcli    run codegraph context|node, the only place the code itself is rendered
@@ -963,8 +1000,9 @@ impl/watchpoll       the list-and-diff fallback for a watch that cannot be held
 abc/clm              pure: the model zone of a context document, the spec block parse/render, the merge of what a model owns
 impl/clm             render, apply and report: the state bridge the CLM hosts call
 impl/piagent         the pi host of the same agent contract (npx package by default)
+impl/eval            the effectiveness harness: a fixture into a git repo, the loop over it, the measures
 factory/specd        wires the watch, the workqueue, the three reconcilers and the agent
-cmd/specctl          apply -f, get, delete, ingest [--summarize], import-arch, export, graph neighbors|rebuild, clm render|apply|report, sync
+cmd/specctl          apply -f, get, delete, ingest [--summarize], import-arch, export, graph neighbors|rebuild, clm render|apply|report, sync, eval
 cmd/specd            the controller binary; the only place that handles signals
 cmd/hydradb-bins     extracts the HydraDB binaries from their OCI image
 deploy/start-kcp.sh  start kcp + kine, then install the workspace and CRDs
@@ -980,8 +1018,12 @@ examples/calc/       a repository and two system contexts that reference each ot
 examples/phase5/     the scripted agent the phase 5 example drives specd with
 examples/phase6/     the baseline spec, the spec edit and the two scripted agents of the phase 6 example
 examples/populate/   the one Repository manifest and the scenario the phase 7 example applies
-fixtures/calc/       a tiny Go working tree: the calc package and its CLI
-fixtures/greet/      a tiny Deno/TypeScript module: a root module and format/
+fixtures/calc/       a tiny Go working tree: the calc package and its CLI, with its scenarios
+fixtures/greet/      a tiny Deno/TypeScript module: a root module and format/, with its scenarios
+fixtures/todo/       a Go JSON service over net/http: a store, an HTTP front end and a command
+fixtures/external/   a fixture that is not carried here: one manifest pointing at a real checkout
+docs/eval/           effectiveness reports, markdown and JSON, one run per date and agent
+scripts/demo.sh      the phase 10 demo: the loop end to end, then the eval table
 clm/core             pure TypeScript: the context document, the delta mirror, the row builders, the ports
 clm/adapters-node    the Node ports: child_process, node:fs, and the specctl state bridge
 cc-clm-mod           the Claude Code mod: the plugin, its vendored core, its hooks and its tests
@@ -1009,6 +1051,16 @@ make test-live SPECD_BOLT_BACKEND=hydradb   # the same, graph checks on HydraDB 
 
 # the multi workspace end to end: two tenants, one export mode controller
 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase9TwoTenantsOneExportController -count=1 -v
+
+# the effectiveness harness, with no cluster in it: every scenario's realize
+# steps are applied to a copy of its fixture and its own tests must pass
+go test ./impl/eval/ -run TestScriptedScenarios -count=1 -v
+
+# the eval itself, in its own workspace (create it with
+# SPECS_WORKSPACE=specs-eval WORKSPACE_KUBECONFIG=.kcp-specd/specs-eval.kubeconfig deploy/install-specs.sh)
+bin/specctl eval --fixtures fixtures --out docs/eval/run-<date>-scripted.md
+bin/specctl eval --fixtures fixtures --agent claude-mod --clm-mod cc-clm-mod
+bin/specctl eval --fixtures fixtures --agent pi --summarize-agent pi --code-only
 
 # the pi host over a real model (the default command is the npm package;
 # SPECD_PI_ARGS names a provider or model when the environment needs one)
@@ -1055,10 +1107,35 @@ and `SPECD_TEST_ARCADE_DATABASE`; the HydraDB ones read
 and the phase 2 graph check default to ArcadeDB and take
 `SPECD_TEST_BACKEND=hydradb` to run against HydraDB instead.
 
+## Done means
+
+`make demo` on a clean machine with `kcp`, `kine`, `kubectl`, `codegraph`,
+`go`, `deno`, `git` and a Bolt backend on `PATH`: starts kcp, installs the
+`root:specs` and `root:specs-eval` workspaces, starts specd, applies one
+`Repository` manifest for a working tree and waits for `Populated`, edits the
+spec (the demo's own server side apply; a model would do it through the CLM
+path), shows the delta the agent was told — one interface and one requirement —
+the agent commit on the managed branch with
+`go test ./...` passing on it, prints the effectiveness table for the scripted
+baseline over every fixture, and drives one scenario through the CLM path with
+`cc-clm-mod` loaded (or `pi`; `SPECD_CLM_PATH=off` skips it). `make check`
+and `make test` are green, and the reports of the runs that were actually made
+live in `docs/eval/`.
+
+```bash
+make build
+make demo                                   # scripted baseline, plus one CLM scenario
+make demo SPECD_AGENT=claude                # the same body with the live model
+make demo SPECD_EVAL_OUT=docs/eval/run-$(date -u +%Y-%m-%d).md
+make demo-phases                            # phases 1 to 9, one example each
+```
+
 ## Ports and state
 
 kcp listens on 6447 with kine on 23797 and keeps state in `.kcp-specd/`
-(gitignored). The multi workspace mode adds the workspaces
+(gitignored). An eval run keeps its objects in `root:specs-eval` and clones a
+`git` source into `.kcp-specd/cache`. The multi workspace mode adds the
+workspaces
 `root:specs-provider` and one per tenant (`root:phase9-a`, `root:phase9-b`, ...)
 plus a kubeconfig per tenant in `.kcp-specd/<workspace>.kubeconfig`. They live
 in the same state directory, so `make kcp-down` followed by `rm -rf .kcp-specd`
@@ -1069,8 +1146,9 @@ machine. The graph defaults to ArcadeDB on `bolt://127.0.0.1:7688` (HydraDB on
 
 ## What is next
 
-Phase 10 builds the fixture set (a Go library, a Go HTTP service, a TS/Deno
-module, each with tests), `scenarios/*.yaml`, and `specctl eval`: interface
-recall, requirement anchoring, delta precision, the share of scenarios whose
-hidden acceptance tests pass, and the same pass rate when a scenario is driven
-through the pi extension instead of a kubectl patch.
+The plan is complete. What the eval reports as still weak is the honest place
+to start: the measures that fall short of 100% on the live runs in
+`docs/eval/`, the TypeScript half of the observed surface (class members are
+public by default and the index reports them unexported, the same gap Go
+methods had), and the graph's share of the context bundle when the budget is
+tight. Everything else is a matter of more fixtures and more scenarios.

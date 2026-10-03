@@ -1,8 +1,8 @@
 {
-  "agent": "scripted",
-  "fixtures": "/home/johnandersen777/src/publicdomainrelay-kcp/hydradb/fixtures",
-  "startedAt": "2026-10-03T21:41:15Z",
-  "finishedAt": "2026-10-03T21:41:44Z",
+  "agent": "claude-mod",
+  "fixtures": "fixtures",
+  "startedAt": "2026-10-03T21:47:07Z",
+  "finishedAt": "2026-10-03T21:51:34Z",
   "populate": [
     {
       "fixture": "calc",
@@ -10,7 +10,7 @@
       "contexts": 2,
       "summarized": 2,
       "failed": 0,
-      "wallTimeSeconds": 1.259279345
+      "wallTimeSeconds": 9.830441778
     },
     {
       "fixture": "greet",
@@ -18,7 +18,7 @@
       "contexts": 2,
       "summarized": 2,
       "failed": 0,
-      "wallTimeSeconds": 1.765591026
+      "wallTimeSeconds": 12.852470832
     },
     {
       "fixture": "todo",
@@ -26,7 +26,7 @@
       "contexts": 3,
       "summarized": 3,
       "failed": 0,
-      "wallTimeSeconds": 2.28610529
+      "wallTimeSeconds": 10.838680682
     }
   ],
   "codeToSpec": [
@@ -41,7 +41,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 2,
+      "requirements": 4,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -59,7 +59,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 1,
+      "requirements": 6,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -77,7 +77,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 2,
+      "requirements": 3,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -88,14 +88,17 @@
       "fixture": "greet",
       "context": "greet",
       "interfaces": {
-        "declared": 4,
+        "declared": 5,
         "target": 4,
         "matched": 4,
+        "extra": [
+          "Greeter.greeting"
+        ],
         "recall": 1,
-        "precision": 1,
-        "f1": 1
+        "precision": 0.8,
+        "f1": 0.888888888888889
       },
-      "requirements": 3,
+      "requirements": 5,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -113,7 +116,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 1,
+      "requirements": 5,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -131,7 +134,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 1,
+      "requirements": 11,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -149,7 +152,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 5,
+      "requirements": 7,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -176,9 +179,9 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.065633015,
-      "agent": "scripted"
+      "progressRecords": 6,
+      "wallTimeSeconds": 10.876234932,
+      "agent": "claude-mod"
     },
     {
       "fixture": "calc",
@@ -198,9 +201,9 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.567501988,
-      "agent": "scripted"
+      "progressRecords": 6,
+      "wallTimeSeconds": 10.78413489,
+      "agent": "claude-mod"
     },
     {
       "fixture": "calc",
@@ -212,17 +215,17 @@
       "verifyPass": true,
       "acceptancePass": true,
       "delta": {
-        "added": 0,
+        "added": 1,
         "removed": 0,
-        "changed": 2,
+        "changed": 1,
         "entries": 2,
         "expected": 2,
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.883454506,
-      "agent": "scripted"
+      "progressRecords": 5,
+      "wallTimeSeconds": 9.765069871,
+      "agent": "claude-mod"
     },
     {
       "fixture": "greet",
@@ -230,9 +233,9 @@
       "context": "greet",
       "difficulty": 3,
       "description": "add a new module and a function that uses it",
-      "pass": true,
+      "pass": false,
       "verifyPass": true,
-      "acceptancePass": true,
+      "acceptancePass": false,
       "delta": {
         "added": 4,
         "removed": 0,
@@ -242,9 +245,10 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.801629138,
-      "agent": "scripted"
+      "progressRecords": 7,
+      "wallTimeSeconds": 19.440882168999998,
+      "agent": "claude-mod",
+      "error": "the acceptance tests failed: exit status 1: \u001b[0m\u001b[32mCheck\u001b[0m acceptance_person_test.ts\n\u001b[0m\u001b[32mCheck\u001b[0m format/mod_test.ts\n\u001b[0m\u001b[32mCheck\u001b[0m mod_test.ts\n\u001b[0m\u001b[38;5;245mrunning 2 tests from ./acceptance_person_test.ts\u001b[0m\nacceptance: formatPerson writes the name and the age ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(370µs)\u001b[0m\nacceptance: greetPerson greets a person ... \u001b[0m\u001b[31mFAILED\u001b[0m \u001b[0m\u001b[38;5;245m(12ms)\u001b[0m\n\u001b[0m\u001b[38;5;245mrunning 2 tests from ./format/mod_test.ts\u001b[0m\ntitleCase capitalises every word ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(493µs)\u001b[0m\ntrimAll trims every value ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(107µs)\u001b[0m\n\u001b[0m\u001b[38;5;245mrunning 4 tests from ./mod_test.ts\u001b[0m\ngreet keeps the name and writes the text ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(602µs)\u001b[0m\nshout uppercases the greeting ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(45µs)\u001b[0m\ngreetPerson greets the formatted person ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(47µs)\u001b[0m\nGreeter prefixes the greeting ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(48µs)\u001b[0m\n\n\u001b[0m\u001b[1m\u001b[37m\u001b[41m ERRORS \u001b[0m\n\nacceptance: greetPerson greets a person \u001b[0m\u001b[38;5;245m=\u003e ./acceptance_person_test.ts:10:6\u001b[0m\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: AssertionError: Values are not equal.\n\n\n    \u001b[90m\u001b[1m[Diff]\u001b[22m\u001b[39m \u001b[31m\u001b[1mActual\u001b[22m\u001b[39m / \u001b[32m\u001b[1mExpected\u001b[22m\u001b[39m\n\n\n\u001b[37m    {\u001b[39m\n\u001b[31m\u001b[1m-     name: \"ada (36)\",\u001b[22m\u001b[39m\n\u001b[32m\u001b[1m+     name: \"ada\",\u001b[22m\u001b[39m\n\u001b[37m      text: \"hello, ada (36)\",\u001b[39m\n\u001b[37m    }\u001b[39m\n\n  throw new AssertionError(message);\n\u001b[0m\u001b[31m        ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3massertEquals\u001b[0m (\u001b[0m\u001b[36mhttps://jsr.io/@std/assert/1.0.19/equals.ts\u001b[0m:\u001b[0m\u001b[33m67\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m)\n    at \u001b[0m\u001b[2m\u001b[38;5;245mfile:///tmp/specd-eval.2195478473/greet/\u001b[0m\u001b[0m\u001b[36macceptance_person_test.ts\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m:\u001b[0m\u001b[33m3\u001b[0m\n\n\u001b[0m\u001b[1m\u001b[37m\u001b[41m FAILURES \u001b[0m\n\nacceptance: greetPerson greets a person \u001b[0m\u001b[38;5;245m=\u003e ./acceptance_person_test.ts:10:6\u001b[0m\n\n\u001b[0m\u001b[31mFAILED\u001b[0m | 7 passed | 1 failed \u001b[0m\u001b[38;5;245m(125ms)\u001b[0m\n\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Test failed"
     },
     {
       "fixture": "greet",
@@ -264,9 +268,9 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 2.262987492,
-      "agent": "scripted"
+      "progressRecords": 5,
+      "wallTimeSeconds": 11.039265619,
+      "agent": "claude-mod"
     },
     {
       "fixture": "greet",
@@ -278,17 +282,17 @@
       "verifyPass": true,
       "acceptancePass": true,
       "delta": {
-        "added": 0,
+        "added": 1,
         "removed": 0,
-        "changed": 1,
+        "changed": 0,
         "entries": 1,
         "expected": 1,
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 2.334497546,
-      "agent": "scripted"
+      "progressRecords": 6,
+      "wallTimeSeconds": 12.047286413,
+      "agent": "claude-mod"
     },
     {
       "fixture": "todo",
@@ -308,9 +312,9 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.557014504,
-      "agent": "scripted"
+      "progressRecords": 6,
+      "wallTimeSeconds": 12.171281799,
+      "agent": "claude-mod"
     },
     {
       "fixture": "todo",
@@ -330,9 +334,9 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.23173173,
-      "agent": "scripted"
+      "progressRecords": 9,
+      "wallTimeSeconds": 21.896343651,
+      "agent": "claude-mod"
     },
     {
       "fixture": "todo",
@@ -344,20 +348,20 @@
       "verifyPass": true,
       "acceptancePass": true,
       "delta": {
-        "added": 0,
+        "added": 1,
         "removed": 0,
-        "changed": 1,
+        "changed": 0,
         "entries": 1,
         "expected": 1,
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.5501574059999998,
-      "agent": "scripted"
+      "progressRecords": 6,
+      "wallTimeSeconds": 19.904080841,
+      "agent": "claude-mod"
     }
   ],
   "notes": [
-    "working trees under /tmp/specd-eval.721353444"
+    "working trees under /tmp/specd-eval.2195478473"
   ]
 }

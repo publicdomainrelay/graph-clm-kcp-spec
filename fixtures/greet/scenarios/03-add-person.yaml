@@ -20,12 +20,20 @@ specPatch:
       signature: "(person: Person): Greeting"
       file: mod.ts
   requirements:
+    - id: r.person
+      level: MUST
+      text: Person carries the person's name and their age in years.
+      codeRefs: ["file:person.ts"]
+    - id: r.format-person
+      level: MUST
+      text: "formatPerson returns the name, a space, and the age in parentheses: `ada (36)`."
+      codeRefs: ["file:person.ts"]
     - id: r.greet-person
       level: SHOULD
-      text: greetPerson greets a person by their formatted name and age.
+      text: greetPerson returns the person's own name, and the greeting text greet writes for the name formatPerson writes for that person.
       codeRefs: ["file:mod.ts", "file:person.ts"]
 expectedInterfaces: ["Person", "formatPerson", "greetPerson"]
-expectedDeltaEntries: 4
+expectedDeltaEntries: 6
 acceptance:
   - path: acceptance_person_test.ts
     contents: |

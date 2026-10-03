@@ -13,7 +13,7 @@ specPatch:
   requirements:
     - id: r.farewell
       level: MAY
-      text: farewell returns a goodbye line for a name.
+      text: "farewell returns the text `goodbye, ` followed by the name."
       codeRefs: ["file:mod.ts"]
 expectedInterfaces: ["farewell"]
 expectedDeltaEntries: 2
