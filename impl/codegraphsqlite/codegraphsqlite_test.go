@@ -98,6 +98,38 @@ func TestFactsCarryExportedSymbols(t *testing.T) {
 	}
 }
 
+// TestFactsCarryExportedMethods is the Go half of the observed surface: the
+// index reports is_exported false for every method node, so a reader that
+// trusted it would see no exported method at all and the spec of a service
+// would be missing most of what it offers.
+func TestFactsCarryExportedMethods(t *testing.T) {
+	fixture.Require(t, "codegraph", "git")
+	repo := fixture.Copy(t, "todo")
+	ctx := context.Background()
+	dbPath, err := codegraphsqlite.Ensure(ctx, repo, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	database, err := codegraphsqlite.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	facts, err := database.Facts(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, symbol := range facts.Symbols {
+		names[symbol.Name] = true
+	}
+	for _, want := range []string{"Add", "List", "Get", "Complete", "NewStore"} {
+		if !names[want] {
+			t.Errorf("%s is not an observed symbol", want)
+		}
+	}
+}
+
 func TestResolveNeverComputesAnID(t *testing.T) {
 	database, _ := openFixture(t)
 	ctx := context.Background()

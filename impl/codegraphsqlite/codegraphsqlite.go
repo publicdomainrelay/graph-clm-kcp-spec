@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
 
@@ -163,9 +165,22 @@ func scanNodes(rows *sql.Rows) ([]Node, error) {
 			return nil, fmt.Errorf("codegraphsqlite: scan node: %w", err)
 		}
 		node.Signature = signature.String
+		node.IsExported = node.IsExported || exportedMethod(node)
 		out = append(out, node)
 	}
 	return out, rows.Err()
+}
+
+// exportedMethod corrects the index for Go methods. A Go method is exported
+// when its name is capitalised, and the index reports is_exported false for
+// every method node, so an observed package would otherwise be missing half its
+// public surface. The rule is Go's own and needs no reading of the source.
+func exportedMethod(node Node) bool {
+	if node.Kind != "method" || node.Language != "go" {
+		return false
+	}
+	first, _ := utf8.DecodeRuneInString(node.Name)
+	return unicode.IsUpper(first)
 }
 
 func (db *DB) Edges(ctx context.Context) ([]Edge, error) {
