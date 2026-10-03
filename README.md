@@ -823,7 +823,9 @@ workspace mode is still the default: `--mode` is the only switch.
 
 The second half of phase 9 puts the spec in the repository beside the code.
 `specctl sync --repo <path>` writes one YAML per `SystemContext` to
-`<repo>/.specs/<name>.yaml` — spec only, canonical key order, no status — and
+`<repo>/.specs/<name>.yaml` — spec only, canonical key order, no status, and
+without the code refs the index derives (those are an observation, not a
+decision, and writing them would rewrite every file on every commit) — and
 reads them back:
 
 ```bash
