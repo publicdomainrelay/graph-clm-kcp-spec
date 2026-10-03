@@ -19,6 +19,8 @@ import {
   summarizeTurn,
 } from "../src/context-doc.ts";
 import { touchedPaths } from "../src/extension.ts";
+import { parseBackend } from "../src/backend.ts";
+import { resolvePartialTarget } from "../src/target.ts";
 
 test("stableNodeId is deterministic and non-negative", () => {
   const a = stableNodeId("session:alpha");
@@ -176,4 +178,49 @@ test("only plausible code references survive extraction", () => {
 test("extraction drops prose and flags from backticks", () => {
   const text = "Run `codegraph sync`, pass `--test-force-exit`, and read `pi-hydradb-clm/src/graph.ts`.";
   assert.deepEqual(extractReferences(text), ["pi-hydradb-clm/src/graph.ts"]);
+});
+
+test("arcadedb is the default graph backend", () => {
+  assert.equal(parseBackend(undefined), "arcadedb");
+  assert.equal(parseBackend(""), "arcadedb");
+  assert.equal(parseBackend("HydraDB"), "hydradb");
+  assert.throws(() => parseBackend("sqlite"));
+});
+
+test("the default target is arcadedb on 7688 with the local password", () => {
+  const target = resolvePartialTarget({});
+  assert.equal(target.backend, "arcadedb");
+  assert.equal(target.boltUrl, "bolt://127.0.0.1:7688");
+  assert.equal(target.user, "root");
+  assert.equal(target.database, "clm");
+  assert.equal(target.token, "clm-arcadedb-root");
+});
+
+test("GRAPH_* and the HYDRA_* aliases both select the target", () => {
+  const preferred = resolvePartialTarget({
+    GRAPH_BACKEND: "hydradb",
+    GRAPH_BOLT_URL: "bolt://graph:7687",
+    GRAPH_USER: "alice",
+    GRAPH_TOKEN: "graph-token",
+  });
+  assert.deepEqual(preferred, {
+    backend: "hydradb",
+    boltUrl: "bolt://graph:7687",
+    user: "alice",
+    token: "graph-token",
+    tokenFile: "/var/run/secrets/slatedb-graph/auth-token",
+    database: undefined,
+  });
+  const alias = resolvePartialTarget({
+    HYDRA_BACKEND: "hydradb",
+    HYDRA_BOLT_URL: "bolt://alias:7687",
+    HYDRA_USER: "bob",
+    HYDRA_TOKEN: "alias-token",
+  });
+  assert.equal(alias.backend, "hydradb");
+  assert.equal(alias.boltUrl, "bolt://alias:7687");
+  assert.equal(alias.user, "bob");
+  assert.equal(alias.token, "alias-token");
+  const both = resolvePartialTarget({ HYDRA_USER: "alias", GRAPH_USER: "preferred" });
+  assert.equal(both.user, "preferred");
 });

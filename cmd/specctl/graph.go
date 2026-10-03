@@ -46,6 +46,10 @@ func runGraphNeighbors(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return exitUsage
 	}
+	if err := bolt.Resolve(fs); err != nil {
+		fmt.Fprintf(stderr, "specctl graph neighbors: %v\n", err)
+		return exitUsage
+	}
 	if len(positional) != 1 {
 		fmt.Fprintln(stderr, "specctl graph neighbors: one context name is required")
 		return exitUsage
@@ -178,6 +182,10 @@ func runGraphRebuild(args []string, stdout, stderr io.Writer) int {
 	options := addGlobals(fs)
 	bolt := boltflags.Add(fs)
 	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	if err := bolt.Resolve(fs); err != nil {
+		fmt.Fprintf(stderr, "specctl graph rebuild: %v\n", err)
 		return exitUsage
 	}
 	if bolt.URL == "" {

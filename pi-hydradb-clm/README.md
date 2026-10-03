@@ -105,16 +105,21 @@ npx tsx --test test/units.test.ts        # fast, no I/O
 the assertions finish. Closing the driver on `dispose()` instead would need a
 hook pi does not currently offer.
 
-Integration tests need a HydraDB node. Point them at one:
+Integration tests need a Bolt graph. The default backend is ArcadeDB on
+`bolt://127.0.0.1:7688` (`root` / `clm-arcadedb-root`, database `clm`), so with
+that server running no environment is needed at all. Point them at another one
+with the `GRAPH_*` names (`HYDRA_*` still works as an alias):
 
 ```bash
-export HYDRA_BOLT_URL=bolt://127.0.0.1:7687
-export HYDRA_TOKEN_FILE=/path/to/auth-token
+export GRAPH_BACKEND=hydradb
+export GRAPH_BOLT_URL=bolt://127.0.0.1:7687
+export GRAPH_TOKEN_FILE=/path/to/auth-token
 ```
 
-If none is reachable, the harness starts one from `HYDRA_NODE_BIN`
+If none is reachable, the harness starts one: HydraDB from `HYDRA_NODE_BIN`
 (default `/tmp/hydradb-bin/graph-node`) with `HYDRA_LIB_PATH` on
-`LD_LIBRARY_PATH`.
+`LD_LIBRARY_PATH`, ArcadeDB from `GRAPH_ARCADEDB_HOME` (default
+`/tmp/arcadedb/arcadedb-26.9.1`).
 
 The backing LLM is DeepSeek. The key is read from `DEEPSEEK_API_KEY`, or from
 the `deepseek-claude` launcher script if that env var is unset.
@@ -133,13 +138,16 @@ pi -e ./pi-hydradb-clm
 
 ## Configuration
 
+Every `GRAPH_*` name below has a `HYDRA_*` alias (`HYDRA_BACKEND`,
+`HYDRA_BOLT_URL`, ...), so an existing configuration keeps working.
+
 | Env var | Default | Meaning |
 | --- | --- | --- |
-| `HYDRA_BACKEND` | `hydradb` | `hydradb` or `arcadedb` |
-| `HYDRA_BOLT_URL` | per backend | Bolt endpoint (`bolt://127.0.0.1:7687` / `:7688`) |
-| `HYDRA_USER` | per backend | Bolt principal (`neo4j` / `root`) |
-| `HYDRA_TOKEN` / `HYDRA_TOKEN_FILE` | per backend | Token or password; HydraDB also accepts a file |
-| `HYDRA_DATABASE` | per backend | Graph/database name; required by ArcadeDB (`clm`) |
+| `GRAPH_BACKEND` | `arcadedb` | `arcadedb` or `hydradb` |
+| `GRAPH_BOLT_URL` | per backend | Bolt endpoint (`bolt://127.0.0.1:7688` / `:7687`) |
+| `GRAPH_USER` | per backend | Bolt principal (`root` / `neo4j`) |
+| `GRAPH_TOKEN` / `GRAPH_TOKEN_FILE` | per backend | Token or password; HydraDB also accepts a file |
+| `GRAPH_DATABASE` | per backend | Graph/database name; required by ArcadeDB (`clm`) |
 | `HYDRA_CLM_SESSION` | `pi-<pid>` | Session key; the graph partition for one agent session |
 | `HYDRA_CLM_CONTEXT_PATH` | temp dir per session | Where the live context file is written |
 | `HYDRA_CLM_BUDGET` | `2000` | Token budget for the injected live-context document |
@@ -149,14 +157,16 @@ pi -e ./pi-hydradb-clm
 ## Two backends
 
 The extension talks Bolt and emits one Cypher dialect, so either engine can back
-it. `HYDRA_BACKEND=arcadedb` switches the defaults; everything else is unchanged.
+it. **ArcadeDB is the default** — it is the more Cypher compliant of the two (38
+of 40 probe cases against HydraDB's 26) — and `GRAPH_BACKEND=hydradb` switches
+the defaults; everything else is unchanged.
 
-| | HydraDB | ArcadeDB |
+| | ArcadeDB (default) | HydraDB |
 | --- | --- | --- |
-| Default Bolt port | 7687 | 7688 (this PoC) |
-| Principal / secret | any user + token file | `root` + password |
-| Database | implicit | required, `clm` |
-| Distribution | OCI image `ghcr.io/hydra-db/hydradb:0.2.0` | release `arcadedb-26.9.1.tar.gz` |
+| Default Bolt port | 7688 | 7687 |
+| Principal / secret | `root` + password | any user + token file |
+| Database | required, `clm` | implicit |
+| Distribution | release `arcadedb-26.9.1.tar.gz` | OCI image `ghcr.io/hydra-db/hydradb:0.2.0` |
 
 ### Running ArcadeDB
 
@@ -176,11 +186,12 @@ JAVA_OPTS="-Darcadedb.bolt.port=7688 -Darcadedb.bolt.host=127.0.0.1 \
   bin/server.sh
 ```
 
-Then point the tests at it:
+Then the default configuration already points at it; `npm test` needs no
+environment. To point at another instance:
 
 ```bash
-HYDRA_BACKEND=arcadedb HYDRA_BOLT_URL=bolt://127.0.0.1:7688 \
-HYDRA_USER=root HYDRA_TOKEN=clm-arcadedb-root HYDRA_DATABASE=clm npm test
+GRAPH_BACKEND=arcadedb GRAPH_BOLT_URL=bolt://127.0.0.1:7688 \
+GRAPH_USER=root GRAPH_TOKEN=clm-arcadedb-root GRAPH_DATABASE=clm npm test
 ```
 
 ## Cypher conformance probe
@@ -193,9 +204,10 @@ pin a minimum row count, or an exact one where engine semantics make it
 deterministic, so a query that parses but returns nothing cannot pass.
 
 ```bash
-HYDRA_BACKEND=hydradb   HYDRA_TOKEN_FILE=... npx tsx scripts/cypher-probe.ts
-HYDRA_BACKEND=arcadedb  HYDRA_TOKEN=... HYDRA_BOLT_URL=bolt://127.0.0.1:7688 \
-  HYDRA_USER=root HYDRA_DATABASE=clm npx tsx scripts/cypher-probe.ts
+GRAPH_BACKEND=arcadedb  npx tsx scripts/cypher-probe.ts
+GRAPH_BACKEND=hydradb   GRAPH_TOKEN_FILE=... npx tsx scripts/cypher-probe.ts
+GRAPH_BACKEND=arcadedb  GRAPH_TOKEN=... GRAPH_BOLT_URL=bolt://127.0.0.1:7688 \
+  GRAPH_USER=root GRAPH_DATABASE=clm npx tsx scripts/cypher-probe.ts
 
 npm run probe:diff -- /tmp/cypher-probe-hydradb.json \
   /tmp/cypher-probe-arcadedb.json docs/cypher-conformance.md

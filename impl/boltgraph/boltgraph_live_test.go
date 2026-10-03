@@ -12,33 +12,52 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/ids"
 )
 
-// requireBolt reads the same environment as the phase 2 end to end test. With
-// no endpoint it skips; with SPECD_REQUIRE_LIVE=1 it fails instead.
+// requireBolt reads the same environment as the phase 2 end to end test. The
+// default backend is ArcadeDB, the project default; SPECD_TEST_BACKEND=hydradb
+// switches to the HydraDB variables instead. With no endpoint it skips; with
+// SPECD_REQUIRE_LIVE=1 it fails instead.
 func requireBolt(t *testing.T) Options {
 	t.Helper()
 	if testing.Short() && os.Getenv("SPECD_REQUIRE_LIVE") != "1" {
 		t.Skip("live test skipped in short mode")
 	}
-	url := os.Getenv("SPECD_TEST_HYDRA_URL")
-	if url == "" {
-		url = "bolt://127.0.0.1:7687"
+	backend := os.Getenv("SPECD_TEST_BACKEND")
+	if backend == "" {
+		backend = "arcadedb"
 	}
-	password := os.Getenv("SPECD_TEST_HYDRA_PASSWORD")
-	if password == "" {
-		if path := envOr("SPECD_TEST_HYDRA_PASSWORD_FILE", "/tmp/hdb/token"); path != "" {
-			if contents, err := os.ReadFile(path); err == nil {
-				password = strings.TrimSpace(string(contents))
+	options := Options{}
+	switch backend {
+	case "hydradb":
+		url := os.Getenv("SPECD_TEST_HYDRA_URL")
+		if url == "" {
+			url = "bolt://127.0.0.1:7687"
+		}
+		password := os.Getenv("SPECD_TEST_HYDRA_PASSWORD")
+		if password == "" {
+			if path := envOr("SPECD_TEST_HYDRA_PASSWORD_FILE", "/tmp/hdb/token"); path != "" {
+				if contents, err := os.ReadFile(path); err == nil {
+					password = strings.TrimSpace(string(contents))
+				}
 			}
 		}
-	}
-	options := Options{
-		URL:      url,
-		User:     envOr("SPECD_TEST_HYDRA_USER", "neo4j"),
-		Password: password,
-		Database: os.Getenv("SPECD_TEST_HYDRA_DATABASE"),
-	}
-	if os.Getenv("SPECD_REQUIRE_LIVE") == "1" && password == "" {
-		t.Fatalf("SPECD_REQUIRE_LIVE=1 but no bolt password for %s", url)
+		options = Options{
+			URL:      url,
+			User:     envOr("SPECD_TEST_HYDRA_USER", "neo4j"),
+			Password: password,
+			Database: os.Getenv("SPECD_TEST_HYDRA_DATABASE"),
+		}
+		if os.Getenv("SPECD_REQUIRE_LIVE") == "1" && password == "" {
+			t.Fatalf("SPECD_REQUIRE_LIVE=1 but no bolt password for %s", url)
+		}
+	case "arcadedb":
+		options = Options{
+			URL:      envOr("SPECD_TEST_ARCADE_URL", "bolt://127.0.0.1:7688"),
+			User:     envOr("SPECD_TEST_ARCADE_USER", "root"),
+			Password: envOr("SPECD_TEST_ARCADE_PASSWORD", "clm-arcadedb-root"),
+			Database: envOr("SPECD_TEST_ARCADE_DATABASE", "clm"),
+		}
+	default:
+		t.Fatalf("SPECD_TEST_BACKEND = %q, want arcadedb or hydradb", backend)
 	}
 	return options
 }

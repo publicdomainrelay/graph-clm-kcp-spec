@@ -4,11 +4,13 @@
   "private": true,
   "type": "module",
   "license": "Unlicense",
-  "description": "Pi extension: durable graph-backed live context in HydraDB, in the Context Language Models style",
+  "description": "Pi extension: durable graph-backed live context in a Bolt graph DB (ArcadeDB by default, HydraDB an option), in the Context Language Models style",
   "keywords": [
     "pi-package",
     "pi-extension",
     "hydradb",
+    "arcadedb",
+    "graph",
     "context-language-models"
   ],
   "pi": {

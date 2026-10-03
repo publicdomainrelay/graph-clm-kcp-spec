@@ -8,9 +8,11 @@ SPECS_KUBECONFIG ?= $(CURDIR)/.kcp-specd/admin.kubeconfig
 WORKSPACE_KUBECONFIG := $(CURDIR)/.kcp-specd/specs.kubeconfig
 export SPECD_KUBECONFIG ?= $(SPECS_KUBECONFIG)
 
-export SPECD_BOLT_URL ?= bolt://127.0.0.1:7687
-export SPECD_BOLT_PASSWORD_FILE ?= /tmp/hdb/token
-export SPECD_BOLT_USER ?= neo4j
+# The graph backend every target defaults to. ArcadeDB is the default; the Go
+# flag and environment defaults follow this variable, so
+# `make test-live SPECD_BOLT_BACKEND=hydradb` switches every command to HydraDB
+# on bolt://127.0.0.1:7687 with the token in /tmp/hdb/token.
+export SPECD_BOLT_BACKEND ?= arcadedb
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
@@ -77,13 +79,11 @@ example-phase2: $(SPECCTL) kcp-up
 	@echo "--- the calculated fingerprint and the conditions ---"
 	KUBECONFIG=$(WORKSPACE_KUBECONFIG) kubectl -n default get systemcontext calc \
 		-o jsonpath='{.status.observed.fingerprint}{"\n"}{range .status.conditions[*]}{.type}={.status} {end}{"\n"}'
-	@echo "--- one hop of the graph around calc in HydraDB ---"
+	@echo "--- one hop of the graph around calc in ArcadeDB, the default backend ---"
 	$(SPECCTL) graph neighbors calc
-	@echo "--- the same neighborhood in ArcadeDB, rebuilt from kcp and codegraph ---"
-	$(SPECCTL) graph rebuild \
-		--bolt-url bolt://127.0.0.1:7688 --bolt-user root --bolt-password clm-arcadedb-root --bolt-database clm
-	$(SPECCTL) graph neighbors calc \
-		--bolt-url bolt://127.0.0.1:7688 --bolt-user root --bolt-password clm-arcadedb-root --bolt-database clm
+	@echo "--- the same neighborhood in HydraDB, rebuilt from kcp and codegraph ---"
+	$(SPECCTL) graph rebuild --bolt-backend hydradb
+	$(SPECCTL) graph neighbors calc --bolt-backend hydradb
 
 example-phase3: $(SPECCTL) kcp-up
 	@echo "--- every node of the open architecture document becomes a SystemContext ---"

@@ -42,6 +42,10 @@ func runIngest(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	if err := bolt.Resolve(fs); err != nil {
+		fmt.Fprintf(stderr, "specctl ingest: %v\n", err)
+		return exitUsage
+	}
 	if *repo == "" {
 		fmt.Fprintln(stderr, "specctl ingest: --repo is required")
 		return exitUsage

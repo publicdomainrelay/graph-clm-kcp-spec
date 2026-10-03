@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { BACKEND_DEFAULTS, parseBackend, type GraphBackend } from "../src/backend.ts";
 import { GraphClient } from "../src/graph.ts";
+import { envValue } from "../src/target.ts";
 
 export const EXTENSION_PATH = resolve(import.meta.dirname, "..", "index.ts");
 export const DEEPSEEK_CLAUDE = join(
@@ -92,10 +93,12 @@ function hydradbProcess(boltUrl: string, httpPort: number, adminPort: number) {
 }
 
 function arcadedbProcess(boltUrl: string, httpPort: number) {
-  const home = process.env.HYDRA_ARCADEDB_HOME ?? "/tmp/arcadedb/arcadedb-26.9.1";
+  const home =
+    envValue(process.env, "GRAPH_ARCADEDB_HOME", "HYDRA_ARCADEDB_HOME") ?? "/tmp/arcadedb/arcadedb-26.9.1";
   const root = mkdtempSync(join(tmpdir(), "arcadedb-clm-"));
-  const token = process.env.HYDRA_ARCADEDB_PASSWORD ?? "clm-arcadedb-root";
-  const database = process.env.HYDRA_DATABASE ?? BACKEND_DEFAULTS.arcadedb.database ?? "clm";
+  const token =
+    envValue(process.env, "GRAPH_ARCADEDB_PASSWORD", "HYDRA_ARCADEDB_PASSWORD") ?? "clm-arcadedb-root";
+  const database = envValue(process.env, "GRAPH_DATABASE", "HYDRA_DATABASE") ?? BACKEND_DEFAULTS.arcadedb.database ?? "clm";
 
   const child = spawn(join(home, "bin", "server.sh"), [], {
     cwd: root,
@@ -121,17 +124,18 @@ function arcadedbProcess(boltUrl: string, httpPort: number) {
 
 export async function ensureGraph(): Promise<GraphHandle> {
   if (handle) return handle;
-  const backend = parseBackend(process.env.HYDRA_BACKEND);
+  const backend = parseBackend(envValue(process.env, "GRAPH_BACKEND", "HYDRA_BACKEND"));
   const defaults = BACKEND_DEFAULTS[backend];
 
-  const boltUrl = process.env.HYDRA_BOLT_URL ?? defaults.boltUrl;
-  const user = process.env.HYDRA_USER ?? defaults.user;
-  const database = process.env.HYDRA_DATABASE ?? defaults.database;
+  const boltUrl = envValue(process.env, "GRAPH_BOLT_URL", "HYDRA_BOLT_URL") ?? defaults.boltUrl;
+  const user = envValue(process.env, "GRAPH_USER", "HYDRA_USER") ?? defaults.user;
+  const database = envValue(process.env, "GRAPH_DATABASE", "HYDRA_DATABASE") ?? defaults.database;
   const envToken =
-    process.env[defaults.tokenEnv] ??
-    (process.env.HYDRA_TOKEN_FILE && defaults.tokenFile
-      ? readFileSync(process.env.HYDRA_TOKEN_FILE, "utf8").trim()
-      : undefined);
+    envValue(process.env, defaults.tokenEnv, "HYDRA_TOKEN") ??
+    (envValue(process.env, "GRAPH_TOKEN_FILE", "HYDRA_TOKEN_FILE") && defaults.tokenFile
+      ? readFileSync(envValue(process.env, "GRAPH_TOKEN_FILE", "HYDRA_TOKEN_FILE") as string, "utf8").trim()
+      : undefined) ??
+    defaults.token;
 
   if (envToken && (await reachable(boltUrl, user, envToken, database))) {
     handle = { backend, boltUrl, user, token: envToken, database, spawned: null, stop() {} };
@@ -151,6 +155,11 @@ export async function ensureGraph(): Promise<GraphHandle> {
 
   for (let attempt = 0; attempt < 120; attempt++) {
     if (await reachable(boltUrl, user, token, resolvedDatabase)) {
+      process.env.GRAPH_BACKEND = backend;
+      process.env.GRAPH_BOLT_URL = boltUrl;
+      process.env.GRAPH_USER = user;
+      process.env.GRAPH_TOKEN = token;
+      if (resolvedDatabase) process.env.GRAPH_DATABASE = resolvedDatabase;
       process.env.HYDRA_BACKEND = backend;
       process.env.HYDRA_BOLT_URL = boltUrl;
       process.env.HYDRA_USER = user;

@@ -170,24 +170,18 @@ func TestBoltOptionsReadTheEnvironment(t *testing.T) {
 	t.Setenv("SPECD_BOLT_DATABASE", "clm")
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	options := boltflags.Add(fs)
-	if options.URL != "bolt://example:7687" || options.User != "root" || options.Password != "secret" ||
-		options.PasswordFile != "/tmp/token" || options.Database != "clm" {
-		t.Errorf("bolt options = %+v", options)
-	}
 	if err := fs.Parse([]string{"--bolt-url", "bolt://other:7687"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := options.Resolve(fs); err != nil {
 		t.Fatal(err)
 	}
 	if options.URL != "bolt://other:7687" {
 		t.Errorf("a flag must beat the environment: %q", options.URL)
 	}
-}
-
-func TestBoltUserDefaults(t *testing.T) {
-	t.Setenv("SPECD_BOLT_USER", "")
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	options := boltflags.Add(fs)
-	if options.User != "neo4j" {
-		t.Errorf("user = %q, want neo4j", options.User)
+	if options.User != "root" || options.Password != "secret" ||
+		options.PasswordFile != "/tmp/token" || options.Database != "clm" {
+		t.Errorf("bolt options = %+v", options)
 	}
 }
 

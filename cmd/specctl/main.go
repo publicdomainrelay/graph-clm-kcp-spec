@@ -344,10 +344,11 @@ summarize flags (specctl ingest --summarize):
   --context-doc-budget <n>  token budget of the context document (default 1500)
 
 graph flags:
-  --bolt-url <url>           bolt endpoint (default $SPECD_BOLT_URL, empty skips the graph)
-  --bolt-user <user>         bolt user (default $SPECD_BOLT_USER or neo4j)
-  --bolt-password <password> bolt password (default $SPECD_BOLT_PASSWORD)
-  --bolt-password-file <path> read the bolt password from a file (default $SPECD_BOLT_PASSWORD_FILE)
-  --bolt-database <name>     bolt database (default $SPECD_BOLT_DATABASE, needed by ArcadeDB)
+  --bolt-backend <name>      arcadedb (default) or hydradb; it fills the unset options
+  --bolt-url <url>           bolt endpoint (default $SPECD_BOLT_URL or the backend's, empty skips the graph)
+  --bolt-user <user>         bolt user (default $SPECD_BOLT_USER or the backend's)
+  --bolt-password <password> bolt password (default $SPECD_BOLT_PASSWORD or the backend's)
+  --bolt-password-file <path> read the bolt password from a file (default $SPECD_BOLT_PASSWORD_FILE or the backend's)
+  --bolt-database <name>     bolt database (default $SPECD_BOLT_DATABASE or the backend's, needed by ArcadeDB)
 `)
 }

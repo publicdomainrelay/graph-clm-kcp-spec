@@ -106,6 +106,9 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	if err := fs.Parse(args); err != nil {
 		return config, bolt, err
 	}
+	if err := bolt.Resolve(fs); err != nil {
+		return config, bolt, err
+	}
 	return config, bolt, nil
 }
 

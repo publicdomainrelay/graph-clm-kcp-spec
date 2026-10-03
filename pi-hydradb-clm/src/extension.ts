@@ -61,7 +61,7 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): HydraClmOp
 export function resolveToken(options: HydraClmOptions): string {
   if (options.token) return options.token.trim();
   if (options.tokenFile) return readFileSync(options.tokenFile, "utf8").trim();
-  throw new Error(`${options.backend} backend needs HYDRA_TOKEN or HYDRA_TOKEN_FILE`);
+  throw new Error(`${options.backend} backend needs GRAPH_TOKEN or GRAPH_TOKEN_FILE (HYDRA_TOKEN, HYDRA_TOKEN_FILE)`);
 }
 
 const FILE_TOOLS = new Set(["read", "write", "edit"]);

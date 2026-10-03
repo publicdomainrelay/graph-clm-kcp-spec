@@ -155,8 +155,9 @@ drives an agent to change the code under a test gate.**
 - `specctl import-arch <arch.yaml>` turns every node of an open architecture
   document into a `SystemContext`, and `specctl export --format arch` writes it
   back; the ids, the refs and the preserved node bodies survive the trip.
-- `specctl graph neighbors|rebuild` read and write the spec graph in HydraDB or
-  ArcadeDB over Bolt, using only the Cypher core subset both engines run.
+- `specctl graph neighbors|rebuild` read and write the spec graph in ArcadeDB
+  (the default backend) or HydraDB over Bolt, using only the Cypher core subset
+  both engines run; `--bolt-backend hydradb` switches the defaults.
 - `specd --agent claude|scripted:<file>` works a `CodeToSpec` change off: it
   builds the context bundle, asks the agent, validates the answer, writes
   `intent`, `requirements` and `interfaces` with the `origin: ingest`
@@ -204,9 +205,12 @@ drives an agent to change the code under a test gate.**
 ## Requirements
 
 `go` (1.26 or newer), `kcp` v0.33, `kine`, `kubectl`, `codegraph` on `PATH` for
-ingest, and `git` for a `Repository` and for `specd`. The graph needs a Bolt endpoint: HydraDB on
-`bolt://127.0.0.1:7687` (password in `/tmp/hdb/token` by default) or ArcadeDB
-on `bolt://127.0.0.1:7688` (database `clm`). The graph commands need one;
+ingest, and `git` for a `Repository` and for `specd`. The graph needs a Bolt
+endpoint and defaults to ArcadeDB on `bolt://127.0.0.1:7688` (user `root`,
+password `clm-arcadedb-root`, database `clm`); HydraDB on
+`bolt://127.0.0.1:7687` (password in `/tmp/hdb/token`) is an option, selected
+with `--bolt-backend hydradb` or `SPECD_BOLT_BACKEND=hydradb`. The graph
+commands need one;
 `apply`, `get`, `delete`, `import-arch` and `export` work without one (pass
 `--no-graph` to `ingest` and `import-arch`).
 
@@ -236,7 +240,8 @@ make kcp-down        # stop the cluster this repo started
 objects through `kubectl`, and one `SystemContext` as YAML.
 `make example-phase2` applies the same example, indexes `fixtures/calc` with
 CodeGraph, ingests it, prints the observed facts and the conditions, and shows
-one hop of the graph around `calc` in HydraDB and in ArcadeDB.
+one hop of the graph around `calc` in ArcadeDB, the default backend, and in
+HydraDB, the option.
 `make example-phase3` imports the archived open architecture document, prints
 one hop of the graph around `sc.deno-kcp` (by arch id), exports the document
 back out of kcp, and runs the live round trip test. All three targets are
@@ -275,16 +280,15 @@ The same steps by hand:
 ```bash
 make build
 
-# the graph endpoint; the Makefile exports these two for you
-export SPECD_BOLT_URL=bolt://127.0.0.1:7687
-export SPECD_BOLT_PASSWORD_FILE=/tmp/hdb/token
+# the graph endpoint defaults to ArcadeDB on bolt://127.0.0.1:7688 (root /
+# clm-arcadedb-root, database clm); for HydraDB instead:
+#   export SPECD_BOLT_BACKEND=hydradb   # 7687, neo4j, token in /tmp/hdb/token
 
 bin/specctl apply -f examples/calc/specs.yaml
 bin/specctl ingest --repo fixtures/calc
 bin/specctl get systemcontext calc -o yaml
 bin/specctl graph neighbors calc
-bin/specctl graph rebuild --bolt-url bolt://127.0.0.1:7688 \
-  --bolt-user root --bolt-password clm-arcadedb-root --bolt-database clm
+bin/specctl graph rebuild --bolt-backend hydradb
 
 bin/specctl delete systemcontext calc
 
@@ -313,10 +317,12 @@ KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl get specchanges
 ```
 
 `ingest` reads the Bolt endpoint from the flags or the environment
-(`SPECD_BOLT_URL`, `SPECD_BOLT_USER`, `SPECD_BOLT_PASSWORD`,
-`SPECD_BOLT_PASSWORD_FILE`, `SPECD_BOLT_DATABASE`); with no `--bolt-url` and no
-`SPECD_BOLT_URL` it only updates kcp. The `Makefile` exports the HydraDB
-defaults, so plain `make example-phase2` needs no extra flags. A relative
+(`SPECD_BOLT_BACKEND`, `SPECD_BOLT_URL`, `SPECD_BOLT_USER`,
+`SPECD_BOLT_PASSWORD`, `SPECD_BOLT_PASSWORD_FILE`, `SPECD_BOLT_DATABASE`). The
+backend fills the options no flag and no environment variable set, and ArcadeDB
+is the default; `SPECD_BOLT_URL=` (set but empty) turns the graph off. The
+`Makefile` exports `SPECD_BOLT_BACKEND=arcadedb`, so plain `make example-phase2`
+needs no extra flags. A relative
 `Repository.spec.path` resolves against the working directory of whichever
 process reads it, so run the commands from the repository root, and note that
 `specd` needs that path to be a git working tree: `fixtures/calc` is a plain
@@ -656,7 +662,7 @@ graph        true
 
 Vertex ids are FNV-1a of a content key, masked to 53 bits, so re-ingest lands on
 the same vertex (`common/ids`, the same scheme as `pi-hydradb-clm`). Every write
-stays inside the Cypher core subset that HydraDB 0.2.0 and ArcadeDB both run:
+stays inside the Cypher core subset that ArcadeDB and HydraDB 0.2.0 both run:
 `UNWIND $rows AS row MERGE (n {id: row.id}) SET ...` for vertices, a one-hop
 typed `MATCH ... CREATE` for edges, `DETACH DELETE` for removal, and reads that
 project properties with a label or an id predicate.
@@ -699,7 +705,7 @@ impl/scriptedagent   the deterministic agent: drafts and realize steps from a sc
 impl/realize         one spec -> code unit of work: worktree, agent, verify gate, commit, land, re-ingest
 impl/archkcp         arch.yaml <-> SystemContext objects on a kcp workspace
 impl/gitrepo         the managed tree: head, branch, worktrees, the specd commit, the --ff-only land
-impl/boltgraph       Bolt client for HydraDB and ArcadeDB
+impl/boltgraph       Bolt client; ArcadeDB is the default backend, HydraDB an option
 abc/watch            the watch contract: resources in, Added/Updated/Deleted out
 impl/watchinformer   dynamic informer watches against the workspace
 impl/watchpoll       the list-and-diff fallback for a watch that cannot be held
@@ -754,19 +760,21 @@ no cluster, only `codegraph`, and the phase 6 one drives the whole realize path
 against a real worktree. The phase 6 tests own the `calc` and `cmd-calc` names
 too, and the keyed list test proves a server side apply edits one requirement
 without rewriting the others against the live API server. The ArcadeDB
-checks read
+checks, the default, read
 `SPECD_TEST_ARCADE_URL`, `SPECD_TEST_ARCADE_USER`, `SPECD_TEST_ARCADE_PASSWORD`
 and `SPECD_TEST_ARCADE_DATABASE`; the HydraDB ones read
 `SPECD_TEST_HYDRA_URL`, `SPECD_TEST_HYDRA_USER`,
-`SPECD_TEST_HYDRA_PASSWORD` and `SPECD_TEST_HYDRA_PASSWORD_FILE`.
+`SPECD_TEST_HYDRA_PASSWORD` and `SPECD_TEST_HYDRA_PASSWORD_FILE`. `impl/boltgraph`
+and the phase 2 graph check default to ArcadeDB and take
+`SPECD_TEST_BACKEND=hydradb` to run against HydraDB instead.
 
 ## Ports and state
 
 kcp listens on 6447 with kine on 23797 and keeps state in `.kcp-specd/`
 (gitignored). `deploy/stop-kcp.sh` only ever signals processes whose command
 line names that root directory, so it cannot disturb another kcp on the
-machine. The graph defaults to HydraDB on `bolt://127.0.0.1:7687` and ArcadeDB
-on `bolt://127.0.0.1:7688`; neither is started by this repository.
+machine. The graph defaults to ArcadeDB on `bolt://127.0.0.1:7688` (HydraDB on
+`bolt://127.0.0.1:7687` is the option); neither is started by this repository.
 
 ## What is next
 

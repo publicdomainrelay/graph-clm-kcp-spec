@@ -30,15 +30,9 @@ type backend struct {
 
 func backends(t *testing.T) []backend {
 	t.Helper()
+	// ArcadeDB first: it is the project's default backend, and the HydraDB
+	// check below proves the option still works.
 	out := []backend{
-		{
-			name: "hydradb",
-			options: boltgraph.Options{
-				URL:  envOr("SPECD_TEST_HYDRA_URL", "bolt://127.0.0.1:7687"),
-				User: envOr("SPECD_TEST_HYDRA_USER", "neo4j"),
-			},
-			password: envOr("SPECD_TEST_HYDRA_PASSWORD", passwordFromFile(envOr("SPECD_TEST_HYDRA_PASSWORD_FILE", "/tmp/hdb/token"))),
-		},
 		{
 			name: "arcadedb",
 			options: boltgraph.Options{
@@ -47,6 +41,14 @@ func backends(t *testing.T) []backend {
 				Database: envOr("SPECD_TEST_ARCADE_DATABASE", "clm"),
 			},
 			password: envOr("SPECD_TEST_ARCADE_PASSWORD", "clm-arcadedb-root"),
+		},
+		{
+			name: "hydradb",
+			options: boltgraph.Options{
+				URL:  envOr("SPECD_TEST_HYDRA_URL", "bolt://127.0.0.1:7687"),
+				User: envOr("SPECD_TEST_HYDRA_USER", "neo4j"),
+			},
+			password: envOr("SPECD_TEST_HYDRA_PASSWORD", passwordFromFile(envOr("SPECD_TEST_HYDRA_PASSWORD_FILE", "/tmp/hdb/token"))),
 		},
 	}
 	for index := range out {

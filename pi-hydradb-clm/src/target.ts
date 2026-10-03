@@ -18,16 +18,26 @@ export interface PartialTarget {
   database?: string;
 }
 
+// The GRAPH_* names are the current ones; the HYDRA_* names are kept as
+// aliases, so an existing shell or config file keeps working.
+export function envValue(env: NodeJS.ProcessEnv, ...names: string[]): string | undefined {
+  for (const name of names) {
+    const value = env[name];
+    if (value !== undefined && value !== "") return value;
+  }
+  return undefined;
+}
+
 export function resolvePartialTarget(env: NodeJS.ProcessEnv = process.env): PartialTarget {
-  const backend = parseBackend(env.HYDRA_BACKEND);
+  const backend = parseBackend(envValue(env, "GRAPH_BACKEND", "HYDRA_BACKEND"));
   const defaults = BACKEND_DEFAULTS[backend];
   return {
     backend,
-    boltUrl: env.HYDRA_BOLT_URL ?? defaults.boltUrl,
-    user: env.HYDRA_USER ?? defaults.user,
-    token: env[defaults.tokenEnv],
-    tokenFile: env.HYDRA_TOKEN_FILE ?? defaults.tokenFile,
-    database: env.HYDRA_DATABASE ?? defaults.database,
+    boltUrl: envValue(env, "GRAPH_BOLT_URL", "HYDRA_BOLT_URL") ?? defaults.boltUrl,
+    user: envValue(env, "GRAPH_USER", "HYDRA_USER") ?? defaults.user,
+    token: envValue(env, defaults.tokenEnv, "HYDRA_TOKEN") ?? defaults.token,
+    tokenFile: envValue(env, "GRAPH_TOKEN_FILE", "HYDRA_TOKEN_FILE") ?? defaults.tokenFile,
+    database: envValue(env, "GRAPH_DATABASE", "HYDRA_DATABASE") ?? defaults.database,
   };
 }
 
@@ -38,6 +48,6 @@ export function resolveGraphTarget(env: NodeJS.ProcessEnv = process.env): GraphT
     return { ...partial, token: readFileSync(partial.tokenFile, "utf8").trim() };
   }
   throw new Error(
-    `${partial.backend} backend needs HYDRA_TOKEN or HYDRA_TOKEN_FILE to authenticate`,
+    `${partial.backend} backend needs GRAPH_TOKEN or GRAPH_TOKEN_FILE (HYDRA_TOKEN, HYDRA_TOKEN_FILE) to authenticate`,
   );
 }
