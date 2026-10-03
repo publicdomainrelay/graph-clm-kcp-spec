@@ -37,7 +37,7 @@ Yes: "Bug in auth middleware. Token expiry check use `<` not `<=`. Fix:"
 
 # Code rules
 
-Make commits as you go, never push.
+Make commits and push as you go.
 
 The parent directory is the "org-root", use it as a reference. This repo in $PWD
 is one part of a larger project. We may include / import from packages within
