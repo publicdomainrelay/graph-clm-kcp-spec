@@ -35,6 +35,7 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	workDir := fs.String("work-dir", "", "where the working trees go (default a temporary directory)")
 	keep := fs.Bool("keep", false, "keep the working trees and the objects after the run")
 	codeOnly := fs.Bool("code-only", false, "run the code -> spec half and the round trip only")
+	roundTrip := fs.Bool("round-trip", true, "summarize every context twice more to measure round trip stability")
 	timeout := fs.Duration("timeout", eval.DefaultTimeout, "how long one scenario may take")
 	maxAttempts := fs.Int("max-attempts", eval.DefaultScenarioAttempts, "how many attempts one scenario's change gets")
 	tool := fs.String("codegraph", "", "codegraph command to run")
@@ -88,6 +89,7 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 		WorkDir:        *workDir,
 		Keep:           *keep,
 		CodeOnly:       *codeOnly,
+		NoRoundTrip:    !*roundTrip,
 		Timeout:        *timeout,
 		MaxAttempts:    *maxAttempts,
 		Tool:           *tool,

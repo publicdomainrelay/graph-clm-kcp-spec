@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -108,6 +107,11 @@ type Options struct {
 	// only asks whether one host can read a codebase.
 	CodeOnly bool
 
+	// NoRoundTrip skips the second and third summarize of every context. The
+	// round trip is two more model calls per context, which is worth paying for
+	// a fixture and not for a codebase of forty of them.
+	NoRoundTrip bool
+
 	Timeout time.Duration
 
 	MaxAttempts int
@@ -185,6 +189,11 @@ func Run(ctx context.Context, options Options) (eval.Report, error) {
 	if err != nil {
 		return report, err
 	}
+	for _, fixture := range fixtures {
+		if fixture.Config.Source != nil && options.Agent == "" && options.SummarizeAgent == "" {
+			return report, fmt.Errorf("eval: %s is a codebase with no scripted answer, so it needs a named agent", fixture.Name)
+		}
+	}
 	workDir := options.WorkDir
 	if workDir == "" {
 		workDir, err = os.MkdirTemp("", "specd-eval.")
@@ -227,15 +236,24 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 	run := fixtureRun{populate: eval.PopulateReport{Fixture: fixture.Name, Phase: "NotStarted"}}
 	client := options.Client
 	dir := filepath.Join(workDir, fixture.Name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return run, err
-	}
-	if err := CopyTree(fixture.Dir, dir); err != nil {
-		return run, err
-	}
-	baseCommit, err := initRepository(ctx, dir)
-	if err != nil {
-		return run, err
+	baseCommit := ""
+	cloned := fixture.Config.Source != nil
+	if cloned {
+		// A git source is resolved by the controller into its own cache, so
+		// nothing is copied and nothing is written where the source lives.
+		dir = ""
+	} else {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return run, err
+		}
+		if err := CopyTree(fixture.Dir, dir); err != nil {
+			return run, err
+		}
+		commit, err := initRepository(ctx, dir)
+		if err != nil {
+			return run, err
+		}
+		baseCommit = commit
 	}
 	if err := forget(ctx, client, options.Namespace, fixture.Name); err != nil {
 		return run, err
@@ -246,20 +264,33 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 	}
 
 	summarizeKind, realizeKind := fixture.kinds(options, scenarioFiles)
-
+	populate := &spec.RepositoryPopulate{
+		Partition: spec.PartitionDirectory,
+		Summarize: true,
+		Agent:     &spec.AgentSpec{Kind: summarizeKind},
+	}
+	if extra := fixture.Config.Populate; extra != nil {
+		if extra.Partition != "" {
+			populate.Partition = extra.Partition
+		}
+		populate.Include = extra.Include
+		populate.Exclude = extra.Exclude
+	}
 	repository := &spec.Repository{
 		ObjectMeta: metav1.ObjectMeta{Name: fixture.Name, Namespace: options.Namespace},
 		Spec: spec.RepositorySpec{
-			Path:   dir,
-			Branch: "main",
-			Verify: fixture.Config.Verify,
-			Agent:  &spec.AgentSpec{Kind: realizeKind},
-			Populate: &spec.RepositoryPopulate{
-				Partition: spec.PartitionDirectory,
-				Summarize: true,
-				Agent:     &spec.AgentSpec{Kind: summarizeKind},
-			},
+			Branch:   "main",
+			Verify:   fixture.Config.Verify,
+			Agent:    &spec.AgentSpec{Kind: realizeKind},
+			Populate: populate,
 		},
+	}
+	if cloned {
+		repository.Spec.Source = &spec.RepositorySource{
+			Git: &spec.GitSource{URL: fixture.Config.Source.URL, Ref: fixture.Config.Source.Ref},
+		}
+	} else {
+		repository.Spec.Path = dir
 	}
 	if err := applyTyped(ctx, client, repository); err != nil {
 		return run, err
@@ -300,6 +331,12 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 		run.populate.Error = waitErr.Error()
 		return run, nil
 	}
+	// A git source is resolved into the controller's cache, so the tree the
+	// measurements read is the one the Repository reports, never a path this
+	// harness guessed.
+	if status.ResolvedPath != "" {
+		h.dir = status.ResolvedPath
+	}
 
 	contexts, err := h.contexts(ctx)
 	if err != nil {
@@ -310,7 +347,7 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 		return run, err
 	}
 	run.codeToSpec = h.measureCodeToSpec(ctx, contexts, summarizer)
-	if options.CodeOnly {
+	if options.CodeOnly || len(fixture.Scenarios) == 0 {
 		return run, nil
 	}
 
@@ -442,6 +479,10 @@ func (h *harness) measureCodeToSpec(ctx context.Context, contexts []spec.SystemC
 			AnchoringRate:    eval.AnchoringRate(entry.Spec.Requirements, entry.Status.Observed),
 			ValidatorPass:    eval.ValidatorPass(entry.Name, entry.Spec),
 			RoundTripJaccard: 1,
+		}
+		if h.options.NoRoundTrip {
+			out = append(out, report)
+			continue
 		}
 		first, err := h.summarizeOnce(ctx, entry.Name, summarizer)
 		if err != nil {
@@ -596,12 +637,25 @@ func (h *harness) reset(ctx context.Context, name, scenarioFile string, start ba
 	return h.waitNoChanges(ctx, name)
 }
 
-// waitNoChanges waits until the context holds no change at all, so the change
-// the scenario raises is the only one admission can see.
+// waitNoChanges deletes every change of the context until the workspace holds
+// none, so the change the scenario raises is the only one admission can see. It
+// deletes inside the wait because a reconcile that was already running can put
+// one back between the delete and the read.
 func (h *harness) waitNoChanges(ctx context.Context, name string) error {
 	return h.wait(ctx, "the changes of "+name+" to be swept", func() bool {
 		changes, err := h.changes(ctx, name)
-		return err == nil && len(changes) == 0
+		if err != nil {
+			return false
+		}
+		if len(changes) == 0 {
+			return true
+		}
+		for _, change := range changes {
+			if err := h.client.Delete(ctx, specapi.SpecChangeGVR, h.namespace, change.Name); err != nil {
+				return false
+			}
+		}
+		return false
 	})
 }
 
@@ -946,20 +1000,28 @@ func applyTyped(ctx context.Context, client *kcpclient.Client, value any) error 
 }
 
 // forget removes the objects of one fixture's previous run, so a re-run does
-// not grade itself against its own history.
+// not grade itself against its own history, and it waits until they are really
+// gone.
+//
+// A change is deleted when its context belongs to this repository or when the
+// context it names does not exist at all: a run that is stopped part way can
+// leave a change behind whose context is already deleted, and a context
+// recreated with the same name would then be read against the old one's
+// baseline and report a drift nobody caused.
 func forget(ctx context.Context, client *kcpclient.Client, namespace, repository string) error {
-	names := []string{}
+	owned := map[string]bool{}
+	live := map[string]bool{}
 	contexts, err := client.List(ctx, specapi.SystemContextGVR, namespace)
 	if err != nil {
 		return err
 	}
 	for index := range contexts.Items {
 		object := &contexts.Items[index]
+		live[object.GetName()] = true
 		owner, _, _ := unstructured.NestedString(object.Object, "spec", "repository")
-		if owner != repository {
-			continue
+		if owner == repository {
+			owned[object.GetName()] = true
 		}
-		names = append(names, object.GetName())
 	}
 	changes, err := client.List(ctx, specapi.SpecChangeGVR, namespace)
 	if err != nil {
@@ -968,14 +1030,66 @@ func forget(ctx context.Context, client *kcpclient.Client, namespace, repository
 	for index := range changes.Items {
 		object := &changes.Items[index]
 		owner, _, _ := unstructured.NestedString(object.Object, "spec", "systemContext")
-		if slices.Contains(names, owner) {
-			_ = client.Delete(ctx, specapi.SpecChangeGVR, namespace, object.GetName())
+		if owned[owner] || !live[owner] {
+			if err := client.Delete(ctx, specapi.SpecChangeGVR, namespace, object.GetName()); err != nil {
+				return err
+			}
 		}
 	}
-	for _, name := range names {
-		_ = client.Delete(ctx, specapi.SystemContextGVR, namespace, name)
+	for name := range owned {
+		if err := client.Delete(ctx, specapi.SystemContextGVR, namespace, name); err != nil {
+			return err
+		}
 	}
-	return client.Delete(ctx, specapi.RepositoryGVR, namespace, repository)
+	if err := client.Delete(ctx, specapi.RepositoryGVR, namespace, repository); err != nil {
+		return err
+	}
+	return waitGone(ctx, client, namespace, owned, repository)
+}
+
+// waitGone waits until every object forget removed is no longer listed. An
+// ingest that raced a delete would otherwise adopt the object that was on its
+// way out and keep the baseline of the tree before it.
+func waitGone(ctx context.Context, client *kcpclient.Client, namespace string, contexts map[string]bool, repository string) error {
+	for {
+		remaining := false
+		listed, err := client.List(ctx, specapi.SystemContextGVR, namespace)
+		if err != nil {
+			return err
+		}
+		for index := range listed.Items {
+			if contexts[listed.Items[index].GetName()] {
+				remaining = true
+			}
+		}
+		changes, err := client.List(ctx, specapi.SpecChangeGVR, namespace)
+		if err != nil {
+			return err
+		}
+		for index := range changes.Items {
+			owner, _, _ := unstructured.NestedString(changes.Items[index].Object, "spec", "systemContext")
+			if contexts[owner] {
+				remaining = true
+			}
+		}
+		repositories, err := client.List(ctx, specapi.RepositoryGVR, namespace)
+		if err != nil {
+			return err
+		}
+		for index := range repositories.Items {
+			if repositories.Items[index].GetName() == repository {
+				remaining = true
+			}
+		}
+		if !remaining {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("eval: timed out waiting for the objects of %s to be deleted", repository)
+		case <-time.After(pollInterval):
+		}
+	}
 }
 
 func initRepository(ctx context.Context, dir string) (string, error) {

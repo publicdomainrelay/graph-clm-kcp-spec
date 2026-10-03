@@ -1,0 +1,19 @@
+# An unknown real codebase: not a fixture this repository carries, but a
+# read-only checkout on this machine that kcp has never seen. One Repository
+# manifest clones it into the controller's cache and populates it; nothing here
+# is ever written to the checkout.
+#
+# The url is read through the environment and may be relative, because where a
+# codebase sits is a fact about the machine. SPECD_EVAL_UNKNOWN_REPO overrides
+# it; the default is the sibling checkout the org root keeps.
+name: kcp-libs
+source:
+  url: ${SPECD_EVAL_UNKNOWN_REPO:-../kcp-libs}
+verify: ["go", "build", "./..."]
+accept: ["go", "build", "./..."]
+populate:
+  partition: directory
+  exclude:
+    - "*_test.go"
+    - "examples/**"
+    - "internal/**"

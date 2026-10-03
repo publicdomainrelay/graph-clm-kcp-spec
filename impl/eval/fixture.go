@@ -23,9 +23,35 @@ import (
 type Config struct {
 	Name string `json:"name"`
 
+	// Source names a git working tree the controller clones instead of a
+	// fixture copied into a temporary directory. It is how a run measures a
+	// codebase this repository does not carry: a fixture with a source has no
+	// drafts and no scenarios, because nobody knows its surface in advance.
+	Source *GitSource `json:"source"`
+
+	// Populate is how the tree is split, when the default (one context per
+	// directory, everything included) is not what the measurement wants.
+	Populate *PopulateConfig `json:"populate"`
+
 	Verify []string `json:"verify"`
 
 	Accept []string `json:"accept"`
+}
+
+// GitSource is where a fixture that is not in this repository is cloned from.
+type GitSource struct {
+	URL string `json:"url"`
+
+	Ref string `json:"ref,omitempty"`
+}
+
+// PopulateConfig narrows what the populate step indexes.
+type PopulateConfig struct {
+	Partition string `json:"partition,omitempty"`
+
+	Include []string `json:"include,omitempty"`
+
+	Exclude []string `json:"exclude,omitempty"`
 }
 
 // AcceptanceFile is one hidden test file, copied into the tree only to grade a
@@ -142,6 +168,26 @@ func loadFixture(root string) (Fixture, error) {
 	}
 	if len(fixture.Config.Accept) == 0 {
 		fixture.Config.Accept = fixture.Config.Verify
+	}
+	if fixture.Config.Source != nil {
+		// A codebase this repository does not carry has no scripted answer and
+		// no scenario: the whole measurement is what one manifest populates.
+		if fixture.Config.Source.URL == "" {
+			return fixture, fmt.Errorf("eval: %s names a source with no url", fixture.Name)
+		}
+		// The url may name the checkout through the environment and may be a
+		// relative path, because where an unknown codebase sits is a fact about
+		// the machine and not about this repository.
+		url := os.ExpandEnv(fixture.Config.Source.URL)
+		if !strings.Contains(url, "://") && !filepath.IsAbs(url) {
+			absolute, err := filepath.Abs(url)
+			if err != nil {
+				return fixture, fmt.Errorf("eval: resolve the source of %s: %w", fixture.Name, err)
+			}
+			url = absolute
+		}
+		fixture.Config.Source.URL = url
+		return fixture, nil
 	}
 	drafts, err := scriptedagent.Load(filepath.Join(root, fixtureDrafts))
 	if err != nil {
