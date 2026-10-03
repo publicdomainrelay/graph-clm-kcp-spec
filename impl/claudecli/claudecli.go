@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -28,6 +29,15 @@ const (
 	LogTailBytes = 4000
 )
 
+// The environment a host running inside the model reads to find the state it
+// must report into. They are set on every call, so a plain model ignores them
+// and a mod or an extension uses them.
+const (
+	EnvContext = "SPECD_CLM_CONTEXT"
+
+	EnvChange = "SPECD_CLM_CHANGE"
+)
+
 func DefaultArgs() []string {
 	return []string{"-p", "--output-format", "text"}
 }
@@ -40,6 +50,11 @@ type Options struct {
 	Dir string
 
 	Timeout time.Duration
+
+	// Env is set over the process environment of every call: the workspace
+	// kubeconfig, the specctl path and the bolt endpoint a host inside the model
+	// needs to report into the same state the controllers watch.
+	Env map[string]string
 }
 
 type Agent struct {
@@ -68,7 +83,7 @@ func (a *Agent) Command() string {
 // with an unknown level is not.
 func (a *Agent) Summarize(ctx context.Context, bundle agent.ContextBundle) (agent.SpecDraft, error) {
 	prompt, _ := agent.RenderPromptWithSections(bundle)
-	stdout, stderr, err := a.run(ctx, prompt)
+	stdout, stderr, err := a.run(ctx, prompt, map[string]string{EnvContext: bundle.Context})
 	if err != nil {
 		return agent.SpecDraft{}, fmt.Errorf("claudecli: summarize %s: %w: %s", bundle.Context, err, tail(stderr))
 	}
@@ -84,7 +99,10 @@ func (a *Agent) Summarize(ctx context.Context, bundle agent.ContextBundle) (agen
 // reconciler's job: it owns the git worktree.
 func (a *Agent) Realize(ctx context.Context, request agent.RealizeRequest) (agent.RealizeResult, error) {
 	prompt := RealizePrompt(request)
-	stdout, stderr, err := a.run(ctx, prompt)
+	stdout, stderr, err := a.run(ctx, prompt, map[string]string{
+		EnvContext: request.Context,
+		EnvChange:  request.Change,
+	})
 	result := agent.RealizeResult{Summary: firstLine(stdout), Log: tail(stdout + "\n" + stderr)}
 	if err != nil {
 		return result, fmt.Errorf("claudecli: realize %s: %w", request.Context, err)
@@ -124,12 +142,13 @@ func RealizePrompt(request agent.RealizeRequest) string {
 	return builder.String()
 }
 
-func (a *Agent) run(ctx context.Context, prompt string) (string, string, error) {
+func (a *Agent) run(ctx context.Context, prompt string, extra map[string]string) (string, string, error) {
 	runCtx, cancel := context.WithTimeout(ctx, a.options.Timeout)
 	defer cancel()
 
 	command := exec.CommandContext(runCtx, a.options.Command, a.options.Args...)
 	command.Dir = a.options.Dir
+	command.Env = environ(a.options.Env, extra)
 	command.Stdin = strings.NewReader(prompt)
 	// A cancelled command is killed, but a child it spawned can hold the output
 	// pipes open; WaitDelay bounds that wait instead of hanging forever.
@@ -147,6 +166,38 @@ func (a *Agent) run(ctx context.Context, prompt string) (string, string, error) 
 		return stdout.String(), stderr.String(), err
 	}
 	return stdout.String(), stderr.String(), nil
+}
+
+// environ is the process environment with the agent's own variables over it.
+// A name is replaced, never appended twice, because which of two entries a
+// child reads is not defined. No override at all means the process environment
+// is inherited as it stands.
+func environ(base, extra map[string]string) []string {
+	if len(base) == 0 && len(extra) == 0 {
+		return nil
+	}
+	overrides := make(map[string]string, len(base)+len(extra))
+	for name, value := range base {
+		overrides[name] = value
+	}
+	for name, value := range extra {
+		if value == "" {
+			continue
+		}
+		overrides[name] = value
+	}
+	out := make([]string, 0, len(os.Environ())+len(overrides))
+	for _, entry := range os.Environ() {
+		name, _, found := strings.Cut(entry, "=")
+		if _, replaced := overrides[name]; found && replaced {
+			continue
+		}
+		out = append(out, entry)
+	}
+	for name, value := range overrides {
+		out = append(out, name+"="+value)
+	}
+	return out
 }
 
 func tail(text string) string {

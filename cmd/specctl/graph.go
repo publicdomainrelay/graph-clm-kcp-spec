@@ -89,7 +89,7 @@ func runGraphNeighbors(args []string, stdout, stderr io.Writer) int {
 
 func oneHop(ctx context.Context, client *boltgraph.Client, label string, id int64) ([]neighbor, error) {
 	neighbors := []neighbor{}
-	for _, edgeSpec := range graph.EdgeSpecs {
+	for _, edgeSpec := range append(append([]graph.EdgeSpec{}, graph.EdgeSpecs...), graph.LiveEdgeSpecs...) {
 		if edgeSpec.FromLabel == label {
 			rows, err := client.SelectOut(ctx, edgeSpec.Type, edgeSpec.FromLabel, edgeSpec.ToLabel, id, graph.LabelProperties[edgeSpec.ToLabel])
 			if err != nil {
@@ -151,8 +151,12 @@ func keyProperty(label string) string {
 		return "codegraphId"
 	case graph.LabelRequirement:
 		return "reqId"
-	case graph.LabelInterface, graph.LabelContext, graph.LabelRepo:
+	case graph.LabelInterface, graph.LabelContext, graph.LabelRepo, graph.LabelChange:
 		return "name"
+	case graph.LabelProgress:
+		return "note"
+	case graph.LabelPiMemory:
+		return "title"
 	}
 	return ""
 }

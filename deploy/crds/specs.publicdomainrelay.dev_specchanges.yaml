@@ -317,3 +317,22 @@ spec:
                   type: string
                 message:
                   type: string
+                progress:
+                  type: array
+                  description: what the host running the change reported while it ran
+                  items:
+                    type: object
+                    properties:
+                      turn:
+                        type: integer
+                      tool:
+                        type: string
+                      files:
+                        type: array
+                        x-kubernetes-list-type: set
+                        items:
+                          type: string
+                      note:
+                        type: string
+                      at:
+                        type: string

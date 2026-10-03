@@ -47,6 +47,11 @@ const (
 	OriginIngest  = "ingest"
 	OriginRealize = "realize"
 	OriginHuman   = "human"
+	// OriginCLM marks a spec write a context language model made through
+	// `specctl clm apply`. It is a spec edit like a human's, so it raises a
+	// SpecToCode change, but it is not a human's: the controller folds it into a
+	// running change instead of spawning a second one for the same context.
+	OriginCLM = "clm"
 
 	// PopulateRequestAnnotation is a caller asking the controller to index a
 	// Repository again right now, even though its git HEAD has not moved. The

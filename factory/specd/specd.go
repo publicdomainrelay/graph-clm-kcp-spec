@@ -95,6 +95,15 @@ type Options struct {
 
 	AgentTimeout time.Duration
 
+	// ClmMod is the cc-clm-mod plugin folder the claude-mod kind loads. When it
+	// is set and no agent was named, the controller realizes changes with the
+	// mod loaded, so the agent reports into kcp while it works.
+	ClmMod string
+
+	// AgentEnv is set over the process environment of every model call: the
+	// workspace kubeconfig and the state bridge a host inside the model needs.
+	AgentEnv map[string]string
+
 	Budget int
 
 	NodeLimit int
@@ -198,11 +207,19 @@ func New(opts Options) (*Controller, error) {
 		opts.RetryBackoff = DefaultRetryBackoff
 	}
 
+	// A controller handed a mod folder and no agent of its own realizes changes
+	// with the mod loaded: a host inside the model is the point of phase 8, and
+	// the folder existing is the caller saying so.
+	if opts.Agent == "" && opts.ClmMod != "" {
+		opts.Agent = agentfactory.ClaudeMod
+	}
 	agents, err := agentfactory.New(agentfactory.Options{
 		Kind:    opts.Agent,
 		Command: opts.AgentCommand,
 		Args:    opts.AgentArgs,
 		Timeout: opts.AgentTimeout,
+		ClmMod:  opts.ClmMod,
+		Env:     opts.AgentEnv,
 	})
 	if err != nil {
 		return nil, err

@@ -798,3 +798,68 @@ func TestSpecToCodeIsLeftForAHumanWithoutAnAgent(t *testing.T) {
 		t.Errorf("phase = %q, want Pending: no agent is configured", phase)
 	}
 }
+
+// An origin: clm spec edit is a real edit, so it raises a SpecToCode change —
+// exactly like a human's. The exception is the one phase 8 needs: while the
+// context's own change is Running, a model refining the spec it is realizing
+// must not spawn a second change for itself. The controller already folds it
+// (the unfinished rule below), and the change's status.progress carries the
+// record; this pins the rule so the fold cannot regress.
+func TestACLMSpecEditWhileAChangeRunsRaisesNoSecondChange(t *testing.T) {
+	edit := func() *spec.SystemContext {
+		return systemContext("calc", func(systemContext *spec.SystemContext) {
+			systemContext.Status.RealizedSpecHash = strings.Repeat("a", 64)
+			systemContext.Status.RealizedSpec = &spec.SystemContextSpec{
+				Repository: "calc",
+				Upstream:   spec.RefSelf,
+			}
+			systemContext.Annotations = map[string]string{specapi.OriginAnnotation: specapi.OriginCLM}
+		})
+	}
+	running := func() *spec.SpecChange {
+		return &spec.SpecChange{
+			ObjectMeta: metav1.ObjectMeta{Name: "calc-s2c-b", Namespace: specapi.DefaultNamespace},
+			Spec: spec.SpecChangeSpec{
+				SystemContext: "calc",
+				Direction:     specapi.DirectionSpecToCode,
+				ToSpecHash:    strings.Repeat("b", 64),
+			},
+			Status: spec.SpecChangeStatus{Phase: specapi.PhaseRunning},
+		}
+	}
+
+	idle := newFakeCluster()
+	apply(t, idle, edit())
+	if _, err := testController(idle).reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+	raised := idle.names(specapi.SpecChangeGVR)
+	if len(raised) != 1 {
+		t.Fatalf("an idle context raised %v, want one spec to code change", raised)
+	}
+	object, err := idle.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, raised[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change, ok := typed.(*spec.SpecChange)
+	if !ok {
+		t.Fatalf("%s is not a SpecChange", raised[0])
+	}
+	if change.Spec.Delta == nil || change.Spec.Delta.Empty() {
+		t.Error("the clm edit raised a change with no delta")
+	}
+
+	busy := newFakeCluster()
+	apply(t, busy, edit())
+	apply(t, busy, running())
+	if _, err := testController(busy).reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+	if after := busy.names(specapi.SpecChangeGVR); len(after) != 1 {
+		t.Errorf("changes = %v, want only the running one: the clm edit folded into it", after)
+	}
+}

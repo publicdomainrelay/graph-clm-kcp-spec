@@ -69,6 +69,10 @@ type config struct {
 
 	agentTimeout time.Duration
 
+	clmMod string
+
+	specctl string
+
 	budget int
 
 	nodeLimit int
@@ -103,6 +107,10 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	fs.StringVar(&config.agentCommand, "agent-command", "", "model command to run (default deepseek-claude)")
 	fs.StringVar(&config.agentArgs, "agent-args", "", "model command arguments (default -p --output-format text)")
 	fs.DurationVar(&config.agentTimeout, "agent-timeout", specd.DefaultAgentTimeout, "how long one model call may take")
+	fs.StringVar(&config.clmMod, "clm-mod", os.Getenv("SPECD_CLM_MOD"),
+		"cc-clm-mod folder; its presence realizes changes with the mod loaded")
+	fs.StringVar(&config.specctl, "specctl", envOrPath("SPECD_SPECCTL", "specctl"),
+		"specctl binary a host inside the model calls")
 	fs.IntVar(&config.budget, "bundle-budget", 0, "token budget of the context bundle")
 	fs.IntVar(&config.nodeLimit, "bundle-nodes", 0, "how many codegraph node excerpts a bundle carries")
 	fs.IntVar(&config.managedBudget, "context-doc-budget", 0, "token budget of the context document managed zone")
@@ -136,7 +144,40 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 	return set
 }
 
-func (c config) options(writer graph.Writer, log *slog.Logger) (specd.Options, error) {
+func envOrPath(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
+
+// agentEnv is what a host inside the model reads to reach the same state the
+// controller watches: the workspace, the state bridge, and the graph endpoint.
+// A model with no host ignores all of it.
+func (c config) agentEnv(bolt *boltflags.Options) map[string]string {
+	env := map[string]string{
+		"SPECD_KUBECONFIG": c.kubeconfig,
+		"KUBECONFIG":       c.kubeconfig,
+		"SPECD_WORKSPACE":  c.workspace,
+		"SPECD_NAMESPACE":  c.namespace,
+		"SPECD_SPECCTL":    c.specctl,
+	}
+	if bolt != nil && bolt.URL != "" {
+		env["SPECD_BOLT_BACKEND"] = bolt.Backend
+		env["SPECD_BOLT_URL"] = bolt.URL
+		env["SPECD_BOLT_USER"] = bolt.User
+		env["SPECD_BOLT_DATABASE"] = bolt.Database
+		if bolt.Password != "" {
+			env["SPECD_BOLT_PASSWORD"] = bolt.Password
+		}
+		if bolt.PasswordFile != "" {
+			env["SPECD_BOLT_PASSWORD_FILE"] = bolt.PasswordFile
+		}
+	}
+	return env
+}
+
+func (c config) options(writer graph.Writer, bolt *boltflags.Options, log *slog.Logger) (specd.Options, error) {
 	level, err := parseLevel(c.logLevel)
 	if err != nil {
 		return specd.Options{}, err
@@ -163,6 +204,8 @@ func (c config) options(writer graph.Writer, log *slog.Logger) (specd.Options, e
 		AgentCommand:           c.agentCommand,
 		AgentArgs:              strings.Fields(c.agentArgs),
 		AgentTimeout:           c.agentTimeout,
+		ClmMod:                 c.clmMod,
+		AgentEnv:               c.agentEnv(bolt),
 		Budget:                 c.budget,
 		NodeLimit:              c.nodeLimit,
 		ManagedBudget:          c.managedBudget,
@@ -203,7 +246,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		logger.Info("the graph is rewritten after every ingest", "url", bolt.URL)
 	}
 
-	options, err := config.options(writer, logger)
+	options, err := config.options(writer, bolt, logger)
 	if err != nil {
 		fmt.Fprintf(stderr, "specd: %v\n", err)
 		return exitUsage

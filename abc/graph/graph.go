@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	pathpkg "path"
 	"sort"
 	"strings"
 
@@ -21,6 +22,18 @@ const (
 
 var ManagedLabels = []string{LabelRepo, LabelContext, LabelRequirement, LabelInterface, LabelCodeRef}
 
+// The live labels are what the hosts of a running change write: the change
+// itself and one vertex per progress record. They are not derived from kcp +
+// CodeGraph, so the rebuild that rewrites every managed label leaves them
+// alone; the status subresource of the SpecChange is their source of truth.
+const (
+	LabelChange   = "SpecChange"
+	LabelProgress = "SpecProgress"
+	LabelPiMemory = "PiMemory"
+)
+
+var LiveLabels = []string{LabelChange, LabelProgress}
+
 const (
 	EdgeHasContext   = "HAS_CONTEXT"
 	EdgeRequires     = "REQUIRES"
@@ -31,7 +44,33 @@ const (
 	EdgeOrchestrator = "ORCHESTRATOR"
 	EdgeDependsOn    = "DEPENDS_ON"
 	EdgeIntroduces   = "INTRODUCES"
+	// EdgeTouched is a running change to a file it touched.
+	EdgeTouched = "TOUCHED"
+	// EdgeOccurred is a running change to one progress record it reported.
+	EdgeOccurred = "OCCURRED"
+	// EdgeSpecifies is a graph memory the pi host holds to the requirement it
+	// speaks about. It is how a concept the model remembered joins the spec.
+	EdgeSpecifies = "SPECIFIES"
 )
+
+// LiveEdgeSpecs are the edges a host writes while a change runs.
+var LiveEdgeSpecs = []EdgeSpec{
+	{Type: EdgeTouched, FromLabel: LabelChange, ToLabel: LabelCodeRef},
+	{Type: EdgeOccurred, FromLabel: LabelChange, ToLabel: LabelProgress},
+	{Type: EdgeSpecifies, FromLabel: LabelPiMemory, ToLabel: LabelRequirement},
+}
+
+func LiveTable() ([]VertexSet, []EdgeSet) {
+	vertices := make([]VertexSet, 0, len(LiveLabels))
+	for _, label := range LiveLabels {
+		vertices = append(vertices, VertexSet{Label: label})
+	}
+	edges := make([]EdgeSet, 0, len(LiveEdgeSpecs))
+	for _, spec := range LiveEdgeSpecs {
+		edges = append(edges, EdgeSet{Type: spec.Type, FromLabel: spec.FromLabel, ToLabel: spec.ToLabel})
+	}
+	return vertices, edges
+}
 
 func RepoID(name string) int64 {
 	return ids.Stable("repo:" + name)
@@ -51,6 +90,62 @@ func InterfaceID(context, name string) int64 {
 
 func CodeRefID(codegraphID string) int64 {
 	return ids.Stable("coderef:" + codegraphID)
+}
+
+func FileCodeRefID(path string) int64 {
+	return CodeRefID("file:" + path)
+}
+
+func ChangeID(name string) int64 {
+	return ids.Stable("change:" + name)
+}
+
+func ProgressID(change string, index int) int64 {
+	return ids.Stable(fmt.Sprintf("progress:%s:%d", change, index))
+}
+
+func PiMemoryID(title string) int64 {
+	return ids.Stable("pimemory:" + title)
+}
+
+// FileCodeRef is the vertex a touched file lands on. Its id is the same
+// `coderef:file:<path>` an ingest writes, so a file the agent touched and a file
+// the index observed are one vertex, and the TOUCHED edge joins them.
+func FileCodeRef(path string) Vertex {
+	return Vertex{
+		ID: FileCodeRefID(path),
+		Props: map[string]any{
+			"codegraphId": "file:" + path,
+			"kind":        "file",
+			"name":        pathpkg.Base(path),
+			"filePath":    path,
+		},
+	}
+}
+
+func ChangeVertex(change spec.SpecChange) Vertex {
+	return Vertex{
+		ID: ChangeID(change.Name),
+		Props: map[string]any{
+			"name":      change.Name,
+			"context":   change.Spec.SystemContext,
+			"direction": change.Spec.Direction,
+			"phase":     change.Status.Phase,
+		},
+	}
+}
+
+func ProgressVertex(change string, index int, record spec.ProgressRecord) Vertex {
+	return Vertex{
+		ID: ProgressID(change, index),
+		Props: map[string]any{
+			"change": change,
+			"turn":   int64(record.Turn),
+			"tool":   record.Tool,
+			"note":   record.Note,
+			"at":     record.At,
+		},
+	}
 }
 
 type Vertex struct {
@@ -133,6 +228,9 @@ var LabelProperties = map[string][]string{
 	LabelRequirement: {"context", "reqId", "level", "text"},
 	LabelInterface:   {"context", "name", "kind", "signature"},
 	LabelCodeRef:     {"codegraphId", "kind", "name", "filePath"},
+	LabelChange:      {"name", "context", "direction", "phase"},
+	LabelProgress:    {"change", "turn", "tool", "note", "at"},
+	LabelPiMemory:    {"title", "body", "session"},
 }
 
 func Build(snapshot Snapshot) ([]VertexSet, []EdgeSet) {

@@ -23,7 +23,7 @@ func TestParseConfigDefaultsAreTheControllerDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	options, err := config.options(nil, logging.Discard())
+	options, err := config.options(nil, nil, logging.Discard())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestParseConfigWiresEveryFlagIntoTheController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	options, err := config.options(nil, logging.Discard())
+	options, err := config.options(nil, nil, logging.Discard())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestParseConfigRejectsWhatTheControllerWouldRefuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := config.options(nil, logging.Discard()); err == nil {
+	if _, err := config.options(nil, nil, logging.Discard()); err == nil {
 		t.Error("a bad log level was accepted")
 	}
 }

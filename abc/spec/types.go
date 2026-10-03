@@ -298,6 +298,12 @@ type SpecChangeStatus struct {
 	FilesTouched   []string `json:"filesTouched,omitempty"`
 	AgentLog       string   `json:"agentLog,omitempty"`
 	Message        string   `json:"message,omitempty"`
+
+	// Progress is what the host running the change reported while it ran: the
+	// files it touched per turn, and the notes it made. It is the live half of
+	// the record; FilesTouched and Commit are the summary written when the
+	// change settles.
+	Progress []ProgressRecord `json:"progress,omitempty"`
 }
 
 type SpecChange struct {

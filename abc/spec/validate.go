@@ -94,13 +94,13 @@ func ValidateRepository(repository *Repository) Result {
 func (b *builder) checkAgent(path string, agent *AgentSpec) {
 	switch {
 	case agent.Kind == "":
-	case agent.Kind == "claude":
+	case agent.Kind == "claude", agent.Kind == "claude-mod", agent.Kind == "pi":
 	case strings.HasPrefix(agent.Kind, "scripted:"):
 		if strings.TrimPrefix(agent.Kind, "scripted:") == "" {
 			b.add(path+".kind", "scripted: needs a scenario file")
 		}
 	default:
-		b.add(path+".kind", "%q is not claude or scripted:<file>", agent.Kind)
+		b.add(path+".kind", "%q is not claude, claude-mod, pi or scripted:<file>", agent.Kind)
 	}
 }
 

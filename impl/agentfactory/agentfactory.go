@@ -5,12 +5,16 @@ package agentfactory
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/claudecli"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/piagent"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/scriptedagent"
 )
 
@@ -19,9 +23,14 @@ const (
 
 	Scripted = "scripted"
 
-	// Pi runs the CLM extension of phase 8. It is named here so a manifest that
-	// asks for it fails with a clear message instead of silently doing nothing.
+	// Pi runs the deepseek-claude CLI with the pi host's CLM extension, the
+	// other half of phase 8: the same agent contract, the same state bridge.
 	Pi = "pi"
+
+	// ClaudeMod runs the model with the Claude Code mod loaded, so the agent
+	// inside the model reports into the context file, the graph and kcp while it
+	// works. It is what makes the alignment observable while it happens.
+	ClaudeMod = "claude-mod"
 )
 
 type Options struct {
@@ -32,6 +41,12 @@ type Options struct {
 	Args []string
 
 	Timeout time.Duration
+
+	// ClmMod is the plugin folder the claude-mod kind loads with --plugin-dir.
+	ClmMod string
+
+	// Env is set over the process environment of every model call.
+	Env map[string]string
 }
 
 // Factory holds the parsed choice. The scenario is read once, so every context
@@ -59,9 +74,36 @@ func New(options Options) (*Factory, error) {
 		}
 		return factory, nil
 	case options.Kind == Pi:
-		return nil, fmt.Errorf("agentfactory: %s is the phase 8 CLM extension and is not wired yet", Pi)
+		return factory, nil
+	case options.Kind == ClaudeMod:
+		if err := factory.checkMod(); err != nil {
+			return nil, err
+		}
+		return factory, nil
 	}
-	return nil, fmt.Errorf("agentfactory: %q is not %s or %s:<file>", options.Kind, Claude, Scripted)
+	return nil, fmt.Errorf("agentfactory: %q is not %s, %s, %s or %s:<file>",
+		options.Kind, Claude, ClaudeMod, Pi, Scripted)
+}
+
+// checkMod refuses a claude-mod selection with no usable plugin folder at once,
+// not when a change is already running: a typo would otherwise leave every
+// change Failed for a reason nobody reads.
+func (f *Factory) checkMod() error {
+	if f.options.ClmMod == "" {
+		return fmt.Errorf("agentfactory: %s needs --clm-mod pointing at the cc-clm-mod folder", ClaudeMod)
+	}
+	if _, err := os.Stat(filepath.Join(f.options.ClmMod, ".claude-plugin", "plugin.json")); err != nil {
+		return fmt.Errorf("agentfactory: %s is not a Claude Code plugin folder: %w", f.options.ClmMod, err)
+	}
+	return nil
+}
+
+// ClmModFolder is the plugin folder the claude-mod kind loads, or "".
+func (f *Factory) ClmModFolder() string {
+	if f == nil {
+		return ""
+	}
+	return f.options.ClmMod
 }
 
 func (f *Factory) useScenario(file string) error {
@@ -175,10 +217,28 @@ func (f *Factory) Agent(repository *spec.Repository, dir string) (agent.Agent, e
 		}
 		return scriptedagent.New(scenario), nil
 	case kind == Pi:
-		return nil, fmt.Errorf("agentfactory: %s is the phase 8 CLM extension and is not wired yet", Pi)
+		return piagent.New(piagent.Options{
+			Command: command,
+			Args:    args,
+			Dir:     dir,
+			Timeout: f.options.Timeout,
+			Env:     f.options.Env,
+		}), nil
+	case kind == ClaudeMod:
+		if err := f.checkMod(); err != nil {
+			return nil, err
+		}
+		return claudecli.New(claudecli.Options{
+			Command: command,
+			Args:    modArgs(args, f.options.ClmMod),
+			Dir:     dir,
+			Timeout: f.options.Timeout,
+			Env:     f.options.Env,
+		}), nil
 	case kind == "" || kind == Claude:
 	default:
-		return nil, fmt.Errorf("agentfactory: %q is not %s or %s:<file>", kind, Claude, Scripted)
+		return nil, fmt.Errorf("agentfactory: %q is not %s, %s, %s or %s:<file>",
+			kind, Claude, ClaudeMod, Pi, Scripted)
 	}
 
 	if kind == "" && command == "" {
@@ -189,5 +249,16 @@ func (f *Factory) Agent(repository *spec.Repository, dir string) (agent.Agent, e
 		Args:    args,
 		Dir:     dir,
 		Timeout: f.options.Timeout,
+		Env:     f.options.Env,
 	}), nil
+}
+
+// modArgs adds the plugin folder to the model arguments, unless the caller
+// already named one.
+func modArgs(args []string, folder string) []string {
+	out := append([]string{}, args...)
+	if slices.Contains(out, "--plugin-dir") {
+		return out
+	}
+	return append(out, "--plugin-dir", folder)
 }

@@ -213,6 +213,7 @@ func (c *Controller) realizeOptions(ctx context.Context, namespace string, chang
 		Cluster:       c.client,
 		Namespace:     namespace,
 		Context:       systemContext.Name,
+		Change:        change.Name,
 		Repository:    &scoped,
 		Agent:         built,
 		Delta:         changeDelta,

@@ -192,7 +192,7 @@ func TestValidateRepositorySourceAndPopulate(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "agent"},
 			Spec: RepositorySpec{
 				Path:     "/src",
-				Populate: &RepositoryPopulate{Agent: &AgentSpec{Kind: "pi"}},
+				Populate: &RepositoryPopulate{Agent: &AgentSpec{Kind: "magic"}},
 			},
 		},
 	}

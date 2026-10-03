@@ -10,6 +10,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/claudecli"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/piagent"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/scriptedagent"
 )
 
@@ -138,10 +139,19 @@ func TestARepositoryKindWinsOverTheController(t *testing.T) {
 	if _, err := factory.Agent(unknown, "/tmp/calc"); err == nil {
 		t.Error("a repository that names an unknown kind was accepted")
 	}
-	if _, err := factory.Agent(&spec.Repository{Spec: spec.RepositorySpec{
+	built, err = factory.Agent(&spec.Repository{Spec: spec.RepositorySpec{
 		Agent: &spec.AgentSpec{Kind: Pi},
+	}}, "/tmp/calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pi, ok := built.(*claudecli.Agent); !ok || pi.Command() != piagent.DefaultCommand {
+		t.Fatalf("built a %T", built)
+	}
+	if _, err := factory.Agent(&spec.Repository{Spec: spec.RepositorySpec{
+		Agent: &spec.AgentSpec{Kind: ClaudeMod},
 	}}, "/tmp/calc"); err == nil {
-		t.Error("the phase 8 kind is not wired yet and must be refused")
+		t.Error("the mod kind with no --clm-mod folder must be refused")
 	}
 }
 

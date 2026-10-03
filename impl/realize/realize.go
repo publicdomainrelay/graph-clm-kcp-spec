@@ -58,6 +58,10 @@ type Options struct {
 
 	Context string
 
+	// Change is the SpecChange this realize works off. It is handed to the
+	// agent so a host inside the model can report against the same record.
+	Change string
+
 	Repository *spec.Repository
 
 	Agent agent.Agent
@@ -190,6 +194,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 
 	agentResult, err := options.Agent.Realize(ctx, agent.RealizeRequest{
 		Context:     options.Context,
+		Change:      options.Change,
 		Repository:  options.Repository.Name,
 		Dir:         options.Worktree,
 		Delta:       options.Delta,

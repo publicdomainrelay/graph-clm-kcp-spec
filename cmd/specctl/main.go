@@ -121,6 +121,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runIngest(rest, stdout, stderr)
 	case "graph":
 		return runGraph(rest, stdout, stderr)
+	case "clm":
+		return runCLM(rest, stdout, stderr)
 	case "import-arch":
 		return runImportArch(rest, stdout, stderr)
 	case "export":
@@ -321,6 +323,9 @@ usage:
       applies a Repository and waits for Populated; a specd must be running
   specctl graph neighbors <context> [--bolt-url <url>]
   specctl graph rebuild [--bolt-url <url>]
+  specctl clm render --context <name> [--context-doc-budget <n>]
+  specctl clm apply --context <name> [--file <path>| -] < model-zone
+  specctl clm report --change <name> [--event <json>|--turn <n> --tool <t> --file <f> --note <s>]
   specctl import-arch <arch.yaml> [--repository <name>] [--bolt-url <url>]
   specctl export --format arch [--repository <name>] [-o <file>]
 

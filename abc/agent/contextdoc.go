@@ -34,6 +34,22 @@ type ResolvedRef struct {
 	FilePath string
 }
 
+// FileRef is the resolved reference of one `file:` code ref. A file is already
+// keyed by its CodeGraph id, so it needs no lookup to belong in the managed
+// zone; a symbol ref does, which is why only files are built this way.
+func FileRef(codeRef string) (ResolvedRef, bool) {
+	filePath, ok := strings.CutPrefix(codeRef, "file:")
+	if !ok || filePath == "" {
+		return ResolvedRef{}, false
+	}
+	return ResolvedRef{
+		CodegraphID: codeRef,
+		Kind:        "file",
+		Name:        path.Base(filePath),
+		FilePath:    filePath,
+	}, true
+}
+
 func ContextDocPath(repoPath, context string) string {
 	return path.Join(repoPath, ContextDir, context+".md")
 }

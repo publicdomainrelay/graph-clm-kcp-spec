@@ -95,6 +95,12 @@ type Agent interface {
 type RealizeRequest struct {
 	Context string
 
+	// Change is the SpecChange this realize is working off. A host that lives
+	// inside the agent (the Claude Code mod, the pi extension) reports its
+	// progress against this record, so the controllers watch the work while it
+	// happens.
+	Change string
+
 	Repository string
 
 	Dir string
