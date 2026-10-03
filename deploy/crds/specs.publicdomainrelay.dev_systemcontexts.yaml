@@ -1,0 +1,151 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: systemcontexts.specs.publicdomainrelay.dev
+spec:
+  group: specs.publicdomainrelay.dev
+  scope: Namespaced
+  names:
+    kind: SystemContext
+    listKind: SystemContextList
+    plural: systemcontexts
+    singular: systemcontext
+    shortNames: [sc]
+    categories: [specs]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Repository
+          type: string
+          jsonPath: .spec.repository
+        - name: Valid
+          type: string
+          jsonPath: '.status.conditions[?(@.type=="SpecValid")].status'
+        - name: Synced
+          type: string
+          jsonPath: '.status.conditions[?(@.type=="CodeSynced")].status'
+        - name: Drifted
+          type: string
+          jsonPath: '.status.conditions[?(@.type=="Drifted")].status'
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [repository]
+              properties:
+                repository:
+                  type: string
+                  description: Name of the Repository this context belongs to.
+                upstream:
+                  type: string
+                  description: "self, sc.<name> or up.<name>."
+                  default: self
+                overlay:
+                  type: array
+                  items:
+                    type: string
+                orchestrator:
+                  type: string
+                intent:
+                  type: string
+                  description: One paragraph of what this context is and why.
+                requirements:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, level, text]
+                    properties:
+                      id:
+                        type: string
+                      level:
+                        type: string
+                        enum: [MUST, SHOULD, MAY]
+                      text:
+                        type: string
+                      codeRefs:
+                        type: array
+                        items:
+                          type: string
+                interfaces:
+                  type: array
+                  items:
+                    type: object
+                    required: [name]
+                    properties:
+                      name:
+                        type: string
+                      kind:
+                        type: string
+                      signature:
+                        type: string
+                      file:
+                        type: string
+                codeRefs:
+                  type: array
+                  items:
+                    type: string
+            status:
+              type: object
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                observedCommit:
+                  type: string
+                observed:
+                  type: object
+                  properties:
+                    files:
+                      type: array
+                      items:
+                        type: string
+                    interfaces:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          kind:
+                            type: string
+                          signature:
+                            type: string
+                          file:
+                            type: string
+                          line:
+                            type: integer
+                    fingerprint:
+                      type: string
+                realizedSpecHash:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      observedGeneration:
+                        type: integer
+                        format: int64
