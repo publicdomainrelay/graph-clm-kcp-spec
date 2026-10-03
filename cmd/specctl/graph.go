@@ -12,7 +12,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltgraph"
 
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/cmd/internal/boltflags"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 )
 

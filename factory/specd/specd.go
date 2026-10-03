@@ -121,6 +121,9 @@ type Options struct {
 	// mod loaded, so the agent reports into kcp while it works.
 	ClmMod string
 
+	// PiExtension is the pi-hydradb-clm folder the pi agent kind loads.
+	PiExtension string
+
 	// AgentEnv is set over the process environment of every model call: the
 	// workspace kubeconfig and the state bridge a host inside the model needs.
 	AgentEnv map[string]string
@@ -240,12 +243,13 @@ func New(opts Options) (*Controller, error) {
 
 	opts.Agent = agentKind(opts)
 	agents, err := agentfactory.New(agentfactory.Options{
-		Kind:    opts.Agent,
-		Command: opts.AgentCommand,
-		Args:    opts.AgentArgs,
-		Timeout: opts.AgentTimeout,
-		ClmMod:  opts.ClmMod,
-		Env:     opts.AgentEnv,
+		Kind:        opts.Agent,
+		Command:     opts.AgentCommand,
+		Args:        opts.AgentArgs,
+		Timeout:     opts.AgentTimeout,
+		ClmMod:      opts.ClmMod,
+		PiExtension: opts.PiExtension,
+		Env:         opts.AgentEnv,
 	})
 	if err != nil {
 		return nil, err

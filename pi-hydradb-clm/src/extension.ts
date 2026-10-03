@@ -13,6 +13,7 @@ import {
   type CodeRefRecord,
 } from "./context-doc.ts";
 import { GraphClient } from "./graph.ts";
+import { linkSpecifies } from "./spec-graph.ts";
 import { canonicalPath, nodeKey, stableNodeId } from "./ids.ts";
 import {
   CODE_REF_PROPS,
@@ -328,7 +329,9 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
       );
 
       let linked = 0;
+      let specified = 0;
       let unresolved: string[] = [];
+      const resolvedIds: string[] = [];
       try {
         await client.upsertEdges(EDGES.remembered, LABELS.session, LABELS.memory, [
           { src: sessionId, dst: id },
@@ -344,8 +347,10 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
           for (const node of nodes) {
             await storeCodeRef(client, node);
             if (await linkOnce(client, id, node.id)) linked += 1;
+            resolvedIds.push(node.id);
           }
         }
+        specified = await linkSpecifies(client, id, resolvedIds);
       } catch (error) {
         return text(
           `remembered ${params.kind} "${params.title}" as node ${id}, but linking stopped ` +
@@ -368,9 +373,11 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
         );
       }
       const unresolvedNote = notes.length > 0 ? `; ${notes.join("; ")}` : "";
+      const specifiedNote =
+        specified > 0 ? `, specified ${specified} requirement(s)` : "";
       return text(
         `remembered ${params.kind} "${params.title}" as node ${id}, ` +
-          `linked to ${linked} code reference(s)${unresolvedNote}`,
+          `linked to ${linked} code reference(s)${specifiedNote}${unresolvedNote}`,
       );
     },
   });

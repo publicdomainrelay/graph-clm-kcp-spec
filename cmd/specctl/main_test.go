@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/cmd/internal/boltflags"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 )
 
 func runWith(args ...string) (int, string, string) {

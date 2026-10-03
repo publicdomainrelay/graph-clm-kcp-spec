@@ -45,6 +45,10 @@ type Options struct {
 	// ClmMod is the plugin folder the claude-mod kind loads with --plugin-dir.
 	ClmMod string
 
+	// PiExtension is the pi-hydradb-clm folder the pi kind tells the agent
+	// about through SPECD_PI_EXTENSION.
+	PiExtension string
+
 	// Env is set over the process environment of every model call.
 	Env map[string]string
 }
@@ -218,11 +222,12 @@ func (f *Factory) Agent(repository *spec.Repository, dir string) (agent.Agent, e
 		return scriptedagent.New(scenario), nil
 	case kind == Pi:
 		return piagent.New(piagent.Options{
-			Command: command,
-			Args:    args,
-			Dir:     dir,
-			Timeout: f.options.Timeout,
-			Env:     f.options.Env,
+			Command:   command,
+			Args:      args,
+			Dir:       dir,
+			Timeout:   f.options.Timeout,
+			Env:       f.options.Env,
+			Extension: f.options.PiExtension,
 		}), nil
 	case kind == ClaudeMod:
 		if err := f.checkMod(); err != nil {

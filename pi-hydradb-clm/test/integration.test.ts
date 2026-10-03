@@ -5,7 +5,8 @@ import { after, before, test } from "node:test";
 import { MANAGED_BEGIN } from "../src/context-doc.ts";
 import type { GraphClient } from "../src/graph.ts";
 import { nodeKey, stableNodeId } from "../src/ids.ts";
-import { CODE_REF_PROPS, FILE_PROPS, LABELS, MEMORY_PROPS } from "../src/schema.ts";
+import { CODE_REF_PROPS, EDGES, FILE_PROPS, LABELS, MEMORY_PROPS } from "../src/schema.ts";
+import { linkSpecifies, specCodeRefId } from "../src/spec-graph.ts";
 import { ensureGraph, makeScratch, makeSession, openGraph, uniqueSessionKey } from "./harness.ts";
 
 const TIMEOUT = { timeout: 240_000 };
@@ -40,6 +41,76 @@ async function memoriesOf(sessionId: number) {
 async function filesOf(sessionId: number) {
   return await graph.selectVertices(LABELS.file, ["id", ...FILE_PROPS], { session: sessionId });
 }
+
+test("a remembered concept specifies the requirement its code answers to", TIMEOUT, async () => {
+  const suffix = Math.floor(Math.random() * 1_000_000);
+  const requirementId = stableNodeId(`requirement:calc/r.${suffix}`);
+  const codegraphId = `function:synthetic${suffix}`;
+  const codeRefId = specCodeRefId(codegraphId);
+  const memoryId = stableNodeId(`pimemory:synthetic${suffix}`);
+  await graph.upsertVertices(
+    "SpecRequirement",
+    [
+      {
+        id: requirementId,
+        context: "calc",
+        reqId: `r.${suffix}`,
+        level: "MUST",
+        text: "synthetic",
+      },
+    ],
+    ["context", "reqId", "level", "text"],
+  );
+  await graph.upsertVertices(
+    "CodeRef",
+    [
+      {
+        id: codeRefId,
+        codegraphId,
+        kind: "function",
+        name: `synthetic${suffix}`,
+        filePath: "calc/calc.go",
+      },
+    ],
+    ["codegraphId", "kind", "name", "filePath"],
+  );
+  await graph.upsertEdges("REFERENCES", "SpecRequirement", "CodeRef", [
+    { src: requirementId, dst: codeRefId },
+  ]);
+  await graph.upsertVertices(
+    LABELS.memory,
+    [
+      {
+        id: memoryId,
+        session: 0,
+        kind: "decision",
+        title: `synthetic ${suffix}`,
+        body: "why the code matters",
+        created: 0,
+      },
+    ],
+    [...MEMORY_PROPS],
+  );
+
+  try {
+    assert.equal(await linkSpecifies(graph, memoryId, [codegraphId]), 1);
+    // A repeat writes nothing new: the edge is upserted, not duplicated.
+    await linkSpecifies(graph, memoryId, [codegraphId]);
+    const rows = await graph.selectNeighbors(
+      EDGES.specifies,
+      LABELS.memory,
+      "SpecRequirement",
+      ["id", "reqId"],
+      memoryId,
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.reqId, `r.${suffix}`);
+    // A code reference the spec graph does not carry links nothing.
+    assert.equal(await linkSpecifies(graph, memoryId, [`function:absent${suffix}`]), 0);
+  } finally {
+    await graph.deleteVertices([memoryId, requirementId, codeRefId]);
+  }
+});
 
 test("hydradb graph round-trips a vertex and an edge", TIMEOUT, async () => {
   const sessionId = Math.floor(Math.random() * 1_000_000);

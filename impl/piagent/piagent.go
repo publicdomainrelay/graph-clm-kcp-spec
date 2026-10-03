@@ -10,23 +10,44 @@ package piagent
 
 import (
 	"maps"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/claudecli"
 )
 
 const (
-	// DefaultCommand is pi's headless entry point.
-	DefaultCommand = "pi"
+	// DefaultCommand runs pi from the npm package. The pi coding agent is not
+	// installed globally on every machine this repository is used from, so the
+	// default resolves it the way the project's own documentation does; a host
+	// with a pi on PATH names it with --agent-command.
+	DefaultCommand = "npx"
+
+	// Package is the npm package the default command runs.
+	Package = "@earendil-works/pi-coding-agent@1.0.0"
 
 	// EnvExtension names the folder pi loads the CLM extension from.
 	EnvExtension = "SPECD_PI_EXTENSION"
+
+	// EnvArgs overrides the arguments of the default command, for an
+	// environment that must name its own provider or model.
+	EnvArgs = "SPECD_PI_ARGS"
 )
 
-// DefaultArgs is the headless invocation. A pi build whose flags differ is
-// selected with --agent-args, exactly as the claude kind is.
+// DefaultArgs is the headless invocation: the package, then non-interactive
+// mode. A pi build whose flags differ is selected with --agent-args.
 func DefaultArgs() []string {
-	return []string{"-p"}
+	return []string{"--yes", Package, "-p"}
+}
+
+// ArgsFromEnv is the arguments a caller should use when it has no opinion: the
+// environment's override when there is one, the defaults otherwise.
+func ArgsFromEnv() []string {
+	if fromEnv := strings.TrimSpace(os.Getenv(EnvArgs)); fromEnv != "" {
+		return strings.Fields(fromEnv)
+	}
+	return DefaultArgs()
 }
 
 type Options struct {

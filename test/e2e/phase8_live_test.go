@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"os"
+	"flag"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -18,7 +18,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltgraph"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 	"github.com/publicdomainrelay/kcp-libs/common/logging"
@@ -226,20 +226,25 @@ func phase8RunChange(t *testing.T, ctx context.Context, client *kcpclient.Client
 // the assertion instead of failing the run.
 func phase8AssertTouched(t *testing.T, root, change string) {
 	t.Helper()
-	boltURL := os.Getenv("SPECD_BOLT_URL")
-	if boltURL == "" {
-		boltURL = "bolt://127.0.0.1:7688"
+	// The flags, the environment and the backend defaults resolve in one place
+	// (impl/boltflags), so `make test-live SPECD_BOLT_BACKEND=hydradb` really
+	// does move this check to HydraDB on 7687.
+	fs := flag.NewFlagSet("phase8", flag.ContinueOnError)
+	options := boltflags.Add(fs)
+	if err := fs.Parse(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := options.Resolve(fs); err != nil {
+		t.Fatal(err)
+	}
+	if !options.Enabled() {
+		t.Skip("no graph endpoint is configured")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	writer, err := boltgraph.Connect(ctx, boltgraph.Options{
-		URL:      boltURL,
-		User:     envOr("SPECD_BOLT_USER", "root"),
-		Password: envOr("SPECD_BOLT_PASSWORD", "clm-arcadedb-root"),
-		Database: envOr("SPECD_BOLT_DATABASE", "clm"),
-	}, 1)
+	writer, err := options.Connect(ctx)
 	if err != nil {
-		t.Skipf("no graph at %s: %v", boltURL, err)
+		t.Skipf("no graph at %s: %v", options.URL, err)
 	}
 	defer writer.Close(ctx)
 

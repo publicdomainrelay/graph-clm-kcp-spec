@@ -268,6 +268,15 @@ export const PROBE_CASES: ProbeCase[] = [
     minRows: 1,
   },
   {
+    id: "traversal.one_hop_target_id",
+    group: "traversal",
+    cypher: `MATCH (a:${LABEL})-[:CLM_KNOWS]->(b:${LABEL} {id: 900002}) RETURN a.name AS name`,
+    setup: SEED_WITH_EDGE,
+    portable: true,
+    minRows: 1,
+    note: "the shape the pi host uses to find the requirements a remembered code reference answers to",
+  },
+  {
     id: "traversal.one_hop_count",
     group: "traversal",
     cypher: `MATCH (a:${LABEL} {id: 900001})-[:CLM_KNOWS]->(b:${LABEL}) RETURN count(*) AS total`,

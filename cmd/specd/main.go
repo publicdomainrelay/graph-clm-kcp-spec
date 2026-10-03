@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/cmd/internal/boltflags"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/exportwatch"
 	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
@@ -78,6 +78,8 @@ type config struct {
 
 	clmMod string
 
+	piExtension string
+
 	specctl string
 
 	budget int
@@ -121,6 +123,8 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	fs.DurationVar(&config.agentTimeout, "agent-timeout", specd.DefaultAgentTimeout, "how long one model call may take")
 	fs.StringVar(&config.clmMod, "clm-mod", os.Getenv("SPECD_CLM_MOD"),
 		"cc-clm-mod folder; its presence realizes changes with the mod loaded")
+	fs.StringVar(&config.piExtension, "pi-extension", os.Getenv("SPECD_PI_EXTENSION"),
+		"pi-hydradb-clm folder the pi agent kind loads")
 	fs.StringVar(&config.specctl, "specctl", envOrPath("SPECD_SPECCTL", "specctl"),
 		"specctl binary a host inside the model calls")
 	fs.IntVar(&config.budget, "bundle-budget", 0, "token budget of the context bundle")
@@ -221,6 +225,7 @@ func (c config) options(writer graph.Writer, bolt *boltflags.Options, log *slog.
 		AgentArgs:              strings.Fields(c.agentArgs),
 		AgentTimeout:           c.agentTimeout,
 		ClmMod:                 c.clmMod,
+		PiExtension:            c.piExtension,
 		AgentEnv:               c.agentEnv(bolt),
 		Budget:                 c.budget,
 		NodeLimit:              c.nodeLimit,
