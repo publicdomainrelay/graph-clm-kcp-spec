@@ -19,6 +19,113 @@ of a 3000 line document.
 The design lives in [`docs/plans/0001-kcp.md`](docs/plans/0001-kcp.md). That
 plan is the source of truth; this file says how to run what is built.
 
+## Why
+
+**The problem: specs rot.** Code changes faster than anyone documents it. The
+open architecture document of the sibling `deno-kcp` repo
+(`.tools/open-architecture/arch.yaml`) shows it: 84 hand-written commits, over
+3000 lines, and a separate 674-citation truth sweep just to find where the
+document had drifted from the code. A hand-kept spec is stale soon after it is
+written, and without a true spec neither people nor AI agents can reason about
+a codebase or change it safely.
+
+**The idea: spec is desired state, code is observed state.** That is the
+Kubernetes model. kcp is a Kubernetes control plane with no nodes: pure state
+management, with reconcile loops, `status`, conditions, generations and
+multi-tenant workspaces. So kcp holds specs as custom resources, and
+controllers keep specs and code converged. Drift stops being something a
+manual audit finds; it is a reconcile signal.
+
+```mermaid
+flowchart LR
+    subgraph repo["git repo (observed state)"]
+        code["code"]
+    end
+    subgraph kcp["kcp workspace (desired state)"]
+        sc["SystemContext CRs<br/>spec + status"]
+        ch["SpecChange CRs<br/>delta + audit trail"]
+    end
+    code -- "code -> spec<br/>ingest, drift, summarize" --> sc
+    sc -- "spec edit = delta" --> ch
+    ch -- "spec -> code<br/>agent edits, tests gate" --> code
+```
+
+**Two way sync.**
+
+- **code -> spec:** code changes, the controller sees drift, and a model
+  updates the spec (intent, requirements, interfaces). Every claim is anchored
+  to real CodeGraph ids.
+- **spec -> code:** a person or a model edits a spec, the controller computes a
+  structured delta, an agent changes the code to match, and tests gate the
+  commit.
+
+**Why a graph database.** A model cannot read 3000 lines for every task.
+HydraDB indexes specs, requirements, interfaces and code references, so each
+task gets a small, relevant neighborhood: the context, its upstream, overlay
+and orchestrator, and the code it points at. The graph is a derived index; kcp
+stays the only source of truth, and the graph can be rebuilt from kcp and
+CodeGraph at any time.
+
+**Why a context language model (CLM).** The model edits its own context
+document, which becomes its working memory. The `pi-hydradb-clm` extension
+syncs that document to kcp, so what the model learns or decides while it works
+becomes a spec change automatically.
+
+```mermaid
+flowchart TB
+    human["person<br/>kubectl / specctl"]
+    pi["model in pi<br/>+ pi-hydradb-clm"]
+    ctx[".specs/context/&lt;name&gt;.md<br/>model zone + managed zone"]
+    kcp[("kcp<br/>SystemContext / SpecChange<br/>source of truth")]
+    specd["specd controller"]
+    graph[("HydraDB graph<br/>derived index")]
+    cg[("CodeGraph index<br/>code facts")]
+    repo["git repo"]
+
+    human -- "edit spec" --> kcp
+    pi -- "edits" --> ctx
+    ctx -- "delta, origin=clm" --> kcp
+    kcp -- "render spec + status" --> ctx
+    kcp -- "watch" --> specd
+    specd -- "status, SpecChange" --> kcp
+    specd -- "realize: agent + verify + commit" --> repo
+    repo -- "codegraph sync" --> cg
+    cg -- "observed facts" --> specd
+    specd -- "index" --> graph
+    graph -- "neighborhood for prompts" --> pi
+```
+
+**The end goal.** Spec driven development in which the spec is never stale:
+
+1. Point at an unknown repository, apply one `Repository` manifest, and get a
+   full set of specs.
+2. Develop by editing specs (by hand or by a model); deltas drive the code
+   changes.
+3. Specs are machine-checkable and current, in the open architecture shape
+   (`upstream`, `overlay`, `orchestrator`), across the publicdomainrelay repos,
+   so people and agents work from one shared, true model of the system.
+
+```mermaid
+sequenceDiagram
+    participant U as person or model
+    participant K as kcp
+    participant S as specd
+    participant A as agent
+    participant G as git repo
+    U->>K: apply Repository (source, populate)
+    S->>G: clone, codegraph index
+    S->>K: SystemContext per partition (status.observed)
+    S->>A: summarize (code -> spec)
+    A-->>S: intent, requirements, interfaces
+    S->>K: spec written (origin=ingest)
+    U->>K: edit spec (one requirement)
+    S->>K: SpecChange{SpecToCode, delta}
+    S->>A: realize delta in worktree
+    A->>G: edit files
+    S->>G: verify, commit, merge
+    S->>K: re-ingest, CodeSynced=True
+```
+
 ## Status
 
 Phases 1 to 5 of 8 are done: **kcp holds specs, code becomes facts in `status`
