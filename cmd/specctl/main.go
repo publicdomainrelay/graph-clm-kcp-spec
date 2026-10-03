@@ -316,8 +316,9 @@ usage:
   specctl apply -f <file> [-f <file>...] [--workspace root:specs]
   specctl get <kind> [name] [-o table|yaml|json|name]
   specctl delete <kind> <name>
-  specctl ingest --repo <path> [--repo-name <name>] [--bolt-url <url>]
+  specctl ingest --repo <path> [--repo-name <name>] [--partition directory|package]
   specctl ingest --repo <path> --summarize --agent scripted:<file>|claude
+      applies a Repository and waits for Populated; a specd must be running
   specctl graph neighbors <context> [--bolt-url <url>]
   specctl graph rebuild [--bolt-url <url>]
   specctl import-arch <arch.yaml> [--repository <name>] [--bolt-url <url>]
@@ -334,14 +335,19 @@ global flags:
   --qps <n>             requests per second against kcp (default 50)
   --burst <n>           request burst against kcp (default 100)
 
-summarize flags (specctl ingest --summarize):
+populate flags (specctl ingest):
+  --partition <mode>      directory (default) or package
+  --include <glob>        keep paths matching the glob; repeatable
+  --exclude <glob>        drop paths matching the glob; repeatable
+  --summarize             send the agent over every context whose intent is empty
   --agent <kind>          scripted:<file> or claude
   --agent-command <cmd>   model command (default deepseek-claude)
   --agent-args <args>     model arguments (default -p --output-format text)
-  --agent-timeout <dur>   how long one model call may take (default 3m)
-  --bundle-budget <n>     token budget of the context bundle (default 8000)
-  --bundle-nodes <n>      codegraph node excerpts per bundle (default 3)
-  --context-doc-budget <n>  token budget of the context document (default 1500)
+  --wait <dur>            how long to wait for Populated (default 10m)
+
+  --codegraph, --no-graph, --bundle-budget, --bundle-nodes,
+  --context-doc-budget, --agent-timeout and the bolt flags configure the
+  controller now: pass them to specd.
 
 graph flags:
   --bolt-backend <name>      arcadedb (default) or hydradb; it fills the unset options
