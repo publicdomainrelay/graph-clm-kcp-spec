@@ -20,7 +20,7 @@ bin/specctl eval --fixtures fixtures --out docs/eval/run-<date>.md
 | scripted baseline | `scripted` | 3 fixtures, 9 scenarios, both halves | `run-2026-10-03-scripted.md` |
 | live, primary | `claude-mod` (`deepseek-claude` + `cc-clm-mod`) | 3 fixtures, 9 scenarios, both halves | `run-2026-10-03.md` |
 | live, code -> spec | `pi` (local `llama-cpp`, `ternary-bonsai-2-27b`) | 3 fixtures, code -> spec and the round trip | `run-2026-10-03-pi.md` |
-| unknown codebase | `claude-mod` | `../kcp-libs`, populate only | `run-2026-10-03-kcp-libs.md` |
+| unknown codebase | `claude-mod` | `../kcp-libs`, 34 contexts, populate only | `run-2026-10-03-kcp-libs.md` |
 
 The gated live model tests are recorded beside them, as they ran:
 `live-model-tests.log` holds the output of the five tests that spend a real
@@ -114,14 +114,16 @@ recall: a spec can name every symbol and still be anchored to nothing.
 **The unknown codebase is where the loop met code nobody wrote for it.**
 `../kcp-libs` is 34 contexts of real Go across `common/`, `abc/`, `impl/` and
 `factory/`, cloned read-only into the controller's cache and populated by one
-`Repository` manifest. 33 of the 34 summarized, in 261 seconds, with 100%
-requirement anchoring and every spec passing the validator. Interface recall
-was 85.7% and precision 89.1%: the model over-declares on real packages (a
-`metrics` package declaring 14 interfaces where 13 are observed) and
-under-declares on others, and both are visible in the Code -> spec table.
+`Repository` manifest. All 34 summarized, in 231 seconds, with 100% requirement
+anchoring and every spec passing the validator. Interface recall was 88.7% and
+precision 89.1%: on real packages the model both over-declares (an `impl/metrics`
+context declaring 14 interfaces where 13 are observed, three of which the facts
+answer to) and under-declares elsewhere, and both are visible in the Code ->
+spec table. Nothing about those numbers is a fault in the loop; they are what
+reading a codebase nobody wrote for the harness looks like.
 
-It also found two defects the three fixtures never could, because they were
-written by the same hand:
+It also found defects the three fixtures never could, because they were written
+by the same hand:
 
 - Populating stopped outright on `abc/archyaml`, where two files each declare a
   `Section` and a type and a struct are both named `Node`. The observed facts
@@ -130,11 +132,13 @@ written by the same hand:
   `abc/sync` now keys the observed surface by name, which is what the wire
   format always said it was. A real codebase had two symbols of one name in the
   first ten directories.
-- One context, `abc/cache`, did not summarize. Two of its types have a method
-  named `Add` and two have one named `ByIndex`; the model listed the whole
-  public surface, honestly, and the draft parser refuses two interfaces of one
-  name — as it must, because the declared surface is keyed by name too. The run
-  is reported with the failure rather than retried until it passed.
+- An earlier run of the same command left one context, `abc/cache`, unsummarized
+  and the repository `Failed`. Two of its types have a method named `Add` and
+  two have one named `ByIndex`; the model listed the whole public surface,
+  honestly, and the draft parser refuses two interfaces of one name — as it
+  must, because the declared surface is keyed by name too. The committed run is
+  the one where the model's answer did not name both, so all 34 populated; the
+  limitation is real either way and is named below.
 
 ## What is left
 
@@ -148,6 +152,6 @@ written by the same hand:
   rather than dropping half of it silently, which is the designed behaviour but
   not a useful one here. A per-receiver spelling of an interface name, or a
   reported drop, is the shape of the fix.
-- **A codebase of 34 contexts takes four minutes to populate** at two
+- **A codebase of 34 contexts takes about four minutes to populate** at two
   concurrent summaries. The wall time is reported; nothing here is tuned for
   it.

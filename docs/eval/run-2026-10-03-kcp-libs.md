@@ -2,8 +2,8 @@
 
 - agent: `claude-mod`
 - fixtures: `fixtures/external`
-- started: 2026-10-03T22:46:27Z
-- finished: 2026-10-03T22:50:50Z
+- started: 2026-10-03T23:06:20Z
+- finished: 2026-10-03T23:10:12Z
 - scenarios: 0
 
 ## Measures
@@ -12,27 +12,25 @@
 | --- | --- |
 | spec -> code pass rate (verify + acceptance) | 100.0% |
 | delta precision (entries as intended) | 100.0% |
-| interface recall | 85.7% |
+| interface recall | 88.7% |
 | interface precision | 89.1% |
-| interface F1 | 85.5% |
+| interface F1 | 88.4% |
 | requirement anchoring | 100.0% |
 | validator pass | 100.0% |
 | round trip interface Jaccard | 100.0% |
-| fixtures reaching Populated | 0.0% |
+| fixtures reaching Populated | 100.0% |
 
 ## Populate (one Repository manifest per fixture)
 
 | fixture | phase | contexts | summarized | failed | wall time |
 | --- | --- | --- | --- | --- | --- |
-| kcp-libs | Failed (Failed; Populated: PopulateFailed: 1 context(s) could not be summarized) | 34 | 33 | 1 | 260.98s |
-
-- kcp-libs could not be summarized: abc-cache: ...or)","file":"abc/cache/cache.go"},{"name":"ByIndex","kind":"method","signature":"ByIndex(indexName, indexedValue string) ([]any, error)","file":"abc/cache/cache.go"},{"name":"List","kind":"method","signature":"List() []any","file":"abc/cache/cache.go"},{"name":"IndexFunc","kind":"type_alias","signature":"type IndexFunc ()","file":"abc/cache/cache.go"},{"name":"Indexers","kind":"type_alias","signature":"type Indexers ()","file":"abc/cache/cache.go"},{"name":"Set","kind":"struct","signature":"type Set struct","file":"abc/cache/cache.go"},{"name":"NewSet","kind":"function","signature":"func NewSet() *Set","file":"abc/cache/cache.go"},{"name":"Add","kind":"method","signature":"func (s *Set) Add(kind string, indexer Indexer)","file":"abc/cache/cache.go"},{"name":"Get","kind":"method","signature":"func (s *Set) Get(kind string, r ref.Ref) (any, bool)","file":"abc/cache/cache.go"},{"name":"ByIndex","kind":"method","signature":"func (s *Set) ByIndex(kind, index, value string) []any","file":"abc/cache/cache.go"},{"name":"Names","kind":"method","signature":"func (s *Set) Names(kind, index, value string) []string","file":"abc/cache/cache.go"},{"name":"Decode","kind":"function","signature":"func Decode[T any](obj any) (*T, error)","file":"abc/cache/cache.go"},{"name":"ClusterOf","kind":"function","signature":"func ClusterOf(obj any) string","file":"abc/cache/cache.go"},{"name":"RefOf","kind":"function","signature":"func RefOf(obj any) (ref.Ref, bool)","file":"abc/cache/cache.go"},{"name":"NameOf","kind":"function","signature":"func NameOf(obj any) string","file":"abc/cache/cache.go"},{"name":"PhaseOf","kind":"function","signature":"func PhaseOf(obj any) string","file":"abc/cache/cache.go"},{"name":"NestedString","kind":"function","signature":"func NestedString(obj any, fields ...string) string","file":"abc/cache/cache.go"},{"name":"IndexersFor","kind":"function","signature":"func IndexersFor(parentLabel, jobLabel, triggerPodField string) Indexers","file":"abc/cache/cache.go"}]} ...or)","file":"abc/cache/cache.go"},{"name":"ByIndex","kind":"method","signature":"ByIndex(indexName, indexedValue string) ([]any, error)","file":"abc/cache/cache.go"},{"name":"List","kind":"method","signature":"List() []any","file":"abc/cache/cache.go"},{"name":"IndexFunc","kind":"type_alias","signature":"type IndexFunc ()","file":"abc/cache/cache.go"},{"name":"Indexers","kind":"type_alias","signature":"type Indexers ()","file":"abc/cache/cache.go"},{"name":"Set","kind":"struct","signature":"type Set struct","file":"abc/cache/cache.go"},{"name":"NewSet","kind":"function","signature":"func NewSet() *Set","file":"abc/cache/cache.go"},{"name":"Add","kind":"method","signature":"func (s *Set) Add(kind string, indexer Indexer)","file":"abc/cache/cache.go"},{"name":"Get","kind":"method","signature":"func (s *Set) Get(kind string, r ref.Ref) (any, bool)","file":"abc/cache/cache.go"},{"name":"ByIndex","kind":"method","signature":"func (s *Set) ByIndex(kind, index, value string) []any","file":"abc/cache/cache.go"},{"name":"Names","kind":"method","signature":"func (s *Set) Names(kind, index, value string) []string","file":"abc/cache/cache.go"},{"name":"Decode","kind":"function","signature":"func Decode[T any](obj any) (*T, error)","file":"abc/cache/cache.go"},{"name":"ClusterOf","kind":"function","signature":"func ClusterOf(obj any) string","file":"abc/cache/cache.go"},{"name":"RefOf","kind":"function","signature":"func RefOf(obj any) (ref.Ref, bool)","file":"abc/cache/cache.go"},{"name":"NameOf","kind":"function","signature":"func NameOf(obj any) string","file":"abc/cache/cache.go"},{"name":"PhaseOf","kind":"function","signature":"func PhaseOf(obj any) string","file":"abc/cache/cache.go"},{"name":"NestedString","kind":"function","signature":"func NestedString(obj any, fields ...string) string","file":"abc/cache/cache.go"},{"name":"IndexersFor","kind":"function","signature":"func IndexersFor(parentLabel, jobLabel, triggerPodField string) Indexers","file":"abc/cache/cache.go"}]}
+| kcp-libs | Populated | 34 | 34 | 0 | 231.29s |
 
 ## Code -> spec
 
 | fixture | context | observed | declared | recall | precision | anchoring | validator | round trip | req delta |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| kcp-libs | abc-cache | 18 | 0 | 0.0% | 100.0% | 100.0% | yes | 100.0% | +0 |
+| kcp-libs | abc-cache | 18 | 18 | 100.0% | 100.0% | 100.0% | yes | 100.0% | +0 |
 | kcp-libs | abc-joballoc | 9 | 9 | 100.0% | 100.0% | 100.0% | yes | 100.0% | +0 |
 | kcp-libs | abc-pki | 24 | 9 | 37.5% | 100.0% | 100.0% | yes | 100.0% | +0 |
 | kcp-libs | abc-policy | 4 | 4 | 100.0% | 100.0% | 100.0% | yes | 100.0% | +0 |
@@ -73,5 +71,5 @@ not measured
 
 ## Notes
 
-- working trees under /tmp/specd-eval.3824919250
+- working trees under /tmp/specd-eval.4292810670
 

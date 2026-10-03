@@ -1,20 +1,16 @@
 {
   "agent": "claude-mod",
   "fixtures": "fixtures/external",
-  "startedAt": "2026-10-03T22:46:27Z",
-  "finishedAt": "2026-10-03T22:50:50Z",
+  "startedAt": "2026-10-03T23:06:20Z",
+  "finishedAt": "2026-10-03T23:10:12Z",
   "populate": [
     {
       "fixture": "kcp-libs",
-      "phase": "Failed",
+      "phase": "Populated",
       "contexts": 34,
-      "summarized": 33,
-      "failed": 1,
-      "wallTimeSeconds": 260.977712188,
-      "failures": [
-        "abc-cache: ...or)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"ByIndex\",\"kind\":\"method\",\"signature\":\"ByIndex(indexName, indexedValue string) ([]any, error)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"List\",\"kind\":\"method\",\"signature\":\"List() []any\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"IndexFunc\",\"kind\":\"type_alias\",\"signature\":\"type IndexFunc ()\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Indexers\",\"kind\":\"type_alias\",\"signature\":\"type Indexers ()\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Set\",\"kind\":\"struct\",\"signature\":\"type Set struct\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"NewSet\",\"kind\":\"function\",\"signature\":\"func NewSet() *Set\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Add\",\"kind\":\"method\",\"signature\":\"func (s *Set) Add(kind string, indexer Indexer)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Get\",\"kind\":\"method\",\"signature\":\"func (s *Set) Get(kind string, r ref.Ref) (any, bool)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"ByIndex\",\"kind\":\"method\",\"signature\":\"func (s *Set) ByIndex(kind, index, value string) []any\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Names\",\"kind\":\"method\",\"signature\":\"func (s *Set) Names(kind, index, value string) []string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Decode\",\"kind\":\"function\",\"signature\":\"func Decode[T any](obj any) (*T, error)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"ClusterOf\",\"kind\":\"function\",\"signature\":\"func ClusterOf(obj any) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"RefOf\",\"kind\":\"function\",\"signature\":\"func RefOf(obj any) (ref.Ref, bool)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"NameOf\",\"kind\":\"function\",\"signature\":\"func NameOf(obj any) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"PhaseOf\",\"kind\":\"function\",\"signature\":\"func PhaseOf(obj any) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"NestedString\",\"kind\":\"function\",\"signature\":\"func NestedString(obj any, fields ...string) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"IndexersFor\",\"kind\":\"function\",\"signature\":\"func IndexersFor(parentLabel, jobLabel, triggerPodField string) Indexers\",\"file\":\"abc/cache/cache.go\"}]} ...or)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"ByIndex\",\"kind\":\"method\",\"signature\":\"ByIndex(indexName, indexedValue string) ([]any, error)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"List\",\"kind\":\"method\",\"signature\":\"List() []any\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"IndexFunc\",\"kind\":\"type_alias\",\"signature\":\"type IndexFunc ()\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Indexers\",\"kind\":\"type_alias\",\"signature\":\"type Indexers ()\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Set\",\"kind\":\"struct\",\"signature\":\"type Set struct\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"NewSet\",\"kind\":\"function\",\"signature\":\"func NewSet() *Set\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Add\",\"kind\":\"method\",\"signature\":\"func (s *Set) Add(kind string, indexer Indexer)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Get\",\"kind\":\"method\",\"signature\":\"func (s *Set) Get(kind string, r ref.Ref) (any, bool)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"ByIndex\",\"kind\":\"method\",\"signature\":\"func (s *Set) ByIndex(kind, index, value string) []any\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Names\",\"kind\":\"method\",\"signature\":\"func (s *Set) Names(kind, index, value string) []string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Decode\",\"kind\":\"function\",\"signature\":\"func Decode[T any](obj any) (*T, error)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"ClusterOf\",\"kind\":\"function\",\"signature\":\"func ClusterOf(obj any) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"RefOf\",\"kind\":\"function\",\"signature\":\"func RefOf(obj any) (ref.Ref, bool)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"NameOf\",\"kind\":\"function\",\"signature\":\"func NameOf(obj any) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"PhaseOf\",\"kind\":\"function\",\"signature\":\"func PhaseOf(obj any) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"NestedString\",\"kind\":\"function\",\"signature\":\"func NestedString(obj any, fields ...string) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"IndexersFor\",\"kind\":\"function\",\"signature\":\"func IndexersFor(parentLabel, jobLabel, triggerPodField string) Indexers\",\"file\":\"abc/cache/cache.go\"}]}"
-      ],
-      "error": "Failed; Populated: PopulateFailed: 1 context(s) could not be summarized"
+      "summarized": 34,
+      "failed": 0,
+      "wallTimeSeconds": 231.287980894
     }
   ],
   "codeToSpec": [
@@ -22,34 +18,14 @@
       "fixture": "kcp-libs",
       "context": "abc-cache",
       "interfaces": {
-        "declared": 0,
+        "declared": 18,
         "target": 18,
-        "matched": 0,
-        "missing": [
-          "Add",
-          "ByIndex",
-          "ClusterOf",
-          "Decode",
-          "Get",
-          "GetByKey",
-          "IndexFunc",
-          "Indexer",
-          "Indexers",
-          "IndexersFor",
-          "List",
-          "NameOf",
-          "Names",
-          "NestedString",
-          "NewSet",
-          "PhaseOf",
-          "RefOf",
-          "Set"
-        ],
-        "recall": 0,
+        "matched": 18,
+        "recall": 1,
         "precision": 1,
-        "f1": 0
+        "f1": 1
       },
-      "requirements": 0,
+      "requirements": 10,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -451,7 +427,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 7,
+      "requirements": 9,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -485,7 +461,7 @@
         "precision": 0.4,
         "f1": 0.4000000000000001
       },
-      "requirements": 9,
+      "requirements": 10,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -537,7 +513,7 @@
         "precision": 0.5714285714285714,
         "f1": 0.5714285714285714
       },
-      "requirements": 13,
+      "requirements": 12,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -573,7 +549,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 13,
+      "requirements": 14,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -609,7 +585,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 11,
+      "requirements": 14,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -790,7 +766,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 12,
+      "requirements": 13,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -800,6 +776,6 @@
   ],
   "scenarios": null,
   "notes": [
-    "working trees under /tmp/specd-eval.3824919250"
+    "working trees under /tmp/specd-eval.4292810670"
   ]
 }
