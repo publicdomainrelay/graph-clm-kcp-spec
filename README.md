@@ -184,8 +184,11 @@ realizes a change reports into the same state the controllers watch.**
 - `specctl ingest --summarize --agent <kind>` fills the spec of every context
   whose intent is still empty, without a controller running.
 - Each context gets a CLM document at `<repo>/.specs/context/<name>.md`: the
-  model's prose above `<!-- SPECD_MANAGED_BEGIN -->`, and the code refs the
-  index resolved below it, regenerated on every summarize.
+  model's prose and a fenced `yaml spec` block above
+  `<!-- SPECD_MANAGED_BEGIN -->`, and the code refs the index resolved below it,
+  regenerated on every summarize. One format for both directions: the file the
+  code -> spec path writes and the file a host inside a model renders parse each
+  other.
 - Every list in every CRD is a keyed list: `requirements` by `id`, `interfaces`
   and the observed interfaces by `name` and `conditions` by `type` are
   `x-kubernetes-list-type: map`, and `codeRefs`, `overlay`, `dependsOn` and
