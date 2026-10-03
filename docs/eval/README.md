@@ -56,7 +56,14 @@ scenarios the primary live run passed 9 of 9, carried exactly the entries each
 scenario intended (9 of 9), touched no file outside the context that was
 changed, and needed one attempt each. Round trip stability was 100%: a second
 summarize produced the same interface set and the same requirement count as the
-first.
+first. Every measure in the committed report is 100%.
+
+That is the last of several runs of the same command, and the model is not
+deterministic. An earlier one measured interface precision 97.1%: `greet`'s
+summarize declared `Greeter.greeting`, a public TypeScript class member the
+index reports unexported. Both runs are honest; the difference is the model's,
+and the gap underneath it is the index's, which is why the next section names
+it.
 
 **The mod reports while it works.** Every live scenario has five to seven
 `SpecChange.status.progress` records, which is what proves the model was
@@ -78,14 +85,15 @@ scenario states `Person`'s shape and `formatPerson`'s output as requirements of
 their own. This is the failure mode the eval exists to find, and it found it in
 the fixtures first.
 
-**Interface precision is 97.1% live, and the model is right.** The one context
-below 100% is `greet`: the summarize declared `Greeter.greeting`, which is
-public TypeScript — a class member with no `private` — and which the index
-reports `is_exported: false`. Go methods had exactly this gap and it is closed
-in `impl/codegraphsqlite`; the TypeScript half is named in the plan and not yet
-closed, because closing it changes the observed surface of a fixture the live
-tests of phases 4 to 9 are written against. The measure is reported as it is
-rather than adjusted to flatter the run.
+**The index under-reports TypeScript's public surface.** Whenever a live
+summarize names a class member — `Greeter.greeting` is the one that has shown
+up — it lands in the Extra column, because codegraph reports `is_exported:
+false` for every method node and a TypeScript class member without `private` is
+public. Go methods had exactly this gap, it is closed in
+`impl/codegraphsqlite`, and the TypeScript half is named in the plan and not
+yet closed, because closing it changes the observed surface of a fixture the
+live tests of phases 4 to 9 are written against. The measure is reported as it
+comes out of each run rather than adjusted to flatter it.
 
 **The local model is much weaker than the hosted one, and that is the point of
 running both.** `pi` over a local `ternary-bonsai-2-27b` reached 100% interface
@@ -132,7 +140,8 @@ written by the same hand:
 
 - **The TypeScript half of the observed surface.** Class members are public by
   default; the index reports them unexported. The Go half is fixed, the
-  TypeScript half is not, and the 97.1% above is the size of it.
+  TypeScript half is not, and every measure above that has ever come out below
+  100% has been this.
 - **A declared surface keyed by name cannot describe a package where two types
   share a method name**, which is ordinary Go. The model's answer was right and
   the format cannot hold it; `agent.ParseDraft` fails the whole summarize

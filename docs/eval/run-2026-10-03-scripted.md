@@ -1,9 +1,9 @@
 # specctl eval report
 
 - agent: `scripted`
-- fixtures: `/home/johnandersen777/src/publicdomainrelay-kcp/hydradb/fixtures`
-- started: 2026-10-03T22:58:30Z
-- finished: 2026-10-03T22:58:57Z
+- fixtures: `fixtures`
+- started: 2026-10-03T22:59:52Z
+- finished: 2026-10-03T23:00:19Z
 - scenarios: 9
 
 ## Measures
@@ -44,17 +44,17 @@
 
 | fixture | scenario | level | context | pass | verify | acceptance | delta | attempts | outside | progress | wall time |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| calc | add-divide-with-an-error | 3 | calc | yes | yes | yes | 2/2 | 1 | none | 0 | 1.05s |
-| calc | add-subtract | 1 | calc | yes | yes | yes | 2/2 | 1 | none | 0 | 1.20s |
+| calc | add-divide-with-an-error | 3 | calc | yes | yes | yes | 2/2 | 1 | none | 0 | 1.06s |
+| calc | add-subtract | 1 | calc | yes | yes | yes | 2/2 | 1 | none | 0 | 1.19s |
 | calc | change-add-to-variadic | 2 | calc | yes | yes | yes | 2/2 | 1 | none | 0 | 1.19s |
 | greet | add-a-person-module | 3 | greet | yes | yes | yes | 6/6 | 1 | none | 0 | 1.80s |
-| greet | add-farewell | 1 | greet | yes | yes | yes | 2/2 | 1 | none | 0 | 1.71s |
+| greet | add-farewell | 1 | greet | yes | yes | yes | 2/2 | 1 | none | 0 | 1.72s |
 | greet | change-the-greeting-text | 2 | greet | yes | yes | yes | 1/1 | 1 | none | 0 | 1.71s |
 | todo | add-delete | 1 | todo | yes | yes | yes | 2/2 | 1 | none | 0 | 1.55s |
 | todo | add-get-one-task-endpoint | 3 | httpapi | yes | yes | yes | 2/2 | 1 | none | 0 | 1.20s |
-| todo | list-newest-first | 2 | todo | yes | yes | yes | 1/1 | 1 | none | 0 | 1.46s |
+| todo | list-newest-first | 2 | todo | yes | yes | yes | 1/1 | 1 | none | 0 | 1.43s |
 
 ## Notes
 
-- working trees under /tmp/specd-eval.3115400888
+- working trees under /tmp/specd-eval.3645337304
 
