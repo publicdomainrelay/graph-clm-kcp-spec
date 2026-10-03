@@ -1,8 +1,8 @@
 {
   "agent": "claude-mod",
   "fixtures": "fixtures",
-  "startedAt": "2026-10-03T21:47:07Z",
-  "finishedAt": "2026-10-03T21:51:34Z",
+  "startedAt": "2026-10-03T21:52:58Z",
+  "finishedAt": "2026-10-03T21:57:08Z",
   "populate": [
     {
       "fixture": "calc",
@@ -10,7 +10,7 @@
       "contexts": 2,
       "summarized": 2,
       "failed": 0,
-      "wallTimeSeconds": 9.830441778
+      "wallTimeSeconds": 8.318896462
     },
     {
       "fixture": "greet",
@@ -18,7 +18,7 @@
       "contexts": 2,
       "summarized": 2,
       "failed": 0,
-      "wallTimeSeconds": 12.852470832
+      "wallTimeSeconds": 9.320804272
     },
     {
       "fixture": "todo",
@@ -26,7 +26,7 @@
       "contexts": 3,
       "summarized": 3,
       "failed": 0,
-      "wallTimeSeconds": 10.838680682
+      "wallTimeSeconds": 11.84300445
     }
   ],
   "codeToSpec": [
@@ -59,7 +59,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 6,
+      "requirements": 3,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -77,7 +77,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 3,
+      "requirements": 4,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -92,13 +92,13 @@
         "target": 4,
         "matched": 4,
         "extra": [
-          "Greeter.greeting"
+          "greeting"
         ],
         "recall": 1,
         "precision": 0.8,
         "f1": 0.888888888888889
       },
-      "requirements": 5,
+      "requirements": 7,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -116,7 +116,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 5,
+      "requirements": 4,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -134,7 +134,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 11,
+      "requirements": 10,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -152,7 +152,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 7,
+      "requirements": 8,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -180,7 +180,7 @@
       },
       "attempts": 1,
       "progressRecords": 6,
-      "wallTimeSeconds": 10.876234932,
+      "wallTimeSeconds": 11.621177159,
       "agent": "claude-mod"
     },
     {
@@ -201,8 +201,8 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 6,
-      "wallTimeSeconds": 10.78413489,
+      "progressRecords": 5,
+      "wallTimeSeconds": 8.950091011,
       "agent": "claude-mod"
     },
     {
@@ -224,7 +224,7 @@
       },
       "attempts": 1,
       "progressRecords": 5,
-      "wallTimeSeconds": 9.765069871,
+      "wallTimeSeconds": 10.79751579,
       "agent": "claude-mod"
     },
     {
@@ -233,22 +233,21 @@
       "context": "greet",
       "difficulty": 3,
       "description": "add a new module and a function that uses it",
-      "pass": false,
+      "pass": true,
       "verifyPass": true,
-      "acceptancePass": false,
+      "acceptancePass": true,
       "delta": {
-        "added": 4,
+        "added": 6,
         "removed": 0,
         "changed": 0,
-        "entries": 4,
-        "expected": 4,
+        "entries": 6,
+        "expected": 6,
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 7,
-      "wallTimeSeconds": 19.440882168999998,
-      "agent": "claude-mod",
-      "error": "the acceptance tests failed: exit status 1: \u001b[0m\u001b[32mCheck\u001b[0m acceptance_person_test.ts\n\u001b[0m\u001b[32mCheck\u001b[0m format/mod_test.ts\n\u001b[0m\u001b[32mCheck\u001b[0m mod_test.ts\n\u001b[0m\u001b[38;5;245mrunning 2 tests from ./acceptance_person_test.ts\u001b[0m\nacceptance: formatPerson writes the name and the age ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(370µs)\u001b[0m\nacceptance: greetPerson greets a person ... \u001b[0m\u001b[31mFAILED\u001b[0m \u001b[0m\u001b[38;5;245m(12ms)\u001b[0m\n\u001b[0m\u001b[38;5;245mrunning 2 tests from ./format/mod_test.ts\u001b[0m\ntitleCase capitalises every word ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(493µs)\u001b[0m\ntrimAll trims every value ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(107µs)\u001b[0m\n\u001b[0m\u001b[38;5;245mrunning 4 tests from ./mod_test.ts\u001b[0m\ngreet keeps the name and writes the text ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(602µs)\u001b[0m\nshout uppercases the greeting ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(45µs)\u001b[0m\ngreetPerson greets the formatted person ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(47µs)\u001b[0m\nGreeter prefixes the greeting ... \u001b[0m\u001b[32mok\u001b[0m \u001b[0m\u001b[38;5;245m(48µs)\u001b[0m\n\n\u001b[0m\u001b[1m\u001b[37m\u001b[41m ERRORS \u001b[0m\n\nacceptance: greetPerson greets a person \u001b[0m\u001b[38;5;245m=\u003e ./acceptance_person_test.ts:10:6\u001b[0m\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: AssertionError: Values are not equal.\n\n\n    \u001b[90m\u001b[1m[Diff]\u001b[22m\u001b[39m \u001b[31m\u001b[1mActual\u001b[22m\u001b[39m / \u001b[32m\u001b[1mExpected\u001b[22m\u001b[39m\n\n\n\u001b[37m    {\u001b[39m\n\u001b[31m\u001b[1m-     name: \"ada (36)\",\u001b[22m\u001b[39m\n\u001b[32m\u001b[1m+     name: \"ada\",\u001b[22m\u001b[39m\n\u001b[37m      text: \"hello, ada (36)\",\u001b[39m\n\u001b[37m    }\u001b[39m\n\n  throw new AssertionError(message);\n\u001b[0m\u001b[31m        ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3massertEquals\u001b[0m (\u001b[0m\u001b[36mhttps://jsr.io/@std/assert/1.0.19/equals.ts\u001b[0m:\u001b[0m\u001b[33m67\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m)\n    at \u001b[0m\u001b[2m\u001b[38;5;245mfile:///tmp/specd-eval.2195478473/greet/\u001b[0m\u001b[0m\u001b[36macceptance_person_test.ts\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m:\u001b[0m\u001b[33m3\u001b[0m\n\n\u001b[0m\u001b[1m\u001b[37m\u001b[41m FAILURES \u001b[0m\n\nacceptance: greetPerson greets a person \u001b[0m\u001b[38;5;245m=\u003e ./acceptance_person_test.ts:10:6\u001b[0m\n\n\u001b[0m\u001b[31mFAILED\u001b[0m | 7 passed | 1 failed \u001b[0m\u001b[38;5;245m(125ms)\u001b[0m\n\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Test failed"
+      "progressRecords": 6,
+      "wallTimeSeconds": 15.745146488,
+      "agent": "claude-mod"
     },
     {
       "fixture": "greet",
@@ -269,7 +268,7 @@
       },
       "attempts": 1,
       "progressRecords": 5,
-      "wallTimeSeconds": 11.039265619,
+      "wallTimeSeconds": 13.048257064,
       "agent": "claude-mod"
     },
     {
@@ -291,7 +290,7 @@
       },
       "attempts": 1,
       "progressRecords": 6,
-      "wallTimeSeconds": 12.047286413,
+      "wallTimeSeconds": 12.799633507,
       "agent": "claude-mod"
     },
     {
@@ -312,8 +311,8 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 6,
-      "wallTimeSeconds": 12.171281799,
+      "progressRecords": 5,
+      "wallTimeSeconds": 10.373927088,
       "agent": "claude-mod"
     },
     {
@@ -334,8 +333,8 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 9,
-      "wallTimeSeconds": 21.896343651,
+      "progressRecords": 7,
+      "wallTimeSeconds": 14.785658192,
       "agent": "claude-mod"
     },
     {
@@ -357,11 +356,11 @@
       },
       "attempts": 1,
       "progressRecords": 6,
-      "wallTimeSeconds": 19.904080841,
+      "wallTimeSeconds": 16.3007075,
       "agent": "claude-mod"
     }
   ],
   "notes": [
-    "working trees under /tmp/specd-eval.2195478473"
+    "working trees under /tmp/specd-eval.2959894999"
   ]
 }
