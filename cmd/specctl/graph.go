@@ -11,6 +11,8 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltgraph"
+
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/cmd/internal/boltflags"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 )
 
@@ -39,7 +41,7 @@ func runGraph(args []string, stdout, stderr io.Writer) int {
 func runGraphNeighbors(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("specctl graph neighbors", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	bolt := addBolt(fs)
+	bolt := boltflags.Add(fs)
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
 		return exitUsage
@@ -48,12 +50,12 @@ func runGraphNeighbors(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "specctl graph neighbors: one context name is required")
 		return exitUsage
 	}
-	if bolt.url == "" {
+	if bolt.URL == "" {
 		fmt.Fprintln(stderr, "specctl graph neighbors: --bolt-url or SPECD_BOLT_URL is required")
 		return exitUsage
 	}
 	ctx := context.Background()
-	client, err := bolt.connect(ctx)
+	client, err := bolt.Connect(ctx)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl graph neighbors: %v\n", err)
 		return exitError
@@ -174,11 +176,11 @@ func runGraphRebuild(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("specctl graph rebuild", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	options := addGlobals(fs)
-	bolt := addBolt(fs)
+	bolt := boltflags.Add(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	if bolt.url == "" {
+	if bolt.URL == "" {
 		fmt.Fprintln(stderr, "specctl graph rebuild: --bolt-url or SPECD_BOLT_URL is required")
 		return exitUsage
 	}
@@ -188,7 +190,7 @@ func runGraphRebuild(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl graph rebuild: %v\n", err)
 		return exitError
 	}
-	writer, err := bolt.connect(ctx)
+	writer, err := bolt.Connect(ctx)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl graph rebuild: %v\n", err)
 		return exitError

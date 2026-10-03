@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/cmd/internal/boltflags"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 )
@@ -20,7 +21,7 @@ func runIngest(args []string, stdout, stderr io.Writer) int {
 	tool := fs.String("codegraph", "", "codegraph command to run")
 	noGraph := fs.Bool("no-graph", false, "do not write the graph even when a bolt url is set")
 	options := addGlobals(fs)
-	bolt := addBolt(fs)
+	bolt := boltflags.Add(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -37,8 +38,8 @@ func runIngest(args []string, stdout, stderr io.Writer) int {
 	}
 
 	var writer graph.Writer
-	if bolt.url != "" && !*noGraph {
-		graphClient, err := bolt.connect(ctx)
+	if bolt.URL != "" && !*noGraph {
+		graphClient, err := bolt.Connect(ctx)
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl ingest: %v\n", err)
 			return exitError

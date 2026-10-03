@@ -1,0 +1,469 @@
+package specd
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"reflect"
+	"sort"
+	"strconv"
+	"testing"
+	"time"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/kcp-libs/common/logging"
+)
+
+type fakeCluster struct {
+	objects map[string]*unstructured.Unstructured
+}
+
+func newFakeCluster() *fakeCluster {
+	return &fakeCluster{objects: map[string]*unstructured.Unstructured{}}
+}
+
+func objectKey(gvr schema.GroupVersionResource, namespace, name string) string {
+	return gvr.Resource + "/" + namespace + "/" + name
+}
+
+func (f *fakeCluster) Get(_ context.Context, gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+	stored, ok := f.objects[objectKey(gvr, namespace, name)]
+	if !ok {
+		return nil, apierrors.NewNotFound(schema.GroupResource{Group: gvr.Group, Resource: gvr.Resource}, name)
+	}
+	return stored.DeepCopy(), nil
+}
+
+func (f *fakeCluster) List(_ context.Context, gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+	list := &unstructured.UnstructuredList{}
+	for key, object := range f.objects {
+		if len(key) > len(gvr.Resource)+1 && key[:len(gvr.Resource)+1] == gvr.Resource+"/" &&
+			object.GetNamespace() == namespace {
+			list.Items = append(list.Items, *object.DeepCopy())
+		}
+	}
+	sort.Slice(list.Items, func(left, right int) bool { return list.Items[left].GetName() < list.Items[right].GetName() })
+	return list, nil
+}
+
+func (f *fakeCluster) Apply(_ context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	key := objectKey(gvrOf(object), object.GetNamespace(), object.GetName())
+	stored, ok := f.objects[key]
+	if !ok {
+		return f.Create(context.Background(), object)
+	}
+	updated := object.DeepCopy()
+	updated.SetResourceVersion(stored.GetResourceVersion())
+	if !specEqual(stored, updated) {
+		updated.SetGeneration(stored.GetGeneration() + 1)
+	} else {
+		updated.SetGeneration(stored.GetGeneration())
+	}
+	f.objects[key] = updated
+	return updated.DeepCopy(), nil
+}
+
+func (f *fakeCluster) Create(_ context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	key := objectKey(gvrOf(object), object.GetNamespace(), object.GetName())
+	if _, ok := f.objects[key]; ok {
+		return nil, apierrors.NewAlreadyExists(schema.GroupResource{Group: gvrOf(object).Group}, object.GetName())
+	}
+	created := object.DeepCopy()
+	created.SetResourceVersion("1")
+	created.SetGeneration(1)
+	f.objects[key] = created
+	return created.DeepCopy(), nil
+}
+
+func (f *fakeCluster) PatchStatus(_ context.Context, gvr schema.GroupVersionResource, namespace, name string, status map[string]any) (*unstructured.Unstructured, error) {
+	key := objectKey(gvr, namespace, name)
+	stored, ok := f.objects[key]
+	if !ok {
+		return nil, apierrors.NewNotFound(schema.GroupResource{Group: gvr.Group, Resource: gvr.Resource}, name)
+	}
+	updated := stored.DeepCopy()
+	normalized, ok := normalize(status).(map[string]any)
+	if !ok {
+		return nil, apierrors.NewInternalError(errors.New("status is not an object"))
+	}
+	// The real client sends a merge patch, so a key the caller did not name
+	// keeps its value. The fake has to merge too, or a reconcile would look
+	// like it dropped the observed facts the previous ingest wrote.
+	current, _, err := unstructured.NestedMap(updated.Object, "status")
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range normalized {
+		current[key] = value
+	}
+	if err := unstructured.SetNestedMap(updated.Object, current, "status"); err != nil {
+		return nil, err
+	}
+	version, _ := strconv.Atoi(stored.GetResourceVersion())
+	updated.SetResourceVersion(strconv.Itoa(version + 1))
+	f.objects[key] = updated
+	return updated.DeepCopy(), nil
+}
+
+func (f *fakeCluster) names(gvr schema.GroupVersionResource) []string {
+	out := []string{}
+	for key := range f.objects {
+		if len(key) > len(gvr.Resource) && key[:len(gvr.Resource)] == gvr.Resource {
+			stored := f.objects[key]
+			out = append(out, stored.GetName())
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func gvrOf(object *unstructured.Unstructured) schema.GroupVersionResource {
+	gvr, err := specapi.GVRForKind(object.GetKind())
+	if err != nil {
+		return schema.GroupVersionResource{}
+	}
+	return gvr
+}
+
+func specEqual(left, right *unstructured.Unstructured) bool {
+	leftSpec, _, _ := unstructured.NestedMap(left.Object, "spec")
+	rightSpec, _, _ := unstructured.NestedMap(right.Object, "spec")
+	return reflect.DeepEqual(normalize(leftSpec), normalize(rightSpec))
+}
+
+func normalize(value any) any {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var out any
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return value
+	}
+	return out
+}
+
+func testController(cluster Cluster) *Controller {
+	return &Controller{
+		opts:   Options{Namespace: specapi.DefaultNamespace, Resync: time.Second},
+		client: cluster,
+		log:    logging.Discard(),
+	}
+}
+
+func apply(t *testing.T, cluster Cluster, object any) *unstructured.Unstructured {
+	t.Helper()
+	spec.SetDefaults(object)
+	stamped, err := kcpclient.Unstructured(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, err := cluster.Apply(context.Background(), stamped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return applied
+}
+
+func systemContext(name string, mutate func(*spec.SystemContext)) *spec.SystemContext {
+	systemContext := &spec.SystemContext{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: specapi.DefaultNamespace},
+		Spec: spec.SystemContextSpec{
+			Repository: "calc",
+			Upstream:   spec.RefSelf,
+			Interfaces: []spec.Interface{{Name: "Add", Kind: "function"}},
+		},
+	}
+	mutate(systemContext)
+	return systemContext
+}
+
+func observedFacts(fingerprint string) spec.ObservedFacts {
+	return spec.ObservedFacts{
+		Files:       []string{"calc/calc.go"},
+		Interfaces:  []spec.ObservedInterface{{Name: "Add", Kind: "function", CodegraphID: "function:add", File: "calc/calc.go"}},
+		Fingerprint: fingerprint,
+	}
+}
+
+func conditionStatus(t *testing.T, object *unstructured.Unstructured, conditionType string) string {
+	t.Helper()
+	conditions, found, err := unstructured.NestedSlice(object.Object, "status", "conditions")
+	if err != nil || !found {
+		t.Fatalf("no conditions on %s", object.GetName())
+	}
+	for _, entry := range conditions {
+		condition, ok := entry.(map[string]any)
+		if ok && condition["type"] == conditionType {
+			status, _ := condition["status"].(string)
+			return status
+		}
+	}
+	t.Fatalf("%s has no %s condition: %+v", object.GetName(), conditionType, conditions)
+	return ""
+}
+
+func TestSystemContextReconcileWritesConditionsAndTheGeneration(t *testing.T) {
+	cluster := newFakeCluster()
+	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
+		systemContext.Status.Observed = observedFacts("f1")
+		systemContext.Status.SyncedFingerprint = "f1"
+		systemContext.Status.ObservedCommit = "c1"
+		systemContext.Status.SyncedCommit = "c1"
+	}))
+	controller := testController(cluster)
+
+	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+
+	object, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := conditionStatus(t, object, specapi.ConditionSpecValid); got != "True" {
+		t.Errorf("SpecValid = %s, want True", got)
+	}
+	if got := conditionStatus(t, object, specapi.ConditionCodeSynced); got != "True" {
+		t.Errorf("CodeSynced = %s, want True", got)
+	}
+	if got := conditionStatus(t, object, specapi.ConditionDrifted); got != "False" {
+		t.Errorf("Drifted = %s, want False", got)
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readBack, ok := typed.(*spec.SystemContext)
+	if !ok {
+		t.Fatalf("read back a %T", typed)
+	}
+	if readBack.Status.ObservedGeneration != object.GetGeneration() {
+		t.Errorf("observedGeneration = %d, want %d", readBack.Status.ObservedGeneration, object.GetGeneration())
+	}
+}
+
+func TestSystemContextReconcileRaisesOneCodeToSpecOnDrift(t *testing.T) {
+	cluster := newFakeCluster()
+	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
+		systemContext.Status.Observed = observedFacts("f2")
+		systemContext.Status.ObservedCommit = "c2"
+		systemContext.Status.SyncedFingerprint = "f1"
+		systemContext.Status.SyncedCommit = "c1"
+		systemContext.Status.Conditions = []metav1.Condition{{
+			Type: specapi.ConditionDrifted, Status: metav1.ConditionFalse, Reason: specapi.ReasonFingerprintEqual,
+		}}
+	}))
+	controller := testController(cluster)
+
+	for round := 0; round < 2; round++ {
+		if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	names := cluster.names(specapi.SpecChangeGVR)
+	if len(names) != 1 || names[0] != "calc-c2s-c1-c2" {
+		t.Fatalf("spec changes = %v, want one calc-c2s-c1-c2", names)
+	}
+	object, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, "calc-c2s-c1-c2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	change, err := kcpclient.Typed(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, ok := change.(*spec.SpecChange)
+	if !ok {
+		t.Fatalf("read back a %T", change)
+	}
+	if typed.Spec.Direction != specapi.DirectionCodeToSpec || typed.Spec.FromCommit != "c1" || typed.Spec.ToCommit != "c2" {
+		t.Errorf("change = %+v", typed.Spec)
+	}
+	if typed.Status.Phase != specapi.PhasePending {
+		t.Errorf("phase = %q, want Pending", typed.Status.Phase)
+	}
+}
+
+func TestSystemContextReconcileRaisesOneSpecToCodeOnAHumanEdit(t *testing.T) {
+	cluster := newFakeCluster()
+	realized, err := spec.HashSystemContextSpec(spec.SystemContextSpec{
+		Repository: "calc", Upstream: spec.RefSelf, Intent: "as it was",
+		Interfaces: []spec.Interface{{Name: "Add", Kind: "function"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
+		systemContext.Spec.Intent = "as a human left it"
+		systemContext.Status.Observed = observedFacts("f1")
+		systemContext.Status.SyncedFingerprint = "f1"
+		systemContext.Status.RealizedSpecHash = realized
+	}))
+	controller := testController(cluster)
+
+	for round := 0; round < 2; round++ {
+		if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	names := cluster.names(specapi.SpecChangeGVR)
+	if len(names) != 1 {
+		t.Fatalf("spec changes = %v, want exactly one", names)
+	}
+	object, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, names[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	toSpecHash, _, _ := unstructured.NestedString(object.Object, "spec", "toSpecHash")
+	fromSpecHash, _, _ := unstructured.NestedString(object.Object, "spec", "fromSpecHash")
+	if toSpecHash == "" || fromSpecHash != realized {
+		t.Errorf("hashes = %q -> %q, want %q -> a new hash", fromSpecHash, toSpecHash, realized)
+	}
+	if spec.ChangeNameSpecToCode("calc", toSpecHash) != names[0] {
+		t.Errorf("name %q is not the deterministic name of the hash", names[0])
+	}
+	if direction, _, _ := unstructured.NestedString(object.Object, "spec", "direction"); direction != specapi.DirectionSpecToCode {
+		t.Errorf("direction = %q", direction)
+	}
+}
+
+func TestSystemContextReconcileIsQuietWhenSyncedAndRealized(t *testing.T) {
+	cluster := newFakeCluster()
+	systemContextObject := systemContext("calc", func(systemContext *spec.SystemContext) {
+		systemContext.Status.Observed = observedFacts("f1")
+		systemContext.Status.SyncedFingerprint = "f1"
+		systemContext.Status.ObservedCommit = "c1"
+		systemContext.Status.SyncedCommit = "c1"
+	})
+	realized, err := spec.HashSystemContextSpec(systemContextObject.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	systemContextObject.Status.RealizedSpecHash = realized
+	apply(t, cluster, systemContextObject)
+
+	controller := testController(cluster)
+	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+	settled, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := settled.GetResourceVersion()
+
+	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+
+	if names := cluster.names(specapi.SpecChangeGVR); len(names) != 0 {
+		t.Errorf("spec changes = %v, want none", names)
+	}
+	object, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if object.GetResourceVersion() != before {
+		t.Errorf("a quiet reconcile wrote status: %s -> %s", before, object.GetResourceVersion())
+	}
+}
+
+func TestSystemContextReconcileWaitsForAnUnfinishedChange(t *testing.T) {
+	cluster := newFakeCluster()
+	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
+		systemContext.Status.Observed = observedFacts("f2")
+		systemContext.Status.ObservedCommit = "c2"
+		systemContext.Status.SyncedFingerprint = "f1"
+		systemContext.Status.SyncedCommit = "c1"
+	}))
+	apply(t, cluster, &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-c0-c1", Namespace: specapi.DefaultNamespace},
+		Spec: spec.SpecChangeSpec{
+			SystemContext: "calc", Direction: specapi.DirectionCodeToSpec, FromCommit: "c0", ToCommit: "c1",
+		},
+		Status: spec.SpecChangeStatus{Phase: specapi.PhasePending},
+	})
+	controller := testController(cluster)
+
+	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+	names := cluster.names(specapi.SpecChangeGVR)
+	if len(names) != 1 || names[0] != "calc-c2s-c0-c1" {
+		t.Errorf("spec changes = %v, want the pending one only", names)
+	}
+}
+
+func TestSpecChangeReconcileMovesAnEmptyPhaseToPending(t *testing.T) {
+	cluster := newFakeCluster()
+	apply(t, cluster, &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc-s2c-abc", Namespace: specapi.DefaultNamespace},
+		Spec: spec.SpecChangeSpec{
+			SystemContext: "calc", Direction: specapi.DirectionSpecToCode, ToSpecHash: hashOf(t, "calc"),
+		},
+	})
+	controller := testController(cluster)
+
+	if _, err := controller.reconcileSpecChange(context.Background(), specapi.DefaultNamespace, "calc-s2c-abc"); err != nil {
+		t.Fatal(err)
+	}
+	object, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, "calc-s2c-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if phase, _, _ := unstructured.NestedString(object.Object, "status", "phase"); phase != specapi.PhasePending {
+		t.Errorf("phase = %q, want Pending", phase)
+	}
+}
+
+func TestSpecChangeReconcileAdmitsOneRunningChangePerContext(t *testing.T) {
+	cluster := newFakeCluster()
+	for _, name := range []string{"calc-c2s-a", "calc-c2s-b"} {
+		apply(t, cluster, &spec.SpecChange{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: specapi.DefaultNamespace},
+			Spec: spec.SpecChangeSpec{
+				SystemContext: "calc", Direction: specapi.DirectionCodeToSpec, FromCommit: "c0", ToCommit: "c1",
+			},
+			Status: spec.SpecChangeStatus{Phase: specapi.PhaseRunning},
+		})
+	}
+	controller := testController(cluster)
+
+	for _, name := range []string{"calc-c2s-a", "calc-c2s-b"} {
+		if _, err := controller.reconcileSpecChange(context.Background(), specapi.DefaultNamespace, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	phases := map[string]string{}
+	for _, name := range []string{"calc-c2s-a", "calc-c2s-b"} {
+		object, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		phase, _, _ := unstructured.NestedString(object.Object, "status", "phase")
+		phases[name] = phase
+	}
+	if phases["calc-c2s-a"] != specapi.PhaseRunning || phases["calc-c2s-b"] != specapi.PhaseFailed {
+		t.Errorf("phases = %v, want a running and b failed", phases)
+	}
+}
+
+func hashOf(t *testing.T, intent string) string {
+	t.Helper()
+	hash, err := spec.HashSystemContextSpec(spec.SystemContextSpec{Repository: "calc", Intent: intent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
+}

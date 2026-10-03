@@ -335,6 +335,18 @@ func SpecEditDue(specHash, realizedSpecHash string) bool {
 	return realizedSpecHash != "" && specHash != "" && specHash != realizedSpecHash
 }
 
+// RunningAdmitted reports whether a change may stay Running while the others of
+// its context also are. The lowest name wins, so exactly one change per
+// SystemContext runs and the loser is not a race between two workers.
+func RunningAdmitted(name string, running []string) bool {
+	for _, other := range running {
+		if other != name && other < name {
+			return false
+		}
+	}
+	return true
+}
+
 // UnresolvedCodeRefs returns the requirement code refs that name neither an
 // observed file nor an observed interface. A ref resolves by its full CodeGraph
 // id, by an interface name with any code ref prefix, or as a file ref.

@@ -180,7 +180,7 @@ func upsertRepository(ctx context.Context, cluster Cluster, repository *spec.Rep
 		"observedGeneration": repository.GetGeneration(),
 		"conditions":         conditions,
 	}
-	if statusMatches(repository.Status, status) {
+	if specapi.StatusMatches(repository.Status, status) {
 		return nil
 	}
 	_, err = cluster.PatchStatus(ctx, specapi.RepositoryGVR, repository.Namespace, repository.Name, status)
@@ -295,7 +295,7 @@ func ingestPartition(
 		"conditions":         conditions,
 	}
 
-	if statusMatches(existingContext.Status, status) {
+	if specapi.StatusMatches(existingContext.Status, status) {
 		return result, nil
 	}
 	if _, err := cluster.PatchStatus(ctx, specapi.SystemContextGVR, namespace, partition.Name, status); err != nil {
@@ -332,36 +332,6 @@ func mergeCodeRefs(existing []string, files []string) []string {
 		out = append(out, ref)
 	}
 	sort.Strings(out)
-	return out
-}
-
-func statusMatches(existing any, desired map[string]any) bool {
-	encoded, err := json.Marshal(existing)
-	if err != nil {
-		return false
-	}
-	current := map[string]any{}
-	if err := json.Unmarshal(encoded, &current); err != nil {
-		return false
-	}
-	normalizedDesired := normalize(desired).(map[string]any)
-	for key, value := range normalizedDesired {
-		if !reflect.DeepEqual(current[key], value) {
-			return false
-		}
-	}
-	return true
-}
-
-func normalize(value any) any {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return value
-	}
-	var out any
-	if err := json.Unmarshal(encoded, &out); err != nil {
-		return value
-	}
 	return out
 }
 

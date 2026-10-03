@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/cmd/internal/boltflags"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/archkcp"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 )
@@ -21,7 +22,7 @@ func runImportArch(args []string, stdout, stderr io.Writer) int {
 	noPrune := fs.Bool("no-prune", false, "keep SystemContexts the document no longer holds")
 	noGraph := fs.Bool("no-graph", false, "do not write the graph even when a bolt url is set")
 	options := addGlobals(fs)
-	bolt := addBolt(fs)
+	bolt := boltflags.Add(fs)
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
 		return exitUsage
@@ -55,8 +56,8 @@ func runImportArch(args []string, stdout, stderr io.Writer) int {
 	}
 
 	wroteGraph := false
-	if bolt.url != "" && !*noGraph {
-		writer, err := bolt.connect(ctx)
+	if bolt.URL != "" && !*noGraph {
+		writer, err := bolt.Connect(ctx)
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl import-arch: %v\n", err)
 			return exitError

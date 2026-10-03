@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strconv"
@@ -89,6 +90,18 @@ func (c *fakeCluster) PatchStatus(_ context.Context, gvr schema.GroupVersionReso
 	c.objects[key] = updated
 	c.statuses++
 	return updated.DeepCopy(), nil
+}
+
+func normalize(value any) any {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var out any
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return value
+	}
+	return out
 }
 
 func specEqual(left, right *unstructured.Unstructured) bool {

@@ -66,6 +66,25 @@ func RestConfig(kubeconfig, contextName string) (*rest.Config, error) {
 	return config, nil
 }
 
+// WorkspaceRestConfig loads a kubeconfig and points the rest config at a
+// workspace, which is what a caller that builds its own client (a watch, an
+// informer) needs.
+func WorkspaceRestConfig(kubeconfig, contextName, workspace string, qps float32, burst int) (*rest.Config, error) {
+	config, err := RestConfig(kubeconfig, contextName)
+	if err != nil {
+		return nil, err
+	}
+	tuned := rest.CopyConfig(config)
+	if qps > 0 {
+		tuned.QPS = qps
+	}
+	if burst > 0 {
+		tuned.Burst = burst
+	}
+	tuned.Host = WorkspaceHost(tuned.Host, workspace)
+	return tuned, nil
+}
+
 func NewFromRestConfig(config *rest.Config, workspace, namespace string, qps float32, burst int) (*Client, error) {
 	if config == nil {
 		return nil, fmt.Errorf("kcpclient: rest config is required")
@@ -215,6 +234,10 @@ func (c *Client) Ping(ctx context.Context) error {
 
 func IsNotFound(err error) bool {
 	return apierrors.IsNotFound(err)
+}
+
+func IsAlreadyExists(err error) bool {
+	return apierrors.IsAlreadyExists(err)
 }
 
 func propagationBackground() *metav1.DeletionPropagation {
