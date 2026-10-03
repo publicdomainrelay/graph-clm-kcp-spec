@@ -65,8 +65,8 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 	// A realize moves the branch as part of its own work, and the ingest that
 	// adopts it is the tail of that change. Indexing in between would report
 	// the half-finished move as drift and raise the opposite change for it, so
-	// the resync waits while any change is running.
-	running, err := c.anyRunningChange(ctx, namespace)
+	// the resync waits while a spec -> code change is running.
+	running, err := c.anyRunningRealize(ctx, namespace)
 	if err != nil {
 		return 0, err
 	}
@@ -102,10 +102,13 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 	return c.opts.Resync, nil
 }
 
-// anyRunningChange reports whether a change is mid-flight anywhere in the
-// namespace. It is deliberately coarse: a realize is short, and waiting for it
-// costs one list, while indexing beside it costs a wrong drift report.
-func (c *Controller) anyRunningChange(ctx context.Context, namespace string) (bool, error) {
+// anyRunningRealize reports whether a spec -> code change is mid-flight
+// anywhere in the namespace. Only that direction moves the branch, so only it
+// needs the index to stand still; a code -> spec change that is running says
+// nothing about the tree. It is deliberately coarse about which repository: a
+// realize is short, and waiting for it costs one list, while indexing beside it
+// costs a drift report the controller would act on.
+func (c *Controller) anyRunningRealize(ctx context.Context, namespace string) (bool, error) {
 	listed, err := c.client.List(ctx, specapi.SpecChangeGVR, namespace)
 	if err != nil {
 		return false, err
@@ -119,7 +122,7 @@ func (c *Controller) anyRunningChange(ctx context.Context, namespace string) (bo
 		if !ok {
 			continue
 		}
-		if change.Status.Phase == specapi.PhaseRunning {
+		if change.Status.Phase == specapi.PhaseRunning && change.Spec.Direction == specapi.DirectionSpecToCode {
 			return true, nil
 		}
 	}
