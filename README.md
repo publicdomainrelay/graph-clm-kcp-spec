@@ -83,7 +83,11 @@ target again to put the imported contexts back.
 `specd`, commits a `Subtract` function, prints the `Drifted` condition and the
 `CodeToSpec` change it raised, patches the spec of the same context, prints the
 `SpecToCode` change, shows that no other resourceVersion moves for four
-seconds, and stops `specd` with SIGTERM.
+seconds, and stops `specd` with SIGTERM. It owns the `calc` and `cmd-calc`
+names, so it deletes the `calc` Repository and those two contexts first and
+last; run `make example-phase2` afterwards to put that example state back. The
+controller watches every `Repository` in the workspace, so two Repositories
+that name the same context would otherwise take turns writing its status.
 
 The same steps by hand:
 
@@ -110,7 +114,19 @@ bin/specctl export --format arch --repository deno-kcp -o /tmp/arch-export.yaml
 
 KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl get systemcontexts
 
-# the controller, in its own terminal, then commit something under fixtures/calc
+# the controller manages a git working tree, and fixtures/calc is a plain
+# directory, so give it a copy of its own; then commit something to that copy
+WORK=$(mktemp -d) && cp -r fixtures/calc/. "$WORK/" && rm -rf "$WORK/.codegraph"
+git -C "$WORK" init -q -b main && git -C "$WORK" add -A
+git -C "$WORK" -c user.email=you@example.com -c user.name=you commit -qm fixture
+bin/specctl apply -f - <<YAML
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: Repository
+metadata: {name: calc, namespace: default}
+spec: {path: $WORK, branch: main, verify: ["go", "test", "./..."]}
+YAML
+
+# in its own terminal
 bin/specd --workspace root:specs --resync 2s
 KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl get specchanges
 ```
@@ -120,8 +136,12 @@ KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl get specchanges
 `SPECD_BOLT_PASSWORD_FILE`, `SPECD_BOLT_DATABASE`); with no `--bolt-url` and no
 `SPECD_BOLT_URL` it only updates kcp. The `Makefile` exports the HydraDB
 defaults, so plain `make example-phase2` needs no extra flags. A relative
-`Repository.spec.path` in the graph commands resolves against the working
-directory, so run them from the repository root.
+`Repository.spec.path` resolves against the working directory of whichever
+process reads it, so run the commands from the repository root, and note that
+`specd` needs that path to be a git working tree: `fixtures/calc` is a plain
+directory in this repository (the tests copy it to a temporary git repository),
+so a `Repository` that points straight at it gets `Indexed=False` with
+`HeadUnavailable` instead of an ingest.
 
 `specctl` talks to the workspace `root:specs` on the admin kubeconfig; pass
 `--workspace`, `--namespace`, `--kubeconfig` or `--context` to change that.

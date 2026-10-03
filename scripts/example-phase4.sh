@@ -27,18 +27,25 @@ SERVER=$("$KUBECTL" config view --minify -o jsonpath='{.clusters[0].cluster.serv
 SERVER=${SERVER%%/clusters/*}
 
 specd_pid=""
-cleanup() {
-  if [ -n "$specd_pid" ] && kill -0 "$specd_pid" 2>/dev/null; then
-    kill "$specd_pid" 2>/dev/null || true
-    wait "$specd_pid" 2>/dev/null || true
-  fi
+forget() {
   for name in calc cmd-calc; do
     for change in $(K get specchanges -o jsonpath="{.items[?(@.spec.systemContext==\"$name\")].metadata.name}" 2>/dev/null); do
       K delete specchange "$change" >/dev/null 2>&1 || true
     done
     K delete systemcontext "$name" >/dev/null 2>&1 || true
   done
+  # The calc Repository of example-phase2 points at the plain fixtures/calc
+  # directory. Left in place it would manage the same context names from a
+  # different tree. make example-phase2 puts it back.
   K delete repository phase4-example >/dev/null 2>&1 || true
+  K delete repository calc >/dev/null 2>&1 || true
+}
+cleanup() {
+  if [ -n "$specd_pid" ] && kill -0 "$specd_pid" 2>/dev/null; then
+    kill "$specd_pid" 2>/dev/null || true
+    wait "$specd_pid" 2>/dev/null || true
+  fi
+  forget
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -64,10 +71,17 @@ fi
 
 echo "--- a working tree to manage ---"
 cp -r "$REPO/fixtures/calc/." "$WORK/"
+# A codegraph index left in the fixture by an earlier ingest is not part of the
+# working tree, and copying it would index the index.
+rm -rf "$WORK/.codegraph"
 git -C "$WORK" init -q -b main
 git -C "$WORK" add -A
 git -C "$WORK" -c user.email=example@example.com -c user.name=example commit -qm fixture
 echo "  $WORK"
+
+echo "--- the calc names belong to this example, so it starts from a clean slate ---"
+forget
+echo "  (run make example-phase2 afterwards to put the example state back)"
 
 echo "--- the Repository points at it, and specd starts ---"
 $KUBECTL --server="${SERVER}/clusters/${WORKSPACE}" apply -f - <<YAML
@@ -117,9 +131,20 @@ echo "  the work it queued:"
 K get specchanges -o custom-columns=NAME:.metadata.name,DIRECTION:.spec.direction,FROM:.spec.fromSpecHash,TO:.spec.toSpecHash,PHASE:.status.phase
 
 echo "--- nothing else moves while the changes wait for an agent ---"
-before=$(K get systemcontexts,specchanges -o jsonpath='{range .items[*]}{.metadata.name}={.metadata.resourceVersion} {end}')
+# Only the objects this example owns: another Repository left over from an
+# earlier example may be in the workspace, and it is none of this check's
+# business.
+snapshot() {
+  for name in calc cmd-calc; do
+    K get systemcontext "$name" -o jsonpath="{.metadata.name}={.metadata.resourceVersion} "
+  done
+  for name in calc cmd-calc; do
+    K get specchanges -o jsonpath="{.items[?(@.spec.systemContext==\"$name\")].metadata.name}={.items[?(@.spec.systemContext==\"$name\")].metadata.resourceVersion} "
+  done
+}
+before=$(snapshot)
 sleep 4
-after=$(K get systemcontexts,specchanges -o jsonpath='{range .items[*]}{.metadata.name}={.metadata.resourceVersion} {end}')
+after=$(snapshot)
 if [ "$before" != "$after" ]; then
   echo "the controller is looping:" >&2
   echo "  before $before" >&2

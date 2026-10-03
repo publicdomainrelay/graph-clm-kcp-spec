@@ -71,19 +71,25 @@ func changesFor(changes []spec.SpecChange, systemContext, direction string) []sp
 	return out
 }
 
-func forgetPhase4(t *testing.T, ctx context.Context, client *kcpclient.Client, repository string, names ...string) {
+// forgetPhase4 removes the objects the phase 4 tests own. It takes the
+// repositories too, because the controller reconciles every Repository in the
+// workspace: a leftover Repository that points at fixtures/calc would recreate
+// the same contexts from a different tree.
+func forgetPhase4(t *testing.T, ctx context.Context, client *kcpclient.Client, repositories, contexts []string) {
 	t.Helper()
 	for _, change := range liveSpecChanges(t, ctx, client) {
-		for _, name := range names {
+		for _, name := range contexts {
 			if change.Spec.SystemContext == name {
 				_ = client.Delete(ctx, specapi.SpecChangeGVR, specapi.DefaultNamespace, change.Name)
 			}
 		}
 	}
-	for _, name := range names {
+	for _, name := range contexts {
 		_ = client.Delete(ctx, specapi.SystemContextGVR, specapi.DefaultNamespace, name)
 	}
-	_ = client.Delete(ctx, specapi.RepositoryGVR, specapi.DefaultNamespace, repository)
+	for _, name := range repositories {
+		_ = client.Delete(ctx, specapi.RepositoryGVR, specapi.DefaultNamespace, name)
+	}
 }
 
 // TestPhase4ControllerDriftAndSpecChanges drives the real controller against
@@ -105,11 +111,12 @@ func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
 
 	repoPath := fixture.CopyAs(t, "calc", phase4Repository)
 	names := []string{"calc", "cmd-calc", phase4Repository}
-	forgetPhase4(t, ctx, client, phase4Repository, names...)
+	repositories := []string{phase4Repository, "calc"}
+	forgetPhase4(t, ctx, client, repositories, names)
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cleanupCancel()
-		forgetPhase4(t, cleanupCtx, client, phase4Repository, names...)
+		forgetPhase4(t, cleanupCtx, client, repositories, names)
 	})
 
 	repository := &spec.Repository{
@@ -274,11 +281,12 @@ func TestPhase4PollWatchReconciles(t *testing.T) {
 	}
 	repoPath := fixture.CopyAs(t, "calc", "phase4-poll")
 	names := []string{"calc", "cmd-calc"}
-	forgetPhase4(t, ctx, client, "phase4-poll", names...)
+	repositories := []string{"phase4-poll", "calc"}
+	forgetPhase4(t, ctx, client, repositories, names)
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
-		forgetPhase4(t, cleanupCtx, client, "phase4-poll", names...)
+		forgetPhase4(t, cleanupCtx, client, repositories, names)
 	})
 
 	applyTyped(t, ctx, client, &spec.Repository{
@@ -340,11 +348,11 @@ func TestPhase4TypeScriptIngest(t *testing.T) {
 
 	client := liveClient(t, root)
 	repoPath := fixture.Copy(t, "greet")
-	forgetPhase4(t, ctx, client, "greet", "greet", "format")
+	forgetPhase4(t, ctx, client, []string{"greet"}, []string{"greet", "format"})
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
-		forgetPhase4(t, cleanupCtx, client, "greet", "greet", "format")
+		forgetPhase4(t, cleanupCtx, client, []string{"greet"}, []string{"greet", "format"})
 	})
 
 	result, err := ingest.Run(ctx, client, ingest.Options{RepoPath: repoPath, RepositoryName: "greet"})
