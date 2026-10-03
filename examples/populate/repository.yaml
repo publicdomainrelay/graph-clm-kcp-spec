@@ -1,0 +1,26 @@
+# The phase 7 example: one manifest turns an unknown codebase into specs.
+#
+# The source is a git url, so specd clones it into its cache directory
+# (--cache-dir, .kcp-specd/cache by default) and keeps it up to date there.
+# `scripts/example-phase7.sh` builds the bare repository this url names out of
+# fixtures/greet and fixtures/calc, which kcp has never seen; the url is
+# relative to the directory specd runs in, which `make example-phase7` sets to
+# the repository root.
+#
+# populate says what to do with the tree: directory partition, and one
+# CodeToSpec change per new context so the scripted agent fills every spec in.
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: Repository
+metadata:
+  name: unseen
+  namespace: default
+spec:
+  source:
+    git:
+      url: .kcp-specd/example-phase7/unseen.git
+      ref: main
+  populate:
+    partition: directory
+    summarize: true
+    agent:
+      kind: scripted:examples/populate/scenario.yaml

@@ -16,7 +16,7 @@ export SPECD_BOLT_BACKEND ?= arcadedb
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 demo clean
+.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 demo clean
 
 ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
 ARCH_REPOSITORY ?= deno-kcp
@@ -70,20 +70,8 @@ example-phase1: $(SPECCTL) kcp-up
 	@echo "--- one SystemContext as YAML ---"
 	$(SPECCTL) get systemcontext calc -o yaml
 
-example-phase2: $(SPECCTL) kcp-up
-	$(SPECCTL) apply -f examples/calc/specs.yaml
-	@echo "--- index fixtures/calc with codegraph, fill status.observed, write the graph ---"
-	$(SPECCTL) ingest --repo fixtures/calc
-	@echo "--- observed code facts per context ---"
-	$(SPECCTL) get systemcontext
-	@echo "--- the calculated fingerprint and the conditions ---"
-	KUBECONFIG=$(WORKSPACE_KUBECONFIG) kubectl -n default get systemcontext calc \
-		-o jsonpath='{.status.observed.fingerprint}{"\n"}{range .status.conditions[*]}{.type}={.status} {end}{"\n"}'
-	@echo "--- one hop of the graph around calc in ArcadeDB, the default backend ---"
-	$(SPECCTL) graph neighbors calc
-	@echo "--- the same neighborhood in HydraDB, rebuilt from kcp and codegraph ---"
-	$(SPECCTL) graph rebuild --bolt-backend hydradb
-	$(SPECCTL) graph neighbors calc --bolt-backend hydradb
+example-phase2: $(SPECCTL) $(SPECD) kcp-up
+	./scripts/example-phase2.sh
 
 example-phase3: $(SPECCTL) kcp-up
 	@echo "--- every node of the open architecture document becomes a SystemContext ---"
@@ -104,6 +92,11 @@ example-phase5: $(SPECCTL) $(SPECD) kcp-up
 
 example-phase6: $(SPECCTL) $(SPECD) kcp-up
 	./scripts/example-phase6.sh
+
+# One manifest populates an unknown codebase: a bare git repository of two
+# fixtures, cloned, indexed and summarized with no other command.
+example-phase7: $(SPECCTL) $(SPECD) kcp-up
+	./scripts/example-phase7.sh
 
 # The failing verify path of the same example: the change ends Failed with its
 # branch kept and the managed branch untouched.
@@ -128,6 +121,8 @@ demo: $(SPECCTL) $(SPECD) kcp-up
 	$(MAKE) --no-print-directory example-phase6
 	@echo "=== the same change, with a verify command that rejects it ==="
 	$(MAKE) --no-print-directory example-phase6-failing
+	@echo "=== one manifest populates an unknown codebase ==="
+	$(MAKE) --no-print-directory example-phase7
 
 clean:
 	rm -f $(SPECCTL) $(SPECD) $(BIN)/hydradb-bins

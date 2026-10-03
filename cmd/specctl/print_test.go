@@ -74,7 +74,7 @@ func TestPrintTableForRepositoryAndSpecChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	printed := out.String()
-	for _, want := range []string{"PATH", "HEADCOMMIT", "/repos/calc", "abcdef123..."} {
+	for _, want := range []string{"SOURCE", "PHASE", "CONTEXTS", "HEADCOMMIT", "/repos/calc", "abcdef123..."} {
 		if !strings.Contains(printed, want) {
 			t.Errorf("repository table is missing %q:\n%s", want, printed)
 		}

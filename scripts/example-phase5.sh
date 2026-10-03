@@ -136,8 +136,10 @@ for name in $CONTEXTS; do
   done
   K delete systemcontext "$name" >/dev/null 2>&1 || true
 done
+# specctl ingest applies a Repository and waits for Populated; the specd above
+# is the one that runs the agent, and it owns the graph endpoint.
 "$SPECCTL" ingest --repo "$WORK" --repo-name phase5-example --summarize \
-  --agent "scripted:$SCENARIO" --no-graph
+  --agent "scripted:$SCENARIO"
 
 echo "--- specd stops on SIGTERM ---"
 kill "$specd_pid"

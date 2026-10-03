@@ -1,0 +1,98 @@
+# The deterministic agent of the phase 7 example. One draft per context the
+# directory partition of the unseen tree creates: the greet module, its format
+# directory, and the calc package with its command line front end. Code refs
+# are the spellings the strict parser accepts for observed facts, so a draft
+# resolves to the same CodeGraph id a human would write.
+contexts:
+  greet:
+    summary: |
+      A greetings module: it builds a greeting, shouts it, and a Greeter class
+      prefixes one.
+    intent: |
+      Greetings as a small Deno module: a value object, two functions over it,
+      and a class that adds a prefix.
+    requirements:
+      - id: r.greet
+        level: MUST
+        text: greet returns the name and the greeting text together.
+        codeRefs: ["greet", "file:greet/mod.ts"]
+      - id: r.shout
+        level: SHOULD
+        text: shout upper cases the greeting.
+        codeRefs: ["shout"]
+    interfaces:
+      - name: Greeting
+        kind: interface
+        signature: "interface Greeting { name: string; text: string }"
+        file: greet/mod.ts
+      - name: greet
+        kind: function
+        signature: "function greet(name: string): Greeting"
+        file: greet/mod.ts
+      - name: shout
+        kind: function
+        signature: "function shout(name: string): string"
+        file: greet/mod.ts
+      - name: Greeter
+        kind: class
+        signature: "class Greeter"
+        file: greet/mod.ts
+  greet-format:
+    summary: |
+      String formatting helpers the greeting module reuses.
+    intent: |
+      Small pure string helpers: title case and trimming.
+    requirements:
+      - id: r.title-case
+        level: MUST
+        text: titleCase capitalises every word.
+        codeRefs: ["titleCase", "file:greet/format/mod.ts"]
+      - id: r.trim-all
+        level: MUST
+        text: trimAll trims every value it is given.
+        codeRefs: ["trimAll"]
+    interfaces:
+      - name: titleCase
+        kind: function
+        signature: "function titleCase(value: string): string"
+        file: greet/format/mod.ts
+      - name: trimAll
+        kind: function
+        signature: "function trimAll(values: string[]): string[]"
+        file: greet/format/mod.ts
+  calc-calc:
+    summary: |
+      Arithmetic on two integers.
+    intent: |
+      The calc package: the arithmetic itself, as a library the command line
+      front end wraps.
+    requirements:
+      - id: r.add
+        level: MUST
+        text: Add returns the sum of two integers.
+        codeRefs: ["Add", "file:calc/calc/calc.go"]
+      - id: r.multiply
+        level: MUST
+        text: Multiply returns the product of two integers.
+        codeRefs: ["Multiply"]
+    interfaces:
+      - name: Add
+        kind: function
+        signature: "func Add(a, b int) int"
+        file: calc/calc/calc.go
+      - name: Multiply
+        kind: function
+        signature: "func Multiply(a, b int) int"
+        file: calc/calc/calc.go
+  calc-cmd-calc:
+    summary: |
+      The calc command line front end.
+    intent: |
+      A command line front end over the calc package: two operands and an
+      operator from the arguments, the result on standard output.
+    requirements:
+      - id: r.read-two-operands
+        level: MUST
+        text: The CLI reads two integers and an operator from its arguments.
+        codeRefs: ["file:calc/cmd/calc/main.go"]
+    interfaces: []

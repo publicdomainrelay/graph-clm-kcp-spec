@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,55 @@ const phase7Repository = "phase7-unseen"
 // phase7Contexts is what the directory partition of the unseen tree makes: the
 // greet module, its format directory, the calc package and its CLI.
 var phase7Contexts = []string{"calc-calc", "calc-cmd-calc", "greet", "greet-format"}
+
+// waitForPopulated waits until the manifest has been answered. A Failed phase
+// is not a slow populate: it is the answer, so it fails at once with what the
+// changes said.
+func waitForPopulated(t *testing.T, ctx context.Context, client *kcpclient.Client, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		switch phase7Phase(t, ctx, client) {
+		case specapi.PhasePopulated:
+			return
+		case specapi.PhaseFailed:
+			t.Fatalf("the populate failed%s", phase7Status(t, ctx))
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("waiting for Populated: %v", ctx.Err())
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	t.Fatalf("timed out after %s waiting for Populated%s", timeout, phase7Status(t, ctx))
+}
+
+// phase7Status is the detail a timed out populate needs: the phase, the counts
+// and what the changes say.
+func phase7Status(t *testing.T, ctx context.Context) string {
+	t.Helper()
+	root := repoRoot(t)
+	client, err := kcpclient.New(kcpclient.Options{
+		Kubeconfig: filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
+		Workspace:  "root:specs",
+		QPS:        50,
+		Burst:      100,
+	})
+	if err != nil {
+		return ""
+	}
+	object, err := client.Get(ctx, specapi.RepositoryGVR, specapi.DefaultNamespace, phase7Repository)
+	if err != nil {
+		return ""
+	}
+	phase, _, _ := unstructured.NestedString(object.Object, "status", "phase")
+	counts, _, _ := unstructured.NestedMap(object.Object, "status", "contexts")
+	changes := ""
+	for _, change := range liveSpecChanges(t, ctx, client) {
+		changes += "\n  " + change.Name + " " + change.Status.Phase + " " + change.Status.Message
+	}
+	return "\n  phase " + phase + " contexts " + fmt.Sprint(counts) + changes
+}
 
 // phase7Source builds the codebase kcp has never seen: one working tree that
 // holds both fixtures, and a bare clone of it to clone from. It returns the
@@ -155,9 +205,7 @@ func TestPhase7OneManifestPopulatesAnUnknownCodebase(t *testing.T) {
 	phase7Run(t, ctx, client, root, phase7Source(t),
 		&spec.AgentSpec{Kind: "scripted:" + phase7Scenario(t)}, 3*time.Minute, 2)
 
-	waitFor(t, ctx, "the repository to reach Populated", func() bool {
-		return phase7Phase(t, ctx, client) == specapi.PhasePopulated
-	})
+	waitForPopulated(t, ctx, client, 3*time.Minute)
 	raw := phase7Raw(t, ctx, client)
 	repository := phase7RepositoryObject(t, ctx, client)
 	if repository.Status.Contexts == nil {
@@ -245,11 +293,11 @@ func TestPhase7LiveModelPopulatesAnUnknownCodebase(t *testing.T) {
 	if err := client.Ping(ctx); err != nil {
 		t.Fatalf("kcp is not serving the specs API: %v", err)
 	}
-	phase7Run(t, ctx, client, root, phase7Source(t), &spec.AgentSpec{Kind: "claude"}, 10*time.Minute, 1)
+	// A model is not deterministic, so a populate that names it gets one
+	// retry: a single bad answer must not fail the acceptance test.
+	phase7Run(t, ctx, client, root, phase7Source(t), &spec.AgentSpec{Kind: "claude"}, 10*time.Minute, 2)
 
-	waitFor(t, ctx, "the repository to reach Populated", func() bool {
-		return phase7Phase(t, ctx, client) == specapi.PhasePopulated
-	})
+	waitForPopulated(t, ctx, client, 20*time.Minute)
 	repository := phase7RepositoryObject(t, ctx, client)
 	if repository.Status.Contexts == nil || repository.Status.Contexts.Summarized != len(phase7Contexts) {
 		t.Fatalf("status.contexts = %+v", repository.Status.Contexts)

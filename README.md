@@ -133,11 +133,12 @@ sequenceDiagram
 
 ## Status
 
-Phases 1 to 6 of 10 are done: **kcp holds specs, code becomes facts in `status`
+Phases 1 to 7 of 10 are done: **kcp holds specs, code becomes facts in `status`
 and in the graph, a hand written `arch.yaml` round trips through kcp, `specd`
 keeps the facts, the conditions and the work queue true to the code, an agent
-turns the code back into a spec, and a spec edit becomes a structured delta that
-drives an agent to change the code under a test gate.**
+turns the code back into a spec, a spec edit becomes a structured delta that
+drives an agent to change the code under a test gate, and one `Repository`
+manifest populates a codebase kcp has never seen.**
 
 - API group `specs.publicdomainrelay.dev/v1alpha1`, kinds `Repository`,
   `SystemContext`, `SpecChange`, namespaced, with a status subresource and
@@ -146,8 +147,16 @@ drives an agent to change the code under a test gate.**
 - `specd` watches the three kinds, re-ingests a `Repository` when its git HEAD
   moves, keeps `SpecValid`, `CodeSynced` and `Drifted` true to the code, and
   opens exactly one `SpecChange` per direction of work.
-- `specctl ingest --repo <path>` runs CodeGraph over a working tree, partitions
-  it into one `SystemContext` per directory that holds source files, and fills
+- `Repository.spec.source` is a local `path` or a `git: {url, ref}`; specd
+  clones a git source into `--cache-dir` and follows it, and
+  `Repository.spec.populate` says how to split the tree (`directory` or
+  `package`), what to skip (`include`/`exclude` globs) and whether to send an
+  agent over every new context (`summarize`, `agent`). `status.phase` runs
+  `Cloning -> Indexing -> Populating -> Populated`, or `Failed`, and
+  `status.contexts` counts total, summarized and failed.
+- `specctl ingest --repo <path>` applies a `Repository` manifest and waits for
+  `Populated`, so the CLI and the controller are one code path.
+- Ingest runs CodeGraph over a working tree, partitions it, and fills
   `status.observed` (`files`, `interfaces` with signature, file, line and
   CodeGraph id, and a `fingerprint` over both) plus the conditions `SpecValid`,
   `CodeSynced` and `Drifted`. Ingest is idempotent: a second run changes no spec
@@ -232,6 +241,7 @@ make example-phase3  # import testdata/open-architecture/arch.yaml and export it
 make example-phase4  # run specd, commit a change, watch drift and the SpecChange
 make example-phase5  # run specd with an agent, watch the spec fill itself in
 make example-phase6  # edit the spec, watch the agent land the code and the tests pass
+make example-phase7  # one manifest populates a codebase kcp has never seen
 make demo            # every phase, in order, against one cluster
 make kcp-down        # stop the cluster this repo started
 ```
@@ -264,6 +274,14 @@ context document the summarize left in the tree, then runs
 `specctl ingest --summarize` over the same tree to show the CLI entry point,
 and stops `specd` with SIGTERM. It owns the same `calc` and `cmd-calc` names, so
 run `make example-phase2` afterwards to put that example state back.
+`make example-phase7` builds a bare git repository out of `fixtures/greet` (a
+tree kcp has never seen) and `fixtures/calc`, applies only
+`examples/populate/repository.yaml`, and prints the phase, the context counts,
+every summarized spec and the context document the agent left in the clone; the
+controller clones, indexes, raises one `CodeToSpec` change per context and works
+them all off with the scripted agent, with no other command.
+`make example-phase2` and `make example-phase5` start `specd` around their
+`specctl ingest`, because the CLI waits for the controller now.
 `make example-phase6` copies `fixtures/calc` to a temporary working tree, applies
 a `Repository` that names its own scripted agent, starts `specd` with no
 `--agent` at all, adds one interface and one requirement to the `calc` context
@@ -279,16 +297,28 @@ The same steps by hand:
 
 ```bash
 make build
+make kcp-up
 
 # the graph endpoint defaults to ArcadeDB on bolt://127.0.0.1:7688 (root /
 # clm-arcadedb-root, database clm); for HydraDB instead:
 #   export SPECD_BOLT_BACKEND=hydradb   # 7687, neo4j, token in /tmp/hdb/token
 
+# specctl ingest applies a Repository and waits for Populated, so the controller
+# has to be watching the workspace; start it in its own terminal
+bin/specd --workspace root:specs --resync 2s
+```
+
+```bash
+# ... and run the rest in another terminal. One ingest: apply the example
+# contexts, then one Repository manifest, and read the observations back.
 bin/specctl apply -f examples/calc/specs.yaml
 bin/specctl ingest --repo fixtures/calc
 bin/specctl get systemcontext calc -o yaml
 bin/specctl graph neighbors calc
+
+# the same neighborhood in HydraDB, rebuilt from kcp and codegraph
 bin/specctl graph rebuild --bolt-backend hydradb
+bin/specctl graph neighbors calc --bolt-backend hydradb
 
 bin/specctl delete systemcontext calc
 
@@ -298,22 +328,12 @@ bin/specctl get systemcontext -o name | head
 bin/specctl export --format arch --repository deno-kcp -o /tmp/arch-export.yaml
 
 KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl get systemcontexts
-
-# the controller manages a git working tree, and fixtures/calc is a plain
-# directory, so give it a copy of its own; then commit something to that copy
-WORK=$(mktemp -d) && cp -r fixtures/calc/. "$WORK/" && rm -rf "$WORK/.codegraph"
-git -C "$WORK" init -q -b main && git -C "$WORK" add -A
-git -C "$WORK" -c user.email=you@example.com -c user.name=you commit -qm fixture
-bin/specctl apply -f - <<YAML
-apiVersion: specs.publicdomainrelay.dev/v1alpha1
-kind: Repository
-metadata: {name: calc, namespace: default}
-spec: {path: $WORK, branch: main, verify: ["go", "test", "./..."]}
-YAML
-
-# in its own terminal
-bin/specd --workspace root:specs --resync 2s
 KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl get specchanges
+
+# one manifest populates a codebase kcp has never seen (make example-phase7
+# builds the bare repository this url names)
+KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl apply -f examples/populate/repository.yaml
+KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl get repositories -o wide
 ```
 
 `ingest` reads the Bolt endpoint from the flags or the environment
@@ -322,13 +342,15 @@ KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl get specchanges
 backend fills the options no flag and no environment variable set, and ArcadeDB
 is the default; `SPECD_BOLT_URL=` (set but empty) turns the graph off. The
 `Makefile` exports `SPECD_BOLT_BACKEND=arcadedb`, so plain `make example-phase2`
-needs no extra flags. A relative
-`Repository.spec.path` resolves against the working directory of whichever
-process reads it, so run the commands from the repository root, and note that
-`specd` needs that path to be a git working tree: `fixtures/calc` is a plain
-directory in this repository (the tests copy it to a temporary git repository),
-so a `Repository` that points straight at it gets `Indexed=False` with
-`HeadUnavailable` instead of an ingest.
+needs no extra flags, and the graph is written where the index is written, which
+is `specd`: pass the bolt flags to the controller, not to `specctl ingest`.
+
+A relative `Repository.spec.source.path` resolves against the working directory
+of whichever process reads it, so run the commands from the repository root. A
+working tree that is not a git repository is still indexed: it has no commits,
+so it cannot drift, and it is re-indexed when a caller asks with the
+`specs.publicdomainrelay.dev/populate-request` annotation (which
+`specctl ingest` always sets).
 
 `specctl` talks to the workspace `root:specs` on the admin kubeconfig; pass
 `--workspace`, `--namespace`, `--kubeconfig` or `--context` to change that.
@@ -340,7 +362,7 @@ works against it without extra flags.
 
 | Kind | Purpose | Key fields |
 | --- | --- | --- |
-| `Repository` | a git working tree under management | `spec.path`, `spec.branch`, `spec.verify`, `spec.agent.kind`, `status.headCommit`, `status.indexedCommit`, the `Indexed` condition |
+| `Repository` | a codebase under management, and the one manifest that populates an unknown one | `spec.source.path` / `spec.source.git`, `spec.branch`, `spec.verify`, `spec.agent`, `spec.populate` (partition, include, exclude, summarize, agent), `status.phase`, `status.contexts`, `status.resolvedPath`, the `Indexed` and `Populated` conditions |
 | `SystemContext` | one spec node (one system context) | `spec.repository`, `spec.upstream`, `spec.overlay`, `spec.orchestrator`, `spec.dependsOn[]`, `spec.introduces[]`, `spec.intent`, `spec.requirements[]`, `spec.interfaces[]`, `spec.codeRefs[]`, `spec.arch` |
 | `SpecChange` | one direction-tagged change, the unit of work | `spec.systemContext`, `spec.direction`, `spec.delta`, `spec.toSpecHash` / `spec.toCommit`, `status.phase`, `status.branch`, `status.commit`, `status.verifyExitCode`, `status.filesTouched` |
 
@@ -373,28 +395,46 @@ spec hash are rejected locally with the field path, and nothing is sent. A
 field whose type is wrong is reported with its path too, for example
 `spec.requirements.codeRefs`.
 
-## Ingest: code becomes facts
+## Ingest: one manifest becomes code facts and specs
 
-`specctl ingest --repo <path>`:
+`specctl ingest --repo <path>` is a thin wrapper: it applies a `Repository`
+manifest and waits for the controller to reach `Populated`. The work is
+`impl/populate`, the same code path specd's `Repository` reconcile runs, so the
+CLI and the controller cannot disagree about what ingesting means. (A `specd`
+must be running; the controller owns the index, the graph and the agent.)
 
-1. runs `codegraph init` (or `sync` when the index exists) on the working tree;
-2. reads `.codegraph/codegraph.db` back through a pure Go sqlite driver. Ids are
+The pipeline:
+
+1. resolves the source: a `spec.source.path` is used as it is, a
+   `spec.source.git.url` is cloned into `--cache-dir` (`SPECD_CACHE_DIR`,
+   `.kcp-specd/cache` by default) and fetched again on every resync, so a remote
+   that moves forward is followed;
+2. runs `codegraph init` (or `sync` when the index exists) on the working tree;
+3. reads `.codegraph/codegraph.db` back through a pure Go sqlite driver. Ids are
    read, never computed;
-3. partitions the tree into one context per directory that holds a source file
+4. partitions the tree: one context per directory that holds a source file
    (`calc/` becomes `calc`, `cmd/calc/` becomes `cmd-calc`, root files take the
-   repository name). Test files stay in `observed.files` but contribute no
-   interfaces;
-4. writes `Repository.status.headCommit` and `indexedCommit`, and for each
+   repository name) with `partition: directory` (the default), or one per
+   package or module root with `partition: package`. `include` and `exclude`
+   are globs over the repository-relative path, where `**` crosses directories
+   and a pattern without a slash also matches a base name. Test files stay in
+   `observed.files` but contribute no interfaces;
+5. writes `Repository.status.headCommit` and `indexedCommit`, and for each
    context fills `status.observed` and the three conditions. The fingerprint is
    sha256 over the canonical JSON of the sorted files and interfaces, so the
    same tree always produces the same digest;
-5. sets `spec.codeRefs` to the observed `file:` refs plus any non-file refs the
+6. sets `spec.codeRefs` to the observed `file:` refs plus any non-file refs the
    author wrote, and leaves `intent`, `requirements`, `interfaces`, `upstream`,
    `overlay` and `orchestrator` alone. A spec written this way carries the
    `specs.publicdomainrelay.dev/origin: ingest` annotation and a
    `status.realizedSpecHash`, so it never looks like a human edit;
-6. when a Bolt endpoint is configured, rewrites the graph from kcp and
-   CodeGraph.
+7. when `populate.summarize` is true, raises one `CodeToSpec` change per
+   context whose `intent` is still empty, at most `--max-concurrent-summaries`
+   running at once, and works each one off with `populate.agent` (or `spec.agent`
+   or the controller's `--agent`);
+8. writes `status.phase` (`Cloning -> Indexing -> Populating -> Populated`, or
+   `Failed`) and `status.contexts {total, summarized, failed}`, and rewrites the
+   graph when a Bolt endpoint is configured.
 
 ## The controller: conditions and drift
 
@@ -405,13 +445,20 @@ instead, for an API server whose watch a client cannot hold open. Only
 `cmd/specd` installs signal handlers: SIGINT and SIGTERM drain the workers and
 stop the watches, and nothing in the libraries does I/O on its own.
 
-`Repository` reconcile asks the working tree for its git HEAD. When the HEAD
-differs from `status.indexedCommit` it runs the phase 2 ingest, so the observed
-facts, the fingerprint and the graph follow the code. The HEAD is invisible to
-the API server, so each `Repository` requeues itself every `--resync` (5s by
-default). A tree whose HEAD cannot be read, or whose path is empty, gets
-`Indexed=False` with `HeadUnavailable` or `PathMissing` instead of an error
-loop.
+`Repository` reconcile resolves the source, then asks the working tree (or the
+cache clone) for its git HEAD. It indexes again when the commit moved, when the
+manifest asks with the `specs.publicdomainrelay.dev/populate-request`
+annotation, or on the first run, so the observed facts, the fingerprint and the
+graph follow the code. The HEAD is invisible to the API server, so each
+`Repository` requeues itself every `--resync` (5s by default), and a git source
+is fetched each time. A source that cannot be resolved gets `Indexed=False`,
+`phase: Failed` and `CloneFailed`, `SourceInvalid` or `PathMissing`, instead of
+an error loop.
+
+A `Repository` with `spec.populate` runs the same pipeline the `specctl ingest`
+wrapper waits for; `Cloning -> Indexing -> Populating -> Populated` is
+observable in `status.phase`, `status.contexts` counts the contexts, and the
+`Populated` condition is `True` only when every context has a spec.
 
 `SystemContext` reconcile indexes nothing. It turns the stored facts into the
 three conditions through the same pure deciders ingest uses, so the two can
@@ -697,6 +744,7 @@ impl/kcpclient       dynamic client for a kcp workspace: CRUD, status, manifests
 impl/codegraphsqlite run codegraph, read .codegraph/codegraph.db, resolve code refs
 impl/codegraphcli    run codegraph context|node, the only place the code itself is rendered
 impl/ingest          the code -> facts -> kcp status pipeline and the graph rebuild
+impl/populate        one Repository: resolve the source, index, raise one summarize per context
 impl/bundle          build what one context looks like to a model; read and write its CLM document
 impl/summarize       one code -> spec unit of work: bundle, agent, validate, write, move the baseline
 impl/agentfactory    one --agent option string into an agent, shared by specd and specctl
@@ -720,6 +768,7 @@ deploy/crds/         the three CustomResourceDefinitions
 examples/calc/       a repository and two system contexts that reference each other
 examples/phase5/     the scripted agent the phase 5 example drives specd with
 examples/phase6/     the baseline spec, the spec edit and the two scripted agents of the phase 6 example
+examples/populate/   the one Repository manifest and the scenario the phase 7 example applies
 fixtures/calc/       a tiny Go working tree: the calc package and its CLI
 fixtures/greet/      a tiny Deno/TypeScript module: a root module and format/
 testdata/open-architecture/  three revisions of arch.yaml and its schema
@@ -738,13 +787,18 @@ make check      # gofmt and go vet
 make test       # unit tests; live tests skip (-short)
 make test-live  # SPECD_REQUIRE_LIVE=1; starts kcp, needs codegraph and a Bolt backend
 
-# the two tests that spend a real model call
+# the three tests that spend a real model call
 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase5LiveModel -count=1 -v
 SPECD_REQUIRE_LIVE_MODEL=1 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase6LiveModelRealizesSubtract -count=1 -v
+SPECD_REQUIRE_LIVE_MODEL=1 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase7LiveModelPopulatesAnUnknownCodebase -count=1 -v
 ```
 
 The live tests start the cluster with `deploy/start-kcp.sh` if needed and leave
-it running; `make kcp-down` stops it. Without `SPECD_REQUIRE_LIVE=1` a missing
+it running; `make kcp-down` stops it. The phase 7 test builds a bare git
+repository out of the two fixtures, applies one `Repository` manifest with a git
+source and a scripted agent, and asserts `Populated` with every context
+summarized and `SpecValid=True`; `SPECD_REQUIRE_LIVE_MODEL=1` runs the same
+manifest with `deepseek-claude`. Without `SPECD_REQUIRE_LIVE=1` a missing
 `kcp`, `kine`, `kubectl`, `codegraph`, `deno`, `git` or Bolt endpoint skips the
 test instead of failing. `impl/boltgraph` has its own live test that writes, reads and deletes
 its own vertices, so it never disturbs the example graph; `impl/gitrepo` builds
@@ -778,14 +832,10 @@ machine. The graph defaults to ArcadeDB on `bolt://127.0.0.1:7688` (HydraDB on
 
 ## What is next
 
-Phase 7 makes one manifest populate an unknown codebase: `Repository.spec.source`
-(`path` or `git: {url, ref}`) and `Repository.spec.populate` (partition, include,
-exclude, summarize, agent), with `Repository.status.phase` running
-`Cloning -> Indexing -> Populating -> Populated`. `specctl ingest` becomes a thin
-wrapper that applies a `Repository` and waits, so there is one code path.
-
-Phase 8 makes the `pi-hydradb-clm` extension a first class writer of kcp state,
-with the same delta shape mirrored in TypeScript against the golden files in
-`testdata/delta/`, and `impl/piagent` as a third `Agent`. Phase 9 adds
+Phase 8 turns the CLM "context as file plus graph" logic into a library with two
+hosts, the `pi-hydradb-clm` extension and a Claude Code mod, so the subagent
+specd launches to realize a `SpecChange` reports into the same context file,
+graph and kcp state the controllers watch, with the same delta shape mirrored in
+TypeScript against the golden files in `testdata/delta/`. Phase 9 adds
 APIExport/APIBinding for tenant workspaces and `.specs/*.yaml` mirroring; phase
 10 builds the fixture set and `specctl eval`.

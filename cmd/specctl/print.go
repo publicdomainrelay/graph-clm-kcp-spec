@@ -65,7 +65,7 @@ func printTable(out io.Writer, items []unstructured.Unstructured) error {
 	case specapi.SystemContextKind:
 		fmt.Fprintln(table, "NAME\tREPOSITORY\tINTERFACES\tREQUIREMENTS\tVALID\tINTENT")
 	case specapi.RepositoryKind:
-		fmt.Fprintln(table, "NAME\tPATH\tBRANCH\tHEADCOMMIT")
+		fmt.Fprintln(table, "NAME\tSOURCE\tPHASE\tCONTEXTS\tHEADCOMMIT")
 	case specapi.SpecChangeKind:
 		fmt.Fprintln(table, "NAME\tCONTEXT\tDIRECTION\tPHASE\tDELTA\tCOMMIT")
 	}
@@ -93,10 +93,21 @@ func tableRow(item unstructured.Unstructured) ([]string, error) {
 			truncate(nestedString(item, "spec", "intent"), 48),
 		}, nil
 	case specapi.RepositoryKind:
+		// A git source has no spec.path: the tree is wherever the controller
+		// resolved it, so the resolved path is what a reader wants.
+		source := nestedString(item, "spec", "source", "path")
+		if source == "" {
+			source = nestedString(item, "spec", "path")
+		}
+		if resolved := nestedString(item, "status", "resolvedPath"); resolved != "" {
+			source = resolved
+		}
+		total, _, _ := unstructured.NestedInt64(item.Object, "status", "contexts", "total")
 		return []string{
 			item.GetName(),
-			nestedString(item, "spec", "path"),
-			nestedString(item, "spec", "branch"),
+			truncate(source, 40),
+			nestedString(item, "status", "phase"),
+			fmt.Sprint(total),
 			truncate(nestedString(item, "status", "headCommit"), 12),
 		}, nil
 	case specapi.SpecChangeKind:
