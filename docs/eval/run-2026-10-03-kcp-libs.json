@@ -1,0 +1,805 @@
+{
+  "agent": "claude-mod",
+  "fixtures": "fixtures/external",
+  "startedAt": "2026-10-03T22:46:27Z",
+  "finishedAt": "2026-10-03T22:50:50Z",
+  "populate": [
+    {
+      "fixture": "kcp-libs",
+      "phase": "Failed",
+      "contexts": 34,
+      "summarized": 33,
+      "failed": 1,
+      "wallTimeSeconds": 260.977712188,
+      "failures": [
+        "abc-cache: ...or)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"ByIndex\",\"kind\":\"method\",\"signature\":\"ByIndex(indexName, indexedValue string) ([]any, error)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"List\",\"kind\":\"method\",\"signature\":\"List() []any\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"IndexFunc\",\"kind\":\"type_alias\",\"signature\":\"type IndexFunc ()\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Indexers\",\"kind\":\"type_alias\",\"signature\":\"type Indexers ()\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Set\",\"kind\":\"struct\",\"signature\":\"type Set struct\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"NewSet\",\"kind\":\"function\",\"signature\":\"func NewSet() *Set\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Add\",\"kind\":\"method\",\"signature\":\"func (s *Set) Add(kind string, indexer Indexer)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Get\",\"kind\":\"method\",\"signature\":\"func (s *Set) Get(kind string, r ref.Ref) (any, bool)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"ByIndex\",\"kind\":\"method\",\"signature\":\"func (s *Set) ByIndex(kind, index, value string) []any\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Names\",\"kind\":\"method\",\"signature\":\"func (s *Set) Names(kind, index, value string) []string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Decode\",\"kind\":\"function\",\"signature\":\"func Decode[T any](obj any) (*T, error)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"ClusterOf\",\"kind\":\"function\",\"signature\":\"func ClusterOf(obj any) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"RefOf\",\"kind\":\"function\",\"signature\":\"func RefOf(obj any) (ref.Ref, bool)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"NameOf\",\"kind\":\"function\",\"signature\":\"func NameOf(obj any) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"PhaseOf\",\"kind\":\"function\",\"signature\":\"func PhaseOf(obj any) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"NestedString\",\"kind\":\"function\",\"signature\":\"func NestedString(obj any, fields ...string) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"IndexersFor\",\"kind\":\"function\",\"signature\":\"func IndexersFor(parentLabel, jobLabel, triggerPodField string) Indexers\",\"file\":\"abc/cache/cache.go\"}]} ...or)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"ByIndex\",\"kind\":\"method\",\"signature\":\"ByIndex(indexName, indexedValue string) ([]any, error)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"List\",\"kind\":\"method\",\"signature\":\"List() []any\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"IndexFunc\",\"kind\":\"type_alias\",\"signature\":\"type IndexFunc ()\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Indexers\",\"kind\":\"type_alias\",\"signature\":\"type Indexers ()\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Set\",\"kind\":\"struct\",\"signature\":\"type Set struct\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"NewSet\",\"kind\":\"function\",\"signature\":\"func NewSet() *Set\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Add\",\"kind\":\"method\",\"signature\":\"func (s *Set) Add(kind string, indexer Indexer)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Get\",\"kind\":\"method\",\"signature\":\"func (s *Set) Get(kind string, r ref.Ref) (any, bool)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"ByIndex\",\"kind\":\"method\",\"signature\":\"func (s *Set) ByIndex(kind, index, value string) []any\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Names\",\"kind\":\"method\",\"signature\":\"func (s *Set) Names(kind, index, value string) []string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"Decode\",\"kind\":\"function\",\"signature\":\"func Decode[T any](obj any) (*T, error)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"ClusterOf\",\"kind\":\"function\",\"signature\":\"func ClusterOf(obj any) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"RefOf\",\"kind\":\"function\",\"signature\":\"func RefOf(obj any) (ref.Ref, bool)\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"NameOf\",\"kind\":\"function\",\"signature\":\"func NameOf(obj any) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"PhaseOf\",\"kind\":\"function\",\"signature\":\"func PhaseOf(obj any) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"NestedString\",\"kind\":\"function\",\"signature\":\"func NestedString(obj any, fields ...string) string\",\"file\":\"abc/cache/cache.go\"},{\"name\":\"IndexersFor\",\"kind\":\"function\",\"signature\":\"func IndexersFor(parentLabel, jobLabel, triggerPodField string) Indexers\",\"file\":\"abc/cache/cache.go\"}]}"
+      ],
+      "error": "Failed; Populated: PopulateFailed: 1 context(s) could not be summarized"
+    }
+  ],
+  "codeToSpec": [
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-cache",
+      "interfaces": {
+        "declared": 0,
+        "target": 18,
+        "matched": 0,
+        "missing": [
+          "Add",
+          "ByIndex",
+          "ClusterOf",
+          "Decode",
+          "Get",
+          "GetByKey",
+          "IndexFunc",
+          "Indexer",
+          "Indexers",
+          "IndexersFor",
+          "List",
+          "NameOf",
+          "Names",
+          "NestedString",
+          "NewSet",
+          "PhaseOf",
+          "RefOf",
+          "Set"
+        ],
+        "recall": 0,
+        "precision": 1,
+        "f1": 0
+      },
+      "requirements": 0,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-joballoc",
+      "interfaces": {
+        "declared": 9,
+        "target": 9,
+        "matched": 9,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 12,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-pki",
+      "interfaces": {
+        "declared": 9,
+        "target": 24,
+        "matched": 9,
+        "missing": [
+          "CAChain",
+          "CASerial",
+          "CachedRootPEM",
+          "Delete",
+          "DeleteNamespace",
+          "EnsureAuthority",
+          "EnsureMount",
+          "EnsureNamespace",
+          "EnsureRoot",
+          "GenerateIntermediate",
+          "GenerateRoot",
+          "Issue",
+          "SetSignedIntermediate",
+          "SignIntermediate",
+          "WriteRole"
+        ],
+        "recall": 0.375,
+        "precision": 1,
+        "f1": 0.5454545454545454
+      },
+      "requirements": 15,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-policy",
+      "interfaces": {
+        "declared": 4,
+        "target": 4,
+        "matched": 4,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 5,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-probe",
+      "interfaces": {
+        "declared": 8,
+        "target": 7,
+        "matched": 7,
+        "extra": [
+          "DefaultFailureThreshold"
+        ],
+        "recall": 1,
+        "precision": 0.875,
+        "f1": 0.9333333333333333
+      },
+      "requirements": 12,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-queue",
+      "interfaces": {
+        "declared": 21,
+        "target": 21,
+        "matched": 21,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 17,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-reconcile",
+      "interfaces": {
+        "declared": 24,
+        "target": 24,
+        "matched": 24,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 11,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-runner",
+      "interfaces": {
+        "declared": 11,
+        "target": 11,
+        "matched": 11,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 12,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-runref",
+      "interfaces": {
+        "declared": 10,
+        "target": 9,
+        "matched": 5,
+        "missing": [
+          "Forget",
+          "Keep",
+          "Len",
+          "Lookup"
+        ],
+        "extra": [
+          "Index.Forget",
+          "Index.Keep",
+          "Index.Len",
+          "Index.Lookup",
+          "Index.Record"
+        ],
+        "recall": 0.5555555555555556,
+        "precision": 0.5,
+        "f1": 0.5263157894736842
+      },
+      "requirements": 13,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-store",
+      "interfaces": {
+        "declared": 12,
+        "target": 12,
+        "matched": 12,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 9,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-clientlimit",
+      "interfaces": {
+        "declared": 1,
+        "target": 1,
+        "matched": 1,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 5,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-condition",
+      "interfaces": {
+        "declared": 7,
+        "target": 7,
+        "matched": 7,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 10,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-denocomputer",
+      "interfaces": {
+        "declared": 7,
+        "target": 7,
+        "matched": 7,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 8,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-denospec",
+      "interfaces": {
+        "declared": 10,
+        "target": 10,
+        "matched": 10,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 11,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-expiringmap",
+      "interfaces": {
+        "declared": 11,
+        "target": 11,
+        "matched": 11,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 12,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-kcp",
+      "interfaces": {
+        "declared": 2,
+        "target": 2,
+        "matched": 2,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 6,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-logging",
+      "interfaces": {
+        "declared": 3,
+        "target": 3,
+        "matched": 3,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 6,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-outputs",
+      "interfaces": {
+        "declared": 2,
+        "target": 2,
+        "matched": 2,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 8,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-ref",
+      "interfaces": {
+        "declared": 8,
+        "target": 7,
+        "matched": 5,
+        "missing": [
+          "WithNamespace",
+          "WithResourceVersion"
+        ],
+        "extra": [
+          "Ref.Key",
+          "Ref.WithNamespace",
+          "Ref.WithResourceVersion"
+        ],
+        "recall": 0.7142857142857143,
+        "precision": 0.625,
+        "f1": 0.6666666666666666
+      },
+      "requirements": 8,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-statuspatch",
+      "interfaces": {
+        "declared": 6,
+        "target": 6,
+        "matched": 6,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 8,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-ttl",
+      "interfaces": {
+        "declared": 4,
+        "target": 4,
+        "matched": 4,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 7,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "factory-admission",
+      "interfaces": {
+        "declared": 10,
+        "target": 10,
+        "matched": 4,
+        "missing": [
+          "Admit",
+          "Capacity",
+          "Leases",
+          "Parent",
+          "Runs",
+          "Wake"
+        ],
+        "extra": [
+          "Admitter.Admit",
+          "Admitter.Leases",
+          "Admitter.Wake",
+          "Source.Capacity",
+          "Source.Parent",
+          "Source.Runs"
+        ],
+        "recall": 0.4,
+        "precision": 0.4,
+        "f1": 0.4000000000000001
+      },
+      "requirements": 9,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "factory-controller",
+      "interfaces": {
+        "declared": 11,
+        "target": 11,
+        "matched": 11,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 10,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "factory-servicenames",
+      "interfaces": {
+        "declared": 14,
+        "target": 14,
+        "matched": 8,
+        "missing": [
+          "Env",
+          "Lookup",
+          "Name",
+          "Pods",
+          "Table",
+          "Tokens"
+        ],
+        "extra": [
+          "PathResolver.Lookup",
+          "Resolver.Env",
+          "Resolver.Name",
+          "Resolver.Table",
+          "Resolver.Tokens",
+          "Source.Pods"
+        ],
+        "recall": 0.5714285714285714,
+        "precision": 0.5714285714285714,
+        "f1": 0.5714285714285714
+      },
+      "requirements": 13,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-assets",
+      "interfaces": {
+        "declared": 5,
+        "target": 5,
+        "matched": 5,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 9,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-execrunner",
+      "interfaces": {
+        "declared": 10,
+        "target": 10,
+        "matched": 10,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 13,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-exportwatch",
+      "interfaces": {
+        "declared": 9,
+        "target": 9,
+        "matched": 9,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 16,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-informerwatch",
+      "interfaces": {
+        "declared": 8,
+        "target": 8,
+        "matched": 8,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 11,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-kcpstore",
+      "interfaces": {
+        "declared": 27,
+        "target": 27,
+        "matched": 8,
+        "missing": [
+          "AddFinalizer",
+          "ClientFor",
+          "ClusterPath",
+          "Config",
+          "Create",
+          "Delete",
+          "Finalizers",
+          "Forget",
+          "Get",
+          "GetRaw",
+          "Len",
+          "List",
+          "ListIn",
+          "Lookup",
+          "MintServiceAccountToken",
+          "PatchJSON",
+          "PatchStatus",
+          "RemoveFinalizer",
+          "RemoveKnownFinalizer"
+        ],
+        "extra": [
+          "PathCache.Forget",
+          "PathCache.Len",
+          "PathCache.Lookup",
+          "Resource.AddFinalizer",
+          "Resource.Create",
+          "Resource.Delete",
+          "Resource.Finalizers",
+          "Resource.Get",
+          "Resource.GetRaw",
+          "Resource.List",
+          "Resource.ListIn",
+          "Resource.PatchJSON",
+          "Resource.PatchStatus",
+          "Resource.RemoveFinalizer",
+          "Resource.RemoveKnownFinalizer",
+          "Store.ClientFor",
+          "Store.ClusterPath",
+          "Store.Config",
+          "Store.MintServiceAccountToken"
+        ],
+        "recall": 0.2962962962962963,
+        "precision": 0.2962962962962963,
+        "f1": 0.2962962962962963
+      },
+      "requirements": 21,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-memoryrunner",
+      "interfaces": {
+        "declared": 10,
+        "target": 10,
+        "matched": 10,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 10,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-metrics",
+      "interfaces": {
+        "declared": 14,
+        "target": 13,
+        "matched": 3,
+        "missing": [
+          "Address",
+          "Close",
+          "Counter",
+          "Gauge",
+          "GaugeFunc",
+          "Handler",
+          "Listen",
+          "Name",
+          "Render",
+          "Summary"
+        ],
+        "extra": [
+          "Registry.Counter",
+          "Registry.Gauge",
+          "Registry.GaugeFunc",
+          "Registry.Handler",
+          "Registry.Listen",
+          "Registry.Name",
+          "Registry.Registry",
+          "Registry.Render",
+          "Registry.Summary",
+          "Server.Address",
+          "Server.Close"
+        ],
+        "recall": 0.23076923076923078,
+        "precision": 0.21428571428571427,
+        "f1": 0.22222222222222224
+      },
+      "requirements": 9,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-openbaoclient",
+      "interfaces": {
+        "declared": 23,
+        "target": 19,
+        "matched": 19,
+        "extra": [
+          "ErrForbidden",
+          "ErrNoCA",
+          "ErrNotFound",
+          "ErrTransport"
+        ],
+        "recall": 1,
+        "precision": 0.8260869565217391,
+        "f1": 0.9047619047619047
+      },
+      "requirements": 24,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-pkiprovisioner",
+      "interfaces": {
+        "declared": 9,
+        "target": 9,
+        "matched": 9,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 11,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-policyclient",
+      "interfaces": {
+        "declared": 6,
+        "target": 6,
+        "matched": 6,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 12,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    }
+  ],
+  "scenarios": null,
+  "notes": [
+    "working trees under /tmp/specd-eval.3824919250"
+  ]
+}

@@ -1060,7 +1060,12 @@ go test ./impl/eval/ -run TestScriptedScenarios -count=1 -v
 # SPECS_WORKSPACE=specs-eval WORKSPACE_KUBECONFIG=.kcp-specd/specs-eval.kubeconfig deploy/install-specs.sh)
 bin/specctl eval --fixtures fixtures --out docs/eval/run-<date>-scripted.md
 bin/specctl eval --fixtures fixtures --agent claude-mod --clm-mod cc-clm-mod
-bin/specctl eval --fixtures fixtures --agent pi --summarize-agent pi --code-only
+bin/specctl eval --fixtures fixtures --agent pi --code-only
+
+# an unknown real codebase: one manifest, a read-only clone, no drafts and no
+# scenarios. SPECD_EVAL_UNKNOWN_REPO overrides the checkout the fixture names.
+SPECD_EVAL_UNKNOWN_REPO=../kcp-libs bin/specctl eval --fixtures fixtures/external \
+  --agent claude-mod --clm-mod cc-clm-mod --code-only --round-trip=false
 
 # the pi host over a real model (the default command is the npm package;
 # SPECD_PI_ARGS names a provider or model when the environment needs one)
