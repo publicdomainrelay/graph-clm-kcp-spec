@@ -538,7 +538,17 @@ The pipeline:
 5. writes `Repository.status.headCommit` and `indexedCommit`, and for each
    context fills `status.observed` and the three conditions. The fingerprint is
    sha256 over the canonical JSON of the sorted files and interfaces, so the
-   same tree always produces the same digest;
+   same tree always produces the same digest. Both the observed list and a
+   spec's `spec.interfaces` are keyed the same way: a method by its qualified
+   name, `Type.Method` (the Go receiver type or the TypeScript class), and
+   everything else by its bare name. Two types that both offer a method named
+   `List` are therefore two entries, which a list keyed by the bare name could
+   not hold — the API server refuses a duplicate key, so such a package could
+   not be specified at all. The index reports every TypeScript class member as
+   unexported; the reader applies the language's own rule instead, so a member
+   is public unless it says `private` or `protected`, or carries a `#` name.
+   A spec stored before the receiver was part of the key is migrated by the
+   ingest itself, when the facts name exactly one candidate;
 6. sets `spec.codeRefs` to the observed `file:` refs plus any non-file refs the
    author wrote, and leaves `intent`, `requirements`, `interfaces`, `upstream`,
    `overlay` and `orchestrator` alone. A spec written this way carries the
@@ -815,6 +825,22 @@ specctl graph neighbors calc       # the edges the report wrote, one hop out
 model gets `SPECD_CLM_CONTEXT`, `SPECD_CLM_CHANGE`, the workspace kubeconfig,
 the `specctl` path and the Bolt endpoint in its environment.
 
+It also gets `SPECD_CLM_ROOT`: the worktree the model may work in, which is the
+same directory specd runs it in, on the summarize call and the realize call
+alike. The mod's `tool.call` hook holds every path a tool names against it. A
+`Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Grep` or `Glob` whose
+path resolves — through `$.fs.stat(path, { resolve: true })`, so a symlink is
+followed — outside that root is refused before the tool runs, and the refusal
+is the model's to read. A `Bash` command is refused when it names an absolute
+path outside the root and outside the system directories (`/usr`, `/bin`,
+`/tmp`, ...), or a `..` that climbs out. The point is not tidiness: a realize
+agent that can read `fixtures/` can read the hidden acceptance tests it is
+being graded by, and a guest is only as contained as the worktree it was given.
+The Bash half is best effort by construction — a path reached through a shell
+variable, a relative walk, a hard link or a case alias is not caught — which is
+why the guard is an allow-list on what resolves inside the root, not a
+deny-list on spellings.
+
 `make example-phase8` shows the whole mod path deterministically, with no model:
 it renders the document, makes the edit a model would make, applies it, shows
 the one entry delta and the raised `SpecToCode` change, folds a second edit into
@@ -1076,7 +1102,24 @@ SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase5LiveModel -count=1
 SPECD_REQUIRE_LIVE_MODEL=1 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase6LiveModelRealizesSubtract -count=1 -v
 SPECD_REQUIRE_LIVE_MODEL=1 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase7LiveModelPopulatesAnUnknownCodebase -count=1 -v
 SPECD_REQUIRE_LIVE_MODEL=1 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase8LiveModelRealizesWithTheMod -count=1 -v
+
+# the scope guard inside a live session: deepseek-claude with cc-clm-mod loaded
+# is asked to read a file this repository owns and the mod refuses it
+SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase12ScopeGuardRefusesAFileOutsideTheRoot -count=1 -v
 ```
+
+**One run at a time.** The live suite and `specctl eval` drive controllers
+against the same kcp workspace and the same working trees, so two at once do not
+measure twice: they overwrite the objects and the trees the other is reading.
+`test/e2e` takes an exclusive `flock` on `.kcp-specd/live.lock` in its
+`TestMain` and holds it for the whole package; `specctl eval` takes the same
+lock around its run (`--live-lock`, or `SPECD_LIVE_LOCK`, points it elsewhere
+and an empty value takes none). A run that finds the lock held prints one line
+naming the file and waits, and because it is an `flock` the kernel drops it when
+a killed run's process is gone, so there is no stale lock to clear.
+`go test ./impl/runlock` proves it: one test pins that the second acquisition
+waits and says so, and another starts two `go test ./test/e2e` runs at once and
+reads the begin and end marks each writes around its window.
 
 The TypeScript has its own three: `cd clm && npm test` (the core, including the
 delta and the ids against the same golden files Go uses), `cd cc-clm-mod &&

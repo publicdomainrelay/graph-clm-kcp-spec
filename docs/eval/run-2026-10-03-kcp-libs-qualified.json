@@ -1,0 +1,657 @@
+{
+  "agent": "claude-mod",
+  "fixtures": "fixtures/external",
+  "startedAt": "2026-10-03T23:32:36Z",
+  "finishedAt": "2026-10-03T23:36:28Z",
+  "populate": [
+    {
+      "fixture": "kcp-libs",
+      "phase": "Populated",
+      "contexts": 34,
+      "summarized": 34,
+      "failed": 0,
+      "wallTimeSeconds": 231.309800688
+    }
+  ],
+  "codeToSpec": [
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-cache",
+      "interfaces": {
+        "declared": 20,
+        "target": 20,
+        "matched": 20,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 11,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-joballoc",
+      "interfaces": {
+        "declared": 9,
+        "target": 9,
+        "matched": 9,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 12,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-pki",
+      "interfaces": {
+        "declared": 25,
+        "target": 25,
+        "matched": 25,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 19,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-policy",
+      "interfaces": {
+        "declared": 4,
+        "target": 4,
+        "matched": 4,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 5,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-probe",
+      "interfaces": {
+        "declared": 8,
+        "target": 7,
+        "matched": 7,
+        "extra": [
+          "DefaultFailureThreshold"
+        ],
+        "recall": 1,
+        "precision": 0.875,
+        "f1": 0.9333333333333333
+      },
+      "requirements": 12,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-queue",
+      "interfaces": {
+        "declared": 21,
+        "target": 21,
+        "matched": 21,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 17,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-reconcile",
+      "interfaces": {
+        "declared": 27,
+        "target": 27,
+        "matched": 27,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 11,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-runner",
+      "interfaces": {
+        "declared": 15,
+        "target": 15,
+        "matched": 15,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 12,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-runref",
+      "interfaces": {
+        "declared": 10,
+        "target": 10,
+        "matched": 10,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 13,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "abc-store",
+      "interfaces": {
+        "declared": 12,
+        "target": 12,
+        "matched": 12,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 9,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-clientlimit",
+      "interfaces": {
+        "declared": 1,
+        "target": 1,
+        "matched": 1,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 5,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-condition",
+      "interfaces": {
+        "declared": 7,
+        "target": 7,
+        "matched": 7,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 10,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-denocomputer",
+      "interfaces": {
+        "declared": 7,
+        "target": 7,
+        "matched": 7,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 9,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-denospec",
+      "interfaces": {
+        "declared": 10,
+        "target": 10,
+        "matched": 7,
+        "missing": [
+          "Args",
+          "EffectiveRestartPolicy",
+          "Validate"
+        ],
+        "extra": [
+          "Permissions.Args",
+          "Permissions.Validate",
+          "RestartPolicy.EffectiveRestartPolicy"
+        ],
+        "recall": 0.7,
+        "precision": 0.7,
+        "f1": 0.7
+      },
+      "requirements": 11,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-expiringmap",
+      "interfaces": {
+        "declared": 11,
+        "target": 11,
+        "matched": 11,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 12,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-kcp",
+      "interfaces": {
+        "declared": 2,
+        "target": 2,
+        "matched": 2,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 7,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-logging",
+      "interfaces": {
+        "declared": 3,
+        "target": 3,
+        "matched": 3,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 6,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-outputs",
+      "interfaces": {
+        "declared": 2,
+        "target": 2,
+        "matched": 2,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 8,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-ref",
+      "interfaces": {
+        "declared": 8,
+        "target": 8,
+        "matched": 8,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 8,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-statuspatch",
+      "interfaces": {
+        "declared": 6,
+        "target": 6,
+        "matched": 6,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 9,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "common-ttl",
+      "interfaces": {
+        "declared": 4,
+        "target": 4,
+        "matched": 4,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 9,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "factory-admission",
+      "interfaces": {
+        "declared": 10,
+        "target": 10,
+        "matched": 10,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 10,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "factory-controller",
+      "interfaces": {
+        "declared": 11,
+        "target": 11,
+        "matched": 11,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 12,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "factory-servicenames",
+      "interfaces": {
+        "declared": 14,
+        "target": 16,
+        "matched": 14,
+        "missing": [
+          "PathResolverFunc.Lookup",
+          "SourceFunc.Pods"
+        ],
+        "recall": 0.875,
+        "precision": 1,
+        "f1": 0.9333333333333333
+      },
+      "requirements": 12,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-assets",
+      "interfaces": {
+        "declared": 5,
+        "target": 5,
+        "matched": 5,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 9,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-execrunner",
+      "interfaces": {
+        "declared": 14,
+        "target": 14,
+        "matched": 14,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 18,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-exportwatch",
+      "interfaces": {
+        "declared": 9,
+        "target": 9,
+        "matched": 9,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 16,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-informerwatch",
+      "interfaces": {
+        "declared": 8,
+        "target": 8,
+        "matched": 8,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 14,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-kcpstore",
+      "interfaces": {
+        "declared": 27,
+        "target": 27,
+        "matched": 27,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 21,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-memoryrunner",
+      "interfaces": {
+        "declared": 14,
+        "target": 14,
+        "matched": 14,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 10,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-metrics",
+      "interfaces": {
+        "declared": 14,
+        "target": 14,
+        "matched": 14,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 11,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-openbaoclient",
+      "interfaces": {
+        "declared": 23,
+        "target": 19,
+        "matched": 19,
+        "extra": [
+          "ErrForbidden",
+          "ErrNoCA",
+          "ErrNotFound",
+          "ErrTransport"
+        ],
+        "recall": 1,
+        "precision": 0.8260869565217391,
+        "f1": 0.9047619047619047
+      },
+      "requirements": 24,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-pkiprovisioner",
+      "interfaces": {
+        "declared": 9,
+        "target": 9,
+        "matched": 9,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 11,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "kcp-libs",
+      "context": "impl-policyclient",
+      "interfaces": {
+        "declared": 6,
+        "target": 6,
+        "matched": 6,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 13,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "requirementCountDelta": 0
+    }
+  ],
+  "scenarios": null,
+  "notes": [
+    "working trees under /tmp/specd-eval.2083225794"
+  ]
+}

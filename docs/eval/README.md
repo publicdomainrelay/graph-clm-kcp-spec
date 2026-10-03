@@ -21,6 +21,7 @@ bin/specctl eval --fixtures fixtures --out docs/eval/run-<date>.md
 | live, primary | `claude-mod` (`deepseek-claude` + `cc-clm-mod`) | 3 fixtures, 9 scenarios, both halves | `run-2026-10-03.md` |
 | live, code -> spec | `pi` (local `llama-cpp`, `ternary-bonsai-2-27b`) | 3 fixtures, code -> spec and the round trip | `run-2026-10-03-pi.md` |
 | unknown codebase | `claude-mod` | `../kcp-libs`, 34 contexts, populate only | `run-2026-10-03-kcp-libs.md` |
+| unknown codebase, receiver-keyed | `claude-mod` | the same 34 contexts after the interface key took its receiver | `run-2026-10-03-kcp-libs-qualified.md` |
 
 The gated live model tests are recorded beside them, as they ran:
 `live-model-tests.log` holds the output of the five tests that spend a real
@@ -140,18 +141,31 @@ by the same hand:
   the one where the model's answer did not name both, so all 34 populated; the
   limitation is real either way and is named below.
 
-## What is left
+## Both of those gaps are closed
+
+`run-2026-10-03-kcp-libs-qualified.md` is the same command over the same
+checkout after the fix, and it is the evidence.
 
 - **The TypeScript half of the observed surface.** Class members are public by
-  default; the index reports them unexported. The Go half is fixed, the
-  TypeScript half is not, and every measure above that has ever come out below
-  100% has been this.
-- **A declared surface keyed by name cannot describe a package where two types
-  share a method name**, which is ordinary Go. The model's answer was right and
-  the format cannot hold it; `agent.ParseDraft` fails the whole summarize
-  rather than dropping half of it silently, which is the designed behaviour but
-  not a useful one here. A per-receiver spelling of an interface name, or a
-  reported drop, is the shape of the fix.
+  default; the index reports them unexported. `impl/codegraphsqlite` now applies
+  the language's own rule — a member is public unless it says `private` or
+  `protected`, or carries a `#` name, and a member of a class that is not
+  exported is not observed at all. The `greet` fixture carries the class case.
+- **A surface keyed by name could not describe a package where two types share
+  a method name**, which is ordinary Go. An interface is now keyed by its
+  qualified name for a method, `Type.Method`, and by its bare name otherwise.
+  `abc/cache` — the context whose types each offer `List`, `GetByKey` and
+  `ByIndex`, and the one the earlier run left unsummarized — is 20 of 20 in the
+  new run. Recall and precision are 98.8% and 98.2% against 88.7% and 89.1%. A
+  spec stored before the key changed is migrated by the ingest itself when the
+  facts name exactly one candidate; a name two types share is left for a person.
+
+## What is left
+
 - **A codebase of 34 contexts takes about four minutes to populate** at two
-  concurrent summaries. The wall time is reported; nothing here is tuned for
-  it.
+  concurrent summaries, and the new run took 231 seconds, the same as before.
+  The wall time is reported; nothing here is tuned for it.
+- **The Bash half of the scope guard is best effort.** A path reached through a
+  shell variable, a relative walk, a hard link or a case alias is not caught;
+  only what resolves inside `SPECD_CLM_ROOT` is allowed. The file tools are
+  exact.

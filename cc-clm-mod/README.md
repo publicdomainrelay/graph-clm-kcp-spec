@@ -19,7 +19,7 @@ happens**, not guessed afterwards.
 | --- | --- |
 | `session.start` | resolve the context (`SPECD_CLM_CONTEXT`), render it from kcp, write `.specs/context/<name>.md` |
 | `prompt.compose` | inject that file as one more session system section |
-| `tool.call` | after `Read`/`Write`/`Edit`/`MultiEdit`, report the file it touched |
+| `tool.call` | refuse a path outside `SPECD_CLM_ROOT`, then report the file a `Read`/`Write`/`Edit`/`MultiEdit` touched |
 | `turn.complete` | apply the model zone when the model changed it, then report the turn |
 | `session.end` | the same, skipped when the session's exit budget has no room |
 
@@ -54,6 +54,30 @@ specctl clm report --change <name> --event <json>
 so kcp access, the delta authority (`abc/delta`) and the graph writes have one
 implementation, and this host and the pi host agree by construction.
 
+## The scope guard
+
+A realize agent is graded by hidden acceptance tests that live in the repository
+the agent was not given. `SPECD_CLM_ROOT` is the worktree it *was* given, and
+the `tool.call` hook refuses anything that lands outside it before the tool
+runs, so the refusal is an error result the model reads rather than a session
+that silently wandered.
+
+- A file tool (`Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Grep`,
+  `Glob`) is refused when `$.fs.stat(path, { resolve: true })` puts its
+  `realPath` outside the root. A `Write` to a file that is not there yet is
+  placed by its folder and the name kept, so it is judged the same way. A path
+  that cannot be placed is refused: the tool might open it.
+- A `Bash` command is refused when it names an absolute path outside the root
+  and outside the system directories (`/usr`, `/bin`, `/tmp`, ...), or a `..`
+  that climbs out. This half is best effort and says so: shell word splitting
+  cannot see a path built from a variable, a relative walk that stays behind a
+  command, a hard link or a case alias.
+
+The decision is pure given the path resolver, so `claude plugin test .` covers
+allow inside, deny outside, and deny of this repository's own `fixtures/` and
+`scenarios/` without a session. The live half is
+`TestPhase12ScopeGuardRefusesAFileOutsideTheRoot`.
+
 ## Environment
 
 Set by specd on the model it launches:
@@ -63,6 +87,7 @@ Set by specd on the model it launches:
 | `SPECD_CLM_CONTEXT` | the `SystemContext` this session is inside; unset means the mod does nothing |
 | `SPECD_CLM_CHANGE` | the running `SpecChange` progress is reported against |
 | `SPECD_CLM_REPO` | the managed working tree (default: the session's cwd) |
+| `SPECD_CLM_ROOT` | the containment root the scope guard enforces; specd sets it to the worktree on the summarize and the realize call, and unset turns the guard off |
 | `SPECD_SPECCTL` | the `specctl` binary (default: `specctl` on `PATH`) |
 | `KUBECONFIG` / `SPECD_KUBECONFIG` | the workspace kubeconfig |
 | `SPECD_WORKSPACE`, `SPECD_NAMESPACE` | the logical cluster and namespace (defaults `root:specs`, `default`) |
