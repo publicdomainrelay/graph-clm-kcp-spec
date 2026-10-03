@@ -362,8 +362,20 @@ func Observed(partition Partition) spec.ObservedFacts {
 	sort.Strings(files)
 	files = dedupe(files)
 
+	// The observed interfaces are keyed by name everywhere they are written,
+	// read and diffed, so two symbols that share a name are one entry. A real
+	// codebase has them: two files may each declare a `Section`, and a spec
+	// that carries both cannot be stored at all, because the API server
+	// refuses a keyed list with a duplicate key. The symbols arrive sorted, so
+	// the entry kept is the first one in file and line order and two runs over
+	// the same tree produce the same facts.
 	interfaces := make([]spec.ObservedInterface, 0, len(partition.Symbols))
+	named := map[string]bool{}
 	for _, symbol := range partition.Symbols {
+		if named[symbol.Name] {
+			continue
+		}
+		named[symbol.Name] = true
 		interfaces = append(interfaces, spec.ObservedInterface{
 			Name:        symbol.Name,
 			Kind:        symbol.Kind,

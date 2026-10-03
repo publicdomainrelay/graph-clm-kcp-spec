@@ -106,6 +106,31 @@ func TestFingerprintIsOrderIndependentAndContentSensitive(t *testing.T) {
 	}
 }
 
+// TestObservedKeysInterfacesByName is the unknown codebase's finding: two
+// symbols may share a name, and every list the observed facts are written to is
+// keyed by name, so a duplicate makes the status the API server refuses.
+func TestObservedKeysInterfacesByName(t *testing.T) {
+	partition := Partition{
+		Name:  "archyaml",
+		Files: []string{"abc/archyaml/parse.go", "abc/archyaml/export.go"},
+		Symbols: []Symbol{
+			{ID: "type:1", Name: "Section", Kind: "type_alias", File: "abc/archyaml/parse.go", Line: 12, Exported: true},
+			{ID: "type:2", Name: "Section", Kind: "type_alias", File: "abc/archyaml/export.go", Line: 4, Exported: true},
+			{ID: "type:3", Name: "Node", Kind: "struct", File: "abc/archyaml/parse.go", Line: 20, Exported: true},
+		},
+	}
+	observed := Observed(partition)
+	if len(observed.Interfaces) != 2 {
+		t.Fatalf("interfaces = %+v, want one entry per name", observed.Interfaces)
+	}
+	if observed.Interfaces[0].Name != "Section" || observed.Interfaces[0].File != "abc/archyaml/parse.go" {
+		t.Errorf("the first entry kept is %+v, want the first in file order", observed.Interfaces[0])
+	}
+	if observed.Interfaces[1].Name != "Node" {
+		t.Errorf("interfaces = %+v", observed.Interfaces)
+	}
+}
+
 func TestObservedIsStableAcrossRuns(t *testing.T) {
 	first := Observed(PartitionFacts(fixtureFacts(), "calc")[0])
 	second := Observed(PartitionFacts(fixtureFacts(), "calc")[0])

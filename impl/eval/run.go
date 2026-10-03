@@ -331,9 +331,18 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 		run.populate.Summarized = status.Contexts.Summarized
 		run.populate.Failed = status.Contexts.Failed
 	}
-	if waitErr != nil || status.Phase != specapi.PhasePopulated {
-		run.populate.Error = populateError(waitErr, status)
+	if waitErr != nil {
+		run.populate.Error = waitErr.Error()
 		return run, nil
+	}
+	if status.Phase != specapi.PhasePopulated {
+		run.populate.Error = populateError(status)
+		run.populate.Failures = h.failedSummaries(ctx)
+		// A codebase that only partly populated is still a measurement: what
+		// was summarized is measured, and the rest is reported by name.
+		if status.Contexts == nil || status.Contexts.Summarized == 0 {
+			return run, nil
+		}
 	}
 	// A git source is resolved into the controller's cache, so the tree the
 	// measurements read is the one the Repository reports, never a path this
@@ -887,6 +896,36 @@ func (h *harness) patchStatus(ctx context.Context, name string, status map[strin
 // waitPopulated waits for the populate step to settle, and returns as soon as
 // the Repository says it cannot be indexed at all: a manifest the validator
 // would refuse never reaches a phase, and waiting for one would hang a run.
+// failedSummaries names the contexts of this fixture whose code -> spec change
+// failed, and the message it failed with. It is how a partly populated codebase
+// says which part it could not read.
+func (h *harness) failedSummaries(ctx context.Context) []string {
+	contexts, err := h.contexts(ctx)
+	if err != nil {
+		return nil
+	}
+	out := []string{}
+	for _, entry := range contexts {
+		if entry.Spec.Intent != "" {
+			continue
+		}
+		changes, err := h.changes(ctx, entry.Name)
+		if err != nil {
+			continue
+		}
+		for _, change := range changes {
+			if change.Spec.Direction != specapi.DirectionCodeToSpec {
+				continue
+			}
+			message := change.Status.Message + " " + change.Status.AgentLog
+			out = append(out, entry.Name+": "+strings.TrimSpace(message))
+			break
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func (h *harness) waitPopulated(ctx context.Context) error {
 	bounded, cancel := context.WithTimeout(ctx, h.options.Timeout)
 	defer cancel()
@@ -1055,13 +1094,10 @@ func applyTyped(ctx context.Context, client *kcpclient.Client, value any) error 
 	return err
 }
 
-// populateError says why a Repository did not populate: the wait itself, or the
-// conditions that stopped it.
-func populateError(waitErr error, status spec.RepositoryStatus) string {
+// populateError says why a Repository did not populate: the phase it stopped
+// at and the conditions that stopped it.
+func populateError(status spec.RepositoryStatus) string {
 	message := status.Phase
-	if waitErr != nil {
-		message = waitErr.Error()
-	}
 	for _, condition := range status.Conditions {
 		if condition.Status == metav1.ConditionFalse {
 			message += "; " + condition.Type + ": " + condition.Reason + ": " + condition.Message

@@ -22,6 +22,11 @@ type PopulateReport struct {
 
 	WallTimeSeconds float64 `json:"wallTimeSeconds"`
 
+	// Failures names the contexts that could not be summarized and why, so a
+	// codebase that only partly populated still says which part and for what
+	// reason.
+	Failures []string `json:"failures,omitempty"`
+
 	Error string `json:"error,omitempty"`
 }
 
@@ -263,6 +268,19 @@ func (r Report) writePopulate(builder *strings.Builder) {
 			entry.Fixture, phase, entry.Contexts, entry.Summarized, entry.Failed, seconds(entry.WallTimeSeconds))
 	}
 	fmt.Fprintf(builder, "\n")
+	for _, entry := range r.Populate {
+		for _, failure := range entry.Failures {
+			fmt.Fprintf(builder, "- %s could not be summarized: %s\n", entry.Fixture, failure)
+		}
+	}
+	if len(r.Populate) > 0 {
+		for _, entry := range r.Populate {
+			if len(entry.Failures) > 0 {
+				fmt.Fprintf(builder, "\n")
+				break
+			}
+		}
+	}
 }
 
 func (r Report) writeCodeToSpec(builder *strings.Builder) {
