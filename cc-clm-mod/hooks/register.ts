@@ -24,12 +24,14 @@ import {
 import {
   applyArgv,
   contextSection,
+  guardDenial,
   parseReport,
   relativePath,
   renderArgv,
   reportArgv,
   touchedPath,
   type BridgeEnv,
+  type PathResolver,
 } from "./plan.js";
 
 /** The slice of the engine interface this mod uses. */
@@ -38,6 +40,7 @@ interface Engine {
     read(path: string): Promise<string>;
     write(path: string, text: string): Promise<void>;
     exists(path: string): Promise<boolean>;
+    stat(path: string, options?: { resolve?: boolean }): Promise<{ realPath?: string }>;
   };
   process: {
     run(
@@ -56,6 +59,29 @@ interface Engine {
 interface Session {
   host?: ClmHost;
   repoPath: string;
+
+  // The containment root the scope guard enforces. It is read once, lazily:
+  // the tool.call hook may run before session.start, and a session without it
+  // is an ordinary one whose paths are not the guard's business.
+  root?: string;
+  rootRead?: boolean;
+}
+
+/** Where a path lands, through the engine's own file system. */
+function statResolver($: Engine): PathResolver {
+  return async (path) => {
+    const stat = await $.fs.stat(path, { resolve: true }).catch(() => undefined);
+    return stat?.realPath;
+  };
+}
+
+async function scopeRoot($: Engine, session: Session): Promise<string | undefined> {
+  if (!session.rootRead) {
+    session.rootRead = true;
+    const root = (await $.env.get("SPECD_CLM_ROOT"))?.trim();
+    session.root = root ? root : undefined;
+  }
+  return session.root;
 }
 
 // ---- the core's ports, over $ -------------------------------------------
@@ -203,9 +229,27 @@ export const register: Register = (on) => {
     return section ? { sections: [...composed.sections, section] } : composed;
   });
 
-  // A tool call that touched a file is reported against the running change, so
-  // `kubectl get specchange -w` shows the work while it happens.
   on("tool.call", async ($, e, next) => {
+    // The scope guard runs before anything beneath: a path outside the root
+    // must not be read, listed or written even once, so the call never reaches
+    // the tool. The refusal is the model's, as an error result it can learn
+    // from.
+    const root = await scopeRoot($ as Engine, session);
+    if (root) {
+      const denial = await guardDenial(
+        String(e.tool),
+        e as unknown as Record<string, unknown>,
+        root,
+        statResolver($ as Engine),
+      );
+      if (denial) {
+        $.ui.log(`clm: ${denial}`, { to: "debug" });
+        return { deny: denial };
+      }
+    }
+
+    // A tool call that touched a file is reported against the running change, so
+    // `kubectl get specchange -w` shows the work while it happens.
     const result = await next(e);
     const path = touchedPath(e as unknown as Record<string, unknown>);
     if (!session.host || !path) return result;

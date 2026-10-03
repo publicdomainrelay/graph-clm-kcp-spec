@@ -6,6 +6,39 @@
 
 const TOUCHED_TOOLS = ["Read", "Write", "Edit", "MultiEdit", "NotebookEdit"];
 
+const GUARDED_TOOLS = [
+  "Read",
+  "Write",
+  "Edit",
+  "MultiEdit",
+  "NotebookEdit",
+  "Grep",
+  "Glob",
+];
+
+// The absolute prefixes a Bash command may name without leaving the session.
+// They are the system's own: the tools the verify command needs, the device
+// files a shell redirects to, and /tmp, where a build keeps its scratch. A
+// path under the containment root is allowed whatever it is; a path under
+// none of these and not under the root is refused.
+const SYSTEM_PREFIXES = [
+  "/usr",
+  "/bin",
+  "/sbin",
+  "/lib",
+  "/lib64",
+  "/opt",
+  "/etc",
+  "/dev",
+  "/proc",
+  "/sys",
+  "/run",
+  "/var",
+  "/tmp",
+  "/snap",
+  "/nix",
+];
+
 const CONTEXT_SECTION_ID = "cc-clm-mod:context";
 
 export interface ToolCallLike {
@@ -17,9 +50,167 @@ export interface ToolCallLike {
 export function touchedPath(event: ToolCallLike): string | undefined {
   const tool = String(event.tool ?? "");
   if (!TOUCHED_TOOLS.includes(tool)) return undefined;
+  return pathArgument(event);
+}
+
+/** Every path-bearing argument key a tool call may carry. */
+function pathArgument(event: ToolCallLike): string | undefined {
   for (const key of ["file_path", "notebook_path", "path"]) {
     const value = event[key];
     if (typeof value === "string" && value.length > 0) return value;
+  }
+  return undefined;
+}
+
+/** Whether the scope guard checks this tool's path arguments. */
+export function guardedTool(tool: string): boolean {
+  return GUARDED_TOOLS.includes(tool);
+}
+
+/** Where a path lands, or undefined when no spelling of it can be placed. */
+export type PathResolver = (path: string) => Promise<string | undefined>;
+
+/**
+ * The absolute path a spelling lands on. The path itself is tried first, then
+ * its folder and the name kept, so a Write to a file that is not there yet is
+ * placed as reliably as a Read of one that is. The folder is kept with its
+ * separator so a drive or a share root stays that root.
+ */
+export async function place(path: string, resolve: PathResolver): Promise<string | undefined> {
+  const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  const name = path.slice(cut + 1);
+  if (name === "" || name === "." || name === ".." || /^[A-Za-z]:/.test(name)) return undefined;
+  const own = await resolve(path);
+  if (own) return own;
+  const folder = cut < 0 ? "." : path.slice(0, cut + 1);
+  const dir = await resolve(folder);
+  if (!dir) return undefined;
+  return `${dir.replace(/[\\/]+$/, "")}/${name}`;
+}
+
+/** Whether an absolute path is the root itself or below it. */
+export function insideRoot(path: string, root: string): boolean {
+  const base = root.replace(/[\\/]+$/, "");
+  return path === base || path.startsWith(`${base}/`);
+}
+
+/** Whether an absolute path is one the system owns. */
+export function systemPath(path: string): boolean {
+  return SYSTEM_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+}
+
+/**
+ * The absolute-looking paths a shell command names, best effort. Word splitting
+ * is on whitespace and the shell operators, quotes are trimmed, and a value is
+ * read out of `--flag=value`; a token that is a URL, a bare `/`, or a network
+ * or device spelling (`//host`, `\\host`) is left alone. A `..`-relative token
+ * is not returned here: it is a relative escape and the caller resolves it
+ * against the root.
+ */
+export function bashPaths(command: string): string[] {
+  const found: string[] = [];
+  const seen = new Set<string>();
+  for (const piece of command.split(/[\s;|&()<>\n\r`]+/)) {
+    let token = piece.replace(/^["']+/, "").replace(/["']+$/, "").replace(/[,;:]+$/, "");
+    const equals = token.indexOf("=");
+    if (equals >= 0) token = token.slice(equals + 1);
+    if (token === "/" || token.startsWith("//") || token.startsWith("\\\\")) continue;
+    if (token.includes("://")) continue;
+    if (!token.startsWith("/") && !token.startsWith("~/")) continue;
+    if (seen.has(token)) continue;
+    seen.add(token);
+    found.push(token);
+  }
+  return found;
+}
+
+/** The `..`-relative tokens a shell command names, best effort. */
+export function bashRelativeEscapes(command: string): string[] {
+  const found: string[] = [];
+  const seen = new Set<string>();
+  for (const piece of command.split(/[\s;|&()<>\n\r`]+/)) {
+    const token = piece.replace(/^["']+/, "").replace(/["']+$/, "").replace(/[,;:]+$/, "");
+    if (token !== ".." && !token.startsWith("../")) continue;
+    if (seen.has(token)) continue;
+    seen.add(token);
+    found.push(token);
+  }
+  return found;
+}
+
+/** The one lexical join used on a `..`-relative token, with no file system. */
+export function joinLexical(root: string, path: string): string {
+  const parts = `${root.replace(/[\\/]+$/, "")}/${path}`.split("/");
+  const out: string[] = [];
+  for (const part of parts) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      out.pop();
+      continue;
+    }
+    out.push(part);
+  }
+  return `/${out.join("/")}`;
+}
+
+/** The refusal text the model receives, so a deny teaches where the line is. */
+export function outsideMessage(tool: string, path: string, root: string): string {
+  return (
+    `refusing ${tool}: ${path} is outside the containment root ${root}. ` +
+    `This session works only inside ${root}; the rest of the machine, this ` +
+    `project's fixtures and their hidden acceptance tests are not yours to ` +
+    `read or change. Name a path inside ${root} and try again.`
+  );
+}
+
+/**
+ * The scope guard's decision, with the file system behind `resolve`. An
+ * undefined answer allows the call; a string is the reason the model reads.
+ * The decision is pure given the resolver, so the whole allow/deny matrix is
+ * a unit test.
+ */
+export async function guardDenial(
+  tool: string,
+  event: ToolCallLike,
+  root: string,
+  resolve: PathResolver,
+): Promise<string | undefined> {
+  const rootReal = await resolve(root);
+  if (!rootReal) {
+    return (
+      `refusing ${tool}: the containment root ${root} cannot be resolved, so ` +
+      `no path can be checked against it.`
+    );
+  }
+  if (guardedTool(tool)) {
+    const path = pathArgument(event);
+    if (!path) return undefined;
+    const real = await place(path, resolve);
+    if (real === undefined) {
+      // An absolute spelling that leads nowhere is still judged by where it
+      // says it is, so a probe of a file the session may not touch is refused
+      // with the same reason as one that is there.
+      if (path.startsWith("/") && !insideRoot(joinLexical("/", path), rootReal)) {
+        return outsideMessage(tool, path, rootReal);
+      }
+      return (
+        `refusing ${tool}: ${path} cannot be placed, and a path that cannot be ` +
+        `resolved to a place inside ${rootReal} is not allowed.`
+      );
+    }
+    return insideRoot(real, rootReal) ? undefined : outsideMessage(tool, path, rootReal);
+  }
+  if (tool !== "Bash") return undefined;
+  const command = typeof event.command === "string" ? event.command : "";
+  for (const path of bashPaths(command)) {
+    const real = (await resolve(path)) ?? path;
+    if (insideRoot(real, rootReal) || systemPath(real)) continue;
+    return outsideMessage("Bash", path, rootReal);
+  }
+  for (const path of bashRelativeEscapes(command)) {
+    const real = joinLexical(rootReal, path);
+    if (insideRoot(real, rootReal)) continue;
+    return outsideMessage("Bash", path, rootReal);
   }
   return undefined;
 }

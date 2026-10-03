@@ -200,6 +200,54 @@ func TestRealizePromptPutsTheDeltaFirst(t *testing.T) {
 	}
 }
 
+// TestBothDirectionsHandTheModelItsContainmentRoot pins the scope guard's
+// input: the host inside the model has to be told which worktree it may work
+// in, on the summarize call and the realize call alike, or it has no root to
+// hold a tool path against.
+func TestBothDirectionsHandTheModelItsContainmentRoot(t *testing.T) {
+	dir := t.TempDir()
+	rootFile := filepath.Join(dir, "root")
+	answerFile := filepath.Join(dir, "answer")
+	if err := os.WriteFile(answerFile, []byte(answer), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	command := filepath.Join(dir, "model.sh")
+	script := "#!/bin/sh\n" +
+		"printf '%s' \"$SPECD_CLM_ROOT\" >> " + rootFile + "\n" +
+		"cat > /dev/null\n" +
+		"cat " + answerFile + "\n"
+	if err := os.WriteFile(command, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	worktree := filepath.Join(dir, "worktree")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	built := New(Options{Command: command, Dir: worktree})
+
+	if _, err := built.Summarize(context.Background(), agent.ContextBundle{
+		Context: "calc", Repository: "calc",
+		Spec:     spec.SystemContextSpec{Repository: "calc"},
+		Observed: observed(),
+		Budget:   5000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := built.Realize(context.Background(), agent.RealizeRequest{
+		Context: "calc",
+		ToSpec:  spec.SystemContextSpec{Repository: "calc"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	roots, err := os.ReadFile(rootFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(roots); got != worktree+worktree {
+		t.Errorf("containment root = %q, want %q twice", got, worktree)
+	}
+}
+
 // TestRealizeRunsInTheGivenDirectoryAndReportsItsOutput checks the other half:
 // the model runs where the worktree is, and its output comes back as the log.
 func TestRealizeRunsInTheGivenDirectoryAndReportsItsOutput(t *testing.T) {
