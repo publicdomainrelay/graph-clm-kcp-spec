@@ -159,7 +159,7 @@ npm run probe:diff -- /tmp/cypher-probe-hydradb.json \
   /tmp/cypher-probe-arcadedb.json docs/cypher-conformance.md
 ```
 
-Result against HydraDB 0.1.0 and ArcadeDB 26.9.1: **all 12 core cases pass on
+Result against HydraDB 0.2.0 and ArcadeDB 26.9.1: **all 12 core cases pass on
 both**, and `test/conformance.test.ts` asserts that on whichever backend runs.
 The full table is in [`docs/cypher-conformance.md`](docs/cypher-conformance.md).
 HydraDB passes 26 of 39 cases, ArcadeDB 38 of 39.
@@ -184,7 +184,17 @@ model a document to rewrite. This PoC is the pi integration and the CLM variant.
 
 The database itself is AGPL-3.0; the integration repos are Apache-2.0.
 
-## HydraDB notes (learned by probing `0.1.0`)
+## HydraDB notes (learned by probing the release)
+
+Version note: the newest HydraDB release is **v0.2.0**, not a 2.x. Upstream tags
+are `0.1.0`, `0.1.1`, `0.2.0`, and the `latest` tag resolves to the same digest
+as `0.2.0`. Its binaries nevertheless self-report `version: "0.1.0"` in
+`--version` and in the `graph_build_info` metric, because the version string is
+never bumped at build time — the build also warns that "this binary cannot be
+traced to a commit". Every tag reports `0.1.0`; `0.1.0` and `0.1.1` even ship a
+byte-identical `graph-node`. Trust the image tag, not the binary's own version.
+
+
 
 HydraDB is a Rust graph database: Bolt on `7687`, a health endpoint on `7474`
 (`/healthz` only), Prometheus metrics on `9090` (`/metrics`, `/readyz`), a
@@ -237,5 +247,5 @@ RangeError: The value of "offset" is out of range. It must be >= 0 and <= 4. Rec
   at ChannelBuffer.getVarInt ... at handshakeNegotiationV2
 ```
 
-Measured against HydraDB 0.1.0: driver 6.2.0 failed 9 of 12 connections;
+Measured against HydraDB 0.2.0: driver 6.2.0 failed 9 of 12 connections;
 driver 5.26.0 (which does not offer `255.1`) succeeded 12 of 12.
