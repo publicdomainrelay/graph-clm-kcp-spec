@@ -188,7 +188,9 @@ HYDRA_USER=root HYDRA_TOKEN=clm-arcadedb-root HYDRA_DATABASE=clm npm test
 `scripts/cypher-probe.ts` runs a battery of Cypher features over Bolt against
 whichever backend is configured and reports pass/fail per case. `src/conformance.ts`
 holds the cases; each is flagged `core` if it is part of the subset
-`src/cypher.ts` emits and the extension therefore depends on.
+`src/cypher.ts` emits and the extension therefore depends on. A case may also
+pin a minimum row count, or an exact one where engine semantics make it
+deterministic, so a query that parses but returns nothing cannot pass.
 
 ```bash
 HYDRA_BACKEND=hydradb   HYDRA_TOKEN_FILE=... npx tsx scripts/cypher-probe.ts
@@ -202,7 +204,7 @@ npm run probe:diff -- /tmp/cypher-probe-hydradb.json \
 Result against HydraDB 0.2.0 and ArcadeDB 26.9.1: **all 12 core cases pass on
 both**, and `test/conformance.test.ts` asserts that on whichever backend runs.
 The full table is in [`docs/cypher-conformance.md`](docs/cypher-conformance.md).
-HydraDB passes 26 of 39 cases, ArcadeDB 38 of 39.
+HydraDB passes 26 of 40 cases, ArcadeDB 38 of 40.
 
 ## Where this sits in the HydraDB ecosystem
 

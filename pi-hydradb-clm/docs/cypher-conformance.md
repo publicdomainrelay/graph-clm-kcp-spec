@@ -22,6 +22,7 @@ Each row is one query from `src/conformance.ts`, run over Bolt against both engi
 | `read.starts_with` | read |  | yes | yes |  |
 | `read.union` | read |  | yes | yes |  |
 | `read.optional_match` | read |  | yes | yes |  |
+| `read.optional_match_was_null` | read |  | no | no | returned 3 rows, expected exactly 2 |
 | `read.with_clause` | read |  | no | yes | OpenCypher query is not supported yet: WITH currently supports only pass-through identifiers without DISTINCT, WHERE, or ORDER BY |
 | `agg.sum` | aggregation |  | yes | yes |  |
 | `agg.collect` | aggregation |  | yes | yes |  |
@@ -44,7 +45,7 @@ Each row is one query from `src/conformance.ts`, run over Bolt against both engi
 | `schema.create_index` | schema |  | no | yes | OpenCypher parse error: Invalid input 'c': expected '=' or CREATE INDEX ON |
 | `schema.show_indexes` | schema |  | no | yes | OpenCypher parse error: Invalid input 'H': expected SET or START |
 
-**Totals:** hydradb 26/39, arcadedb 38/39. Core subset: 12/12 and 12/12.
+**Totals:** hydradb 26/40, arcadedb 38/40. Core subset: 12/12 and 12/12.
 
 ## Divergences
 
