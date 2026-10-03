@@ -21,13 +21,17 @@ plan is the source of truth; this file says how to run what is built.
 
 ## Status
 
-Phases 1 to 3 of 8 are done: **kcp holds specs, code becomes facts in `status`
-and in the graph, and a hand written `arch.yaml` round trips through kcp.**
+Phases 1 to 4 of 8 are done: **kcp holds specs, code becomes facts in `status`
+and in the graph, a hand written `arch.yaml` round trips through kcp, and
+`specd` keeps the facts, the conditions and the work queue true to the code.**
 
 - API group `specs.publicdomainrelay.dev/v1alpha1`, kinds `Repository`,
   `SystemContext`, `SpecChange`, namespaced, with a status subresource and
   printer columns.
 - `specctl apply -f | get | delete` against a kcp workspace.
+- `specd` watches the three kinds, re-ingests a `Repository` when its git HEAD
+  moves, keeps `SpecValid`, `CodeSynced` and `Drifted` true to the code, and
+  opens exactly one `SpecChange` per direction of work.
 - `specctl ingest --repo <path>` runs CodeGraph over a working tree, partitions
   it into one `SystemContext` per directory that holds source files, and fills
   `status.observed` (`files`, `interfaces` with signature, file, line and
@@ -40,13 +44,15 @@ and in the graph, and a hand written `arch.yaml` round trips through kcp.**
 - `specctl graph neighbors|rebuild` read and write the spec graph in HydraDB or
   ArcadeDB over Bolt, using only the Cypher core subset both engines run.
 - Live tests that round trip a `SystemContext` through a real kcp, that ingest a
-  real git working tree twice and check the graph on both backends, and that
-  take the open architecture document through kcp and diff the two models.
+  real git working tree twice and check the graph on both backends, that take
+  the open architecture document through kcp and diff the two models, that drive
+  the controller through drift and both directions of `SpecChange`, and that
+  ingest a Deno/TypeScript module, not only Go.
 
 ## Requirements
 
-`go` (1.26 or newer), `kcp` v0.33, `kine`, `kubectl`, and `codegraph` on
-`PATH` for ingest. The graph needs a Bolt endpoint: HydraDB on
+`go` (1.26 or newer), `kcp` v0.33, `kine`, `kubectl`, `codegraph` on `PATH` for
+ingest, and `git` for a `Repository` and for `specd`. The graph needs a Bolt endpoint: HydraDB on
 `bolt://127.0.0.1:7687` (password in `/tmp/hdb/token` by default) or ArcadeDB
 on `bolt://127.0.0.1:7688` (database `clm`). The graph commands need one;
 `apply`, `get`, `delete`, `import-arch` and `export` work without one (pass
@@ -59,6 +65,7 @@ make kcp-up          # kcp on 6447, kine on 23797, state in .kcp-specd/
 make example-phase1  # apply examples/calc/specs.yaml and read it back
 make example-phase2  # ingest fixtures/calc, fill status.observed, write the graph
 make example-phase3  # import testdata/open-architecture/arch.yaml and export it back
+make example-phase4  # run specd, commit a change, watch drift and the SpecChange
 make kcp-down        # stop the cluster this repo started
 ```
 
@@ -72,6 +79,11 @@ one hop of the graph around `sc.deno-kcp` (by arch id), exports the document
 back out of kcp, and runs the live round trip test. All three targets are
 idempotent except that the phase 3 live test cleans up after itself, so run the
 target again to put the imported contexts back.
+`make example-phase4` copies `fixtures/calc` to a temporary working tree, starts
+`specd`, commits a `Subtract` function, prints the `Drifted` condition and the
+`CodeToSpec` change it raised, patches the spec of the same context, prints the
+`SpecToCode` change, shows that no other resourceVersion moves for four
+seconds, and stops `specd` with SIGTERM.
 
 The same steps by hand:
 
@@ -97,6 +109,10 @@ bin/specctl get systemcontext -o name | head
 bin/specctl export --format arch --repository deno-kcp -o /tmp/arch-export.yaml
 
 KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl get systemcontexts
+
+# the controller, in its own terminal, then commit something under fixtures/calc
+bin/specd --workspace root:specs --resync 2s
+KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl get specchanges
 ```
 
 `ingest` reads the Bolt endpoint from the flags or the environment
@@ -123,8 +139,9 @@ works against it without extra flags.
 
 `SystemContext.status` carries the code facts (`observed.files`,
 `observed.interfaces` with `signature`, `file`, `line` and `codegraphId`, and
-`observed.fingerprint` over both), `observedCommit`, `realizedSpecHash`, and the
-conditions `SpecValid`, `CodeSynced` and `Drifted`.
+`observed.fingerprint` over both), `observedCommit`, the synced baseline
+(`syncedCommit` and `syncedFingerprint`), `observedGeneration`,
+`realizedSpecHash`, and the conditions `SpecValid`, `CodeSynced` and `Drifted`.
 
 Requirements carry `id` (unique in the context), `level` (`MUST`, `SHOULD` or
 `MAY`) and `text`. Every `codeRefs` entry is a CodeGraph id: `file:`, `function:`,
@@ -161,6 +178,73 @@ field whose type is wrong is reported with its path too, for example
    `status.realizedSpecHash`, so it never looks like a human edit;
 6. when a Bolt endpoint is configured, rewrites the graph from kcp and
    CodeGraph.
+
+## The controller: conditions and drift
+
+`bin/specd` watches `Repository`, `SystemContext` and `SpecChange` in the
+workspace and reconciles each one on a workqueue. It watches with dynamic
+informer watches by default; `--watch poll` lists the workspace on a timer
+instead, for an API server whose watch a client cannot hold open. Only
+`cmd/specd` installs signal handlers: SIGINT and SIGTERM drain the workers and
+stop the watches, and nothing in the libraries does I/O on its own.
+
+`Repository` reconcile asks the working tree for its git HEAD. When the HEAD
+differs from `status.indexedCommit` it runs the phase 2 ingest, so the observed
+facts, the fingerprint and the graph follow the code. The HEAD is invisible to
+the API server, so each `Repository` requeues itself every `--resync` (5s by
+default). A tree whose HEAD cannot be read, or whose path is empty, gets
+`Indexed=False` with `HeadUnavailable` or `PathMissing` instead of an error
+loop.
+
+`SystemContext` reconcile indexes nothing. It turns the stored facts into the
+three conditions through the same pure deciders ingest uses, so the two can
+never write over each other, and it records `observedGeneration`:
+
+| Condition | True when |
+| --- | --- |
+| `SpecValid` | the validator accepts the spec: refs resolve, levels are known, ids are unique |
+| `CodeSynced` | every declared interface is observed, nothing undeclared is exported, and every requirement `codeRefs` entry resolves to an observed file or interface |
+| `Drifted` | the observed fingerprint differs from `status.syncedFingerprint` |
+
+`syncedFingerprint` and `syncedCommit` are the baseline the spec was last
+brought into agreement with. Ingest establishes them on the first ingest of a
+context and never moves them afterwards, so a context that drifted stays
+`Drifted=True` even when a later commit elsewhere re-ingests the same tree; the
+baseline moves when the drift is worked off (phase 6). `status.observedCommit`
+and `status.observed` are always the current code.
+
+Two kinds of work are raised, both `Pending` in this phase because the agents
+arrive in phases 5 and 6:
+
+- **CodeToSpec**, while the context is drifted and `syncedCommit` and
+  `observedCommit` are a usable pair. The name is
+  `<context>-c2s-<from8>-<to8>`, so two reconciles of the same drift land on the
+  same object.
+- **SpecToCode**, when the spec no longer hashes to `status.realizedSpecHash`,
+  which is what a human edit looks like: ingest writes the spec with the
+  `origin: ingest` annotation and moves `realizedSpecHash` with it, but it only
+  moves the hash when no spec write was already pending, so a human edit is
+  never absorbed by an ingest that runs afterwards. The name is
+  `<context>-s2c-<to8>`.
+
+A change of a direction is only created when nothing of that direction is still
+`Pending` or `Running` for the context, so a tree that stays drifted queues one
+unit of work, not one per reconcile, and a controller restart does not queue
+another. `SpecChange` reconcile keeps a change `Pending` and enforces the
+admission rule from the plan: at most one change may be `Running` per
+`SystemContext`, and the lowest name wins, so a second one is marked `Failed`
+instead of racing.
+
+```bash
+bin/specd --workspace root:specs --resync 5s --watch informer
+bin/specd --watch poll --poll-interval 2s      # list instead of watch
+```
+
+`--codegraph`, `--log-level`, `--workers`, `--qps` and `--burst` are the rest of
+the flags; `--bolt-url` and its four siblings (see the graph section) make every
+ingest rewrite the graph as well. Every reconcile that writes nothing is a
+no-op: `status` is compared before it is patched, which is what keeps the
+controller from looping against itself.
 
 ## The open architecture document
 
@@ -249,7 +333,12 @@ impl/ingest          the code -> facts -> kcp status pipeline and the graph rebu
 impl/archkcp         arch.yaml <-> SystemContext objects on a kcp workspace
 impl/gitrepo         reading the working tree (head commit, branch)
 impl/boltgraph       Bolt client for HydraDB and ArcadeDB
+abc/watch            the watch contract: resources in, Added/Updated/Deleted out
+impl/watchinformer   dynamic informer watches against the workspace
+impl/watchpoll       the list-and-diff fallback for a watch that cannot be held
+factory/specd        wires the watch, the workqueue and the three reconcilers
 cmd/specctl          apply -f, get, delete, ingest, import-arch, export, graph neighbors|rebuild
+cmd/specd            the controller binary; the only place that handles signals
 cmd/hydradb-bins     extracts the HydraDB binaries from their OCI image
 deploy/start-kcp.sh  start kcp + kine, then install the workspace and CRDs
 deploy/stop-kcp.sh   stop only the kcp and kine this repository started
@@ -257,6 +346,7 @@ deploy/install-specs.sh  create root:specs, apply the CRDs, write a kubeconfig
 deploy/crds/         the three CustomResourceDefinitions
 examples/calc/       a repository and two system contexts that reference each other
 fixtures/calc/       a tiny Go working tree: the calc package and its CLI
+fixtures/greet/      a tiny Deno/TypeScript module: a root module and format/
 testdata/open-architecture/  three revisions of arch.yaml and its schema
 test/fixture         copies a fixture into a temp dir and commits it as a real git repo
 test/e2e             the live round trip, ingest + graph, and arch.yaml runs
@@ -282,7 +372,9 @@ its own vertices, so it never disturbs the example graph; `impl/gitrepo` builds
 a temporary git repository. The phase 2 test takes over the `calc` names in the
 workspace and deletes them when it finishes, and the phase 3 test owns
 everything under the `deno-kcp` repository, so run `make example-phase2` or
-`make example-phase3` afterwards to put the example state back. The ArcadeDB
+`make example-phase3` afterwards to put the example state back. The phase 4
+tests start a real `specd` in the test process and stop it before they clean up,
+so no controller is left watching the workspace afterwards. The ArcadeDB
 checks read
 `SPECD_TEST_ARCADE_URL`, `SPECD_TEST_ARCADE_USER`, `SPECD_TEST_ARCADE_PASSWORD`
 and `SPECD_TEST_ARCADE_DATABASE`; the HydraDB ones read
@@ -299,7 +391,13 @@ on `bolt://127.0.0.1:7688`; neither is started by this repository.
 
 ## What is next
 
-Phase 4 adds `cmd/specd`: a controller that watches `Repository` and
-`SystemContext`, re-ingests on a new HEAD, keeps `SpecValid`, `CodeSynced` and
-`Drifted` true to the code, and opens a `SpecChange{CodeToSpec}` when the code
-drifts away from the spec.
+Phase 5 works the `CodeToSpec` changes off: `abc/agent` with a headless
+`deepseek-claude` implementation and a deterministic scripted one, the context
+bundle the model reads (`spec` plus `status.observed` plus the one hop graph
+neighborhood plus the CLM context document), and a reconciler that writes
+`intent`, `requirements` and `interfaces` back with the `origin: ingest`
+annotation so the write never looks like a human edit.
+
+Phase 6 does the other direction: a git worktree per `SpecToCode` change, the
+agent edits it, `spec.verify` gates the commit, and the result is merged,
+re-ingested and marked `CodeSynced`.

@@ -96,5 +96,8 @@ example-phase3: $(SPECCTL) kcp-up
 	@echo "--- import, export and the semantic diff are checked by the live test ---"
 	SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase3ArchRoundTrip -count=1
 
+example-phase4: $(SPECCTL) $(SPECD) kcp-up
+	./scripts/example-phase4.sh
+
 clean:
 	rm -f $(SPECCTL) $(SPECD) $(BIN)/hydradb-bins

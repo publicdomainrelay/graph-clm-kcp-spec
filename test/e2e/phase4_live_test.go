@@ -71,7 +71,7 @@ func changesFor(changes []spec.SpecChange, systemContext, direction string) []sp
 	return out
 }
 
-func forgetPhase4(t *testing.T, ctx context.Context, client *kcpclient.Client, names ...string) {
+func forgetPhase4(t *testing.T, ctx context.Context, client *kcpclient.Client, repository string, names ...string) {
 	t.Helper()
 	for _, change := range liveSpecChanges(t, ctx, client) {
 		for _, name := range names {
@@ -83,7 +83,7 @@ func forgetPhase4(t *testing.T, ctx context.Context, client *kcpclient.Client, n
 	for _, name := range names {
 		_ = client.Delete(ctx, specapi.SystemContextGVR, specapi.DefaultNamespace, name)
 	}
-	_ = client.Delete(ctx, specapi.RepositoryGVR, specapi.DefaultNamespace, phase4Repository)
+	_ = client.Delete(ctx, specapi.RepositoryGVR, specapi.DefaultNamespace, repository)
 }
 
 // TestPhase4ControllerDriftAndSpecChanges drives the real controller against
@@ -105,11 +105,11 @@ func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
 
 	repoPath := fixture.CopyAs(t, "calc", phase4Repository)
 	names := []string{"calc", "cmd-calc", phase4Repository}
-	forgetPhase4(t, ctx, client, names...)
+	forgetPhase4(t, ctx, client, phase4Repository, names...)
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cleanupCancel()
-		forgetPhase4(t, cleanupCtx, client, names...)
+		forgetPhase4(t, cleanupCtx, client, phase4Repository, names...)
 	})
 
 	repository := &spec.Repository{
@@ -267,11 +267,11 @@ func TestPhase4TypeScriptIngest(t *testing.T) {
 
 	client := liveClient(t, root)
 	repoPath := fixture.Copy(t, "greet")
-	forgetPhase4(t, ctx, client, "greet", "format")
+	forgetPhase4(t, ctx, client, "greet", "greet", "format")
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
-		forgetPhase4(t, cleanupCtx, client, "greet", "format")
+		forgetPhase4(t, cleanupCtx, client, "greet", "greet", "format")
 	})
 
 	result, err := ingest.Run(ctx, client, ingest.Options{RepoPath: repoPath, RepositoryName: "greet"})
