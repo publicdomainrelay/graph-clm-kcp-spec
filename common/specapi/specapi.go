@@ -43,6 +43,11 @@ const (
 )
 
 const (
+	ArchIDLabel   = Group + "/arch-id"
+	ArchKindLabel = Group + "/arch-kind"
+)
+
+const (
 	ConditionSpecValid  = "SpecValid"
 	ConditionCodeSynced = "CodeSynced"
 	ConditionDrifted    = "Drifted"

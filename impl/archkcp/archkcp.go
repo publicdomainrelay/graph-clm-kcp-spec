@@ -99,7 +99,11 @@ func Import(ctx context.Context, cluster Cluster, data []byte, options ImportOpt
 	documentName := documentObjectName(repository)
 	result.Document = documentName
 	header := &spec.SystemContext{
-		ObjectMeta: metav1.ObjectMeta{Name: documentName, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      documentName,
+			Namespace: namespace,
+			Labels:    archLabels(DocumentID, spec.ArchKindDocument),
+		},
 		Spec: spec.SystemContextSpec{
 			Repository: repository,
 			Upstream:   spec.RefSelf,
@@ -194,7 +198,11 @@ func Export(ctx context.Context, cluster Cluster, options ExportOptions) ([]byte
 
 func contextFor(node *archyaml.Node, repository, namespace, name string) *spec.SystemContext {
 	context := &spec.SystemContext{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    archLabels(node.ID, spec.ArchKindNode),
+		},
 		Spec: spec.SystemContextSpec{
 			Repository:   repository,
 			Upstream:     upstreamOf(node),
@@ -235,6 +243,19 @@ func documentArch(document *archyaml.Document) *spec.ArchSpec {
 		Kind:     spec.ArchKindDocument,
 		Document: document.Header,
 		Sections: sections,
+	}
+}
+
+// archLabels put the open architecture id and the kind on the object, so
+// kubectl and a future controller can select the imported nodes without
+// decoding spec.arch.
+func archLabels(id, kind string) map[string]string {
+	if id == "" {
+		return nil
+	}
+	return map[string]string{
+		specapi.ArchIDLabel:   id,
+		specapi.ArchKindLabel: kind,
 	}
 }
 

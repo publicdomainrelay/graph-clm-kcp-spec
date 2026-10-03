@@ -62,6 +62,18 @@ func TestPhase3ArchRoundTrip(t *testing.T) {
 	if result.Contexts != len(original.Nodes()) {
 		t.Fatalf("imported %d contexts, want %d", result.Contexts, len(original.Nodes()))
 	}
+	// kcp keeps the labels and the opaque spec.arch block exactly as written.
+	kindObject, err := client.Get(ctx, specapi.SystemContextGVR, specapi.DefaultNamespace, spec.ArchName("sc.kind.denopod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := kindObject.GetLabels()[specapi.ArchIDLabel]; got != "sc.kind.denopod" {
+		t.Errorf("%s = %q, want the arch id", specapi.ArchIDLabel, got)
+	}
+	node, found, err := unstructured.NestedMap(kindObject.Object, "spec", "arch", "node")
+	if err != nil || !found || node["id"] != "sc.kind.denopod" {
+		t.Errorf("spec.arch.node = %v (found %v, err %v)", node, found, err)
+	}
 
 	exported, err := archkcp.Export(ctx, client, archkcp.ExportOptions{Repository: archRepository})
 	if err != nil {

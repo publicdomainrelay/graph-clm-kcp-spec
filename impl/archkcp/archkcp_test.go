@@ -204,6 +204,17 @@ func TestImportStoresTheArchView(t *testing.T) {
 		t.Errorf("codeRefs = %v, want file: refs", context.Spec.CodeRefs)
 	}
 
+	if got := context.Labels[specapi.ArchIDLabel]; got != "sc.kind.denopod" {
+		t.Errorf("%s = %q", specapi.ArchIDLabel, got)
+	}
+	if got := context.Labels[specapi.ArchKindLabel]; got != spec.ArchKindNode {
+		t.Errorf("%s = %q", specapi.ArchKindLabel, got)
+	}
+	document := readContext(t, cluster, result.Document)
+	if got := document.Labels[specapi.ArchKindLabel]; got != spec.ArchKindDocument {
+		t.Errorf("the document %s = %q", specapi.ArchKindLabel, got)
+	}
+
 	kine := readContext(t, cluster, result.Names["sc.kine-local"])
 	if kine.Spec.Upstream != "up.kine" {
 		t.Errorf("sc.kine-local upstream = %q, want up.kine", kine.Spec.Upstream)

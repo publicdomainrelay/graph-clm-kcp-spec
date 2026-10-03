@@ -185,7 +185,8 @@ graph        true
   the position, the parent id and the slot it sat in, the derived `upstream`,
   `overlay`, `orchestrator`, `dependsOn` and `introduces` refs, the code paths
   as `spec.codeRefs`, and `spec.arch.node`, the node body with its inline
-  children replaced by their id refs.
+  children replaced by their id refs. The id and the kind are labels too
+  (`specs.publicdomainrelay.dev/arch-id`, `specs.publicdomainrelay.dev/arch-kind`).
 - One more `SystemContext` (`spec.arch.kind: document`) carries the top-level
   header and the section skeleton, so an empty section survives the trip too.
 - Import is idempotent, and it prunes the objects under that repository that the
