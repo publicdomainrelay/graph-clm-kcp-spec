@@ -76,6 +76,16 @@ func addGlobals(fs *flag.FlagSet) *globals {
 	return options
 }
 
+// splitArgs reads one flag's worth of model arguments the way a shell would
+// not: quoted whole, then split on whitespace, so `--agent-args "-p --verbose"`
+// reaches the model as two arguments.
+func splitArgs(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return strings.Fields(value)
+}
+
 func defaultKubeconfig() string {
 	if fromEnv := os.Getenv("SPECD_KUBECONFIG"); fromEnv != "" {
 		return fromEnv
@@ -307,6 +317,7 @@ usage:
   specctl get <kind> [name] [-o table|yaml|json|name]
   specctl delete <kind> <name>
   specctl ingest --repo <path> [--repo-name <name>] [--bolt-url <url>]
+  specctl ingest --repo <path> --summarize --agent scripted:<file>|claude
   specctl graph neighbors <context> [--bolt-url <url>]
   specctl graph rebuild [--bolt-url <url>]
   specctl import-arch <arch.yaml> [--repository <name>] [--bolt-url <url>]
@@ -322,6 +333,15 @@ global flags:
   --namespace, -n <ns>  namespace (default default)
   --qps <n>             requests per second against kcp (default 50)
   --burst <n>           request burst against kcp (default 100)
+
+summarize flags (specctl ingest --summarize):
+  --agent <kind>          scripted:<file> or claude
+  --agent-command <cmd>   model command (default deepseek-claude)
+  --agent-args <args>     model arguments (default -p --output-format text)
+  --agent-timeout <dur>   how long one model call may take (default 3m)
+  --bundle-budget <n>     token budget of the context bundle (default 8000)
+  --bundle-nodes <n>      codegraph node excerpts per bundle (default 3)
+  --context-doc-budget <n>  token budget of the context document (default 1500)
 
 graph flags:
   --bolt-url <url>           bolt endpoint (default $SPECD_BOLT_URL, empty skips the graph)
