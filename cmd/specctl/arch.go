@@ -27,6 +27,10 @@ func runImportArch(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return exitUsage
 	}
+	if err := bolt.Resolve(fs); err != nil {
+		fmt.Fprintf(stderr, "specctl import-arch: %v\n", err)
+		return exitUsage
+	}
 	if len(positional) != 1 {
 		fmt.Fprintln(stderr, "specctl import-arch: one arch.yaml path is required")
 		return exitUsage
