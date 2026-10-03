@@ -109,12 +109,27 @@ const (
 	CodeRefPrefixPackage  = "package:"
 )
 
-var CodeRefPrefixes = []string{
-	CodeRefPrefixFile,
-	CodeRefPrefixFunction,
-	CodeRefPrefixMethod,
-	CodeRefPrefixType,
-	CodeRefPrefixPackage,
+// CodeRefKinds are the CodeGraph node kinds a code ref may name. The list is
+// the index's own vocabulary, because a ref the model copied from an observed
+// fact is a valid ref by construction: a TypeScript interface is
+// interface:<hex> and a class is class:<hex>, not type:<hex>. A parser that
+// canonicalizes a bare name to the observed CodeGraph id and a validator that
+// only knew a shorter list would disagree about the model's own answer.
+var CodeRefKinds = []string{
+	"file", "package", "module",
+	"function", "method", "constructor",
+	"struct", "interface", "class", "type_alias", "enum", "type",
+	"variable", "constant", "import",
+}
+
+var CodeRefPrefixes = codeRefPrefixes()
+
+func codeRefPrefixes() []string {
+	out := make([]string, 0, len(CodeRefKinds))
+	for _, kind := range CodeRefKinds {
+		out = append(out, kind+":")
+	}
+	return out
 }
 
 func IsCodeRef(value string) bool {

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 )
 
@@ -303,5 +305,48 @@ func TestRenderDeltaCoversObservedFacts(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "+ observed interface Subtract function:cc33") {
 		t.Errorf("the added interface is missing:\n%s", rendered)
+	}
+}
+
+// A model names a symbol the way it reads it, and the parser canonicalizes that
+// to the observed CodeGraph id. Those ids carry the index's own kind, so the
+// validator has to accept every kind the index emits, or the parser and the
+// validator disagree about the model's answer and the whole draft is rejected.
+func TestEveryCanonicalRefTheParserBuildsIsAValidCodeRef(t *testing.T) {
+	observed := spec.ObservedFacts{
+		Files: []string{"greet/mod.ts"},
+		Interfaces: []spec.ObservedInterface{
+			{Name: "Greeting", Kind: "interface", CodegraphID: "interface:49216168fba9b28b25e57da4e8d5283b", File: "greet/mod.ts"},
+			{Name: "Greeter", Kind: "class", CodegraphID: "class:ee1f6d1c37cc3d6c9b15e618220f4fe2", File: "greet/mod.ts"},
+			{Name: "greet", Kind: "function", CodegraphID: "function:f0c27c5a33714a68f3a51c88a09bc209", File: "greet/mod.ts"},
+		},
+	}
+	draft, err := ParseDraft(`{
+		"intent": "Greetings.",
+		"requirements": [
+			{"id": "r.interface", "level": "MUST", "text": "The value object exists.", "codeRefs": ["Greeting"]},
+			{"id": "r.class", "level": "MUST", "text": "The class exists.", "codeRefs": ["Greeter"]},
+			{"id": "r.function", "level": "MUST", "text": "The function exists.", "codeRefs": ["greet", "file:greet/mod.ts"]}
+		]
+	}`, observed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(draft.Dropped) != 0 {
+		t.Fatalf("the parser dropped refs it built itself: %+v", draft.Dropped)
+	}
+	for _, requirement := range draft.Requirements {
+		for _, ref := range requirement.CodeRefs {
+			if !spec.IsCodeRef(ref) {
+				t.Errorf("the parser built %q, which the validator refuses", ref)
+			}
+		}
+	}
+	candidate := &spec.SystemContext{
+		ObjectMeta: metav1.ObjectMeta{Name: "greet"},
+		Spec:       DraftSpec(spec.SystemContextSpec{Repository: "unseen", Upstream: spec.RefSelf}, draft),
+	}
+	if result := spec.ValidateSystemContext(candidate); !result.OK() {
+		t.Errorf("the spec the draft built does not validate: %v", result.Err())
 	}
 }
