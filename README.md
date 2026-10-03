@@ -139,14 +139,17 @@ sequenceDiagram
 
 ## Status
 
-Phases 1 to 8 of 10 are done: **kcp holds specs, code becomes facts in `status`
+Phases 1 to 9 of 10 are done: **kcp holds specs, code becomes facts in `status`
 and in the graph, a hand written `arch.yaml` round trips through kcp, `specd`
 keeps the facts, the conditions and the work queue true to the code, an agent
 turns the code back into a spec, a spec edit becomes a structured delta that
 drives an agent to change the code under a test gate, one `Repository` manifest
-populates a codebase kcp has never seen, and the CLM loop is a library with two
+populates a codebase kcp has never seen, the CLM loop is a library with two
 hosts — the `pi-hydradb-clm` extension and a Claude Code mod — so the model that
-realizes a change reports into the same state the controllers watch.**
+realizes a change reports into the same state the controllers watch, and the API
+is multi-tenant: an APIExport in a provider workspace, tenant workspaces that
+bind it, one `specd --mode export` that reconciles them all, and a `.specs/` git
+mirror so a pull request carries the spec and the code together.**
 
 - API group `specs.publicdomainrelay.dev/v1alpha1`, kinds `Repository`,
   `SystemContext`, `SpecChange`, namespaced, with a status subresource and
@@ -233,6 +236,33 @@ realizes a change reports into the same state the controllers watch.**
   the change ran (turn, tool, files, note, time), and `report` writes the
   matching `TOUCHED` and `OCCURRED` edges into the graph, so
   `kubectl get specchange -w` shows the work while it happens.
+- `deploy/apiresourceschemas/` is generated from `deploy/crds/` by
+  `impl/schemagen`, and a test fails when the two grow apart, so the API a
+  tenant binds and the API the single workspace serves cannot diverge.
+  `deploy/install-specs-provider.sh` creates `root:specs-provider`, applies the
+  schemas and the APIExport `specs.publicdomainrelay.dev`;
+  `deploy/bind-workspace.sh <ws>` creates a tenant workspace, binds that export
+  and writes its kubeconfig.
+- `specd --mode export` watches every workspace bound to the export through the
+  APIExport virtual workspace (one dynamic informer per kind at
+  `<endpoint>/clusters/*`). Each object carries its `kcp.io/cluster` annotation,
+  so the controller writes every status and every `SpecChange` back to the
+  logical cluster the object came from: the specs stay per workspace, the API is
+  shared. Plain workspace mode is the default and is unchanged.
+- `specctl sync --repo <path> --direction pull|push|both` mirrors the specs as
+  one YAML per `SystemContext` under `<repo>/.specs/` (spec only, canonical key
+  order, no status). A file and kcp are in conflict only when both moved since
+  the last sync recorded in the `synced-hash` annotation; the sync then refuses
+  and names the hashes, and `--prefer kcp|git` says which side wins. A push
+  writes with `origin: git`, so the controller reads it as the desired state
+  change it is.
+- `specd --specs-mirror` writes each context's `.specs/<name>.yaml` into the
+  realize worktree before the commit, so one commit carries the spec and the
+  code together.
+- `impl/piagent` is the pi host over the same agent contract, with the npm
+  package as its default command, and the pi extension writes
+  `(PiMemory)-[:SPECIFIES]->(SpecRequirement)` for the requirements a remembered
+  code reference anchors to.
 - Live tests that round trip a `SystemContext` through a real kcp, that ingest a
   real git working tree twice and check the graph on both backends, that take
   the open architecture document through kcp and diff the two models, that drive
@@ -368,6 +398,17 @@ KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl get specchanges
 # builds the bare repository this url names)
 KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl apply -f examples/populate/repository.yaml
 KUBECONFIG=.kcp-specd/specs.kubeconfig kubectl get repositories -o wide
+
+# multi workspace: publish the API from a provider workspace, then bind tenants
+make install-specs-provider
+./deploy/bind-workspace.sh tenant-a
+KUBECONFIG=.kcp-specd/tenant-a.kubeconfig kubectl get systemcontexts
+# one controller reconciles every tenant bound to the export
+bin/specd --mode export --provider-workspace root:specs-provider
+
+# the specs beside the code: pull, edit, push, and refuse a real conflict
+bin/specctl sync --repo /path/to/repo --direction pull
+bin/specctl sync --repo /path/to/repo --direction both --prefer git
 ```
 
 `ingest` reads the Bolt endpoint from the flags or the environment
@@ -387,7 +428,11 @@ so it cannot drift, and it is re-indexed when a caller asks with the
 `specctl ingest` always sets).
 
 `specctl` talks to the workspace `root:specs` on the admin kubeconfig; pass
-`--workspace`, `--namespace`, `--kubeconfig` or `--context` to change that.
+`--workspace`, `--namespace`, `--kubeconfig` or `--context` to change that. In
+the multi workspace mode point it at a tenant instead:
+`--workspace root:tenant-a` (or use the kubeconfig `bind-workspace.sh` wrote).
+`specctl sync` derives the `Repository` from `--repo` when the path is the tree
+a `Repository` resolved to, so the two sides cannot name different ones.
 `deploy/install-specs.sh` also writes `.kcp-specd/specs.kubeconfig`, a
 kubeconfig whose server already points at the workspace, so plain `kubectl`
 works against it without extra flags.
@@ -740,6 +785,69 @@ the running change, and reports a touched file. The gated live run —
 `SPECD_REQUIRE_LIVE=1 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase8LiveModel -count=1`
 — does the same with `deepseek-claude` and the mod actually loaded.
 
+## Multi workspace, and the spec mirror in git
+
+The API is published once and bound many times. A provider workspace
+(`root:specs-provider`) holds an `APIResourceSchema` per kind — generated from
+the CRDs, so there is one source of truth — and an `APIExport`
+(`specs.publicdomainrelay.dev`). A tenant workspace binds that export and gets
+the three kinds in its own logical cluster.
+
+```mermaid
+flowchart TB
+    provider["root:specs-provider<br/>APIResourceSchemas + APIExport"]
+    va["root:tenant-a<br/>APIBinding"]
+    vb["root:tenant-b<br/>APIBinding"]
+    vw["APIExport virtual workspace<br/>endpoint slice URL + /clusters/*"]
+    sd["specd --mode export"]
+    ga[("tenant A repo")]
+    gb[("tenant B repo")]
+
+    provider -- "publishes" --> va
+    provider -- "publishes" --> vb
+    va -- "objects of every bound workspace" --> vw
+    vb -- "objects of every bound workspace" --> vw
+    vw -- "watch, kcp.io/cluster per object" --> sd
+    sd -- "status and SpecChange per logical cluster" --> vw
+    sd -- "index, drift, summarize" --> ga
+    sd -- "index, drift, summarize" --> gb
+```
+
+One `specd --mode export` watches `<endpoint>/clusters/*`, so every tenant's
+objects arrive on one watch, each carrying the `kcp.io/cluster` annotation of
+the workspace it lives in. The controller routes every read and write back to
+that cluster through the same virtual workspace, so specs stay per workspace
+while the API is shared, and drift in one tenant cannot touch another. The plain
+workspace mode is still the default: `--mode` is the only switch.
+
+The second half of phase 9 puts the spec in the repository beside the code.
+`specctl sync --repo <path>` writes one YAML per `SystemContext` to
+`<repo>/.specs/<name>.yaml` — spec only, canonical key order, no status — and
+reads them back:
+
+```bash
+specctl sync --repo . --direction pull    # kcp -> .specs/*.yaml
+specctl sync --repo . --direction push    # .specs/*.yaml -> kcp
+specctl sync --repo . --direction both    # push, then pull
+```
+
+The last successful sync is recorded in the `synced-hash` annotation. A file and
+kcp are in **conflict** only when both moved since then; the sync refuses and
+names the two hashes and the baseline, and `--prefer kcp` or `--prefer git` says
+which side wins. A pull never clobbers a file that moved while kcp stood still,
+and a push never overwrites a kcp that moved. A push writes with `origin: git`,
+so the controller reads it as the desired state change it is.
+
+`specd --specs-mirror` writes the context's file into the realize worktree
+before the commit, so a spec -> code change lands as one commit carrying both
+the spec and the code, which is what makes the mirror a pull request.
+
+`make example-phase9` is the whole example: two tenants bound to one export, a
+`Repository` and a codebase in each, one export-mode controller, a commit in
+tenant A that drifts only tenant A, a pull that fills `.specs/`, and a conflict
+that is refused until `--prefer git` resolves it. The live test
+`TestPhase9TwoTenantsOneExportController` is the same against a real kcp.
+
 ## The open architecture document
 
 `deno-kcp/.tools/open-architecture/arch.yaml` is a hand written spec of a whole
@@ -807,10 +915,15 @@ and prints the resulting vertex counts.
 kcp v0.33 accepts `CustomResourceDefinition` objects inside a workspace. A CRD
 applied to `root:specs` makes the group served in that logical cluster, with the
 status subresource, printer columns and namespaced scope all honoured
-(`deploy/install-specs.sh` depends on this). Phase 7 moves to
-`APIResourceSchema` + `APIExport` + `APIBinding` so tenant workspaces can bind
-the same API; phase 1 keeps the CRDs in the single workspace that owns the spec
-state.
+(`deploy/install-specs.sh` depends on this), which is the single workspace mode
+phases 1 to 8 use.
+
+Phase 9 adds the multi workspace mode on top of the same CRDs:
+`deploy/apiresourceschemas/` is generated from them by `impl/schemagen`,
+`deploy/install-specs-provider.sh` applies those schemas and the APIExport into
+`root:specs-provider`, and `deploy/bind-workspace.sh <ws>` binds a tenant
+workspace to the export. The CRDs stay the one source of truth: a test fails
+when a generated schema no longer matches the CRD it came from.
 
 ## Layout
 
@@ -823,6 +936,7 @@ abc/sync             pure: partition a tree into contexts, observed facts, finge
 abc/graph            pure: the graph model, row builders, Cypher builders, GraphWriter
 abc/agent            pure: the context bundle, the token budget, the strict draft parser, the context document, the delta render
 abc/delta            pure: Diff/Apply of two specs and of two observed fact sets, and the compact summary
+abc/mirror           pure: the `.specs/<name>.yaml` document and the sync conflict rule
 impl/kcpclient       dynamic client for a kcp workspace: CRUD, status, manifests, server side apply
 impl/codegraphsqlite run codegraph, read .codegraph/codegraph.db, resolve code refs
 impl/codegraphcli    run codegraph context|node, the only place the code itself is rendered
@@ -834,23 +948,31 @@ impl/agentfactory    one --agent option string into an agent, shared by specd an
 impl/claudecli       the model agent: a configurable command, the prompt on stdin, a timeout
 impl/scriptedagent   the deterministic agent: drafts and realize steps from a scenario file
 impl/realize         one spec -> code unit of work: worktree, agent, verify gate, commit, land, re-ingest
+impl/specsync        the `.specs` mirror: pull, push, the synced-hash baseline and the conflict refusal
+impl/schemagen       CustomResourceDefinition -> APIResourceSchema, the drift test and the generator
 impl/archkcp         arch.yaml <-> SystemContext objects on a kcp workspace
 impl/gitrepo         the managed tree: head, branch, worktrees, the specd commit, the --ff-only land
 impl/boltgraph       Bolt client; ArcadeDB is the default backend, HydraDB an option
 abc/watch            the watch contract: resources in, Added/Updated/Deleted out
 impl/watchinformer   dynamic informer watches against the workspace
+impl/exportwatch     the APIExport virtual workspace: every bound workspace on one watch
 impl/watchpoll       the list-and-diff fallback for a watch that cannot be held
 abc/clm              pure: the model zone of a context document, the spec block parse/render, the merge of what a model owns
 impl/clm             render, apply and report: the state bridge the CLM hosts call
-impl/piagent         the pi host of the same agent contract
+impl/piagent         the pi host of the same agent contract (npx package by default)
 factory/specd        wires the watch, the workqueue, the three reconcilers and the agent
-cmd/specctl          apply -f, get, delete, ingest [--summarize], import-arch, export, graph neighbors|rebuild, clm render|apply|report
+cmd/specctl          apply -f, get, delete, ingest [--summarize], import-arch, export, graph neighbors|rebuild, clm render|apply|report, sync
 cmd/specd            the controller binary; the only place that handles signals
 cmd/hydradb-bins     extracts the HydraDB binaries from their OCI image
 deploy/start-kcp.sh  start kcp + kine, then install the workspace and CRDs
 deploy/stop-kcp.sh   stop only the kcp and kine this repository started
 deploy/install-specs.sh  create root:specs, apply the CRDs, write a kubeconfig
 deploy/crds/         the three CustomResourceDefinitions
+deploy/apiresourceschemas/  the same three CRDs as APIResourceSchemas, generated
+deploy/specs-provider.yaml  the provider workspace
+deploy/specs-apiexport.yaml the APIExport a tenant workspace binds
+deploy/install-specs-provider.sh  create the provider workspace and publish the API
+deploy/bind-workspace.sh          create a tenant workspace and bind the export
 examples/calc/       a repository and two system contexts that reference each other
 examples/phase5/     the scripted agent the phase 5 example drives specd with
 examples/phase6/     the baseline spec, the spec edit and the two scripted agents of the phase 6 example
@@ -880,6 +1002,14 @@ and the two hosts (`pi-hydradb-clm`, `cc-clm-mod`) sit on top of both.
 make check      # gofmt and go vet
 make test       # unit tests; live tests skip (-short)
 make test-live  # SPECD_REQUIRE_LIVE=1; starts kcp, needs codegraph and a Bolt backend
+make test-live SPECD_BOLT_BACKEND=hydradb   # the same, graph checks on HydraDB 7687
+
+# the multi workspace end to end: two tenants, one export mode controller
+SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase9TwoTenantsOneExportController -count=1 -v
+
+# the pi host over a real model (the default command is the npm package;
+# SPECD_PI_ARGS names a provider or model when the environment needs one)
+SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase8PiHostSummarizesCalc -count=1 -v
 
 # the three tests that spend a real model call
 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase5LiveModel -count=1 -v
@@ -925,15 +1055,16 @@ and the phase 2 graph check default to ArcadeDB and take
 ## Ports and state
 
 kcp listens on 6447 with kine on 23797 and keeps state in `.kcp-specd/`
-(gitignored). `deploy/stop-kcp.sh` only ever signals processes whose command
+(gitignored). The multi workspace mode adds the workspaces
+`root:specs-provider`, `root:phase9-a` and `root:phase9-b` and the kubeconfigs
+`.kcp-specd/<workspace>.kubeconfig`; `make kcp-down` and `rm -rf .kcp-specd`
+remove them all. `deploy/stop-kcp.sh` only ever signals processes whose command
 line names that root directory, so it cannot disturb another kcp on the
 machine. The graph defaults to ArcadeDB on `bolt://127.0.0.1:7688` (HydraDB on
 `bolt://127.0.0.1:7687` is the option); neither is started by this repository.
 
 ## What is next
 
-Phase 9 adds APIExport/APIBinding so tenant workspaces bind the spec API, and
-`.specs/*.yaml` mirroring so a pull request carries spec and code together.
 Phase 10 builds the fixture set (a Go library, a Go HTTP service, a TS/Deno
 module, each with tests), `scenarios/*.yaml`, and `specctl eval`: interface
 recall, requirement anchoring, delta precision, the share of scenarios whose

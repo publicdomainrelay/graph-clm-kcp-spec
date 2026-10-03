@@ -16,7 +16,7 @@ export SPECD_BOLT_BACKEND ?= arcadedb
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 demo clean
+.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs install-specs-provider example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 example-phase9 demo clean
 
 ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
 ARCH_REPOSITORY ?= deno-kcp
@@ -62,6 +62,12 @@ kcp-down:
 install-specs:
 	./deploy/install-specs.sh
 
+# The multi workspace half: the provider workspace, the generated
+# APIResourceSchemas and the APIExport. deploy/bind-workspace.sh <ws> binds a
+# tenant to it.
+install-specs-provider:
+	./deploy/install-specs-provider.sh
+
 example-phase1: $(SPECCTL) kcp-up
 	$(SPECCTL) apply -f examples/calc/specs.yaml
 	$(SPECCTL) get systemcontext
@@ -104,6 +110,11 @@ example-phase7: $(SPECCTL) $(SPECD) kcp-up
 example-phase8: $(SPECCTL) $(SPECD) kcp-up
 	./scripts/example-phase8.sh
 
+# Two tenants, one APIExport, one specd in export mode, and the .specs mirror
+# with its conflict rule.
+example-phase9: $(SPECCTL) $(SPECD) kcp-up
+	./scripts/example-phase9.sh
+
 # The failing verify path of the same example: the change ends Failed with its
 # branch kept and the managed branch untouched.
 example-phase6-failing: $(SPECCTL) $(SPECD) kcp-up
@@ -131,6 +142,8 @@ demo: $(SPECCTL) $(SPECD) kcp-up
 	$(MAKE) --no-print-directory example-phase7
 	@echo "=== the CLM mod path: render, apply, fold, report ==="
 	$(MAKE) --no-print-directory example-phase8
+	@echo "=== two tenants, one export mode controller, and the git mirror ==="
+	$(MAKE) --no-print-directory example-phase9
 
 clean:
 	rm -f $(SPECCTL) $(SPECD) $(BIN)/hydradb-bins
