@@ -3,6 +3,7 @@ SHELL := /usr/bin/env bash
 
 BIN := $(CURDIR)/bin
 SPECCTL := $(BIN)/specctl
+SPECD := $(BIN)/specd
 SPECS_KUBECONFIG ?= $(CURDIR)/.kcp-specd/admin.kubeconfig
 WORKSPACE_KUBECONFIG := $(CURDIR)/.kcp-specd/specs.kubeconfig
 export SPECD_KUBECONFIG ?= $(SPECS_KUBECONFIG)
@@ -13,16 +14,20 @@ export SPECD_BOLT_USER ?= neo4j
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 example-phase3 clean
+.PHONY: build check fmt vet test test-live kcp-up kcp-down install-specs example-phase1 example-phase2 example-phase3 example-phase4 clean
 
 ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
 ARCH_REPOSITORY ?= deno-kcp
 
-build: $(SPECCTL) $(BIN)/hydradb-bins
+build: $(SPECCTL) $(SPECD) $(BIN)/hydradb-bins
 
 $(SPECCTL): $(shell find cmd/specctl abc common impl -name '*.go') go.mod
 	@mkdir -p $(BIN)
 	go build -o $@ ./cmd/specctl
+
+$(SPECD): $(shell find cmd/specd factory abc common impl -name '*.go') go.mod
+	@mkdir -p $(BIN)
+	go build -o $@ ./cmd/specd
 
 $(BIN)/hydradb-bins: $(shell find cmd/hydradb-bins -name '*.go') go.mod
 	@mkdir -p $(BIN)
@@ -92,4 +97,4 @@ example-phase3: $(SPECCTL) kcp-up
 	SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase3ArchRoundTrip -count=1
 
 clean:
-	rm -f $(SPECCTL) $(BIN)/hydradb-bins
+	rm -f $(SPECCTL) $(SPECD) $(BIN)/hydradb-bins

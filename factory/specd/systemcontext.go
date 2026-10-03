@@ -11,7 +11,6 @@ import (
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
-	"github.com/publicdomainrelay/kcp-libs/common/condition"
 )
 
 // reconcileSystemContext never indexes code. Ingest owns the observed facts;
@@ -81,10 +80,9 @@ func (c *Controller) reconcileChanges(
 		}
 	}
 
-	driftedBefore := condition.Is(systemContext.Status.Conditions, specapi.ConditionDrifted, metav1.ConditionTrue)
 	fromCommit := systemContext.Status.SyncedCommit
 	toCommit := systemContext.Status.ObservedCommit
-	if specsync.CodeToSpecDue(driftedBefore, decision.Drifted, fromCommit, toCommit) &&
+	if specsync.CodeToSpecDue(decision.Drifted, fromCommit, toCommit) &&
 		!unfinished[specapi.DirectionCodeToSpec] {
 		change := &spec.SpecChange{
 			ObjectMeta: metav1.ObjectMeta{

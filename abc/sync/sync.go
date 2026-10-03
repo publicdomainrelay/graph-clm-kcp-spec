@@ -322,11 +322,19 @@ func Decide(in Input) Decision {
 	return decision
 }
 
-// CodeToSpecDue reports whether the Drifted condition just turned true with a
-// usable commit pair. Only the transition creates a change, so a code base that
-// stays drifted does not queue new work on every reconcile.
-func CodeToSpecDue(driftedBefore, driftedNow bool, fromCommit, toCommit string) bool {
-	return driftedNow && !driftedBefore && fromCommit != "" && toCommit != "" && fromCommit != toCommit
+// CodeToSpecDue reports whether a CodeToSpec change is due: the context is
+// drifted and the commit pair from the synced baseline to the observed code is
+// usable.
+//
+// It deliberately does not ask whether Drifted just turned true. Ingest
+// computes the conditions and stores them in the same status write that stores
+// the new fingerprint, so the controller never sees the false-to-true edge.
+// The transition is therefore read as a state (drifted, with a commit pair) and
+// the caller raises one change per drift episode by refusing to create a second
+// change of the same direction while one is still unfinished, which is also
+// what makes a controller restart safe.
+func CodeToSpecDue(drifted bool, fromCommit, toCommit string) bool {
+	return drifted && fromCommit != "" && toCommit != "" && fromCommit != toCommit
 }
 
 // SpecEditDue reports whether a human spec edit waits for a realize. An empty

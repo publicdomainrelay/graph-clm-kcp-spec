@@ -48,6 +48,19 @@ func CopyAs(t *testing.T, name, as string) string {
 	return target
 }
 
+// Commit stages everything in a fixture working tree and commits it, which is
+// how a test simulates the code moving under the controller.
+func Commit(t *testing.T, dir, message string) string {
+	t.Helper()
+	run(t, dir, "git", "add", "-A")
+	run(t, dir, "git", "-c", "user.email=fixture@example.com", "-c", "user.name=fixture", "commit", "-qm", message)
+	head, err := exec.Command("git", "-C", dir, "rev-parse", "--verify", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse in %s: %v", dir, err)
+	}
+	return strings.TrimSpace(string(head))
+}
+
 func Require(t *testing.T, tools ...string) {
 	t.Helper()
 	if testing.Short() && os.Getenv("SPECD_REQUIRE_LIVE") != "1" {

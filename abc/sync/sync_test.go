@@ -247,17 +247,17 @@ func conditionOf(t *testing.T, conditions []metav1.Condition, conditionType stri
 }
 
 func TestSpecChangeDue(t *testing.T) {
-	if !CodeToSpecDue(false, true, "aaa", "bbb") {
-		t.Error("a drift transition with a commit pair is due")
+	if !CodeToSpecDue(true, "aaa", "bbb") {
+		t.Error("drift with a commit pair is due")
 	}
 	for _, due := range []bool{
-		CodeToSpecDue(true, true, "aaa", "bbb"),
-		CodeToSpecDue(false, false, "aaa", "bbb"),
-		CodeToSpecDue(false, true, "aaa", "aaa"),
-		CodeToSpecDue(false, true, "", "bbb"),
+		CodeToSpecDue(false, "aaa", "bbb"),
+		CodeToSpecDue(true, "aaa", "aaa"),
+		CodeToSpecDue(true, "", "bbb"),
+		CodeToSpecDue(true, "aaa", ""),
 	} {
 		if due {
-			t.Error("a change is due only on the transition with a usable commit pair")
+			t.Error("a change is due only while drifted, with a usable commit pair")
 		}
 	}
 
