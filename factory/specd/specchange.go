@@ -87,6 +87,14 @@ func (c *Controller) createChange(ctx context.Context, change *spec.SpecChange) 
 		}
 		return err
 	}
+	// The status subresource drops status on a create, so the new change has no
+	// phase until this write. Doing it here means no reader ever sees a
+	// SpecChange without one, and the SpecChange reconcile only has to enforce
+	// admission.
+	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, change.Namespace, change.Name,
+		map[string]any{"phase": change.Status.Phase}); err != nil {
+		return err
+	}
 	c.log.Info("spec change created",
 		"change", change.Name,
 		"direction", change.Spec.Direction,

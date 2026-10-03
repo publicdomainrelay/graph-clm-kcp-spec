@@ -200,7 +200,7 @@ func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
 	var codeToSpec spec.SpecChange
 	waitFor(t, ctx, "the CodeToSpec change", func() bool {
 		found := changesFor(liveSpecChanges(t, ctx, client), "calc", specapi.DirectionCodeToSpec)
-		if len(found) != 1 {
+		if len(found) != 1 || found[0].Status.Phase != specapi.PhasePending {
 			return false
 		}
 		codeToSpec = found[0]
@@ -239,7 +239,7 @@ func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
 	var specToCode spec.SpecChange
 	waitFor(t, ctx, "the SpecToCode change", func() bool {
 		found := changesFor(liveSpecChanges(t, ctx, client), "calc", specapi.DirectionSpecToCode)
-		if len(found) != 1 {
+		if len(found) != 1 || found[0].Status.Phase != specapi.PhasePending {
 			return false
 		}
 		specToCode = found[0]
