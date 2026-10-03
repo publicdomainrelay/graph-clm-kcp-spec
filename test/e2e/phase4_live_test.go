@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -339,7 +340,7 @@ func TestPhase4PollWatchReconciles(t *testing.T) {
 }
 
 func TestPhase4TypeScriptIngest(t *testing.T) {
-	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
+	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "deno")
 	root := repoRoot(t)
 	startCluster(t, root)
 
@@ -348,6 +349,10 @@ func TestPhase4TypeScriptIngest(t *testing.T) {
 
 	client := liveClient(t, root)
 	repoPath := fixture.Copy(t, "greet")
+
+	// The fixture is a working Deno module, not a directory of TypeScript that
+	// happens to parse: its own tests gate it before any of this touches it.
+	runDenoTest(t, repoPath)
 	forgetObjects(t, ctx, client, []string{"greet"}, []string{"greet", "format"})
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -399,6 +404,17 @@ func TestPhase4TypeScriptIngest(t *testing.T) {
 	}
 	if second.Contexts[0].Fingerprint != result.Contexts[0].Fingerprint {
 		t.Errorf("the fingerprint moved: %s -> %s", result.Contexts[0].Fingerprint, second.Contexts[0].Fingerprint)
+	}
+}
+
+// runDenoTest runs a Deno fixture's own tests, so the TypeScript fixture is
+// known to be a real module and not only something codegraph can parse.
+func runDenoTest(t *testing.T, dir string) {
+	t.Helper()
+	command := exec.Command("deno", "test")
+	command.Dir = dir
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("deno test in %s: %v\n%s", dir, err, output)
 	}
 }
 

@@ -75,10 +75,10 @@ on `bolt://127.0.0.1:7688` (database `clm`). The graph commands need one;
 `--agent claude` needs a model command on `PATH`: `deepseek-claude` by default,
 or whatever `--agent-command` and `--agent-args` name. Only
 `SPECD_REQUIRE_LIVE_MODEL=1` runs it; everything else, the whole `specd` loop
-included, runs `--agent scripted:<file>` and needs no model. The
-Deno/TypeScript fixture is read by `codegraph`, which parses TypeScript itself,
-so `deno` is not needed to index it; it is only needed if you want to run that
-fixture's own tests.
+included, runs `--agent scripted:<file>` and needs no model. `deno` is needed
+for the TypeScript live test, which runs `fixtures/greet`'s own tests before it
+indexes the module, so the fixture is known to be a real working tree and not
+only something `codegraph` can parse.
 
 ## Quick start
 
@@ -496,8 +496,8 @@ SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase5LiveModel -count=1
 
 The live tests start the cluster with `deploy/start-kcp.sh` if needed and leave
 it running; `make kcp-down` stops it. Without `SPECD_REQUIRE_LIVE=1` a missing
-`kcp`, `kine`, `kubectl`, `codegraph` or Bolt endpoint skips the test instead of
-failing. `impl/boltgraph` has its own live test that writes, reads and deletes
+`kcp`, `kine`, `kubectl`, `codegraph`, `deno`, `git` or Bolt endpoint skips the
+test instead of failing. `impl/boltgraph` has its own live test that writes, reads and deletes
 its own vertices, so it never disturbs the example graph; `impl/gitrepo` builds
 a temporary git repository. The phase 2 test takes over the `calc` names in the
 workspace and deletes them when it finishes, and the phase 3 test owns
