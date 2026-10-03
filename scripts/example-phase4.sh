@@ -23,7 +23,7 @@ export KUBECONFIG="$KUBECONFIG_PATH"
 
 K() { "$KUBECTL" --server="${SERVER}/clusters/${WORKSPACE}" -n "$NAMESPACE" "$@"; }
 
-SERVER=$(KUBECTL="$KUBECTL" "$KUBECTL" config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+SERVER=$("$KUBECTL" config view --minify -o jsonpath='{.clusters[0].cluster.server}')
 SERVER=${SERVER%%/clusters/*}
 
 specd_pid=""

@@ -257,6 +257,79 @@ func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
 	}
 }
 
+// TestPhase4PollWatchReconciles runs the same controller with the list-and-diff
+// source instead of the informer, so the fallback is known to drive a reconcile
+// against a real kcp and not only against the fake in the unit test.
+func TestPhase4PollWatchReconciles(t *testing.T) {
+	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
+	root := repoRoot(t)
+	startCluster(t, root)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	client := liveClient(t, root)
+	if err := client.Ping(ctx); err != nil {
+		t.Fatalf("kcp is not serving the specs API: %v", err)
+	}
+	repoPath := fixture.CopyAs(t, "calc", "phase4-poll")
+	names := []string{"calc", "cmd-calc"}
+	forgetPhase4(t, ctx, client, "phase4-poll", names...)
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+		forgetPhase4(t, cleanupCtx, client, "phase4-poll", names...)
+	})
+
+	applyTyped(t, ctx, client, &spec.Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: "phase4-poll", Namespace: specapi.DefaultNamespace},
+		Spec:       spec.RepositorySpec{Path: repoPath, Branch: "main"},
+	})
+
+	controller, err := specd.New(specd.Options{
+		Kubeconfig:   filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
+		Workspace:    "root:specs",
+		Namespace:    specapi.DefaultNamespace,
+		QPS:          50,
+		Burst:        100,
+		Watch:        specd.WatchPoll,
+		PollInterval: 500 * time.Millisecond,
+		Resync:       500 * time.Millisecond,
+		Log:          logging.Discard(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCtx, stop := context.WithCancel(ctx)
+	stopped := make(chan error, 1)
+	go func() { stopped <- controller.Run(runCtx) }()
+	t.Cleanup(func() {
+		stop()
+		select {
+		case <-stopped:
+		case <-time.After(60 * time.Second):
+			t.Error("the controller did not stop")
+		}
+	})
+
+	waitFor(t, ctx, "the poll source to drive an ingest", func() bool {
+		object, err := client.Get(ctx, specapi.SystemContextGVR, specapi.DefaultNamespace, "calc")
+		if err != nil {
+			return false
+		}
+		fingerprint, _, _ := unstructured.NestedString(object.Object, "status", "observed", "fingerprint")
+		return fingerprint != ""
+	})
+	object, err := client.Get(ctx, specapi.RepositoryGVR, specapi.DefaultNamespace, "phase4-poll")
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexed, _, err := unstructured.NestedString(object.Object, "status", "indexedCommit")
+	if err != nil || indexed == "" {
+		t.Errorf("the Repository was not indexed through the poll source: %v %q", err, indexed)
+	}
+}
+
 func TestPhase4TypeScriptIngest(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
