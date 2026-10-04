@@ -83,7 +83,9 @@ for entry in $REPO $SIBLINGS; do
   dir=${entry%%=*}
   ghrepo=${entry#*=}
   [ -d "$WORK/$dir" ] && continue
-  if [ -d "$ORG_ROOT/$dir/.git" ]; then
+  # A sibling in the org root may be a worktree, where .git is a file, so test
+  # for a git repository rather than for a directory.
+  if git -C "$ORG_ROOT/$dir" rev-parse --git-dir >/dev/null 2>&1; then
     git clone -q "$ORG_ROOT/$dir" "$WORK/$dir"
   else
     git clone -q "$GITHUB/$ghrepo" "$WORK/$dir"
