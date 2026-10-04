@@ -519,7 +519,7 @@ func verify(ctx context.Context, command []string, dir string, timeout time.Dura
 }
 
 func commitMessage(members []Member, archBranch string, steps []spec.AcceptanceStep, acceptance []spec.AcceptanceResult) string {
-	message := fmt.Sprintf("realize %s: %s\n\n", members[0].Context, deltaSummary(batchDelta(members)))
+	message := fmt.Sprintf("realize %s: %s\n\n", strings.Join(batchContexts(members), ", "), deltaSummary(batchDelta(members)))
 	for _, member := range members {
 		if member.Change != "" {
 			message += oabranch.SpecChangeTrailer + ": " + member.Change + "\n"
@@ -532,6 +532,21 @@ func commitMessage(members []Member, archBranch string, steps []spec.AcceptanceS
 		message += oabranch.OpenArchitectureTrailer + ": " + archBranch + "\n"
 	}
 	return message
+}
+
+// batchContexts names every member context of the batch, in creation order and
+// without repeats, so the commit subject says which contexts it realized.
+func batchContexts(members []Member) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(members))
+	for _, member := range members {
+		if member.Context == "" || seen[member.Context] {
+			continue
+		}
+		seen[member.Context] = true
+		out = append(out, member.Context)
+	}
+	return out
 }
 
 func batchDelta(members []Member) spec.Delta {

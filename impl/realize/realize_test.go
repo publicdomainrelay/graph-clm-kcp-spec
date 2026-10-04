@@ -99,9 +99,27 @@ func TestCommitMessageCarriesOneTrailerPerBatchMember(t *testing.T) {
 		}}}},
 	}
 	message := commitMessage(members, "open-architecture/calc", nil, nil)
-	want := "realize calc: +2\n\nSpec-Change: calc-s2c-1\nSpec-Change: cmd-calc-s2c-2\nOpen-Architecture: open-architecture/calc\n"
+	want := "realize calc, cmd-calc: +2\n\nSpec-Change: calc-s2c-1\nSpec-Change: cmd-calc-s2c-2\nOpen-Architecture: open-architecture/calc\n"
 	if message != want {
 		t.Errorf("message = %q, want %q", message, want)
+	}
+}
+
+func TestCommitMessageNamesEveryContextOfTheBatch(t *testing.T) {
+	members := []Member{
+		{Context: "lib-did-key-ingress-proxy", Change: "a-s2c-1"},
+		{Context: "lib-common-cloud-init-common", Change: "b-s2c-2"},
+		{Context: "request-vm-ssh", Change: "c-s2c-3"},
+		{Context: "lib-common-cloud-init-common", Change: "d-s2c-4"},
+	}
+	subject := strings.SplitN(commitMessage(members, "", nil, nil), "\n", 2)[0]
+	if subject != "realize lib-did-key-ingress-proxy, lib-common-cloud-init-common, request-vm-ssh: no delta" {
+		t.Errorf("subject = %q", subject)
+	}
+	for _, member := range members {
+		if !strings.Contains(subject, member.Context) {
+			t.Errorf("subject %q does not name %s", subject, member.Context)
+		}
 	}
 }
 
