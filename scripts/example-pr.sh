@@ -78,6 +78,21 @@ say() { printf '\n=== %s\n' "$*"; }
 
 [ -x "$HYDRA/bin/specctl" ] && [ -x "$HYDRA/bin/specd" ] || (cd "$HYDRA" && make build >/dev/null)
 
+say "record the hydradb commit this run uses"
+if [ -n "$(git -C "$HYDRA" status --porcelain)" ]; then
+  echo "the hydradb checkout $HYDRA is dirty; commit or stash before an example run" >&2
+  exit 1
+fi
+HYDRA_COMMIT=$(git -C "$HYDRA" rev-parse HEAD)
+HYDRA_DESCRIBE=$(git -C "$HYDRA" describe --always --dirty)
+BUILT=$("$HYDRA/bin/specctl" version --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["commit"], d["dirty"])')
+if [ "$BUILT" != "$HYDRA_COMMIT False" ]; then
+  echo "bin/specctl is built from $BUILT, HEAD is $HYDRA_COMMIT (clean); run make build in $HYDRA" >&2
+  exit 1
+fi
+echo "hydradb $HYDRA_DESCRIBE (binaries match HEAD)"
+printf '%s\n' "$HYDRA_DESCRIBE" > "$WORK/hydradb.txt"
+
 say "clone into $WORK"
 for entry in $REPO $SIBLINGS; do
   dir=${entry%%=*}
@@ -188,6 +203,7 @@ done
 echo "$table"
 
 say "the result: commits, the gate, the orphan branch, a clean tree"
+echo "hydradb commit: $HYDRA_DESCRIBE"
 default=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)
 [ -n "$BASE" ] && default="origin/$BASE"
 git log --format='%h %s%n   %b' "$default..HEAD" | sed '/^   $/d'

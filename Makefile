@@ -8,6 +8,12 @@ SPECS_KUBECONFIG ?= $(CURDIR)/.kcp-specd/admin.kubeconfig
 WORKSPACE_KUBECONFIG := $(CURDIR)/.kcp-specd/specs.kubeconfig
 export SPECD_KUBECONFIG ?= $(SPECS_KUBECONFIG)
 
+# The commit the binaries were built from, stamped in so an example run can
+# refuse a binary that does not match HEAD.
+BUILD_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+BUILD_DIRTY := $(if $(shell git status --porcelain 2>/dev/null),dirty,)
+LDFLAGS := -X main.buildCommit=$(BUILD_COMMIT) -X main.buildDirty=$(BUILD_DIRTY)
+
 # The graph backend every target defaults to. ArcadeDB is the default; the Go
 # flag and environment defaults follow this variable, so
 # `make test-live SPECD_BOLT_BACKEND=hydradb` switches every command to HydraDB
@@ -25,11 +31,11 @@ build: $(SPECCTL) $(SPECD) $(BIN)/hydradb-bins
 
 $(SPECCTL): $(shell find cmd/specctl abc common impl -name '*.go') go.mod
 	@mkdir -p $(BIN)
-	go build -o $@ ./cmd/specctl
+	go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/specctl
 
 $(SPECD): $(shell find cmd/specd factory abc common impl -name '*.go') go.mod
 	@mkdir -p $(BIN)
-	go build -o $@ ./cmd/specd
+	go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/specd
 
 $(BIN)/hydradb-bins: $(shell find cmd/hydradb-bins -name '*.go') go.mod
 	@mkdir -p $(BIN)
