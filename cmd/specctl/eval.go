@@ -15,21 +15,11 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/runlock"
 )
 
-// evalWorkspace is where an eval run keeps its state. It is deliberately not
-// the workspace the live tests own: an eval run creates, changes and deletes
-// whole repositories, and it must never disturb another suite's objects.
-//
-// EnvEvalWorkspace names a different one, so two checkouts of this repository
-// can each run an eval against their own kcp without measuring one another's
-// objects. It fills the workspace only when --workspace is not given.
 const (
 	evalWorkspace    = "root:specs-eval"
 	EnvEvalWorkspace = "SPECD_EVAL_WORKSPACE"
 )
 
-// defaultEvalWorkspace is the workspace an eval run keeps its state in when the
-// caller names none: the environment's override when there is one, the default
-// otherwise.
 func defaultEvalWorkspace() string {
 	if fromEnv := strings.TrimSpace(os.Getenv(EnvEvalWorkspace)); fromEnv != "" {
 		return fromEnv
@@ -97,9 +87,6 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 		writer = boltClient
 	}
 
-	// One run at a time. An eval creates, changes and deletes whole
-	// repositories, and a live suite drives the same kcp workspace and the same
-	// working trees; two at once would measure one another's writes.
 	if *liveLock != "" {
 		lock, err := runlock.Acquire(*liveLock, runlock.Options{Name: "specctl eval", Wait: stderr})
 		if err != nil {
@@ -172,9 +159,6 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// writeReport writes the markdown table and the JSON beside it. A path that is
-// already a .json names the JSON, and the markdown lands beside it, so
-// `--out run.json` cannot write one report over the other.
 func writeReport(path string, report eval.Report) error {
 	markdown, encoded := path, jsonPath(path)
 	if strings.EqualFold(filepath.Ext(path), ".json") {
@@ -207,15 +191,10 @@ func markdownPath(path string) string {
 	return strings.TrimSuffix(path, filepath.Ext(path)) + ".md"
 }
 
-// comparePath is where the side by side table lands: beside the report, named
-// so two runs of the same date do not write over one another.
 func comparePath(path string) string {
 	return strings.TrimSuffix(path, filepath.Ext(path)) + "-compare.md"
 }
 
-// compareWithBaseline reads a previous report and flags a live run whose every
-// measure is exactly the baseline's. That flag is the whole point of phase 11:
-// an eval that cannot tell the model from the scripted answer measures nothing.
 func compareWithBaseline(path string, report eval.Report) (eval.Comparison, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
@@ -228,10 +207,6 @@ func compareWithBaseline(path string, report eval.Report) (eval.Comparison, erro
 	return eval.Compare(baseline, report), nil
 }
 
-// countFailed counts the scenarios that did not pass. A skipped scenario is not
-// one of them: the run could not take it (a CLM scenario under the scripted
-// baseline, which has no host inside the model), it is excluded from the
-// measures, and a baseline of 14 passes and one skip is a clean run.
 func countFailed(report eval.Report) int {
 	failed := 0
 	for _, scenario := range report.Scenarios {

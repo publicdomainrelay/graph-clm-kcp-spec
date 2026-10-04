@@ -31,8 +31,6 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// config is every flag of the binary, separated from the controller so the
-// wiring can be tested without a cluster.
 type config struct {
 	kubeconfig string
 
@@ -146,9 +144,6 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	if err := bolt.Resolve(fs); err != nil {
 		return config, bolt, err
 	}
-	// The flag beats the environment, so the environment only fills a cache
-	// directory the caller did not name, even when the flag was left at the
-	// default value.
 	if !flagSet(fs, "cache-dir") {
 		if fromEnv := os.Getenv("SPECD_CACHE_DIR"); fromEnv != "" {
 			config.cacheDir = fromEnv
@@ -174,9 +169,6 @@ func envOrPath(name, fallback string) string {
 	return fallback
 }
 
-// agentEnv is what a host inside the model reads to reach the same state the
-// controller watches: the workspace, the state bridge, and the graph endpoint.
-// A model with no host ignores all of it.
 func (c config) agentEnv(bolt *boltflags.Options) map[string]string {
 	env := map[string]string{
 		"SPECD_KUBECONFIG": c.kubeconfig,

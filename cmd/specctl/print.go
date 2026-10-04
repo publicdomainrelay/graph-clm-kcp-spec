@@ -93,8 +93,6 @@ func tableRow(item unstructured.Unstructured) ([]string, error) {
 			truncate(nestedString(item, "spec", "intent"), 48),
 		}, nil
 	case specapi.RepositoryKind:
-		// A git source has no spec.path: the tree is wherever the controller
-		// resolved it, so the resolved path is what a reader wants.
 		source := nestedString(item, "spec", "source", "path")
 		if source == "" {
 			source = nestedString(item, "spec", "path")
@@ -123,9 +121,6 @@ func tableRow(item unstructured.Unstructured) ([]string, error) {
 	return nil, fmt.Errorf("no table columns for kind %q", item.GetKind())
 }
 
-// deltaSummary reads the structured delta a change carries and prints it the
-// way the plan asks: compactly, so one line says how much work the change is.
-// A change without a delta (one created before phase 6) is a dash.
 func deltaSummary(item unstructured.Unstructured) string {
 	raw, found, err := unstructured.NestedMap(item.Object, "spec", "delta")
 	if err != nil || !found || len(raw) == 0 {

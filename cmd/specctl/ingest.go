@@ -20,10 +20,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/populate"
 )
 
-// runIngest is a thin wrapper around one Repository manifest: it applies the
-// manifest and waits for the controller to reach Populated. The work itself is
-// impl/populate, the same code path specd's Repository reconciler runs, so the
-// CLI and the controller can never disagree about what ingesting means.
 func runIngest(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("specctl ingest", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -39,8 +35,6 @@ func runIngest(args []string, stdout, stderr io.Writer) int {
 	fs.Var(&include, "include", "glob of repository-relative paths to keep; repeatable")
 	var exclude stringsFlag
 	fs.Var(&exclude, "exclude", "glob of repository-relative paths to drop; repeatable")
-	// Kept so an existing invocation still parses. The controller owns these
-	// now: the graph is written where the index is written.
 	_ = fs.String("codegraph", "", "codegraph command to run (the controller's --codegraph)")
 	_ = fs.Bool("no-graph", false, "do not write the graph (the controller's --bolt-url)")
 	_ = fs.Int("bundle-budget", 0, "token budget of the context bundle (the controller's --bundle-budget)")
@@ -96,9 +90,11 @@ func runIngest(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 
+	const populatePollInterval = 250 * time.Millisecond
+
 	waitCtx, cancel := context.WithTimeout(ctx, *wait)
 	defer cancel()
-	final, err := populate.WaitForPopulated(waitCtx, client, options.namespace, name, request, 250*time.Millisecond)
+	final, err := populate.WaitForPopulated(waitCtx, client, options.namespace, name, request, populatePollInterval)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl ingest: %v\n", err)
 		fmt.Fprintln(stderr, "specctl ingest: the Repository is applied; a running specd populates it")
@@ -113,9 +109,6 @@ func runIngest(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// buildRepository merges what the CLI owns into the Repository that is already
-// there, so a re-run does not throw away fields the manifest holds for other
-// parts of the loop (verify, branch, the realize agent).
 func buildRepository(
 	ctx context.Context,
 	client *kcpclient.Client,
@@ -152,8 +145,6 @@ func buildRepository(
 	if repository.Annotations == nil {
 		repository.Annotations = map[string]string{}
 	}
-	// A fresh request token is what makes a re-run index again even though the
-	// git HEAD has not moved; the controller records the one it answered.
 	repository.Annotations[specapi.PopulateRequestAnnotation] = strconv.FormatInt(time.Now().UnixNano(), 10)
 	repository.SetDefaults()
 	if result := spec.ValidateRepository(repository); !result.OK() {
@@ -182,8 +173,6 @@ func contextsOf(ctx context.Context, client *kcpclient.Client, namespace, reposi
 	return out, nil
 }
 
-// noteControllerFlags tells a caller whose flags moved to the controller, so an
-// established invocation is not silently half honoured.
 func noteControllerFlags(fs *flag.FlagSet, stderr io.Writer) {
 	controller := map[string]bool{
 		"codegraph": true, "no-graph": true, "bundle-budget": true,

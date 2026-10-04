@@ -173,8 +173,10 @@ func displayKey(row map[string]any, label string) string {
 			parts = append(parts, fmt.Sprint(value))
 		}
 	}
-	return oneLine(strings.Join(parts, " "), 80)
+	return oneLine(strings.Join(parts, " "), maxDisplayKeyChars)
 }
+
+const maxDisplayKeyChars = 80
 
 func oneLine(value string, limit int) string {
 	return truncate(strings.Join(strings.Fields(value), " "), limit)

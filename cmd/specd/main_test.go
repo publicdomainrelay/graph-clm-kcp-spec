@@ -150,7 +150,6 @@ func TestCacheDirFlagBeatsTheEnvironment(t *testing.T) {
 	if config.cacheDir != "/from/flag" {
 		t.Errorf("cache dir = %q, want the flag to beat the environment", config.cacheDir)
 	}
-	// A flag left at the default value is still not a flag the caller set.
 	config, _, err = parseConfig([]string{"--cache-dir", specd.DefaultCacheDir}, io.Discard)
 	if err != nil {
 		t.Fatal(err)

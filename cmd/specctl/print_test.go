@@ -241,7 +241,6 @@ func TestPrintTableShowsTheDeltaCompactly(t *testing.T) {
 		}
 	}
 
-	// A change from before phase 6 carries no delta and prints a dash.
 	plain := &spec.SpecChange{
 		ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-old"},
 		Spec: spec.SpecChangeSpec{

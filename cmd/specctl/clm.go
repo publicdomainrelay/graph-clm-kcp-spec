@@ -16,9 +16,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 )
 
-// clmFlags is what every `specctl clm` verb needs: the workspace to read and
-// the optional graph to write. A host runs these as child processes, so the
-// environment carries what a caller would otherwise pass as flags.
 type clmFlags struct {
 	kube *globals
 	bolt *boltflags.Options
@@ -45,9 +42,6 @@ func (f *clmFlags) cluster() (*kcpclient.Client, error) {
 	return f.kube.client()
 }
 
-// graphWriter connects the optional Bolt endpoint. A host with no graph
-// configured reports into kcp alone, which is the durable half of the record;
-// the graph is the derived index a reader queries while the change runs.
 func (f *clmFlags) graphWriter(ctx context.Context, stderr io.Writer, prefix string) (graph.Writer, func()) {
 	if f.bolt.URL == "" {
 		return nil, nil

@@ -195,9 +195,6 @@ func TestDefaultKubeconfigFallsBackToTheRepositoryState(t *testing.T) {
 	}
 }
 
-// Two checkouts of this repository share nothing but the machine, so an eval
-// run has to be able to name a workspace of its own. The environment fills the
-// default and the flag still wins.
 func TestEvalWorkspaceComesFromTheEnvironment(t *testing.T) {
 	t.Setenv(EnvEvalWorkspace, "")
 	if got := defaultEvalWorkspace(); got != evalWorkspace {
@@ -213,9 +210,6 @@ func TestEvalWorkspaceComesFromTheEnvironment(t *testing.T) {
 	}
 }
 
-// `clm render --context <name>` names a SystemContext, and the global --context
-// names a kubeconfig context: the subcommand must not register the same flag
-// twice, which would panic, and must not read the wrong one.
 func TestCLMContextNamesTheSystemContext(t *testing.T) {
 	contextName := ""
 	options, err := newCLMFlags([]string{"--context", "calc", "--workspace", "root:tenant"}, io.Discard, "render",
@@ -242,8 +236,6 @@ func TestCLMWithoutASubcommandIsUsage(t *testing.T) {
 	}
 }
 
-// TestSyncValidatesItsArguments: the mirror refuses a direction or a preference
-// it does not know, and needs a tree, before it touches kcp or the disk.
 func TestSyncValidatesItsArguments(t *testing.T) {
 	cases := []struct {
 		name string
@@ -262,8 +254,6 @@ func TestSyncValidatesItsArguments(t *testing.T) {
 	}
 }
 
-// A skipped scenario is not a failure: the scripted baseline cannot take a CLM
-// scenario, and a baseline run that reports 14 passes and one skip is clean.
 func TestCountFailedLeavesASkippedScenarioOut(t *testing.T) {
 	report := abceval.Report{Scenarios: []abceval.ScenarioReport{
 		{Scenario: "apply-one", Pass: true},

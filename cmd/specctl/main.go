@@ -63,16 +63,10 @@ type globals struct {
 	burst      int
 }
 
-// The client-go default of 5 requests per second makes a bulk import of a few
-// hundred objects take minutes; specctl raises it, and the flags let a caller
-// back off again.
 func addGlobals(fs *flag.FlagSet) *globals {
 	return addGlobalsExcept(fs, "")
 }
 
-// addGlobalsExcept leaves one global out, for the subcommands that need the
-// name for something of their own: `clm render --context` names a
-// SystemContext, and a second `--context` for the kubeconfig would collide.
 func addGlobalsExcept(fs *flag.FlagSet, skip string) *globals {
 	options := &globals{}
 	fs.StringVar(&options.kubeconfig, "kubeconfig", defaultKubeconfig(), "path to the kcp kubeconfig")
@@ -87,9 +81,6 @@ func addGlobalsExcept(fs *flag.FlagSet, skip string) *globals {
 	return options
 }
 
-// splitArgs reads one flag's worth of model arguments the way a shell would
-// not: quoted whole, then split on whitespace, so `--agent-args "-p --verbose"`
-// reaches the model as two arguments.
 func splitArgs(value string) []string {
 	if strings.TrimSpace(value) == "" {
 		return nil

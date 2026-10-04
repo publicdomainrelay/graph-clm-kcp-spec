@@ -128,8 +128,6 @@ func runExport(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// resolveContextName accepts either the kcp object name or the arch id, so
-// `specctl graph neighbors sc.deno-kcp` finds the context named sc-deno-kcp.
 func resolveContextName(value string) string {
 	if spec.IsArchID(value) {
 		return spec.ArchName(value)
