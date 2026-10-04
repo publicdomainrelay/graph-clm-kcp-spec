@@ -47,6 +47,8 @@ const (
 
 	PopulateRequestAnnotation = Group + "/populate-request"
 
+	RetryRequestAnnotation = Group + "/retry-request"
+
 	SyncedHashAnnotation = Group + "/synced-hash"
 )
 

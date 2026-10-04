@@ -210,8 +210,23 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	if err != nil {
 		return result, err
 	}
+	landedBase := options.Base
 	if commit != "" {
-		files, err := gitrepo.ChangedFiles(ctx, options.Worktree, options.Base, commit)
+		if tip, tipErr := gitrepo.CommitOf(ctx, repoPath, "refs/heads/"+branch); tipErr == nil && tip != options.Base {
+			rebased, err := gitrepo.RebaseOnto(ctx, options.Worktree, tip)
+			if err != nil {
+				return result, fmt.Errorf("realize: %s moved under the change and the change does not rebase onto it: %w", branch, err)
+			}
+			exitCode, output := verify(ctx, verifyCommand, options.Worktree, options.VerifyTimeout)
+			result.VerifyExitCode = exitCode
+			result.VerifyOutput = output
+			if exitCode != 0 {
+				return result, &VerifyError{Command: verifyCommand, ExitCode: exitCode, Output: output}
+			}
+			commit = rebased
+			landedBase = tip
+		}
+		files, err := gitrepo.ChangedFiles(ctx, options.Worktree, landedBase, commit)
 		if err != nil {
 			return result, err
 		}

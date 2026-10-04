@@ -435,3 +435,63 @@ func TestSiblingViewKeepsRelativePathsBesideTheRepository(t *testing.T) {
 		t.Fatal("removing the view removed a sibling")
 	}
 }
+
+func TestRebaseOntoAMovedBranch(t *testing.T) {
+	repo := tempRepo(t)
+	ctx := context.Background()
+	base, err := Head(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree := filepath.Join(t.TempDir(), "wt")
+	if err := WorktreeAdd(ctx, repo, worktree, "spec/a/1", base); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktree, "a.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CommitAll(ctx, worktree, "change a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "b.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := CommitAll(ctx, repo, "another change landed first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebased, err := RebaseOnto(ctx, worktree, moved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := FastForward(ctx, repo, "main", rebased); err != nil {
+		t.Fatalf("the rebased change does not fast-forward: %v", err)
+	}
+	for _, file := range []string{"a.txt", "b.txt"} {
+		if _, err := os.Stat(filepath.Join(repo, file)); err != nil {
+			t.Fatalf("%s missing after landing: %v", file, err)
+		}
+	}
+
+	conflict := filepath.Join(t.TempDir(), "conflict")
+	if err := WorktreeAdd(ctx, repo, conflict, "spec/c/1", base); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(conflict, "b.txt"), []byte("not b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CommitAll(ctx, conflict, "conflicting change"); err != nil {
+		t.Fatal(err)
+	}
+	tip, err := Head(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RebaseOnto(ctx, conflict, tip); err == nil {
+		t.Fatal("a conflicting rebase succeeded")
+	}
+	out, err := exec.Command("git", "-C", conflict, "status", "--porcelain").CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("the aborted rebase left the worktree dirty: %q %v", out, err)
+	}
+}

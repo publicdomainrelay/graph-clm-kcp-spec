@@ -216,3 +216,14 @@ func SiblingView(repoPath string) (string, string, error) {
 	}
 	return root, filepath.Join(root, name), nil
 }
+
+func RebaseOnto(ctx context.Context, dir, tip string) (string, error) {
+	if _, err := run(ctx, dir,
+		"-c", "user.name="+AuthorName,
+		"-c", "user.email="+AuthorEmail,
+		"rebase", "--quiet", tip); err != nil {
+		_, _ = run(ctx, dir, "rebase", "--abort")
+		return "", fmt.Errorf("gitrepo: rebase onto %s: %w", tip, err)
+	}
+	return Head(ctx, dir)
+}

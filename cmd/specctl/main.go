@@ -173,6 +173,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runEnv(rest, stdout, stderr)
 	case "arch":
 		return runArch(rest, stdout, stderr)
+	case "retry":
+		return runRetry(rest, stdout, stderr)
 	case "eval":
 		return runEval(rest, stdout, stderr)
 	case "kcp":
@@ -389,6 +391,8 @@ usage:
       clone or its remote has it, else index the code and build the specs,
       then run specd; every later specctl call in the repo finds this session
   specctl arch outline [--repository <name>] [-o text|json]
+  specctl retry <systemcontext>
+      clear a context's failed SpecChanges after the attempt cap, so specd tries again
   specctl down [--repo .] [--keep-kcp]
   specctl status [--repo .]
   specctl env [--repo .] [-o sh|json|server]
