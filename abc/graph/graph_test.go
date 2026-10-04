@@ -299,6 +299,45 @@ func TestRebuildDeletesEveryManagedLabelThenWrites(t *testing.T) {
 	}
 }
 
+type scopedWriter struct {
+	fakeWriter
+
+	deletedScopes []string
+
+	ids map[string]map[string][]int64
+}
+
+func (w *scopedWriter) SelectIDsWhere(_ context.Context, label string, filter map[string]any) ([]int64, error) {
+	scope := fmt.Sprint(filter[ScopeProperty])
+	w.deletedScopes = append(w.deletedScopes, scope)
+	return w.ids[scope][label], nil
+}
+
+func TestRebuildScopedDeletesOnlyItsOwnNamespace(t *testing.T) {
+	writer := &scopedWriter{
+		ids: map[string]map[string][]int64{
+			"run-a": {LabelContext: {11}},
+			"run-b": {LabelContext: {22}},
+		},
+	}
+	if err := Rebuild(context.Background(), writer, "run-a", []Snapshot{snapshot()}); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range writer.deletedScopes {
+		if scope != "run-a" {
+			t.Fatalf("a scoped rebuild deleted scope %q", scope)
+		}
+	}
+	scoped, _ := BuildAll([]Snapshot{{Namespace: "run-a", Repository: snapshot().Repository}})
+	plain, _ := BuildAll([]Snapshot{{Repository: snapshot().Repository}})
+	if findSet(scoped, LabelRepo).Rows[0].ID == findSet(plain, LabelRepo).Rows[0].ID {
+		t.Error("a namespaced snapshot reused the unscoped repo id")
+	}
+	if got := findSet(scoped, LabelRepo).Rows[0].Props[ScopeProperty]; got != "run-a" {
+		t.Errorf("scope property = %v", got)
+	}
+}
+
 func contains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

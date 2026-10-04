@@ -223,6 +223,10 @@ loop is measured: `specctl eval` runs five fixtures and an unknown real
 codebase through it — including what the spec makes an agent able to rebuild,
 what a human's code edit makes the spec say, and whether the model's answer
 beats the scripted baseline at all — and reports what actually happened.**
+The development and test setup is parallel-safe: kcp and kine take kernel
+ports and report them in `endpoint.json`, `go test ./test/e2e` starts a
+private kcp per run, and every run namespaces what it writes to the shared
+graph.
 
 - API group `specs.publicdomainrelay.dev/v1alpha1`, kinds `Repository`,
   `SystemContext`, `SpecChange`, namespaced, with a status subresource and
@@ -494,7 +498,7 @@ use for the scope guard and the report hooks to run.
 ## Quick start
 
 ```bash
-make kcp-up          # kcp on 6447, kine on 23797, state in .kcp-specd/
+make kcp-up          # kcp and kine on kernel-assigned ports, state in .kcp-specd/
 make generate-schemas # rewrite deploy/apiresourceschemas/ after a CRD change
 make example-phase1  # apply examples/calc/specs.yaml and read it back
 make example-phase2  # ingest fixtures/calc, fill status.observed, write the graph
@@ -1226,7 +1230,7 @@ and the two hosts (`pi-hydradb-clm`, `cc-clm-mod`) sit on top of both.
 ```bash
 make check      # gofmt and go vet
 make test       # unit tests; live tests skip (-short)
-make test-live  # SPECD_REQUIRE_LIVE=1; starts kcp, needs codegraph and a Bolt backend
+make test-live  # SPECD_REQUIRE_LIVE=1; each package starts its own kcp, needs codegraph and a Bolt backend
 make test-live SPECD_BOLT_BACKEND=hydradb   # the same, graph checks on HydraDB 7687
 
 # the multi workspace end to end: two tenants, one export mode controller
@@ -1236,8 +1240,8 @@ SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase9TwoTenantsOneExportContr
 # steps are applied to a copy of its fixture and its own tests must pass
 go test ./impl/eval/ -run TestScriptedScenarios -count=1 -v
 
-# the eval itself, in its own workspace (create it with
-# SPECS_WORKSPACE=specs-eval WORKSPACE_KUBECONFIG=.kcp-specd/specs-eval.kubeconfig deploy/install-specs.sh)
+# the eval itself: no --workspace means a fresh root:specs-eval-<token>
+# workspace that the run creates and deletes, so two evals never collide
 bin/specctl eval --fixtures fixtures --out docs/eval/run-<date>-scripted.md
 bin/specctl eval --fixtures fixtures --agent claude-mod --clm-mod cc-clm-mod
 bin/specctl eval --fixtures fixtures --agent pi --pi-extension pi-hydradb-clm --code-only
@@ -1269,26 +1273,32 @@ SPECD_REQUIRE_LIVE_MODEL=1 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPha
 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase12ScopeGuardRefusesAFileOutsideTheRoot -count=1 -v
 ```
 
-**One run at a time.** The live suite and `specctl eval` drive controllers
-against the same kcp workspace and the same working trees, so two at once do not
-measure twice: they overwrite the objects and the trees the other is reading.
-`test/e2e` takes an exclusive `flock` on `.kcp-specd/live.lock` in its
-`TestMain` and holds it for the whole package; `specctl eval` takes the same
-lock around its run (`--live-lock`, or `SPECD_LIVE_LOCK`, points it elsewhere
-and an empty value takes none). A run that finds the lock held prints one line
-naming the file and waits, and because it is an `flock` the kernel drops it when
-a killed run's process is gone, so there is no stale lock to clear.
-`go test ./impl/runlock` proves it: one test pins that the second acquisition
-waits and says so, and another starts two `go test ./test/e2e` runs at once and
-reads the begin and end marks each writes around its window.
+**Runs that share a kcp serialise; runs that do not, do not.** The live suite
+and `specctl eval` drive controllers against a kcp workspace, so two runs in
+one workspace would overwrite the objects and the trees the other is reading.
+Each of them avoids that by owning what it writes: `go test ./test/e2e`
+starts a private kcp and kine in a temporary root on kernel-assigned ports
+(and a unique graph namespace) unless `SPECD_E2E_KUBECONFIG` names an
+existing one, and `specctl eval` creates a workspace of its own
+(`root:specs-eval-<token>`) unless `--workspace` or `$SPECD_EVAL_WORKSPACE`
+names one. Only when a kcp is shared is an inclusive `flock` taken, keyed on
+that kubeconfig and workspace (`--live-lock`, `SPECD_LIVE_LOCK` and an empty
+value take or skip it explicitly). A run that finds the lock held prints one
+line naming the file and waits, and because it is an `flock` the kernel drops
+it when a killed run's process is gone, so there is no stale lock to clear.
+`go test ./impl/runlock` proves both halves: one test starts two suites at
+once and asserts their windows overlap, another names one kcp for both and
+asserts they serialise.
 
 The TypeScript has its own three: `cd clm && npm test` (the core, including the
 delta and the ids against the same golden files Go uses), `cd cc-clm-mod &&
 npm test && npm run typecheck && claude plugin validate . && claude plugin test .`,
 and `cd pi-hydradb-clm && npm test` (live against ArcadeDB by default).
 
-The live tests start the cluster with `deploy/start-kcp.sh` if needed and leave
-it running; `make kcp-down` stops it. The phase 7 test builds a bare git
+The live tests start their own kcp with `impl/kcpproc` (kernel ports, a
+temporary state root) and stop it when the package ends, unless
+`SPECD_E2E_KUBECONFIG` names one they should use instead; `make kcp-down`
+stops only the one `deploy/start-kcp.sh` started. The phase 7 test builds a bare git
 repository out of the two fixtures, applies one `Repository` manifest with a git
 source and a scripted agent, and asserts `Populated` with every context
 summarized and `SpecValid=True`; `SPECD_REQUIRE_LIVE_MODEL=1` runs the same
@@ -1341,17 +1351,51 @@ make demo-phases                            # phases 1 to 9, one example each
 
 ## Ports and state
 
-kcp listens on 6447 with kine on 23797 and keeps state in `.kcp-specd/`
-(gitignored). An eval run keeps its objects in `root:specs-eval` and clones a
-`git` source into `.kcp-specd/cache`. The multi workspace mode adds the
-workspaces
+By default kcp and kine ask the kernel for their ports. `make kcp-up` (that
+is, `deploy/start-kcp.sh`, which is `specctl kcp start --root .kcp-specd`)
+writes the bound ports, the urls and the pids to `.kcp-specd/endpoint.json`,
+and reuses an already serving kcp for the same root. Two of these therefore
+never collide, which is what lets several checkouts, and the live test suite,
+run at the same time. A fixed port still works when a firewall rule needs
+one:
+
+```bash
+make kcp-up                                  # kernel-assigned ports, endpoint.json
+KCP_SECURE_PORT=6447 KINE_ENDPOINT=http://127.0.0.1:23797 make kcp-up   # pinned
+bin/specctl kcp endpoint --root .kcp-specd   # the bound ports as JSON
+bin/specctl kcp endpoint --root .kcp-specd -o sh   # or as export lines
+make kcp-down                                # specctl kcp stop --root .kcp-specd
+```
+
+State stays in `.kcp-specd/` (gitignored) unless `ROOT` names another
+directory. An eval run keeps its objects in `root:specs-eval` and clones a
+`git` source into `.kcp-specd/cache`; when `--workspace` and
+`$SPECD_EVAL_WORKSPACE` are both unset it creates a workspace of its own,
+`root:specs-eval-<token>`, and deletes it when the run ends (`--keep` leaves
+it), so two evals do not fight over one set of objects. The multi workspace
+mode adds the workspaces
 `root:specs-provider` and one per tenant (`root:phase9-a`, `root:phase9-b`, ...)
 plus a kubeconfig per tenant in `.kcp-specd/<workspace>.kubeconfig`. They live
 in the same state directory, so `make kcp-down` followed by `rm -rf .kcp-specd`
 removes them. `deploy/stop-kcp.sh` only ever signals processes whose command
 line names that root directory, so it cannot disturb another kcp on the
 machine. The graph defaults to ArcadeDB on `bolt://127.0.0.1:7688` (HydraDB on
-`bolt://127.0.0.1:7687` is the option); neither is started by this repository.
+`bolt://127.0.0.1:7687` is the option); neither is started by this repository,
+and because the backend is shared every test and eval writes under its own
+namespace (`$SPECD_GRAPH_NAMESPACE`, set per run by `specctl eval` and by
+`go test ./test/e2e`), so two runs cannot read or delete each other's
+vertices.
+
+The live suite follows the same rule. `go test ./test/e2e` starts a private
+kcp and kine on kernel ports in a temporary root, installs the CRDs and the
+`root:specs` workspace through the embedded deploy scripts, and stops it at
+the end, so two suites run at once with no flag at all. Setting
+`SPECD_E2E_KUBECONFIG=<admin kubeconfig>` uses an existing kcp instead, for
+instance `.kcp-specd/admin.kubeconfig` on a cluster `make kcp-up` already
+started; only then is a live lock taken, keyed on that kubeconfig, so runs
+that share one cluster serialise and runs that do not never wait.
+`SPECD_E2E_WORKSPACE` and `SPECD_E2E_STATE_ROOT` override the workspace and
+the state directory of that mode.
 
 ## What is next
 

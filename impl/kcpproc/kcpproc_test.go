@@ -2,12 +2,76 @@ package kcpproc
 
 import (
 	"context"
+	"net"
 	"os"
 	"os/exec"
 	"sync"
 	"testing"
 	"time"
 )
+
+func requireKcp(t *testing.T) {
+	t.Helper()
+	for _, tool := range []string{"kcp", "kine"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			if os.Getenv("SPECD_REQUIRE_LIVE") == "1" {
+				t.Fatalf("%s not on PATH", tool)
+			}
+			t.Skipf("%s not on PATH", tool)
+		}
+	}
+	if testing.Short() {
+		t.Skip("starts a kcp server")
+	}
+}
+
+func TestFixedPortsAndEndpointRoundTrip(t *testing.T) {
+	requireKcp(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	root := t.TempDir()
+	port := freePort(t)
+	kinePort := freePort(t)
+	instance, err := Start(ctx, Options{Root: root, KcpPort: port, KinePort: kinePort})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { Stop(instance) })
+	if instance.KcpPort != port {
+		t.Fatalf("kcp port = %d, want the fixed %d", instance.KcpPort, port)
+	}
+	if instance.KinePort != kinePort {
+		t.Fatalf("kine port = %d, want the fixed %d", instance.KinePort, kinePort)
+	}
+	if err := SaveEndpoint(instance); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadEndpoint(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded != instance {
+		t.Fatalf("endpoint = %+v, want %+v", loaded, instance)
+	}
+	probed, ok := Probe(root)
+	if !ok || probed.KcpPort != port || probed.KinePort != kinePort {
+		t.Fatalf("Probe = %+v, %v", probed, ok)
+	}
+	if _, err := Start(ctx, Options{Root: root}); err == nil {
+		t.Fatal("a second kcp started on a root that is already serving one")
+	}
+}
+
+func freePort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port
+}
 
 func TestTwoInstancesRunSideBySideOnKernelPorts(t *testing.T) {
 	for _, tool := range []string{"kcp", "kine"} {
