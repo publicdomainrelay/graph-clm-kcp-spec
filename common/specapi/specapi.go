@@ -37,37 +37,16 @@ const DefaultNamespace = "default"
 const (
 	OriginAnnotation = Group + "/origin"
 
-	// OriginHashAnnotation is the hash of the spec the tool itself wrote. A
-	// spec write and the status write that acknowledges it are two API calls,
-	// and a reconcile can see the object between them; the annotation is what
-	// tells that reconcile the spec it is reading is the tool's own write and
-	// not a human edit.
 	OriginHashAnnotation = Group + "/origin-hash"
 
 	OriginIngest  = "ingest"
 	OriginRealize = "realize"
 	OriginHuman   = "human"
-	// OriginGit marks a spec write `specctl sync --direction push` made from a
-	// `.specs/*.yaml` file. It is a desired state change like a human's, so the
-	// controller raises a SpecToCode change for it.
-	OriginGit = "git"
-	// OriginCLM marks a spec write a context language model made through
-	// `specctl clm apply`. It is a spec edit like a human's, so it raises a
-	// SpecToCode change, but it is not a human's: the controller folds it into a
-	// running change instead of spawning a second one for the same context.
-	OriginCLM = "clm"
+	OriginGit     = "git"
+	OriginCLM     = "clm"
 
-	// PopulateRequestAnnotation is a caller asking the controller to index a
-	// Repository again right now, even though its git HEAD has not moved. The
-	// value is any token the caller can recognise; the controller records the
-	// one it handled in status.populateRequest, so a request is answered once
-	// and a restart does not answer it twice.
 	PopulateRequestAnnotation = Group + "/populate-request"
 
-	// SyncedHashAnnotation is the declared-state hash of the spec at the last
-	// successful `specctl sync`. Both sides of the `.specs/` mirror are
-	// compared against it, so a conflict is exactly "kcp moved and the file
-	// moved since the last sync".
 	SyncedHashAnnotation = Group + "/synced-hash"
 )
 
@@ -84,9 +63,6 @@ const (
 	ConditionPopulated  = "Populated"
 )
 
-// Phases of Repository.status.phase: one manifest takes an unknown codebase
-// from clone to populated specs. A failed populate ends in PhaseFailed, which
-// is also a SpecChange phase.
 const (
 	PhaseCloning    = "Cloning"
 	PhaseIndexing   = "Indexing"

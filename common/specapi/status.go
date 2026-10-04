@@ -5,10 +5,6 @@ import (
 	"reflect"
 )
 
-// StatusMatches reports whether every key of the desired status already has the
-// desired value on the object. It is what makes a reconcile a no-op instead of
-// a status write, which is what keeps a controller from looping against
-// itself, so both ingest and the controller use it.
 func StatusMatches(existing any, desired map[string]any) bool {
 	encoded, err := json.Marshal(existing)
 	if err != nil {

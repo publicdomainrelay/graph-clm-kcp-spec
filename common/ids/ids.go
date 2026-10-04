@@ -6,20 +6,17 @@ import (
 )
 
 const (
-	offset64 = 0xcbf29ce484222325
-	prime64  = 0x100000001b3
+	fnvOffset64 = 0xcbf29ce484222325
+	fnvPrime64  = 0x100000001b3
 
 	MaxNodeID int64 = 0x1fffffffffffff
 )
 
-// Stable is FNV-1a over the key, masked to 53 bits so the value survives a
-// round trip through a JSON number and through the CLM graph (same key, same
-// id, in both this repo and pi-hydradb-clm). Keys are ASCII by construction.
 func Stable(key string) int64 {
-	hash := uint64(offset64)
+	hash := uint64(fnvOffset64)
 	for index := 0; index < len(key); index++ {
 		hash ^= uint64(key[index])
-		hash *= prime64
+		hash *= fnvPrime64
 	}
 	return int64(hash & uint64(MaxNodeID))
 }
