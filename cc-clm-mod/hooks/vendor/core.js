@@ -6933,12 +6933,16 @@ var ClmHost = class {
       const document = await this.options.files.read(path);
       const model = splitContextDoc(document).model;
       if (model !== this.appliedModelZone) {
-        this.appliedModelZone = model;
         try {
           const applied = await this.options.bridge.apply(this.options.context, model);
+          this.appliedModelZone = model;
           result = { delta: applied.delta ?? {}, applied: applied.applied, folded: applied.folded };
-        } catch {
-          result = void 0;
+        } catch (error) {
+          result = {
+            delta: {},
+            applied: false,
+            error: error instanceof Error ? error.message : String(error)
+          };
         }
       }
     }
