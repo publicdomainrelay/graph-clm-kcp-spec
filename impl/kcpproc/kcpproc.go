@@ -212,9 +212,6 @@ func fillPids(root string, instance Instance) Instance {
 	return instance
 }
 
-// ScanPids finds the kcp and kine processes whose command line names this
-// instance root, so an adopted instance carries pids even when it was started
-// by another specctl invocation that left no endpoint or pid files.
 func ScanPids(root string) (int, int) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
@@ -250,9 +247,6 @@ func ScanPids(root string) (int, int) {
 	return kcpPid, kinePid
 }
 
-// Running reports the pids of the kcp and kine processes still alive for this
-// instance root; a caller that just stopped an instance uses it to prove the
-// processes are gone.
 func Running(root string) []int {
 	kcpPid, kinePid := ScanPids(root)
 	pids := []int{}
