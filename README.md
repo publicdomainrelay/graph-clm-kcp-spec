@@ -81,13 +81,14 @@ flowchart TB
     human["person<br/>kubectl / specctl"]
     pi["model in pi<br/>+ pi-hydradb-clm"]
     mod["model in Claude Code<br/>+ cc-clm-mod"]
-    ctx[".specs/context/&lt;name&gt;.md<br/>model zone + managed zone"]
+    ctx["context document in the state dir<br/>SPECD_CLM_DOC, never in the tree<br/>model zone + managed zone"]
     cli["specctl clm<br/>render / apply / report<br/>the one state bridge"]
     kcp[("kcp<br/>SystemContext / SpecChange<br/>source of truth")]
     specd["specd controller"]
     gdb[("graph DB over Bolt<br/>ArcadeDB default, HydraDB option<br/>derived index")]
     cg[("CodeGraph index<br/>code facts")]
-    repo["git repo"]
+    repo["git repo: code only"]
+    oa[("orphan branch<br/>open-architecture/&lt;repository&gt;<br/>durable spec + graph")]
 
     human -- "edit spec" --> kcp
     pi -- "edits" --> ctx
@@ -103,6 +104,8 @@ flowchart TB
     repo -- "codegraph sync" --> cg
     cg -- "observed facts" --> specd
     specd -- "index" --> gdb
+    specd -- "persist each change" --> oa
+    oa -- "reviewed edit, restore" --> kcp
     gdb -- "neighborhood for prompts" --> pi
 ```
 
@@ -137,6 +140,70 @@ sequenceDiagram
     S->>K: re-ingest, CodeSynced=True
 ```
 
+## Clone and go
+
+The everyday flow: clone a repository you do not own, start from its root, let
+the system build the architecture, then work by changing the architecture.
+
+```bash
+git clone https://example.com/someone/project.git && cd project
+specctl up                       # this repository's own kcp + specd; index, summarize, persist
+specctl status                   # populate progress, contexts, open-architecture/project
+specctl arch outline             # the architecture kcp holds
+claude --plugin-dir /path/to/cc-clm-mod   # the agent reads and edits it through kcp
+git log --oneline open-architecture/project   # every change of kcp, outside the tree
+specctl down                     # stop specd and this repository's kcp
+```
+
+- **Nothing lands in the project tree.** kcp, kine, logs and context documents
+  live under `$SPECD_STATE_DIR` (default `$XDG_STATE_HOME/specd`, else
+  `~/.local/state/specd`). The codegraph index is hidden through
+  `.git/info/exclude`. The spec and the context graph persist to the orphan
+  branch `open-architecture/<repository>`, written with git plumbing, never
+  checked out.
+- **A repository that has no branch yet** (the usual case for someone else's
+  `main`) is indexed and summarized from scratch, and the first commit of the
+  branch is made. A clone whose `origin` already carries
+  `open-architecture/<repository>` is restored from it instead, so a team shares
+  one architecture. `--push` pushes the branch after every change; nothing is
+  pushed unless asked.
+- **Many repositories at once.** Each `specctl up` starts its own kcp and kine.
+  kine binds port 0; kcp cannot, so it gets a port the kernel assigned, retries
+  if it loses that port, and the port it really serves is read back from its own
+  kubeconfig and `/readyz`. `specctl env -o json` (or `specctl up --out
+  session.json`) reports the kcp url, both ports, the kubeconfig, the workspace
+  and the pids, so an agent can be pointed at each instance.
+- **The agent harness.** In an up'd clone, `claude --plugin-dir cc-clm-mod`
+  registers `arch_outline`, `arch_context`, `arch_edit` and `arch_changes`. An
+  `arch_edit` lands in kcp as a delta, specd opens a `SpecToCode` change, the
+  realize agent (the same mod, contained to its worktree) edits the code, the
+  repository's tests gate the commit, and the orphan branch records both.
+
+```mermaid
+sequenceDiagram
+    participant D as developer
+    participant C as specctl up
+    participant K as kcp (this repo)
+    participant S as specd
+    participant A as agent + cc-clm-mod
+    participant G as git: main / open-architecture
+    D->>C: clone, cd, specctl up
+    C->>K: start kcp + kine on kernel ports
+    C->>G: fetch open-architecture/REPO?
+    alt branch exists
+        C->>K: restore specs from the branch
+    else no branch
+        C->>K: apply Repository (index + summarize)
+        S->>K: SystemContexts with specs
+    end
+    S->>G: commit open-architecture/REPO
+    D->>A: change how X works
+    A->>K: arch_outline, arch_context, arch_edit
+    S->>A: SpecToCode: realize the delta
+    A->>G: code commit on main (tests gate it)
+    S->>G: orphan commit, Code-Commit trailer
+```
+
 ## Status
 
 All ten phases are done: **kcp holds specs, code becomes facts in `status`
@@ -148,8 +215,10 @@ populates a codebase kcp has never seen, the CLM loop is a library with two
 hosts — the `pi-hydradb-clm` extension and a Claude Code mod — so the model that
 realizes a change reports into the same state the controllers watch, the API
 is multi-tenant: an APIExport in a provider workspace, tenant workspaces that
-bind it, one `specd --mode export` that reconciles it all, and a `.specs/` git
-mirror so a pull request carries the spec and the code together, and the whole
+bind it, one `specd --mode export` that reconciles it all; the spec and the
+context graph persist to an orphan `open-architecture/<repository>` branch,
+never into the project tree, and `specctl up` turns any clone into a running,
+isolated instance an agent harness can drive; and the whole
 loop is measured: `specctl eval` runs five fixtures and an unknown real
 codebase through it — including what the spec makes an agent able to rebuild,
 what a human's code edit makes the spec say, and whether the model's answer
@@ -190,7 +259,8 @@ beats the scripted baseline at all — and reports what actually happened.**
   `SpecToCode` change; the loop is proved in a unit test and in a live run.
 - `specctl ingest --summarize --agent <kind>` fills the spec of every context
   whose intent is still empty, without a controller running.
-- Each context gets a CLM document at `<repo>/.specs/context/<name>.md`: the
+- Each context gets a CLM document at `$SPECD_CLM_DOC_DIR/<repository>/<name>.md`
+  (in the state dir, never in the tree): the
   model's prose and a fenced `yaml spec` block above
   `<!-- SPECD_MANAGED_BEGIN -->`, and the code refs the index resolved below it,
   regenerated on every summarize. One format for both directions: the file the
@@ -253,16 +323,14 @@ beats the scripted baseline at all — and reports what actually happened.**
   so the controller writes every status and every `SpecChange` back to the
   logical cluster the object came from: the specs stay per workspace, the API is
   shared. Plain workspace mode is the default and is unchanged.
-- `specctl sync --repo <path> --direction pull|push|both` mirrors the specs as
-  one YAML per `SystemContext` under `<repo>/.specs/` (spec only, canonical key
-  order, no status). A file and kcp are in conflict only when both moved since
-  the last sync recorded in the `synced-hash` annotation; the sync then refuses
-  and names the hashes, and `--prefer kcp|git` says which side wins. A push
-  writes with `origin: git`, so the controller reads it as the desired state
-  change it is.
-- `specd --specs-mirror` writes each context's `.specs/<name>.yaml` into the
-  realize worktree before the commit, so one commit carries the spec and the
-  code together.
+- Every change of a repository's kcp state is a commit on the orphan branch
+  `open-architecture/<repository>` (arch.yaml, specs/, status/, context/,
+  changes/, graph/*.jsonl), written with git plumbing so the tree, index and
+  HEAD are never touched. `specctl sync --repo <path>` merges a reviewed edit on
+  that branch back into kcp by delta key (writing with `origin: git`, so specd
+  realizes it); the same key moved on both sides is reported and kept from
+  kcp. A realize commit carries code only, with `Spec-Change` and
+  `Open-Architecture` trailers.
 - `impl/piagent` is the pi host over the same agent contract, with the npm
   package as its default command, and the pi extension writes
   `(PiMemory)-[:SPECIFIES]->(SpecRequirement)` for the requirements a remembered
@@ -469,9 +537,9 @@ KUBECONFIG=.kcp-specd/tenant-a.kubeconfig kubectl get systemcontexts
 # one controller reconciles every tenant bound to the export
 bin/specd --mode export --provider-workspace root:specs-provider
 
-# the specs beside the code: pull, edit, push, and refuse a real conflict
-bin/specctl sync --repo /path/to/repo --direction pull
-bin/specctl sync --repo /path/to/repo --direction both --prefer git
+# kcp <-> the orphan branch open-architecture/<repository>; never the tree
+bin/specctl sync --repo /path/to/repo
+git -C /path/to/repo log --oneline open-architecture/<repository>
 ```
 
 `ingest` reads the Bolt endpoint from the flags or the environment
@@ -693,7 +761,8 @@ worked off, and this is what the controller does with it:
    annotation, sets `status.realizedSpecHash` to the hash of what it wrote, and
    moves `status.syncedFingerprint` and `syncedCommit` onto the observed facts
    so `Drifted` goes False.
-6. It writes `<repo>/.specs/context/<name>.md`: the agent's prose in the model
+6. It writes the context document in the state dir
+   (`$SPECD_CLM_DOC_DIR/<repository>/<name>.md`): the agent's prose in the model
    zone, the resolved code refs between the `SPECD_MANAGED_BEGIN` and
    `SPECD_MANAGED_END` markers, regenerated from the facts. The model owns
    everything above the markers and nothing below them.
@@ -784,7 +853,7 @@ source.
    do not commit*. `impl/scriptedagent` applies the scenario's write, patch and
    delete steps instead.
 4. Runs `Repository.spec.verify` in the worktree. Zero is the gate.
-5. Commits everything the agent left, `.specs/context/*.md` included, as
+5. Commits the code the agent left (no spec artefact is in the worktree) as
    `specd <specd@localhost>`, fast-forwards it onto the managed branch with
    `--ff-only` (so a branch a human moved is a failure, never a rewrite), and
    deletes the change's branch.
@@ -842,7 +911,7 @@ So while a change runs:
 
 ```bash
 kubectl get specchange -w          # status.progress grows with the files touched
-cat <repo>/.specs/context/calc.md  # the document the model is reading
+cat "$SPECD_CLM_DOC_DIR"/*/calc.md  # the document the model is reading
 specctl graph neighbors calc       # the edges the report wrote, one hop out
 ```
 
@@ -874,7 +943,7 @@ the running change, and reports a touched file. The gated live run —
 `SPECD_REQUIRE_LIVE=1 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase8LiveModel -count=1`
 — does the same with `deepseek-claude` and the mod actually loaded.
 
-## Multi workspace, and the spec mirror in git
+## Multi workspace
 
 The API is published once and bound many times. A provider workspace
 (`root:specs-provider`) holds an `APIResourceSchema` per kind — generated from
@@ -909,34 +978,18 @@ that cluster through the same virtual workspace, so specs stay per workspace
 while the API is shared, and drift in one tenant cannot touch another. The plain
 workspace mode is still the default: `--mode` is the only switch.
 
-The second half of phase 9 puts the spec in the repository beside the code.
-`specctl sync --repo <path>` writes one YAML per `SystemContext` to
-`<repo>/.specs/<name>.yaml` — spec only, canonical key order, no status, and
-without the code refs the index derives (those are an observation, not a
-decision, and writing them would rewrite every file on every commit) — and
-reads them back:
-
-```bash
-specctl sync --repo . --direction pull    # kcp -> .specs/*.yaml
-specctl sync --repo . --direction push    # .specs/*.yaml -> kcp
-specctl sync --repo . --direction both    # push, then pull
-```
-
-The last successful sync is recorded in the `synced-hash` annotation. A file and
-kcp are in **conflict** only when both moved since then; the sync refuses and
-names the two hashes and the baseline, and `--prefer kcp` or `--prefer git` says
-which side wins. A pull never clobbers a file that moved while kcp stood still,
-and a push never overwrites a kcp that moved. A push writes with `origin: git`,
-so the controller reads it as the desired state change it is.
-
-`specd --specs-mirror` writes the context's file into the realize worktree
-before the commit, so a spec -> code change lands as one commit carrying both
-the spec and the code, which is what makes the mirror a pull request.
+The spec does not sit beside the code (phase 13): an agent working on the code
+must never mistake the spec for the code. Each repository's kcp state persists
+to the orphan branch `open-architecture/<repository>` of its own git repository,
+which shares no history with the code and is never checked out next to it.
+`specctl sync --repo .` merges a reviewed edit made on that branch back into kcp
+and commits kcp's current state; see "Specs on an orphan branch" below.
 
 `make example-phase9` is the whole example: two tenants bound to one export, a
 `Repository` and a codebase in each, one export-mode controller, a commit in
-tenant A that drifts only tenant A, a pull that fills `.specs/`, and a conflict
-that is refused until `--prefer git` resolves it. The live test
+tenant A that drifts only tenant A, the orphan branch with one commit per change,
+a reviewed branch edit flowing into kcp, and a conflict on the same key that is
+reported and kept from kcp. The live test
 `TestPhase9TwoTenantsOneExportController` is the same against a real kcp.
 
 ## The open architecture document
@@ -1027,7 +1080,8 @@ abc/sync             pure: partition a tree into contexts, observed facts, finge
 abc/graph            pure: the graph model, row builders, Cypher builders, GraphWriter
 abc/agent            pure: the context bundle, the token budget, the strict draft parser, the context document, the delta render
 abc/delta            pure: Diff/Apply of two specs and of two observed fact sets, and the compact summary
-abc/mirror           pure: the `.specs/<name>.yaml` document and the sync conflict rule
+abc/mirror           pure: the specs/<name>.yaml document the orphan branch carries
+abc/oabranch         pure: kcp state -> orphan branch files, the commit plan, the three way merge back
 abc/eval             pure: interface recall/precision, anchoring, round trip Jaccard, delta precision, the report
 impl/kcpclient       dynamic client for a kcp workspace: CRUD, status, manifests, server side apply
 impl/codegraphsqlite run codegraph, read .codegraph/codegraph.db, resolve code refs
@@ -1040,7 +1094,11 @@ impl/agentfactory    one --agent option string into an agent, shared by specd an
 impl/claudecli       the model agent: a configurable command, the prompt on stdin, a timeout
 impl/scriptedagent   the deterministic agent: drafts and realize steps from a scenario file
 impl/realize         one spec -> code unit of work: worktree, agent, verify gate, commit, land, re-ingest
-impl/specsync        the `.specs` mirror: pull, push, the synced-hash baseline and the conflict refusal
+impl/oagit           git plumbing for the orphan branch: temp index, changed blobs only, CAS ref update
+impl/persist         kcp <-> open-architecture/<repository>: persist, adopt a branch edit, restore
+impl/kcpproc         one kcp + kine per repository on kernel-assigned ports
+impl/session         the per-repository session record specctl up writes in the state dir
+impl/statedir        $SPECD_STATE_DIR, the CLM document dir
 impl/schemagen       CustomResourceDefinition -> APIResourceSchema, the drift test and the generator
 impl/archkcp         arch.yaml <-> SystemContext objects on a kcp workspace
 impl/gitrepo         the managed tree: head, branch, worktrees, the specd commit, the --ff-only land
