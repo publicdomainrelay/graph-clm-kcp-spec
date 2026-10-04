@@ -15,8 +15,9 @@ specd indexes the new HEAD as if it were the old branch.
 **Target.** The instance is keyed by (checkout path, code branch):
 
 - state root `$SPECD_STATE_DIR/repos/<name>-<hash(path)>/<branch-slug>/`
-  (kcp, kine, logs, session record), the branch slug made the way
-  `oabranch.BranchFor` makes its suffix;
+  for kcp and kine, and the same (path, branch) key on the specd log and the
+  session record, the branch slug made the way `oabranch.BranchFor` makes its
+  suffix;
 - `specctl up` on a branch starts (or adopts) that branch's instance and
   restores from that branch's architecture
   (`open-architecture/<repo>--<branch>`, falling back to the default's);
@@ -42,10 +43,12 @@ two `git worktree`s on two branches running their specds at once.
 **Status: done.** What shipped, and the decisions behind it:
 
 - The instance is keyed by (checkout path, code branch). `impl/session` puts the
-  kcp, kine, logs and the session record under
-  `$SPECD_STATE_DIR/repos/<name>-<hash(path)>/<branch-slug>/`, the slug made the
-  way `oabranch.BranchFor` makes its suffix (`oabranch.Slug`, now exported, is
-  the one sanitizer). A record written before this change (per path, no branch)
+  kcp and kine under `$SPECD_STATE_DIR/repos/<name>-<hash(path)>/<branch-slug>/`,
+  the specd log under `logs/<name>-<hash>--<branch-slug>.specd.log`, and the
+  session record under `sessions/<name>-<hash(path)>/<branch-slug>.json` — every
+  one of them keyed by the same pair, the slug made the way
+  `oabranch.BranchFor` makes its suffix (`oabranch.Slug`, now exported, is the
+  one sanitizer). A record written before this change (per path, no branch)
   is read once on the default branch, rewritten as that branch's record and the
   old file removed; it keeps its own kcp root, because a running kcp cannot
   move. On any other branch `up` starts that branch's own instance instead.
