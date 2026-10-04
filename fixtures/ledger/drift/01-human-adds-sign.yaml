@@ -9,6 +9,7 @@ commit:
   - patch:
       path: domain/posting.go
       find: |
+        // Sum totals the amounts of a set of entries.
         func Sum(entries []Entry) int {
         	total := 0
         	for _, entry := range entries {
@@ -17,6 +18,7 @@ commit:
         	return total
         }
       replace: |
+        // Sum totals the amounts of a set of entries.
         func Sum(entries []Entry) int {
         	total := 0
         	for _, entry := range entries {
@@ -25,6 +27,7 @@ commit:
         	return total
         }
 
+        // Sign returns -1 for a negative amount, 0 for zero and 1 for a positive one.
         func Sign(amount int) int {
         	switch {
         	case amount < 0:

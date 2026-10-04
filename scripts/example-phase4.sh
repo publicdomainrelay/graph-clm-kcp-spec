@@ -108,6 +108,7 @@ K get systemcontext calc -o jsonpath='{range .status.conditions[*]}{.type}={.sta
 echo "--- a commit that adds Subtract ---"
 cat >>"$WORK/calc/calc.go" <<'GO'
 
+// Subtract returns the difference of two integers.
 func Subtract(a, b int) int {
 	return a - b
 }

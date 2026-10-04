@@ -9,6 +9,8 @@ commit:
   - patch:
       path: domain/posting.go
       find: |
+        // Validate reports whether an entry may be posted. Today it only asks for an
+        // account: an amount below zero is still accepted.
         func Validate(entry Entry) error {
         	if entry.Account == "" {
         		return ErrEmptyAccount
@@ -16,6 +18,7 @@ commit:
         	return nil
         }
       replace: |
+        // Validate reports whether an entry may be posted.
         func Validate(entry Entry) error {
         	if entry.Account == "" {
         		return ErrEmptyAccount

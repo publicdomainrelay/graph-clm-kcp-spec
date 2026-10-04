@@ -78,6 +78,7 @@ realize:
         	"example.com/todo/todo"
         )
 
+        // TaskHandler serves one task by id.
         func TaskHandler(store *todo.Store) http.HandlerFunc {
         	return func(writer http.ResponseWriter, request *http.Request) {
         		id, err := strconv.Atoi(request.PathValue("id"))

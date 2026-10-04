@@ -25,6 +25,7 @@ commit:
   - patch:
       path: storage/json.go
       find: |
+        // Save writes the store's entries to a JSON file.
         func (s *Store) Save(path string) error {
         	s.mu.Lock()
         	defer s.mu.Unlock()
