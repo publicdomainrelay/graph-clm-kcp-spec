@@ -158,9 +158,11 @@ specctl down                     # stop specd and this repository's kcp
 - **Nothing lands in the project tree.** kcp, kine, logs and context documents
   live under `$SPECD_STATE_DIR` (default `$XDG_STATE_HOME/specd`, else
   `~/.local/state/specd`). The codegraph index is hidden through
-  `.git/info/exclude`. The spec and the context graph persist to the orphan
-  branch `open-architecture/<repository>`, written with git plumbing, never
-  checked out.
+  `.git/info/exclude`. The spec and the context graph persist to an orphan
+  branch, written with git plumbing, never checked out:
+  `open-architecture/<repository>` for the default branch, and
+  `open-architecture/<repository>--<branch>` for any other code branch, so a
+  pull request's spec never lands in the architecture of `main`.
 - **A repository that has no branch yet** (the usual case for someone else's
   `main`) is indexed and summarized from scratch, and the first commit of the
   branch is made. A clone whose `origin` already carries
@@ -203,6 +205,81 @@ sequenceDiagram
     A->>G: code commit on main (tests gate it)
     S->>G: orphan commit, Code-Commit trailer
 ```
+
+## Worked example: one sentence to a pull request on deno-kcp
+
+The flow above, run for real on a repository this tool did not write:
+[publicdomainrelay/deno-kcp](https://github.com/publicdomainrelay/deno-kcp), a
+Go kcp provider. The only human input was one sentence:
+
+> add a running bidder instance to the example and a PDS for bob under his own namespace
+
+It became **[publicdomainrelay/deno-kcp#1](https://github.com/publicdomainrelay/deno-kcp/pull/1)**:
+workspace `root:bob` with its OpenBao authority, a PDS for bob, a running market
+bidder, `apply.sh` and the README updated, and deno-kcp's offline tests extended
+to cover every market manifest. 9 files, +359 / -40, `go test ./...` green. The
+spec it realizes is on
+[`open-architecture/deno-kcp--spec-bidder-and-bob-pds`](https://github.com/publicdomainrelay/deno-kcp/tree/open-architecture/deno-kcp--spec-bidder-and-bob-pds).
+
+Try it (full copy-paste walkthrough, prerequisites and the step-by-step version:
+[`docs/examples/deno-kcp-pr.md`](docs/examples/deno-kcp-pr.md)):
+
+```bash
+git clone https://github.com/publicdomainrelay/graph-clm-kcp-spec && cd graph-clm-kcp-spec
+make build && export PATH=$PWD/bin:$PATH SPECD_SPECCTL=$PWD/bin/specctl
+PUSH=0 scripts/example-deno-kcp-pr.sh      # PUSH=1 opens the pull request
+```
+
+How it was done:
+
+1. **Clone** deno-kcp into a temp dir, with `kcp-libs` beside it (its `go.mod`
+   replaces `../kcp-libs`), on a new branch.
+2. **`specctl up`**: the clone's own kcp on kernel-assigned ports, CodeGraph
+   index, 17 SystemContexts, each summarized by DeepSeek, persisted to the
+   orphan branch `open-architecture/deno-kcp`. About 2.5 minutes.
+3. **The harness**: headless Claude Code (DeepSeek) with `cc-clm-mod`, given the
+   sentence and told to change the spec only. Through `arch_outline` /
+   `arch_context` it found the `deploy-examples-atproto-market` and
+   `test-integration` contexts, read the org's `hono-bidder` and `hono-pds` for
+   their flags, and wrote ten requirement changes with `arch_edit`
+   (`r.bob-pds-pod`, `r.bidder-pod`, `r.bidder-supervisor-script`, ...). Three to
+   five minutes.
+4. **specd** turned each spec delta into a `SpecToCode` change; the realize agent,
+   contained to its worktree and seeing only the repository and the spec, edited
+   the files; deno-kcp's `go test ./...` gated each commit.
+5. **Publish**: the branch, both architecture branches, `gh pr create`.
+
+Results across two runs (the PR, and a second run from a fresh clone with the
+script):
+
+| | run 1 (PR #1) | run 2 (script) |
+| --- | --- | --- |
+| architecture built | 2 min 45 s | 2 min 18 s |
+| harness | 4 min 37 s | about 3 min 25 s |
+| example realized | 1st attempt (after the fixes below) | 1st attempt, 1 min 36 s |
+| registry realized | 3rd attempt | 2nd attempt |
+| diff | 9 files, +359 / -40 | 8 files, +359 / -38 |
+| deno-kcp tests | green | green |
+| project tree | clean | clean |
+
+**Analysis.** The loop works on real code: the harness did the research a
+human would (the bidder's entry, `--serve-port`, a compute provider that needs
+no cloud credential, free ports) and wrote it into requirements, so a code agent
+that could see nothing outside the repository still produced a correct bidder
+manifest, and the change left deno-kcp better tested than before (no test
+covered the market manifests until now). Two runs converged on the same design.
+The run also found six defects in this repository, each fixed with a test:
+realize worktrees now keep the repository's siblings (relative `go.mod`
+replaces), the model timeout is 15 minutes, `specctl up` adopts a still-running
+kcp, realize rebases onto a branch that moved instead of failing, `specctl retry`
+exists, and the architecture branch follows the code branch
+(`open-architecture/<repo>--<branch>`), so a pull request's spec never lands in
+the architecture of `main`. What is still weak: specd realizes the two changes
+independently, so the registry change, which depends on the example's files,
+fails its first attempt; and "running" is checked offline (manifests decode,
+fit the schemas, and `apply.sh` applies them), not by bringing the market stack
+up live. Details and the full table:
+[`docs/examples/deno-kcp-pr.md`](docs/examples/deno-kcp-pr.md#analysis).
 
 ## Status
 
@@ -510,6 +587,7 @@ make example-phase7  # one manifest populates a codebase kcp has never seen
 make example-phase8  # the mod path: render, apply, fold, report
 make example-phase9  # two tenants, one export, the orphan branch, a branch edit and a conflict
 make example-phase13 # clone and go twice through one remote, two kcp instances on kernel ports
+scripts/example-deno-kcp-pr.sh # one sentence to a pull request on publicdomainrelay/deno-kcp (PUSH=0 by default)
 make demo            # the whole loop once, then the eval table and one CLM scenario
 make demo-phases     # every phase example, in order, against one cluster
 make test-live-model # the six DeepSeek tests (real model calls)
