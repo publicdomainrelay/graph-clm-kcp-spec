@@ -41,8 +41,6 @@ realize:
   - patch:
       path: domain/posting.go
       find: |
-        // Sum totals the amounts of a set of entries.
         func Sum(entries []Entry) int {
       replace: |
-        // Total totals the amounts of a set of entries.
         func Total(entries []Entry) int {

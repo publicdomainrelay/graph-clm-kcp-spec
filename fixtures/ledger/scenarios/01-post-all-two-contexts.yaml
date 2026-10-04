@@ -51,8 +51,6 @@ targets:
       - patch:
           path: domain/ledger.go
           find: |
-            // Entries returns a copy of the entries of one account, oldest first. An empty
-            // account means every account.
             func (l *Ledger) Entries(account string) []Entry {
             	out := []Entry{}
             	for _, entry := range l.entries {
@@ -63,8 +61,6 @@ targets:
             	return out
             }
           replace: |
-            // Entries returns a copy of the entries of one account, oldest first. An empty
-            // account means every account.
             func (l *Ledger) Entries(account string) []Entry {
             	out := []Entry{}
             	for _, entry := range l.entries {
@@ -75,7 +71,6 @@ targets:
             	return out
             }
 
-            // PostAll validates every entry and appends them all, or posts none.
             func (l *Ledger) PostAll(entries []Entry) error {
             	for _, entry := range entries {
             		if err := Validate(entry); err != nil {
@@ -124,7 +119,6 @@ targets:
       - patch:
           path: storage/memory.go
           find: |
-            // All returns a copy of every entry.
             func (s *Store) All() []domain.Entry {
             	s.mu.Lock()
             	defer s.mu.Unlock()
@@ -133,7 +127,6 @@ targets:
             	return out
             }
           replace: |
-            // All returns a copy of every entry.
             func (s *Store) All() []domain.Entry {
             	s.mu.Lock()
             	defer s.mu.Unlock()
@@ -142,7 +135,6 @@ targets:
             	return out
             }
 
-            // AddAll appends every entry it is given in one call.
             func (s *Store) AddAll(entries []domain.Entry) {
             	s.mu.Lock()
             	defer s.mu.Unlock()

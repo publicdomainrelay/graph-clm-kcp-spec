@@ -108,7 +108,6 @@ wait_for "the first ingest" \
 echo "--- the code moves: Subtract joins the calc package ---"
 cat >> "$WORK/calc/calc.go" <<'EOF'
 
-// Subtract returns the difference of two integers.
 func Subtract(a, b int) int {
 	return a - b
 }

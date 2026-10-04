@@ -38,14 +38,12 @@ realize:
   - patch:
       path: todo/todo.go
       find: |
-        // List returns every task, oldest first.
         func (s *Store) List() []Task {
         	out := make([]Task, len(s.tasks))
         	copy(out, s.tasks)
         	return out
         }
       replace: |
-        // List returns every task, newest first.
         func (s *Store) List() []Task {
         	out := make([]Task, len(s.tasks))
         	for index, task := range s.tasks {

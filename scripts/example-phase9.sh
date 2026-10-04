@@ -123,7 +123,6 @@ B_FINGERPRINT=$(B get systemcontext phase9-b-repo -o jsonpath='{.status.observed
 echo "--- tenant A's code moves; tenant B must not notice ---"
 cat >>"$WORK/calc/calc/calc.go" <<'GO'
 
-// Subtract returns the difference of two integers.
 func Subtract(a, b int) int {
 	return a - b
 }

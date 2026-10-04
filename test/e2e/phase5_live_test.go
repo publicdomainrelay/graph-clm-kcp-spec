@@ -189,7 +189,7 @@ func TestPhase5CodeToSpecWithTheScriptedAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	appended := string(contents) + "\n// Subtract returns the difference of two integers.\nfunc Subtract(a, b int) int {\n\treturn a - b\n}\n"
+	appended := string(contents) + "\nfunc Subtract(a, b int) int {\n\treturn a - b\n}\n"
 	if err := os.WriteFile(calcFile, []byte(appended), 0o644); err != nil {
 		t.Fatal(err)
 	}

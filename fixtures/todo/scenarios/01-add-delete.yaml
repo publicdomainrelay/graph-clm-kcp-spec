@@ -47,9 +47,16 @@ realize:
   - patch:
       path: todo/todo.go
       find: |
-        // Complete marks a task done and returns it.
+        func (s *Store) Complete(id int) (Task, error) {
+        	for index, task := range s.tasks {
+        		if task.ID == id {
+        			s.tasks[index].Done = true
+        			return s.tasks[index], nil
+        		}
+        	}
+        	return Task{}, ErrNotFound
+        }
       replace: |
-        // Delete removes a task by id.
         func (s *Store) Delete(id int) error {
         	for index, task := range s.tasks {
         		if task.ID == id {
@@ -60,4 +67,12 @@ realize:
         	return ErrNotFound
         }
 
-        // Complete marks a task done and returns it.
+        func (s *Store) Complete(id int) (Task, error) {
+        	for index, task := range s.tasks {
+        		if task.ID == id {
+        			s.tasks[index].Done = true
+        			return s.tasks[index], nil
+        		}
+        	}
+        	return Task{}, ErrNotFound
+        }
