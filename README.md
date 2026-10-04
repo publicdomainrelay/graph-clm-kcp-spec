@@ -1321,23 +1321,38 @@ checkout are never touched, and it is never checked out beside the code.
 
 | path | holds |
 | --- | --- |
-| `arch.yaml` | the whole repository as generated system contexts |
+| `arch.yaml` | the structure of the repository as generated system contexts |
 | `repository.yaml` | the Repository manifest, its populate state, and the commits every context shares |
 | `specs/<context>.yaml` | each context's declared spec; edit here to change kcp |
 | `status/<context>.yaml` | observed code facts and conditions |
 | `context/<context>.md` | the context's prose and its resolved code references; the spec lives in `specs/` |
-| `changes/<name>.yaml` | each SpecChange: direction, a delta summary (counts and ids), progress, outcome |
+| `changes/<name>.yaml` | each SpecChange: direction, a delta summary (counts and ids), a progress summary, the agent's report and the verify summary |
 | `CHANGES.md` | on a feature branch: the requirement-level delta against the default branch, and what this branch realized |
 | `graph/*.jsonl` | the context graph, one vertex or edge per line |
+| `.gitattributes` | marks every derived file `linguist-generated` |
+
+A generated file repeats what kcp already holds, so it is not review material.
+`.gitattributes` marks `arch.yaml`, `repository.yaml`, `changes/`, `context/`,
+`graph/` and `status/` as `linguist-generated=true`, and GitHub collapses them
+in a pull request or a compare view. What is left to read is `specs/` — the
+declared state a person or a model edits — and `CHANGES.md`. The same files
+are what the branch writes least: `arch.yaml` carries the structure, not the
+text a `specs/` file already carries, so rewording a requirement moves one
+file.
 
 The commit subjects name what changed — `spec(<context>): +r.x -r.y ~r.z`,
 `status(<context>): CodeSynced=True observed <commit>`,
 `change(<name>): Pending -> Succeeded` — and a commit that carries a spec edit
 adds one `Spec-Change:` trailer per change behind it. A change record is written
 on a phase transition and at the end, not on every progress record, so a long
-agent run does not add one commit per turn. `changes/` is the branch's attempt
-history: a record the branch carries is never deleted because the kcp watching
-the branch does not hold it.
+agent run does not add one commit per turn. The record is compact: the progress
+list becomes a summary (turns, a count per tool, the files, the first and last
+time), the agent log keeps the agent's own report with the harness's chatter
+stripped, and the raw verify output becomes a summary (exit code, duration,
+package counts, the failing tests). The full log and the raw output are kept in
+the state dir, at `<state>/logs/<change>.log` (`specd --log-dir`), which is
+never committed. `changes/` is the branch's attempt history: a record the branch
+carries is never deleted because the kcp watching the branch does not hold it.
 
 Every code reference is readable where it appears: `specs/<context>.yaml` and
 `arch.yaml` carry a `codeRefIndex` mapping each codegraph id to
@@ -1348,11 +1363,15 @@ The generated `arch.yaml` is not the hand-written document. It is
 `kind: GeneratedArchitecture`,
 `apiVersion: open-architecture.dffml.github.io/v0alpha1`, and its shape is
 `metadata` (`name`, `source`, `branch` — the branch it was written to) and
-`system_contexts`, one entry per context: `id`, `name`, `upstream`, `overlay`,
-`orchestrator`, `depends_on`, `introduces`, `intent`, `requirements`,
-`interfaces`, `code` (the observed files) and `codeRefIndex`. `specctl
-import-arch` reads the hand-written `kind: OpenArchitecture` document instead;
-the two never mix.
+`system_contexts`, one entry per context: `id`, `name`, `spec` (its file under
+`specs/`, where the prose, the requirement text and the interfaces live),
+`upstream`, `overlay`, `orchestrator`, `depends_on`, `introduces`, `arch` (the
+node it was seeded from: id, kind, section, form, position, parent, slot),
+`requirements` (each one's id and level, not its text) and `codeRefIndex`. It
+is the structure, so a spec edit that only rewords a requirement leaves it
+alone. `specctl import-arch` reads the hand-written `kind: OpenArchitecture`
+document instead; the two never mix, and it still reads a `GeneratedArchitecture`
+written before the shape was trimmed.
 
 ## The open architecture document
 

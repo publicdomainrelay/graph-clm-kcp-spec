@@ -303,6 +303,7 @@ func startSpecd(record session.Record, specdPath, agent, pushRemote string) (int
 		"--workspace", record.Workspace,
 		"--namespace", record.Namespace,
 		"--cache-dir", filepath.Join(statedir.Dir(), "cache"),
+		"--log-dir", logDir,
 	}
 	if agent != "" {
 		args = append(args, "--agent", agent)

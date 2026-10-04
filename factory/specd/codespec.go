@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/watch"
@@ -67,7 +68,7 @@ func (c *Controller) reconcileCodeToSpec(ctx context.Context, namespace, name st
 	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, name, map[string]any{
 		"phase":    specapi.PhaseSucceeded,
 		"message":  message,
-		"agentLog": tailMessage(result.Draft.Summary),
+		"agentLog": tailMessage(agent.Report(result.Draft.Summary)),
 	}); err != nil {
 		return 0, err
 	}

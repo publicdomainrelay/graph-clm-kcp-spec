@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/exportwatch"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/statedir"
 	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
@@ -61,6 +63,8 @@ type config struct {
 	tool string
 
 	cacheDir string
+
+	logDir string
 
 	maxConcurrentSummaries int
 
@@ -119,6 +123,7 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	fs.IntVar(&config.workers, "workers", specd.DefaultWorkers, "concurrent reconciles")
 	fs.StringVar(&config.tool, "codegraph", "", "codegraph command to run")
 	fs.StringVar(&config.cacheDir, "cache-dir", specd.DefaultCacheDir, "where a Repository git source is cloned (env SPECD_CACHE_DIR)")
+	fs.StringVar(&config.logDir, "log-dir", filepath.Join(statedir.Dir(), "logs"), "where a realized change's full agent log is kept; empty to keep none")
 	fs.IntVar(&config.maxConcurrentSummaries, "max-concurrent-summaries", specd.DefaultMaxConcurrentSummaries, "how many contexts one populate summarizes at once")
 	fs.StringVar(&config.logLevel, "log-level", "info", "debug, info, warn or error")
 	fs.StringVar(&config.agent, "agent", "", "how CodeToSpec changes are worked off: claude, scripted:<file>, or empty to leave them for a human")
@@ -219,6 +224,7 @@ func (c config) options(writer graph.Writer, bolt *boltflags.Options, log *slog.
 		Workers:                c.workers,
 		Tool:                   c.tool,
 		CacheDir:               c.cacheDir,
+		LogDir:                 c.logDir,
 		MaxConcurrentSummaries: c.maxConcurrentSummaries,
 		Graph:                  writer,
 		Agent:                  c.agent,

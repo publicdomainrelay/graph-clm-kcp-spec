@@ -396,3 +396,93 @@ func snapshotCluster(cluster *fakeCluster) map[string]any {
 func join(values []string) string {
 	return strings.Join(values, "\n")
 }
+
+// The generated arch.yaml used to repeat each context's intent, requirement
+// text and interfaces; it now carries the structure and points at
+// specs/<context>.yaml for the text. import-arch must read both.
+func TestGeneratedArchitectureImportsBothShapes(t *testing.T) {
+	full := []byte(`apiVersion: open-architecture.dffml.github.io/v0alpha1
+kind: GeneratedArchitecture
+metadata:
+  name: calc
+  branch: open-architecture/calc
+system_contexts:
+- id: sc.calc
+  name: calc
+  upstream: self
+  intent: Integer arithmetic.
+  requirements:
+  - id: r.add
+    level: MUST
+    text: Add returns the sum.
+  interfaces:
+  - name: Add
+    kind: function
+    signature: func Add(a, b int) int
+    file: calc/calc.go
+  code:
+  - calc/calc.go
+  codeRefIndex:
+  - function:abc Add@calc/calc.go:3
+- id: sc.calc-ui
+  name: calc-ui
+  upstream: up.calc
+  depends_on:
+  - sc.calc
+  requirements:
+  - id: r.button
+    level: MUST
+    text: A button adds two numbers.
+`)
+	compact := []byte(`apiVersion: open-architecture.dffml.github.io/v0alpha1
+kind: GeneratedArchitecture
+metadata:
+  name: calc
+  branch: open-architecture/calc
+system_contexts:
+- id: sc.calc
+  name: calc
+  spec: specs/calc.yaml
+  upstream: self
+  requirements:
+  - id: r.add
+    level: MUST
+  codeRefIndex:
+  - function:abc Add@calc/calc.go:3
+- id: sc.calc-ui
+  name: calc-ui
+  spec: specs/calc-ui.yaml
+  upstream: up.calc
+  depends_on:
+  - sc.calc
+  requirements:
+  - id: r.button
+    level: MUST
+`)
+	for name, data := range map[string][]byte{"full": full, "compact": compact} {
+		t.Run(name, func(t *testing.T) {
+			cluster := newFakeCluster()
+			result, err := Import(context.Background(), cluster, data, ImportOptions{})
+			if err != nil {
+				t.Fatalf("import: %v", err)
+			}
+			if result.Repository != "calc" {
+				t.Errorf("repository = %q", result.Repository)
+			}
+			context := readContext(t, cluster, result.Names["sc.calc"])
+			if context.Spec.Upstream != spec.RefSelf {
+				t.Errorf("sc.calc upstream = %q", context.Spec.Upstream)
+			}
+			if context.Spec.Arch == nil || context.Spec.Arch.ID != "sc.calc" {
+				t.Fatalf("sc.calc arch = %+v", context.Spec.Arch)
+			}
+			ui := readContext(t, cluster, result.Names["sc.calc-ui"])
+			if ui.Spec.Upstream != "up.calc" {
+				t.Errorf("sc.calc-ui upstream = %q", ui.Spec.Upstream)
+			}
+			if len(ui.Spec.DependsOn) != 1 || ui.Spec.DependsOn[0] != "sc.calc" {
+				t.Errorf("sc.calc-ui dependsOn = %v", ui.Spec.DependsOn)
+			}
+		})
+	}
+}
