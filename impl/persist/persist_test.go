@@ -304,6 +304,7 @@ func TestAFeatureBranchCarriesAChangesDocument(t *testing.T) {
 	document := git(t, repo, "show", "open-architecture/calc--spec-bob:CHANGES.md")
 	for _, want := range []string{
 		"# Changes on `open-architecture/calc--spec-bob`",
+		"The requirement-level delta against `open-architecture/calc`",
 		"added `r.sub` (MUST)",
 	} {
 		if !strings.Contains(document, want) {
@@ -554,6 +555,9 @@ func TestAFeatureBranchWithNoBaseFallsBackToItsOwnLastPreEditCommit(t *testing.T
 		t.Fatal(err)
 	}
 	document := git(t, repo, "show", "open-architecture/calc--spec-bob:CHANGES.md")
+	if !strings.Contains(document, "The requirement-level delta against `open-architecture/calc--spec-bob`") {
+		t.Fatalf("the fallback baseline is not named:\n%s", document)
+	}
 	if !strings.Contains(document, "added `r.sub` (MUST)") || strings.Contains(document, "added `r.add`") {
 		t.Fatalf("the fallback baseline is not the branch's own pre-edit commit:\n%s", document)
 	}

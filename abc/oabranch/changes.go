@@ -403,7 +403,7 @@ func changesDocument(snapshot Snapshot) string {
 	}
 	builder := strings.Builder{}
 	fmt.Fprintf(&builder, "# Changes on `%s`\n\n", snapshot.branch())
-	fmt.Fprintf(&builder, "The requirement-level delta against `%s`, and what this branch realized.\n", Branch(snapshot.Repository.Name))
+	fmt.Fprintf(&builder, "The requirement-level delta against `%s`, and what this branch realized.\n", base.branch(snapshot.Repository.Name))
 	requirements := requirementDelta(base.Contexts, snapshot.Contexts)
 	builder.WriteString("\n## Requirements\n")
 	if len(requirements) == 0 {

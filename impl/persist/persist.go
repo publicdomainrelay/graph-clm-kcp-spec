@@ -438,7 +438,11 @@ func readBaseline(ctx context.Context, store oagit.Store, repository, codeBranch
 			return nil, err
 		}
 		if tip != "" {
-			return baselineFromCommit(ctx, store, tip)
+			baseline, err := baselineFromCommit(ctx, store, tip)
+			if baseline != nil {
+				baseline.Branch = name
+			}
+			return baseline, err
 		}
 	}
 	tip, err := store.Tip(ctx, featureRef)
@@ -450,9 +454,13 @@ func readBaseline(ctx context.Context, store oagit.Store, repository, codeBranch
 		return nil, err
 	}
 	if commit == "" {
-		return &oabranch.Baseline{}, nil
+		return &oabranch.Baseline{Branch: strings.TrimPrefix(featureRef, "refs/heads/")}, nil
 	}
-	return baselineFromCommit(ctx, store, commit)
+	baseline, err := baselineFromCommit(ctx, store, commit)
+	if baseline != nil {
+		baseline.Branch = strings.TrimPrefix(featureRef, "refs/heads/")
+	}
+	return baseline, err
 }
 
 func baselineCandidates(ctx context.Context, store oagit.Store, repository, codeBranch, defaultBranch string) []string {

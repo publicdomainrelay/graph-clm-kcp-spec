@@ -137,9 +137,18 @@ type Snapshot struct {
 }
 
 type Baseline struct {
+	Branch string
+
 	Contexts []spec.SystemContext
 
 	Changes []spec.SpecChange
+}
+
+func (b *Baseline) branch(repository string) string {
+	if b != nil && b.Branch != "" {
+		return b.Branch
+	}
+	return Branch(repository)
 }
 
 func (s Snapshot) branch() string {
