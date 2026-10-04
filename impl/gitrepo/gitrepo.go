@@ -167,6 +167,15 @@ func ChangedLines(ctx context.Context, dir, base, commit string) (string, error)
 	return run(ctx, dir, "diff", "--shortstat", base, commit)
 }
 
+// Diff is the patch a realized change left, for a reader that has to judge
+// whether the code does what the spec asked.
+func Diff(ctx context.Context, dir, base, commit string) (string, error) {
+	if base == "" || commit == "" || base == commit {
+		return "", nil
+	}
+	return run(ctx, dir, "diff", base, commit)
+}
+
 func FastForward(ctx context.Context, repo, branch, commit string) error {
 	current, err := Branch(ctx, repo)
 	if err != nil {

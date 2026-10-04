@@ -64,6 +64,8 @@ const (
 	ConditionIndexed        = "Indexed"
 	ConditionPopulated      = "Populated"
 	ConditionBranchMismatch = "BranchMismatch"
+
+	ConditionRequirementsUnimplemented = "RequirementsUnimplemented"
 )
 
 const (
@@ -93,6 +95,9 @@ const (
 	ReasonPopulateFailed     = "PopulateFailed"
 	ReasonBranchMismatch     = "BranchMismatch"
 	ReasonBranchMatches      = "BranchMatches"
+
+	ReasonRequirementsImplemented = "RequirementsImplemented"
+	ReasonRequirementsMissing     = "RequirementsUnimplemented"
 )
 
 const (

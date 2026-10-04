@@ -582,6 +582,47 @@ func TestCoalesceNoiseDefersADerivedOnlySpecRewrite(t *testing.T) {
 	}
 }
 
+func TestChangesDocumentListsUnimplementedRequirements(t *testing.T) {
+	snapshot := calcSnapshot()
+	snapshot.Branch = "open-architecture/calc--spec-bob"
+	snapshot.Baseline = &Baseline{}
+	snapshot.Changes[0].Status.RequirementCoverage = []spec.RequirementVerdict{
+		{ID: "r.add", Implemented: true, Evidence: "func Add"},
+		{ID: "r.sub", Implemented: false, Evidence: "no Subtract in the diff"},
+	}
+	document := changesDocument(snapshot)
+	for _, want := range []string{
+		"| coverage |",
+		"1 of 2 missing",
+		"## Unimplemented requirements",
+		"### calc-s2c-12345678",
+		"`r.sub`",
+		"no Subtract in the diff",
+	} {
+		if !strings.Contains(document, want) {
+			t.Errorf("CHANGES.md lacks %q:\n%s", want, document)
+		}
+	}
+	_, section, _ := strings.Cut(document, "## Unimplemented requirements")
+	if strings.Contains(section, "`r.add`") {
+		t.Errorf("an implemented requirement is listed as unimplemented:\n%s", section)
+	}
+}
+
+func TestChangesDocumentOmitsTheSectionWhenEveryRequirementIsImplemented(t *testing.T) {
+	snapshot := calcSnapshot()
+	snapshot.Branch = "open-architecture/calc--spec-bob"
+	snapshot.Baseline = &Baseline{}
+	snapshot.Changes[0].Status.RequirementCoverage = []spec.RequirementVerdict{{ID: "r.add", Implemented: true}}
+	document := changesDocument(snapshot)
+	if strings.Contains(document, "## Unimplemented requirements") {
+		t.Errorf("an all-implemented change lists a section:\n%s", document)
+	}
+	if !strings.Contains(document, "1 implemented") {
+		t.Errorf("the coverage column is missing:\n%s", document)
+	}
+}
+
 func TestOneRecordPerEpisodeSummarizesTheEarlierAttempts(t *testing.T) {
 	snapshot := calcSnapshot()
 	failed := snapshot.Changes[0]

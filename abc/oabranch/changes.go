@@ -422,14 +422,70 @@ func changesDocument(snapshot Snapshot) string {
 		builder.WriteString("\n_None: no SpecChange landed on this branch yet._\n")
 		return builder.String()
 	}
-	builder.WriteString("\n| change | direction | phase | commit | verify | acceptance |\n")
-	builder.WriteString("| --- | --- | --- | --- | --- | --- |\n")
+	builder.WriteString("\n| change | direction | phase | commit | verify | acceptance | coverage |\n")
+	builder.WriteString("| --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, change := range changes {
-		fmt.Fprintf(&builder, "| %s | %s | %s | %s | %d | %s |\n",
+		fmt.Fprintf(&builder, "| %s | %s | %s | %s | %d | %s | %s |\n",
 			change.Name, change.Spec.Direction, change.Status.Phase, short(change.Status.Commit),
-			change.Status.VerifyExitCode, acceptanceSummary(change))
+			change.Status.VerifyExitCode, acceptanceSummary(change), coverageSummary(change))
 	}
+	builder.WriteString(unimplementedSection(changes))
 	return builder.String()
+}
+
+func coverageSummary(change spec.SpecChange) string {
+	if len(change.Status.RequirementCoverage) == 0 {
+		return "-"
+	}
+	missing := 0
+	for _, verdict := range change.Status.RequirementCoverage {
+		if !verdict.Implemented {
+			missing++
+		}
+	}
+	if missing == 0 {
+		return fmt.Sprintf("%d implemented", len(change.Status.RequirementCoverage))
+	}
+	return fmt.Sprintf("%d of %d missing", missing, len(change.Status.RequirementCoverage))
+}
+
+// unimplementedSection names every requirement the coverage judgment found
+// absent from a realized diff, so a reader of CHANGES.md sees them without
+// opening the change record.
+func unimplementedSection(changes []spec.SpecChange) string {
+	builder := strings.Builder{}
+	for _, change := range changes {
+		lines := []string{}
+		for _, verdict := range change.Status.RequirementCoverage {
+			if verdict.Implemented {
+				continue
+			}
+			line := "- `" + verdict.ID + "`"
+			if evidence := quoteSingle(verdict.Evidence); evidence != "" {
+				line += ": " + evidence
+			}
+			lines = append(lines, line)
+		}
+		if len(lines) == 0 {
+			continue
+		}
+		builder.WriteString("\n### " + change.Name + "\n\n")
+		for _, line := range lines {
+			builder.WriteString(line + "\n")
+		}
+	}
+	if builder.Len() == 0 {
+		return ""
+	}
+	return "\n## Unimplemented requirements\n" + builder.String()
+}
+
+func quoteSingle(text string) string {
+	single := strings.Join(strings.Fields(text), " ")
+	if single == "" {
+		return ""
+	}
+	return "\"" + single + "\""
 }
 
 func acceptanceSummary(change spec.SpecChange) string {

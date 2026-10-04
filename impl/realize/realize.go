@@ -20,6 +20,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/bundle"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/coverage"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/gitrepo"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
@@ -98,6 +99,8 @@ type Options struct {
 	WorktreeRoot string
 
 	Members []Member
+
+	Coverage *coverage.Judge
 }
 
 func (o Options) batch() []Member {
@@ -129,6 +132,10 @@ type Result struct {
 	Landed bool
 
 	SpecHash string
+
+	Coverage map[string][]coverage.Verdict
+
+	CoverageError string
 }
 
 type VerifyError struct {
@@ -309,12 +316,45 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		}
 		result.Commit = commit
 		result.Landed = true
+		result.Coverage, result.CoverageError = coverBatch(ctx, options, targets, landedBase, commit)
 	}
 
 	if err := settle(ctx, options, namespace, adopts(targets)); err != nil {
 		return result, err
 	}
 	return result, nil
+}
+
+// coverBatch asks the model, once per member change, whether the realized diff
+// implements each requirement the delta added or changed. It is off unless a
+// judge is configured, and a model that cannot answer leaves the result empty
+// rather than failing a change the gate already passed.
+func coverBatch(ctx context.Context, options Options, targets []target, base, commit string) (map[string][]coverage.Verdict, string) {
+	if options.Coverage == nil {
+		return nil, ""
+	}
+	diff, err := gitrepo.Diff(ctx, options.Repository.WorkPath(), base, commit)
+	if err != nil {
+		return nil, err.Error()
+	}
+	verdicts := map[string][]coverage.Verdict{}
+	for _, entry := range targets {
+		requirements := coverage.Requirements(entry.member.Delta)
+		if len(requirements) == 0 {
+			continue
+		}
+		covered, err := options.Coverage.Cover(ctx, coverage.Request{
+			Context:      entry.member.Context,
+			Change:       entry.member.Change,
+			Requirements: requirements,
+			Diff:         diff,
+		})
+		if err != nil {
+			return verdicts, err.Error()
+		}
+		verdicts[entry.member.Change] = covered
+	}
+	return verdicts, ""
 }
 
 func adopts(targets []target) map[string]*spec.SystemContextSpec {

@@ -134,6 +134,19 @@ func (f *Factory) ConfiguredFor(repository *spec.Repository) bool {
 	return f.KindFor(repository) != ""
 }
 
+// ModelCoverageFor reports whether this repository's agent is a model this
+// controller can also ask a separate coverage question, one call per change.
+func (f *Factory) ModelCoverageFor(repository *spec.Repository) bool {
+	if f == nil {
+		return false
+	}
+	switch f.KindFor(repository) {
+	case "", Claude, ClaudeMod:
+		return true
+	}
+	return false
+}
+
 func (f *Factory) PopulateConfiguredFor(repository *spec.Repository) bool {
 	if f == nil {
 		return false
