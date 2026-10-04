@@ -159,6 +159,9 @@ half's rows:
 | `deploy-examples-atproto-market` CodeSynced | False | True |
 | `cmd-deno-kcp-provider` flags declared | 0 | all 17 |
 
+Rows 3b owns are measured above (the 3b status section); this table keeps the
+targets the whole plan is judged by, and 3a's rows are measured with 3a.
+
 3a and 3b run in parallel in two worktrees; the coordinator merges, reruns the
 deno-kcp example, and an independent review compares the new branches with the
 old ones.

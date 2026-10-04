@@ -128,8 +128,9 @@ sequenceDiagram
     participant G as git repo
     U->>K: apply Repository (source, populate)
     S->>G: clone, codegraph index
-    S->>K: SystemContext per partition (status.observed)
-    S->>A: summarize (code -> spec)
+    S->>K: SystemContext per partition (status.observed, dependsOn from imports)
+    S->>S: seed each context from the repo's own arch.yaml, when there is one
+    S->>A: summarize (code -> spec), refining the seed
     A-->>S: intent, requirements, interfaces
     S->>K: spec written (origin=ingest)
     U->>K: edit spec (one requirement)
