@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -26,6 +27,8 @@ import (
 
 const (
 	DefaultVerifyTimeout = 10 * time.Minute
+
+	DefaultAcceptanceTimeout = 10 * time.Minute
 
 	OutputTailBytes = 4000
 
@@ -89,6 +92,8 @@ type Options struct {
 
 	VerifyTimeout time.Duration
 
+	AcceptanceTimeout time.Duration
+
 	WorktreeRoot string
 
 	Members []Member
@@ -114,6 +119,8 @@ type Result struct {
 
 	FilesTouched []string
 
+	Acceptance []spec.AcceptanceResult
+
 	Agent agent.RealizeResult
 
 	Landed bool
@@ -131,6 +138,20 @@ type VerifyError struct {
 
 func (e *VerifyError) Error() string {
 	return fmt.Sprintf("realize: %s exited %d: %s", strings.Join(e.Command, " "), e.ExitCode, tail(e.Output))
+}
+
+type AcceptanceError struct {
+	Result spec.AcceptanceResult
+
+	Gated bool
+}
+
+func (e *AcceptanceError) Error() string {
+	kind := "report"
+	if e.Gated {
+		kind = "gate"
+	}
+	return fmt.Sprintf("realize: acceptance %s (%s) exited %d: %s", e.Result.Name, kind, e.Result.ExitCode, tail(e.Result.OutputTail))
 }
 
 type target struct {
@@ -247,15 +268,11 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		return result, err
 	}
 
-	verifyCommand := options.Repository.Spec.Verify
-	exitCode, output := verify(ctx, verifyCommand, options.Worktree, options.VerifyTimeout)
-	result.VerifyExitCode = exitCode
-	result.VerifyOutput = output
-	if exitCode != 0 {
-		return result, &VerifyError{Command: verifyCommand, ExitCode: exitCode, Output: output}
+	if err := runGates(ctx, options.Repository, options.Worktree, options.VerifyTimeout, options.AcceptanceTimeout, &result); err != nil {
+		return result, err
 	}
 
-	message := commitMessage(members, oabranch.BranchFor(options.Repository.Name, branch, oagit.Store{Repo: repoPath}.DefaultBranch(ctx)))
+	message := commitMessage(members, oabranch.BranchFor(options.Repository.Name, branch, oagit.Store{Repo: repoPath}.DefaultBranch(ctx)), options.Repository.Spec.Acceptance, result.Acceptance)
 	commit, err := gitrepo.CommitAll(ctx, options.Worktree, message)
 	if err != nil {
 		return result, err
@@ -267,11 +284,8 @@ func Run(ctx context.Context, options Options) (Result, error) {
 			if err != nil {
 				return result, fmt.Errorf("realize: %s moved under the change and the change does not rebase onto it: %w", branch, err)
 			}
-			exitCode, output := verify(ctx, verifyCommand, options.Worktree, options.VerifyTimeout)
-			result.VerifyExitCode = exitCode
-			result.VerifyOutput = output
-			if exitCode != 0 {
-				return result, &VerifyError{Command: verifyCommand, ExitCode: exitCode, Output: output}
+			if err := runGates(ctx, options.Repository, options.Worktree, options.VerifyTimeout, options.AcceptanceTimeout, &result); err != nil {
+				return result, err
 			}
 			commit = rebased
 			landedBase = tip
@@ -357,6 +371,79 @@ func readContext(ctx context.Context, cluster Cluster, namespace, name string) (
 	return systemContext, nil
 }
 
+func runGates(ctx context.Context, repository *spec.Repository, dir string, verifyTimeout, acceptanceTimeout time.Duration, result *Result) error {
+	exitCode, output := verify(ctx, repository.Spec.Verify, dir, verifyTimeout)
+	result.VerifyExitCode = exitCode
+	result.VerifyOutput = output
+	if exitCode != 0 {
+		return &VerifyError{Command: repository.Spec.Verify, ExitCode: exitCode, Output: output}
+	}
+	results := RunAcceptance(ctx, repository.Spec.Acceptance, dir, acceptanceTimeout)
+	result.Acceptance = results
+	if blocked, ok := spec.AcceptanceBlocked(repository.Spec.Acceptance, results); ok {
+		return &AcceptanceError{Result: blocked, Gated: true}
+	}
+	return nil
+}
+
+func RunAcceptance(ctx context.Context, steps []spec.AcceptanceStep, dir string, timeout time.Duration) []spec.AcceptanceResult {
+	results := make([]spec.AcceptanceResult, 0, len(steps))
+	for _, step := range steps {
+		results = append(results, runAcceptanceStep(ctx, step, dir, timeout))
+	}
+	return results
+}
+
+func runAcceptanceStep(ctx context.Context, step spec.AcceptanceStep, dir string, fallback time.Duration) spec.AcceptanceResult {
+	result := spec.AcceptanceResult{Name: step.Name}
+	if len(step.Command) == 0 {
+		result.ExitCode = -1
+		result.OutputTail = "the step names no command"
+		return result
+	}
+	timeout := fallback
+	if step.TimeoutSeconds > 0 {
+		timeout = time.Duration(step.TimeoutSeconds) * time.Second
+	}
+	if timeout <= 0 {
+		timeout = DefaultAcceptanceTimeout
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	process := exec.CommandContext(runCtx, step.Command[0], step.Command[1:]...)
+	process.Dir = dir
+	process.WaitDelay = WaitDelay
+	process.Env = append(os.Environ(), envPairs(step.Env)...)
+	started := time.Now()
+	output, err := process.CombinedOutput()
+	result.DurationSeconds = time.Since(started).Seconds()
+	text := string(output)
+	switch exitErr, ok := errors.AsType[*exec.ExitError](err); {
+	case err == nil:
+		result.Passed = true
+	case ok:
+		result.ExitCode = exitErr.ExitCode()
+	default:
+		result.ExitCode = -1
+		text += "\n" + err.Error()
+	}
+	result.OutputTail = tail(text)
+	return result
+}
+
+func envPairs(environment map[string]string) []string {
+	keys := make([]string, 0, len(environment))
+	for key := range environment {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	pairs := make([]string, 0, len(keys))
+	for _, key := range keys {
+		pairs = append(pairs, key+"="+environment[key])
+	}
+	return pairs
+}
+
 func verify(ctx context.Context, command []string, dir string, timeout time.Duration) (int, string) {
 	if len(command) == 0 {
 		return 0, ""
@@ -379,12 +466,15 @@ func verify(ctx context.Context, command []string, dir string, timeout time.Dura
 	return -1, tail(string(output) + "\n" + err.Error())
 }
 
-func commitMessage(members []Member, archBranch string) string {
+func commitMessage(members []Member, archBranch string, steps []spec.AcceptanceStep, acceptance []spec.AcceptanceResult) string {
 	message := fmt.Sprintf("realize %s: %s\n\n", members[0].Context, deltaSummary(batchDelta(members)))
 	for _, member := range members {
 		if member.Change != "" {
 			message += oabranch.SpecChangeTrailer + ": " + member.Change + "\n"
 		}
+	}
+	for _, line := range spec.AcceptanceTrailerLines(steps, acceptance) {
+		message += oabranch.AcceptanceTrailer + ": " + line + "\n"
 	}
 	if archBranch != "" {
 		message += oabranch.OpenArchitectureTrailer + ": " + archBranch + "\n"

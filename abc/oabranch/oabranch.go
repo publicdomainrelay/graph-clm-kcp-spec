@@ -49,6 +49,8 @@ const (
 
 	OpenArchitectureTrailer = "Open-Architecture"
 
+	AcceptanceTrailer = "Acceptance"
+
 	ConflictTrailer = "Conflict"
 )
 

@@ -47,12 +47,26 @@ const (
 	PartitionPackage   = "package"
 )
 
+type AcceptanceStep struct {
+	Name string `json:"name"`
+
+	Command []string `json:"command"`
+
+	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
+
+	Gate bool `json:"gate,omitempty"`
+
+	Env map[string]string `json:"env,omitempty"`
+}
+
 type RepositorySpec struct {
 	Path   string            `json:"path,omitempty"`
 	Source *RepositorySource `json:"source,omitempty"`
 	Branch string            `json:"branch,omitempty"`
 	Verify []string          `json:"verify,omitempty"`
 	Agent  *AgentSpec        `json:"agent,omitempty"`
+
+	Acceptance []AcceptanceStep `json:"acceptance,omitempty"`
 
 	Populate *RepositoryPopulate `json:"populate,omitempty"`
 }
@@ -238,6 +252,18 @@ type SpecChangeSpec struct {
 	Delta *Delta `json:"delta,omitempty"`
 }
 
+type AcceptanceResult struct {
+	Name string `json:"name"`
+
+	ExitCode int `json:"exitCode"`
+
+	DurationSeconds float64 `json:"durationSeconds"`
+
+	Passed bool `json:"passed"`
+
+	OutputTail string `json:"outputTail,omitempty"`
+}
+
 type SpecChangeStatus struct {
 	Phase string `json:"phase,omitempty"`
 
@@ -248,6 +274,8 @@ type SpecChangeStatus struct {
 	FilesTouched   []string `json:"filesTouched,omitempty"`
 	AgentLog       string   `json:"agentLog,omitempty"`
 	Message        string   `json:"message,omitempty"`
+
+	Acceptance []AcceptanceResult `json:"acceptance,omitempty"`
 
 	Progress []ProgressRecord `json:"progress,omitempty"`
 }

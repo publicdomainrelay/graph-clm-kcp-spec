@@ -2,6 +2,7 @@ package realize
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,10 +79,10 @@ func TestCommitMessageNamesTheContextAndTheDelta(t *testing.T) {
 		}},
 	}
 	single := []Member{{Context: "calc", Change: "calc-s2c-1", Delta: change}}
-	if got := commitMessage(single, "open-architecture/calc"); got != "realize calc: +2\n\nSpec-Change: calc-s2c-1\nOpen-Architecture: open-architecture/calc\n" {
+	if got := commitMessage(single, "open-architecture/calc", nil, nil); got != "realize calc: +2\n\nSpec-Change: calc-s2c-1\nOpen-Architecture: open-architecture/calc\n" {
 		t.Errorf("message = %q", got)
 	}
-	if got := commitMessage([]Member{{Context: "calc"}}, ""); got != "realize calc: no delta\n\n" {
+	if got := commitMessage([]Member{{Context: "calc"}}, "", nil, nil); got != "realize calc: no delta\n\n" {
 		t.Errorf("message = %q", got)
 	}
 }
@@ -95,10 +96,73 @@ func TestCommitMessageCarriesOneTrailerPerBatchMember(t *testing.T) {
 			Op: spec.OpAdded, Name: "Main", To: &spec.Interface{Name: "Main"},
 		}}}},
 	}
-	message := commitMessage(members, "open-architecture/calc")
+	message := commitMessage(members, "open-architecture/calc", nil, nil)
 	want := "realize calc: +2\n\nSpec-Change: calc-s2c-1\nSpec-Change: cmd-calc-s2c-2\nOpen-Architecture: open-architecture/calc\n"
 	if message != want {
 		t.Errorf("message = %q, want %q", message, want)
+	}
+}
+
+func TestRunAcceptanceRecordsEachStep(t *testing.T) {
+	dir := t.TempDir()
+	steps := []spec.AcceptanceStep{
+		{Name: "unit", Command: []string{"sh", "-c", "echo unit ok"}, Gate: true},
+		{Name: "env", Command: []string{"sh", "-c", "test \"$BOB_WORKSPACE\" = bob && echo workspace ok"}, Gate: true, Env: map[string]string{"BOB_WORKSPACE": "bob"}},
+		{Name: "market", Command: []string{"sh", "-c", "echo the market is not up; exit 3"}, Gate: false},
+	}
+	results := RunAcceptance(context.Background(), steps, dir, time.Minute)
+	if len(results) != 3 {
+		t.Fatalf("results = %d, want one per step", len(results))
+	}
+	for index, want := range []struct {
+		name   string
+		passed bool
+		code   int
+	}{{"unit", true, 0}, {"env", true, 0}, {"market", false, 3}} {
+		got := results[index]
+		if got.Name != want.name || got.Passed != want.passed || got.ExitCode != want.code {
+			t.Errorf("result %d = %+v, want %s passed=%v code=%d", index, got, want.name, want.passed, want.code)
+		}
+	}
+	if !strings.Contains(results[0].OutputTail, "unit ok") || !strings.Contains(results[2].OutputTail, "the market is not up") {
+		t.Errorf("output tails = %q and %q", results[0].OutputTail, results[2].OutputTail)
+	}
+	if results[0].DurationSeconds <= 0 {
+		t.Errorf("duration = %v, want the wall time", results[0].DurationSeconds)
+	}
+	empty := RunAcceptance(context.Background(), []spec.AcceptanceStep{{Name: "none"}}, dir, time.Minute)
+	if len(empty) != 1 || empty[0].Passed || empty[0].ExitCode != -1 {
+		t.Errorf("a step without a command = %+v, want a recorded failure", empty)
+	}
+}
+
+func TestRunGatesStopsAtTheFirstGate(t *testing.T) {
+	dir := t.TempDir()
+	repository := &spec.Repository{Spec: spec.RepositorySpec{
+		Verify: []string{"sh", "-c", "echo verify said no; exit 1"},
+		Acceptance: []spec.AcceptanceStep{
+			{Name: "market", Command: []string{"sh", "-c", "echo acceptance ran"}, Gate: true},
+		},
+	}}
+	result := Result{}
+	err := runGates(context.Background(), repository, dir, time.Minute, time.Minute, &result)
+	if _, ok := errors.AsType[*VerifyError](err); !ok {
+		t.Fatalf("err = %v, want a VerifyError", err)
+	}
+	if len(result.Acceptance) != 0 {
+		t.Errorf("acceptance ran after verify failed: %+v", result.Acceptance)
+	}
+
+	repository.Spec.Verify = []string{"true"}
+	repository.Spec.Acceptance = []spec.AcceptanceStep{{Name: "market", Command: []string{"sh", "-c", "echo bob is down; exit 2"}, Gate: true}}
+	result = Result{}
+	err = runGates(context.Background(), repository, dir, time.Minute, time.Minute, &result)
+	acceptanceErr, ok := errors.AsType[*AcceptanceError](err)
+	if !ok || acceptanceErr.Result.Name != "market" {
+		t.Fatalf("err = %v, want an AcceptanceError naming market", err)
+	}
+	if len(result.Acceptance) != 1 || result.Acceptance[0].Passed {
+		t.Errorf("acceptance = %+v, want the failing step recorded", result.Acceptance)
 	}
 }
 

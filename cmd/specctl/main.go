@@ -177,6 +177,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runArch(rest, stdout, stderr)
 	case "retry":
 		return runRetry(rest, stdout, stderr)
+	case "accept":
+		return runAccept(rest, stdout, stderr)
 	case "eval":
 		return runEval(rest, stdout, stderr)
 	case "kcp":
@@ -398,6 +400,10 @@ usage:
   specctl arch outline [--repository <name>] [-o text|json]
   specctl retry <systemcontext>
       clear a context's failed SpecChanges after the attempt cap, so specd tries again
+  specctl accept [--repo .] [--name <step>]
+      run the acceptance steps of the current branch's Repository against the
+      current tree; a gating step that fails exits 1, a report-only one is
+      printed and does not
   specctl down [--repo .] [--keep-kcp]
       stop the current branch's specd and kcp
   specctl status [--repo .]

@@ -72,6 +72,7 @@ func ValidateRepository(repository *Repository) Result {
 	if agent := repository.Spec.Agent; agent != nil {
 		b.checkAgent("spec.agent", agent)
 	}
+	b.checkAcceptance(repository.Spec.Acceptance)
 	if populate := repository.Spec.Populate; populate != nil {
 		switch populate.Partition {
 		case "", PartitionDirectory, PartitionPackage:
@@ -84,6 +85,29 @@ func ValidateRepository(repository *Repository) Result {
 	}
 
 	return b.result()
+}
+
+func (b *builder) checkAcceptance(steps []AcceptanceStep) {
+	seen := map[string]bool{}
+	for index, step := range steps {
+		path := fmt.Sprintf("spec.acceptance[%d]", index)
+		switch {
+		case step.Name == "":
+			b.add(path+".name", "is required")
+		case strings.ContainsAny(step.Name, "\n\r"):
+			b.add(path+".name", "must not carry a line break")
+		case seen[step.Name]:
+			b.add(path+".name", "%q is not unique", step.Name)
+		default:
+			seen[step.Name] = true
+		}
+		if len(step.Command) == 0 {
+			b.add(path+".command", "is required")
+		}
+		if step.TimeoutSeconds < 0 {
+			b.add(path+".timeoutSeconds", "%d is negative", step.TimeoutSeconds)
+		}
+	}
 }
 
 func (b *builder) checkAgent(path string, agent *AgentSpec) {

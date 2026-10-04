@@ -1,7 +1,7 @@
 apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
-  name: v1alpha1-3.repositories.specs.publicdomainrelay.dev
+  name: v1alpha1-4.repositories.specs.publicdomainrelay.dev
 spec:
   group: specs.publicdomainrelay.dev
   names:
@@ -37,6 +37,44 @@ spec:
       properties:
         spec:
           properties:
+            acceptance:
+              description: Commands run in the realize worktree after verify passes;
+                a gate step that fails blocks the commit like verify, a report step
+                records its result only.
+              items:
+                properties:
+                  command:
+                    description: The command and its arguments, run in the realize
+                      worktree and in the current tree for specctl accept.
+                    items:
+                      type: string
+                    type: array
+                  env:
+                    additionalProperties:
+                      type: string
+                    description: Extra environment variables for the step, on top
+                      of the controller's own environment.
+                    type: object
+                  gate:
+                    description: True blocks the commit when the step fails; false
+                      records the result only.
+                    type: boolean
+                  name:
+                    description: Short name of the step; it names the step in the
+                      commit trailer and in the change status.
+                    type: string
+                  timeoutSeconds:
+                    description: How long the step may run; zero or unset is the same
+                      ten minutes verify gets.
+                    type: integer
+                required:
+                - name
+                - command
+                type: object
+              type: array
+              x-kubernetes-list-map-keys:
+              - name
+              x-kubernetes-list-type: map
             agent:
               description: Per repository agent selection for spec to code; it wins
                 over the controller's --agent.

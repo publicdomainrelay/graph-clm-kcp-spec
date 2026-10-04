@@ -199,6 +199,77 @@ func TestValidateRepositorySourceAndPopulate(t *testing.T) {
 	}
 }
 
+func TestValidateRepositoryAcceptance(t *testing.T) {
+	valid := &Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc"},
+		Spec: RepositorySpec{
+			Path: "/src/calc",
+			Acceptance: []AcceptanceStep{
+				{Name: "unit", Command: []string{"go", "test", "./..."}, Gate: true},
+				{Name: "market", Command: []string{"sh", "-c", "true"}, TimeoutSeconds: 120, Env: map[string]string{"BOB": "bob"}},
+			},
+		},
+	}
+	if result := ValidateRepository(valid); !result.OK() {
+		t.Fatalf("a repository with acceptance steps is valid: %v", result.Err())
+	}
+
+	cases := map[string][]AcceptanceStep{
+		"no name":        {{Command: []string{"true"}}},
+		"no command":     {{Name: "unit"}},
+		"duplicate name": {{Name: "unit", Command: []string{"true"}}, {Name: "unit", Command: []string{"false"}}},
+		"negative time":  {{Name: "unit", Command: []string{"true"}, TimeoutSeconds: -1}},
+		"a line break":   {{Name: "un\nit", Command: []string{"true"}}},
+	}
+	for name, steps := range cases {
+		repository := &Repository{ObjectMeta: metav1.ObjectMeta{Name: "calc"}, Spec: RepositorySpec{Path: "/src", Acceptance: steps}}
+		if ValidateRepository(repository).OK() {
+			t.Errorf("%s: the acceptance step was accepted", name)
+		}
+	}
+}
+
+func TestAcceptanceBlockedNamesTheGatingStep(t *testing.T) {
+	steps := []AcceptanceStep{
+		{Name: "unit", Command: []string{"true"}, Gate: true},
+		{Name: "smoke", Command: []string{"false"}, Gate: false},
+		{Name: "market", Command: []string{"false"}, Gate: true},
+	}
+	results := []AcceptanceResult{
+		{Name: "unit", Passed: true},
+		{Name: "smoke", Passed: false, ExitCode: 1},
+		{Name: "market", Passed: false, ExitCode: 1},
+	}
+	blocked, ok := AcceptanceBlocked(steps, results)
+	if !ok || blocked.Name != "market" {
+		t.Fatalf("blocked = %+v, %v; want the gating market step: a report-only failure must not block", blocked, ok)
+	}
+	if _, ok := AcceptanceBlocked(steps[:2], results[:2]); ok {
+		t.Fatal("a report-only failure blocked the commit")
+	}
+	if _, ok := AcceptanceBlocked(steps, results[:1]); ok {
+		t.Fatal("a step with no result blocked the commit")
+	}
+}
+
+func TestAcceptanceTrailerLines(t *testing.T) {
+	steps := []AcceptanceStep{
+		{Name: "unit", Gate: true},
+		{Name: "market", Gate: false},
+	}
+	results := []AcceptanceResult{
+		{Name: "unit", Passed: true},
+		{Name: "market", Passed: false, ExitCode: 3},
+	}
+	lines := AcceptanceTrailerLines(steps, results)
+	if len(lines) != 2 || lines[0] != "unit passed (gate)" || lines[1] != "market failed (report)" {
+		t.Fatalf("lines = %v", lines)
+	}
+	if got := AcceptanceTrailerLines(nil, results); len(got) != 2 || got[1] != "market failed (report)" {
+		t.Fatalf("lines without the steps = %v", got)
+	}
+}
+
 func TestRepositoryHelpers(t *testing.T) {
 	repository := &Repository{
 		Spec: RepositorySpec{

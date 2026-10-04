@@ -264,6 +264,9 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 		if len(result.FilesTouched) > 0 {
 			status["filesTouched"] = result.FilesTouched
 		}
+		if len(result.Acceptance) > 0 {
+			status["acceptance"] = result.Acceptance
+		}
 		if record, ok := batchProgress(members, result); ok {
 			member.Status.AppendProgress(record)
 			status["progress"] = member.Status.Progress
@@ -283,6 +286,10 @@ func (c *Controller) recordBatchFailure(ctx context.Context, namespace string, m
 	if verifyErr, ok := errors.AsType[*realize.VerifyError](failure); ok {
 		message = fmt.Sprintf("verify exited %d: %s", verifyErr.ExitCode, tailMessage(verifyErr.Output))
 	}
+	if acceptanceErr, ok := errors.AsType[*realize.AcceptanceError](failure); ok {
+		message = fmt.Sprintf("acceptance %s failed (gate): exit %d: %s",
+			acceptanceErr.Result.Name, acceptanceErr.Result.ExitCode, tailMessage(acceptanceErr.Result.OutputTail))
+	}
 	for _, member := range members {
 		status := map[string]any{
 			"phase":          specapi.PhaseFailed,
@@ -290,6 +297,9 @@ func (c *Controller) recordBatchFailure(ctx context.Context, namespace string, m
 			"verifyExitCode": result.VerifyExitCode,
 			"message":        tailMessage(message),
 			"agentLog":       tailMessage(log),
+		}
+		if len(result.Acceptance) > 0 {
+			status["acceptance"] = result.Acceptance
 		}
 		if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, member.Name, status); err != nil {
 			c.log.Error("could not record the failed change", "change", member.Name, "err", err)

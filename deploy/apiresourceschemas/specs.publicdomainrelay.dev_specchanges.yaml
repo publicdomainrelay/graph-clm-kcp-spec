@@ -1,7 +1,7 @@
 apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
-  name: v1alpha1-3.specchanges.specs.publicdomainrelay.dev
+  name: v1alpha1-4.specchanges.specs.publicdomainrelay.dev
 spec:
   group: specs.publicdomainrelay.dev
   names:
@@ -329,6 +329,29 @@ spec:
           type: object
         status:
           properties:
+            acceptance:
+              description: the acceptance steps the realize ran after verify, one
+                entry per step, on every member of the batch
+              items:
+                properties:
+                  durationSeconds:
+                    type: number
+                  exitCode:
+                    type: integer
+                  name:
+                    type: string
+                  outputTail:
+                    type: string
+                  passed:
+                    type: boolean
+                required:
+                - name
+                - passed
+                type: object
+              type: array
+              x-kubernetes-list-map-keys:
+              - name
+              x-kubernetes-list-type: map
             agentLog:
               type: string
             branch:

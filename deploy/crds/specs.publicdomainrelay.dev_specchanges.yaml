@@ -317,6 +317,25 @@ spec:
                   type: string
                 message:
                   type: string
+                acceptance:
+                  type: array
+                  description: the acceptance steps the realize ran after verify, one entry per step, on every member of the batch
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [name]
+                  items:
+                    type: object
+                    required: [name, passed]
+                    properties:
+                      name:
+                        type: string
+                      exitCode:
+                        type: integer
+                      durationSeconds:
+                        type: number
+                      passed:
+                        type: boolean
+                      outputTail:
+                        type: string
                 progress:
                   type: array
                   description: what the host running the change reported while it ran
