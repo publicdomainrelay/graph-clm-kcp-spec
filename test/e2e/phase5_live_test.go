@@ -249,7 +249,7 @@ func TestPhase5CodeToSpecWithTheScriptedAgent(t *testing.T) {
 	}
 
 	assertNoSpecArtefacts(t, repoPath)
-	document, err := os.ReadFile(contextDocPath("calc", "calc"))
+	document, err := os.ReadFile(contextDocPath(phase5Repository, "calc"))
 	if err != nil {
 		t.Fatalf("the context document was not written: %v", err)
 	}

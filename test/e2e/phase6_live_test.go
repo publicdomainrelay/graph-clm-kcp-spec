@@ -288,11 +288,11 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 	if strings.Join(succeeded.Status.FilesTouched, ",") != "calc/calc.go,calc/subtract_test.go" {
 		t.Errorf("filesTouched = %v, want the code only", succeeded.Status.FilesTouched)
 	}
-	if message := gitOutput(t, repoPath, "log", "-1", "--format=%B", succeeded.Status.Commit); !strings.Contains(message, "Spec-Change: "+succeeded.Name) || !strings.Contains(message, "Open-Architecture: open-architecture/calc") {
+	if message := gitOutput(t, repoPath, "log", "-1", "--format=%B", succeeded.Status.Commit); !strings.Contains(message, "Spec-Change: "+succeeded.Name) || !strings.Contains(message, "Open-Architecture: open-architecture/"+phase6Repository) {
 		t.Errorf("the code commit lacks its trailers:\n%s", message)
 	}
 	assertNoSpecArtefacts(t, repoPath)
-	waitForOrphanSpec(t, repoPath, "calc", "Subtract", succeeded.Status.Commit)
+	waitForOrphanSpec(t, repoPath, phase6Repository, "calc", "Subtract", succeeded.Status.Commit)
 
 	// The commit is on the managed branch, signed by the tool, and the tree
 	// really has the code with its tests passing.
@@ -580,9 +580,9 @@ func runGoTest(t *testing.T, dir string) {
 	}
 }
 
-func waitForOrphanSpec(t *testing.T, repoPath, context, want, codeCommit string) {
+func waitForOrphanSpec(t *testing.T, repoPath, repository, context, want, codeCommit string) {
 	t.Helper()
-	branch := "open-architecture/" + context
+	branch := "open-architecture/" + repository
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		spec, specErr := exec.Command("git", "-C", repoPath, "show", branch+":specs/"+context+".yaml").CombinedOutput()

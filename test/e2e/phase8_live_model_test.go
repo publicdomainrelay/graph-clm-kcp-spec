@@ -198,7 +198,7 @@ func TestPhase8LiveModelRealizesWithTheMod(t *testing.T) {
 		t.Errorf("verifyExitCode = %d, want 0 (%s)", succeeded.Status.VerifyExitCode, succeeded.Status.Message)
 	}
 
-	document := contextDocPath("calc", "calc")
+	document := contextDocPath(phase8ModelRepository, "calc")
 	if _, err := os.Stat(document); err != nil {
 		t.Errorf("the mod did not render %s: %v", document, err)
 	}
