@@ -430,6 +430,67 @@ for the TypeScript live test, which runs `fixtures/greet`'s own tests before it
 indexes the module, so the fixture is known to be a real working tree and not
 only something `codegraph` can parse.
 
+## Models: DeepSeek only
+
+Every test, every example and every eval in this repository uses DeepSeek. The
+`claude` and `claude-mod` agent kinds run `deepseek-claude`, and the `pi` kind
+runs the pi package over the same hosted provider, `deepseek` with
+`deepseek-flash`, taking `DEEPSEEK_API_KEY` from the `deepseek-claude` launcher
+when the environment has not exported one. No local model is used anywhere in
+this repository, and no report in `docs/eval/` was taken from one: a number
+measured against a local model describes the model rather than the loop and
+cannot be compared with the runs recorded beside it. The subsection below tells
+an operator how to point an agent at a local server anyway; nothing in the
+repository does it for them, and no test run does it.
+
+### Running with a local model
+
+Both hosts reach their model through a command and a list of arguments, so a
+local server is a change of command and arguments, never a code change.
+
+`pi` takes `--provider` and `--model`, so a local OpenAI-compatible server is
+one pair of arguments. The arguments come from `--agent-args` on `specd` and
+`specctl eval`, or per repository from `Repository.spec.agent.args`, which wins
+over the flag; `--agent-command` names the pi binary when it is not the default
+`npx` package. There is no `SPECD_PI_ARGS` variable in this repository: the flag
+and the `Repository` field are the only two places those arguments are set.
+
+```bash
+bin/specd --agent pi --agent-command pi \
+  --agent-args "--provider llama-cpp --model <name>"
+```
+
+Claude Code reaches a local server through `ANTHROPIC_BASE_URL`, because
+`llama-server` serves the Anthropic Messages API. Start the server and point the
+client at it:
+
+```bash
+llama-server -hf <a-model-with-tool-support>-GGUF   # POST /v1/messages on :8080
+ANTHROPIC_BASE_URL=http://127.0.0.1:8080 claude
+```
+
+What that requires, from llama.cpp's own documentation:
+
+- A llama.cpp build with the Anthropic Messages API: the `POST /v1/messages`
+  route, contributed as ggml-org/llama.cpp PR #17570 and present in current
+  builds. An older server answers 404 on the route. It also serves
+  `POST /v1/messages/count_tokens`, streaming SSE, tool use (`tool_use` and
+  `tool_result` blocks), vision and extended thinking; the request is converted
+  to the OpenAI chat endpoint inside llama.cpp.
+- A model that supports tool use, because the loop's agents edit files and run
+  commands through tools. llama.cpp recommends an agentic coding model.
+- `ANTHROPIC_BASE_URL` without a `/v1` suffix, and a non-empty
+  `ANTHROPIC_API_KEY` (llama.cpp does not check it; Claude Code may still ask
+  for credentials without one).
+- Nothing that the Anthropic-to-OpenAI translation drops. `id_slot` is one such
+  field: a client that pins a conversation to one slot's prompt cache loses that
+  cache on this route.
+
+For `specd`, name the command with `--agent-command claude` (or
+`Repository.spec.agent.command`) with `ANTHROPIC_BASE_URL` in the environment;
+the mod path needs `--clm-mod` as usual, and the local server must support tool
+use for the scope guard and the report hooks to run.
+
 ## Quick start
 
 ```bash
@@ -599,8 +660,10 @@ Every list in the CRDs is a keyed list: `requirements` by `id`, `interfaces` by
 them, and a server side apply edits one entry without rewriting the list.
 
 Requirements carry `id` (unique in the context), `level` (`MUST`, `SHOULD` or
-`MAY`) and `text`. Every `codeRefs` entry is a CodeGraph id: `file:`, `function:`,
-`method:`, `type:` or `package:`. Context-to-context references are `self`,
+`MAY`) and `text`. Every `codeRefs` entry is a CodeGraph id: a node kind of the
+index's own vocabulary and a payload (`file:`, `package:`, `module:`,
+`function:`, `method:`, `constructor:`, `struct:`, `interface:`, `class:`,
+`type:`, ...; `abc/spec.CodeRefKinds` is the list). Context-to-context references are `self`,
 `sc.<name>`, `up.<name>`, `ov.<name>` or `orch.<name>`, and an open architecture
 id such as `sc.kind.denopod` is a reference too; it names the context
 `sc-kind-denopod`, because the dots are part of the id.

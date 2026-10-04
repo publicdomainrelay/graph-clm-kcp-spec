@@ -66,6 +66,13 @@ Graph shape:
 Every node carries an integer `id`, derived from a stable FNV-1a hash of a
 content key, so re-remembering the same fact merges instead of duplicating.
 
+The host applies the document the model edited at the end of a turn and prints a
+failed `specctl clm apply` to stderr instead of dropping it: a silent failure
+reads as a turn where the model changed nothing. The spec graph is optional.
+`linkSpecifies` links a `PiMemory` to a `SpecRequirement` only when the graph
+already carries a matching `CodeRef`, so an unknown reference links nothing and
+the extension runs with or without a spec graph.
+
 ## Layout
 
 ```
@@ -145,6 +152,31 @@ the `deepseek-claude` launcher script if that env var is unset.
 ```bash
 export HYDRA_PI_MODEL=deepseek-flash      # default; deepseek-v4-flash also resolves
 ```
+
+### Running with a local model
+
+The extension is a context file and a graph, so the model behind pi is not its
+business: point pi at any provider it knows. Nothing in this repository runs a
+local model — every test and every eval uses DeepSeek, because a number taken
+from a local model describes the model rather than the loop — but an operator
+who wants one starts pi with the local provider and model:
+
+```bash
+pi --provider llama-cpp --model <name> -e ./pi-hydradb-clm
+```
+
+Inside the specd loop the same arguments come from `--agent-args` on `specd` or
+`Repository.spec.agent.args`, with `--agent-command` naming the pi binary:
+
+```bash
+bin/specd --agent pi --agent-command pi \
+  --agent-args "--provider llama-cpp --model <name>"
+```
+
+There is no `SPECD_PI_ARGS` variable in this repository; the flag and the
+`Repository` field are the only places the arguments are set. The root README
+has the Claude Code half of the same story (`ANTHROPIC_BASE_URL` against a
+`llama-server` that serves the Anthropic Messages API).
 
 ## Install into pi
 

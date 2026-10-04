@@ -18,10 +18,14 @@ happens**, not guessed afterwards.
 | Hook | Behaviour |
 | --- | --- |
 | `session.start` | resolve the context (`SPECD_CLM_CONTEXT`), render it from kcp, write the context document to the state dir (`SPECD_CLM_DOC`), outside the project tree |
-| `prompt.compose` | inject that file as one more session system section |
+| `prompt.compose` | inject that file as one more session system section, appended last so the context is the model's most recent instruction |
 | `tool.call` | refuse a path outside `SPECD_CLM_ROOT`, then report the file a `Read`/`Write`/`Edit`/`MultiEdit` touched |
 | `turn.complete` | apply the model zone when the model changed it, then report the turn |
-| `session.end` | the same, skipped when the session's exit budget has no room |
+| `session.end` | the same, skipped when the exit budget has less than a second left: a hanging exit is worse than a spec edit the next session re-renders from kcp |
+
+The mod's `FileStore.ancestors` answers the empty list on purpose: a mod has no
+ancestor walk, and the engine already reads the `CLAUDE.md` stack for the model,
+so the context document is this host's contribution.
 
 ## The three files a mod is
 
@@ -54,13 +58,17 @@ specctl clm report --change <name> --event <json>
 so kcp access, the delta authority (`abc/delta`) and the graph writes have one
 implementation, and this host and the pi host agree by construction.
 
+Every call carries `--workspace` and `--namespace` explicitly, because the mod
+runs inside the workspace the controller chose, not specctl's default.
+
 ## The scope guard
 
 A realize agent is graded by hidden acceptance tests that live in the repository
 the agent was not given. `SPECD_CLM_ROOT` is the worktree it *was* given, and
 the `tool.call` hook refuses anything that lands outside it before the tool
 runs, so the refusal is an error result the model reads rather than a session
-that silently wandered.
+that silently wandered. The variable is read lazily, because `tool.call` can run
+before `session.start`; a session with no root is ordinary and unguarded.
 
 - A file tool (`Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Grep`,
   `Glob`) is refused when `$.fs.stat(path, { resolve: true })` puts its
@@ -130,3 +138,7 @@ subset of the engine's declarations, so the check works offline. When the engine
 has loaded the mod it writes the real declarations into
 `.claude-plugin/types/`, and `tsc -p .claude-plugin/types` then checks the mod
 against the engine's own file.
+
+The vendored declarations are a hand-written, closed re-export of the ports
+rather than a re-export of `clm/core`'s sources, because the engine's own
+tsconfig does not allow `.ts` import paths.

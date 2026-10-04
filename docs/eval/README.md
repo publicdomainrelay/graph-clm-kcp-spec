@@ -13,6 +13,17 @@ SPECS_WORKSPACE=specs-eval WORKSPACE_KUBECONFIG=.kcp-specd/specs-eval.kubeconfig
 bin/specctl eval --fixtures fixtures --out docs/eval/run-<date>.md
 ```
 
+## Models: DeepSeek only
+
+Every eval and every test in this repository uses DeepSeek: `claude-mod` runs
+`deepseek-claude` with the mod loaded, and `pi` runs the pi package over the
+same hosted provider, `deepseek` with `deepseek-flash`. No local model is used,
+and no report here was taken from one — a number measured against a local model
+describes the model rather than the loop and cannot be compared with the runs
+beside it. An operator can point either host at a local server (the root
+`README.md` says how) but nothing in the repository does it, and a report taken
+that way would not belong in this directory.
+
 ## The runs
 
 | run | agent | scope | report |
@@ -269,3 +280,65 @@ checkout after the fix, and it is the evidence.
   shell variable, a relative walk, a hard link or a case alias is not caught;
   only what resolves inside `SPECD_CLM_ROOT` is allowed. The file tools are
   exact.
+
+## The harness
+
+How a run is taken, and the rules that make it honest:
+
+- One live run at a time: the harness takes the exclusive lock in
+  `.kcp-specd/live.lock` (`--live-lock`, `SPECD_LIVE_LOCK`), and a second run
+  waits and names the file.
+- A scenario's spec patch, its hidden acceptance tests and the scripted draft
+  stay beside the fixture and are copied into the tree only to grade. A scenario
+  file left in the tree would be indexed by CodeGraph and become a context of
+  its own.
+- Every path handed to a host inside the model is absolute: a relative
+  kubeconfig resolves against whatever directory the model happens to be
+  editing.
+- The harness is normally invoked by `specctl`, so `specctl` is its state
+  bridge; `SPECD_SPECCTL` overrides it, and `specctl` on `PATH` is the fallback.
+- A `Repository` source url may use `${NAME:-fallback}`, which `os.ExpandEnv`
+  cannot parse — it reads the whole token as the variable name and answers
+  empty, and an empty url is silently the current directory — so the harness
+  expands the default itself.
+- A patch removes an entry with `{"$patch": "delete"}`; the entry may name a
+  `text` as well as a key, because model-written keyed lists carry the model's
+  own ids. Matching none or more than one entry is an error that names what the
+  spec holds, not a smaller delta.
+- Waiting for a context's changes to drain deletes inside the wait loop, because
+  a reconcile already running can put a change back between the delete and the
+  read.
+- A change is deleted when its context belongs to this repository or no longer
+  exists at all: an orphan recreated under the same name would otherwise be
+  graded against the old baseline and report drift nobody caused.
+- A codebase the controller cloned has no commit the harness took, so its own
+  HEAD is the baseline a reset returns to.
+- The scripted baseline answers a drift from a draft written beside the fixture,
+  and both agent selections — the repository's and the summarize step's — must
+  be set, or the wrong agent answers.
+- A populate that names a real model gets exactly one retry, so a single
+  non-deterministic answer cannot fail the acceptance run.
+- The judge runs its own command with no mod and no extension loaded, so the
+  grading call cannot mutate the state it grades. It refuses an answer that does
+  not name every fact, because a missing verdict would silently grade as a miss,
+  and it tolerates prose or a fence around its JSON — the opposite of
+  `ParseDraft`'s strictness. A judge failure is a harness failure, reported as
+  excluded and never scored as the model's.
+- One sufficiency rebuild is bounded, because the model call has a timeout but
+  the command that grades it does not, and a hanging runner must not hang the
+  whole run.
+- Two measures count as the same number when they differ by at most 1e-9: they
+  are ratios of small counts, so a larger difference came from a different
+  sample.
+- An empty set scores 1 against an empty set, and the Jaccard of two empty sets
+  is 1, so an empty context could only ever score perfect. That is why it is
+  excluded from the means and counted by name instead of being scored.
+- A file counts as inside a context when the observed facts name it, or when it
+  is a new file in a directory the context owns. A spec artifact is never
+  counted: the CLM loop writes those while it works, which is not wandering.
+- A fact's `must` list is a conjunction of entries, and an entry with
+  alternatives is satisfied by any one of them. A fact with no entries can only
+  be graded by the model, so the deterministic fallback never states it — it
+  would otherwise say yes to everything.
+- A YAML scalar that looks numeric is coerced back to a word, so a fact about
+  `0` or `-1` still matches the prose that states it.
