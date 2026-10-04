@@ -147,6 +147,20 @@ func (c *Client) SelectIDs(ctx context.Context, label string) ([]int64, error) {
 	return ids, nil
 }
 
+func (c *Client) SelectIDsWhere(ctx context.Context, label string, filter map[string]any) ([]int64, error) {
+	rows, err := c.Run(ctx, graph.VertexSelect(label, []string{"id"}, filter), nil)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		if id, ok := toInt64(row["id"]); ok {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
 func (c *Client) Select(ctx context.Context, label string, properties []string, filter map[string]any) ([]map[string]any, error) {
 	return c.Run(ctx, graph.VertexSelect(label, properties, filter), nil)
 }

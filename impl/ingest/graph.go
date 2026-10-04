@@ -12,6 +12,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphsqlite"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 )
 
@@ -25,14 +26,21 @@ func RebuildGraph(ctx context.Context, cluster Cluster, writer graph.Writer, opt
 	if namespace == "" {
 		namespace = specapi.DefaultNamespace
 	}
-	snapshots, err := snapshotsFor(ctx, cluster, namespace)
+	snapshots, err := snapshotsFor(ctx, cluster, namespace, graphNamespace(options))
 	if err != nil {
 		return err
 	}
-	return graph.Rebuild(ctx, writer, snapshots)
+	return graph.Rebuild(ctx, writer, graphNamespace(options), snapshots)
 }
 
-func snapshotsFor(ctx context.Context, cluster Cluster, namespace string) ([]graph.Snapshot, error) {
+func graphNamespace(options Options) string {
+	if options.GraphNamespace != "" {
+		return options.GraphNamespace
+	}
+	return graphns.FromEnv()
+}
+
+func snapshotsFor(ctx context.Context, cluster Cluster, namespace, graphNamespace string) ([]graph.Snapshot, error) {
 	listed, err := cluster.List(ctx, specapi.RepositoryGVR, namespace)
 	if err != nil {
 		return nil, err
@@ -56,6 +64,7 @@ func snapshotsFor(ctx context.Context, cluster Cluster, namespace string) ([]gra
 			return nil, err
 		}
 		snapshots = append(snapshots, graph.Snapshot{
+			Namespace:  graphNamespace,
 			Repository: *repository,
 			Contexts:   contexts,
 			CodeRefs:   codeRefs,

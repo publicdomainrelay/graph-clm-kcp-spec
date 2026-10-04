@@ -16,6 +16,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphsqlite"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 )
 
@@ -57,6 +58,8 @@ type Options struct {
 	ManagedBudget int
 
 	DocDir string
+
+	GraphNamespace string
 }
 
 func (o Options) docDir() string {
@@ -125,7 +128,11 @@ func Build(ctx context.Context, options Options) (agent.ContextBundle, error) {
 	}
 
 	if options.Writer != nil {
-		neighbors, err := Neighbors(ctx, options.Writer, options.Context)
+		namespace := options.GraphNamespace
+		if namespace == "" {
+			namespace = graphns.FromEnv()
+		}
+		neighbors, err := NeighborsIn(ctx, options.Writer, namespace, options.Context)
 		if err != nil {
 			return agent.ContextBundle{}, err
 		}
@@ -156,7 +163,11 @@ func readRepository(ctx context.Context, cluster Cluster, namespace, name string
 }
 
 func Neighbors(ctx context.Context, writer graph.Writer, contextName string) ([]agent.Neighbor, error) {
-	id := graph.ContextID(contextName)
+	return NeighborsIn(ctx, writer, graphns.FromEnv(), contextName)
+}
+
+func NeighborsIn(ctx context.Context, writer graph.Writer, namespace, contextName string) ([]agent.Neighbor, error) {
+	id := graph.ContextIDIn(namespace, contextName)
 	out := []agent.Neighbor{}
 	for _, edgeSpec := range graph.EdgeSpecs {
 		if edgeSpec.FromLabel == graph.LabelContext {

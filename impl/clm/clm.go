@@ -14,6 +14,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 )
 
@@ -36,9 +37,18 @@ type Options struct {
 
 	Writer graph.Writer
 
+	GraphNamespace string
+
 	ManagedBudget int
 
 	Now func() time.Time
+}
+
+func (o Options) graphNamespace() string {
+	if o.GraphNamespace != "" {
+		return o.GraphNamespace
+	}
+	return graphns.FromEnv()
 }
 
 type Document struct {
@@ -279,30 +289,31 @@ func Report(ctx context.Context, options Options, request ReportOptions) (Report
 	result.Progress = len(change.Status.Progress)
 
 	if options.Writer != nil {
-		if err := writeLive(ctx, options.Writer, *change, record, result.Index); err != nil {
+		if err := writeLive(ctx, options.Writer, options.graphNamespace(), *change, record, result.Index); err != nil {
 			return result, err
 		}
 	}
 	return result, nil
 }
 
-func writeLive(ctx context.Context, writer graph.Writer, change spec.SpecChange, record spec.ProgressRecord, index int) error {
+func writeLive(ctx context.Context, writer graph.Writer, namespace string, change spec.SpecChange, record spec.ProgressRecord, index int) error {
 	vertices, edges := graph.LiveTable()
 	changeIndex, progressIndex := 0, 1
 	touchedIndex, occurredIndex := 0, 1
 
-	vertices[changeIndex].Rows = append(vertices[changeIndex].Rows, graph.ChangeVertex(change))
+	changeID := graph.ChangeIDIn(namespace, change.Name)
+	vertices[changeIndex].Rows = append(vertices[changeIndex].Rows, graph.ChangeVertexIn(namespace, change))
 	for _, file := range record.Files {
-		vertex := graph.FileCodeRef(file)
+		vertex := graph.FileCodeRefIn(namespace, file)
 		vertices = append(vertices, graph.VertexSet{Label: graph.LabelCodeRef, Rows: []graph.Vertex{vertex}})
 		edges[touchedIndex].Rows = append(edges[touchedIndex].Rows,
-			graph.Edge{From: graph.ChangeID(change.Name), To: vertex.ID})
+			graph.Edge{From: changeID, To: vertex.ID})
 	}
 	if record.Tool != "" || record.Note != "" || record.Turn > 0 {
 		vertices[progressIndex].Rows = append(vertices[progressIndex].Rows,
-			graph.ProgressVertex(change.Name, index, record))
+			graph.ProgressVertexIn(namespace, change.Name, index, record))
 		edges[occurredIndex].Rows = append(edges[occurredIndex].Rows,
-			graph.Edge{From: graph.ChangeID(change.Name), To: graph.ProgressID(change.Name, index)})
+			graph.Edge{From: changeID, To: graph.ProgressIDIn(namespace, change.Name, index)})
 	}
 
 	for _, set := range vertices {

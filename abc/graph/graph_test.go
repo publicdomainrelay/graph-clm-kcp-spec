@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -234,6 +235,7 @@ type fakeWriter struct {
 	deleted []string
 	written []string
 	queries []string
+	scopes  []string
 }
 
 func (w *fakeWriter) WriteVertices(_ context.Context, set VertexSet) error {
@@ -259,6 +261,11 @@ func (w *fakeWriter) SelectIDs(_ context.Context, label string) ([]int64, error)
 	return []int64{1, 2}, nil
 }
 
+func (w *fakeWriter) SelectIDsWhere(_ context.Context, label string, filter map[string]any) ([]int64, error) {
+	w.scopes = append(w.scopes, fmt.Sprint(filter[ScopeProperty]))
+	return []int64{1, 2}, nil
+}
+
 func (w *fakeWriter) SelectOut(context.Context, string, string, string, int64, []string) ([]map[string]any, error) {
 	return nil, nil
 }
@@ -269,7 +276,7 @@ func (w *fakeWriter) SelectIn(context.Context, string, string, string, int64, []
 
 func TestRebuildDeletesEveryManagedLabelThenWrites(t *testing.T) {
 	writer := &fakeWriter{}
-	if err := Rebuild(context.Background(), writer, []Snapshot{snapshot()}); err != nil {
+	if err := Rebuild(context.Background(), writer, "", []Snapshot{snapshot()}); err != nil {
 		t.Fatal(err)
 	}
 	if len(writer.deleted) != len(ManagedLabels) {

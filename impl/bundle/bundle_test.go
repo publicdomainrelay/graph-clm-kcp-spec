@@ -60,6 +60,10 @@ func (f *fakeGraph) DeleteVertices(context.Context, []int64) error { return nil 
 
 func (f *fakeGraph) SelectIDs(context.Context, string) ([]int64, error) { return nil, nil }
 
+func (f *fakeGraph) SelectIDsWhere(context.Context, string, map[string]any) ([]int64, error) {
+	return nil, nil
+}
+
 func (f *fakeGraph) SelectOut(_ context.Context, edgeType, _, _ string, _ int64, _ []string) ([]map[string]any, error) {
 	return f.out[edgeType], nil
 }

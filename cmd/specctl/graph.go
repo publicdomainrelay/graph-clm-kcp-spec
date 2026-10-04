@@ -13,6 +13,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltgraph"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 )
 
@@ -67,7 +68,7 @@ func runGraphNeighbors(args []string, stdout, stderr io.Writer) int {
 	defer client.Close(ctx)
 
 	name := resolveContextName(positional[0])
-	contextID := graph.ContextID(name)
+	contextID := graph.ContextIDIn(graphns.FromEnv(), name)
 	found, err := client.Select(ctx, graph.LabelContext, []string{"name", "repo"}, map[string]any{"id": contextID})
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl graph neighbors: %v\n", err)
@@ -216,14 +217,27 @@ func runGraphRebuild(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 
+	scope := graphns.FromEnv()
 	counts := []string{}
 	for _, label := range graph.ManagedLabels {
-		ids, err := writer.SelectIDs(ctx, label)
+		var (
+			ids []int64
+			err error
+		)
+		if scope == "" {
+			ids, err = writer.SelectIDs(ctx, label)
+		} else {
+			ids, err = writer.SelectIDsWhere(ctx, label, map[string]any{graph.ScopeProperty: scope})
+		}
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl graph rebuild: %v\n", err)
 			return exitError
 		}
 		counts = append(counts, fmt.Sprintf("%s=%d", label, len(ids)))
+	}
+	if scope != "" {
+		fmt.Fprintf(stdout, "graph rebuilt in namespace %s: %s\n", scope, strings.Join(counts, " "))
+		return exitOK
 	}
 	fmt.Fprintf(stdout, "graph rebuilt: %s\n", strings.Join(counts, " "))
 	return exitOK

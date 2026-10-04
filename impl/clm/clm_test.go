@@ -384,6 +384,10 @@ func (f *fakeWriter) DeleteVertices(context.Context, []int64) error { return nil
 
 func (f *fakeWriter) SelectIDs(context.Context, string) ([]int64, error) { return nil, nil }
 
+func (f *fakeWriter) SelectIDsWhere(context.Context, string, map[string]any) ([]int64, error) {
+	return nil, nil
+}
+
 func (f *fakeWriter) SelectOut(context.Context, string, string, string, int64, []string) ([]map[string]any, error) {
 	return nil, nil
 }

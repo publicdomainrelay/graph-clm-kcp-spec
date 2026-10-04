@@ -53,6 +53,8 @@ type Options struct {
 	Adopt *spec.SystemContextSpec
 
 	Writer graph.Writer
+
+	GraphNamespace string
 }
 
 type ContextResult struct {
