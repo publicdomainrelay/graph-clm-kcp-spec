@@ -7,5 +7,7 @@
 # the tree: a `.specs/<name>.yaml` the mirror writes has to be committable, and
 # codegraph skips its own directory without being told.
 scenarios/
+drift/
 summarize.yaml
+expected.yaml
 fixture.yaml

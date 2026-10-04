@@ -1,0 +1,21 @@
+# The behavioural facts a correct spec of the greet module must state.
+contexts:
+  greet:
+    facts:
+      - id: f-greet-text
+        text: greet returns the name and the greeting text for it.
+        must: [greet, [text, hello]]
+      - id: f-shout-uppercase
+        text: shout returns the greeting text in upper case.
+        must: [shout, [upper, uppercase]]
+      - id: f-greeter-prefix
+        text: Greeter prefixes a greeting with the prefix it was built with.
+        must: [greeter, prefix]
+  format:
+    facts:
+      - id: f-title-case
+        text: titleCase capitalises every word of a string.
+        must: [titlecase, [capitalis, capitaliz, word]]
+      - id: f-trim-all
+        text: trimAll trims every value of a list.
+        must: [trimall, trim]

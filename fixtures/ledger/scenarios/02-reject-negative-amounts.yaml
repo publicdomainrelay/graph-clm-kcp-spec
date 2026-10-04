@@ -1,0 +1,63 @@
+# Difficulty 3: a behaviour change with no interface change. The requirement
+# text moves, the surface does not, so the delta is one entry and an agent that
+# only looks at interfaces has nothing to work from.
+name: reject-negative-amounts
+context: domain
+difficulty: 3
+description: change a requirement so the ledger refuses a negative amount
+specPatch:
+  requirements:
+    - id: r.validate
+      level: MUST
+      text: Validate rejects an entry with no account with ErrEmptyAccount, and an entry whose amount is negative with ErrNegativeAmount.
+      codeRefs: ["function:Validate", "file:domain/posting.go"]
+expectedInterfaces: []
+expectedDeltaEntries: 1
+acceptance:
+  - path: domain/acceptance_negative_test.go
+    contents: |
+      package domain
+
+      import (
+      	"errors"
+      	"testing"
+      )
+
+      func TestAcceptanceRejectNegative(t *testing.T) {
+      	if err := Validate(Entry{Account: "cash", Amount: -1}); !errors.Is(err, ErrNegativeAmount) {
+      		t.Fatalf("Validate with a negative amount = %v, want ErrNegativeAmount", err)
+      	}
+      	if err := Validate(Entry{Account: "cash", Amount: 0}); err != nil {
+      		t.Fatalf("Validate with a zero amount = %v, want nil", err)
+      	}
+      	ledger := NewLedger()
+      	if err := ledger.Post(Entry{Account: "cash", Amount: -5}); !errors.Is(err, ErrNegativeAmount) {
+      		t.Fatalf("Post with a negative amount = %v, want ErrNegativeAmount", err)
+      	}
+      	if entries := ledger.Entries(""); len(entries) != 0 {
+      		t.Fatalf("a refused entry was posted: %+v", entries)
+      	}
+      }
+realize:
+  - patch:
+      path: domain/posting.go
+      find: |
+        // Validate reports whether an entry may be posted. Today it only asks for an
+        // account: an amount below zero is still accepted.
+        func Validate(entry Entry) error {
+        	if entry.Account == "" {
+        		return ErrEmptyAccount
+        	}
+        	return nil
+        }
+      replace: |
+        // Validate reports whether an entry may be posted.
+        func Validate(entry Entry) error {
+        	if entry.Account == "" {
+        		return ErrEmptyAccount
+        	}
+        	if entry.Amount < 0 {
+        		return ErrNegativeAmount
+        	}
+        	return nil
+        }

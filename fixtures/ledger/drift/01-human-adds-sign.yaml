@@ -1,0 +1,128 @@
+# Goal 5: a human adds a function and the controller raises code -> spec for the
+# drift. The spec the agent writes is graded on the interface it gained, the
+# requirement about the new behaviour, and the one intended delta entry.
+name: human-adds-sign
+context: domain
+difficulty: 2
+description: a human adds Sign to the domain
+commit:
+  - patch:
+      path: domain/posting.go
+      find: |
+        // Sum totals the amounts of a set of entries.
+        func Sum(entries []Entry) int {
+        	total := 0
+        	for _, entry := range entries {
+        		total += entry.Amount
+        	}
+        	return total
+        }
+      replace: |
+        // Sum totals the amounts of a set of entries.
+        func Sum(entries []Entry) int {
+        	total := 0
+        	for _, entry := range entries {
+        		total += entry.Amount
+        	}
+        	return total
+        }
+
+        // Sign returns -1 for a negative amount, 0 for zero and 1 for a positive one.
+        func Sign(amount int) int {
+        	switch {
+        	case amount < 0:
+        		return -1
+        	case amount > 0:
+        		return 1
+        	}
+        	return 0
+        }
+expectedInterfacesAdded: ["Sign"]
+expectedInterfacesRemoved: []
+expectedDeltaEntries: 1
+prose:
+  - id: f-sign
+    text: Sign returns -1 for a negative amount, 0 for zero and 1 for a positive one.
+    must: [sign, [negative, -1]]
+draft:
+  summary: |
+    The ledger's rules, now with a sign helper.
+  intent: |
+    The domain of a double-entry ledger. It owns the entry type, the
+    validation rule and the arithmetic; the storage remembers and the HTTP
+    front end translates, but neither decides anything.
+  requirements:
+    - id: r.validate
+      level: MUST
+      text: Validate reports whether an entry may be posted, and rejects an entry with no account with ErrEmptyAccount.
+      codeRefs: ["Validate", "file:domain/posting.go"]
+    - id: r.sum
+      level: MUST
+      text: Sum totals the amounts of a set of entries.
+      codeRefs: ["Sum", "file:domain/posting.go"]
+    - id: r.sign
+      level: SHOULD
+      text: Sign returns -1 for a negative amount, 0 for zero and 1 for a positive one.
+      codeRefs: ["Sign", "file:domain/posting.go"]
+    - id: r.new-ledger
+      level: MUST
+      text: NewLedger returns an empty ledger.
+      codeRefs: ["NewLedger", "file:domain/ledger.go"]
+    - id: r.post
+      level: MUST
+      text: Post validates an entry and appends it to the ledger.
+      codeRefs: ["Ledger.Post", "file:domain/ledger.go"]
+    - id: r.balance
+      level: MUST
+      text: Balance returns the sum of the entries of one account, and ErrUnknownAccount for an empty account.
+      codeRefs: ["Ledger.Balance", "file:domain/ledger.go"]
+    - id: r.entries
+      level: MUST
+      text: Entries returns the entries of one account, oldest first; an empty account means every account.
+      codeRefs: ["Ledger.Entries", "file:domain/ledger.go"]
+    - id: r.account-valid
+      level: SHOULD
+      text: Account.Valid reports whether an account carries an id.
+      codeRefs: ["Account.Valid", "file:domain/account.go"]
+  interfaces:
+    - name: Account
+      kind: struct
+      file: domain/account.go
+    - name: Account.Valid
+      kind: method
+      signature: "() bool"
+      file: domain/account.go
+    - name: Entry
+      kind: struct
+      file: domain/entry.go
+    - name: Ledger
+      kind: struct
+      file: domain/ledger.go
+    - name: NewLedger
+      kind: function
+      signature: "() *Ledger"
+      file: domain/ledger.go
+    - name: Ledger.Post
+      kind: method
+      signature: "(entry Entry) error"
+      file: domain/ledger.go
+    - name: Ledger.Balance
+      kind: method
+      signature: "(account string) (int, error)"
+      file: domain/ledger.go
+    - name: Ledger.Entries
+      kind: method
+      signature: "(account string) []Entry"
+      file: domain/ledger.go
+    - name: Validate
+      kind: function
+      signature: "(entry Entry) error"
+      file: domain/posting.go
+    - name: Sum
+      kind: function
+      signature: "(entries []Entry) int"
+      file: domain/posting.go
+    - name: Sign
+      kind: function
+      signature: "(amount int) int"
+      file: domain/posting.go

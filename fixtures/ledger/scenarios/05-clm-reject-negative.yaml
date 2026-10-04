@@ -1,0 +1,37 @@
+# Difficulty 3, the CLM path. Nobody patches the spec: the model is asked in
+# natural language, it edits the context document, and the host inside it
+# applies the delta with `specctl clm apply`. The scripted baseline cannot do
+# this and the scenario is counted as skipped for it. The intended change is one
+# requirement, so the delta is one entry.
+name: clm-reject-negative-amounts
+context: domain
+difficulty: 3
+description: the model changes the spec by editing the context document
+via: clm
+request: |
+  The ledger must reject an entry whose amount is negative. Change the
+  requirement r.validate so it also says that Validate returns ErrNegativeAmount
+  for an amount below zero, and that Post refuses such an entry because it
+  validates first. Do not add or remove any interface and do not add a new
+  requirement: edit r.validate.
+expectedInterfaces: []
+expectedDeltaEntries: 1
+acceptance:
+  - path: domain/acceptance_clm_negative_test.go
+    contents: |
+      package domain
+
+      import (
+      	"errors"
+      	"testing"
+      )
+
+      func TestAcceptanceClmRejectNegative(t *testing.T) {
+      	if err := Validate(Entry{Account: "cash", Amount: -1}); !errors.Is(err, ErrNegativeAmount) {
+      		t.Fatalf("Validate with a negative amount = %v, want ErrNegativeAmount", err)
+      	}
+      	ledger := NewLedger()
+      	if err := ledger.Post(Entry{Account: "cash", Amount: -5}); !errors.Is(err, ErrNegativeAmount) {
+      		t.Fatalf("Post with a negative amount = %v, want ErrNegativeAmount", err)
+      	}
+      }

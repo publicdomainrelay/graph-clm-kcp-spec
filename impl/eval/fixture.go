@@ -88,16 +88,60 @@ type Scenario struct {
 
 	ExpectedInterfaces []string `json:"expectedInterfaces"`
 
+	ExpectedRemovedInterfaces []string `json:"expectedRemovedInterfaces"`
+
 	ExpectedDeltaEntries int `json:"expectedDeltaEntries"`
 
 	Acceptance []AcceptanceFile `json:"acceptance"`
 
 	Realize []scriptedagent.Step `json:"realize"`
 
+	// Targets is a change that spans more than one context: each target carries
+	// its own spec edit, its own intended delta and its own hidden tests. A
+	// scenario with no targets is the single target the fields above describe.
+	Targets []Target `json:"targets,omitempty"`
+
 	// File is the scenario's file name without its extension. A glob may match
 	// it, so `--scenarios 01-*` names the easiest scenario of every fixture
 	// without knowing the names each fixture gave them.
 	File string `json:"-"`
+}
+
+// Target is one context a scenario changes.
+type Target struct {
+	Context string `json:"context"`
+
+	SpecPatch map[string]any `json:"specPatch"`
+
+	ExpectedInterfaces []string `json:"expectedInterfaces"`
+
+	// ExpectedRemovedInterfaces names the interfaces the change must make the
+	// index stop observing, which is how a removal is graded.
+	ExpectedRemovedInterfaces []string `json:"expectedRemovedInterfaces"`
+
+	ExpectedDeltaEntries int `json:"expectedDeltaEntries"`
+
+	Acceptance []AcceptanceFile `json:"acceptance"`
+
+	Realize []scriptedagent.Step `json:"realize"`
+}
+
+// resolvedTargets is the scenario as a list of targets: what it says when it
+// names targets, and the single target its own fields describe when it does
+// not.
+func (s Scenario) resolvedTargets() []Target {
+	if len(s.Targets) > 0 {
+		return s.Targets
+	}
+	return []Target{{
+		Context:                   s.Context,
+		SpecPatch:                 s.SpecPatch,
+		ExpectedInterfaces:        s.ExpectedInterfaces,
+		ExpectedRemovedInterfaces: s.ExpectedRemovedInterfaces,
+		ExpectedDeltaEntries:      s.ExpectedDeltaEntries,
+		Acceptance:                s.Acceptance,
+		Realize:                   s.Realize,
+	}}
 }
 
 // Expectations is the fixture's expected.yaml: the behavioural facts a correct
@@ -364,18 +408,28 @@ func loadScenarios(dir string) ([]Scenario, error) {
 		}
 		switch scenario.Via {
 		case "":
-			if len(scenario.SpecPatch) == 0 {
-				return nil, fmt.Errorf("eval: %s carries no specPatch", path)
+			for index := range scenario.Targets {
+				if scenario.Targets[index].Context == "" {
+					scenario.Targets[index].Context = scenario.Context
+				}
+			}
+			for _, target := range scenario.resolvedTargets() {
+				if len(target.SpecPatch) == 0 {
+					return nil, fmt.Errorf("eval: %s carries no specPatch for %s", path, target.Context)
+				}
+				if len(target.Acceptance) == 0 {
+					return nil, fmt.Errorf("eval: %s carries no acceptance test for %s", path, target.Context)
+				}
 			}
 		case "clm":
 			if strings.TrimSpace(scenario.Request) == "" {
 				return nil, fmt.Errorf("eval: %s is a CLM scenario with no request", path)
 			}
+			if len(scenario.Targets) > 1 {
+				return nil, fmt.Errorf("eval: %s is a CLM scenario with more than one target", path)
+			}
 		default:
 			return nil, fmt.Errorf("eval: %s names an unknown via %q", path, scenario.Via)
-		}
-		if len(scenario.Acceptance) == 0 {
-			return nil, fmt.Errorf("eval: %s carries no acceptance test", path)
 		}
 		scenarios = append(scenarios, scenario)
 	}

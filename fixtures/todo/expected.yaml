@@ -1,0 +1,24 @@
+# The behavioural facts a correct spec of the todo service must state.
+contexts:
+  todo:
+    facts:
+      - id: f-new-store-empty
+        text: NewStore returns an empty store whose first task gets id 1.
+        must: [newstore, [empty, id]]
+      - id: f-add-returns
+        text: Add appends a task with the given title and returns it.
+        must: [add, [append, title]]
+      - id: f-list-oldest-first
+        text: List returns every task, oldest first.
+        must: [list, [oldest, order]]
+      - id: f-get-not-found
+        text: Get returns one task by id, or ErrNotFound.
+        must: [get, [notfound, not found]]
+      - id: f-complete-marks-done
+        text: Complete marks a task done and returns it, or ErrNotFound.
+        must: [complete, [done, marks]]
+  httpapi:
+    facts:
+      - id: f-handler-routes
+        text: NewHandler returns the service's routes over one store.
+        must: [handler, [route, routes]]

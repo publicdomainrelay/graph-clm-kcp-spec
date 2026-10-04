@@ -1,0 +1,7 @@
+# The eval manifest of the ledger fixture: a Go double-entry service split by
+# directory into the domain rules, the storage and the HTTP front end, plus the
+# command that serves them. It is the fixture with more than ten files and more
+# than three contexts, so a change can span two of them.
+name: ledger
+verify: ["go", "test", "./..."]
+accept: ["go", "test", "./..."]

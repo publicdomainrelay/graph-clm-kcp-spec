@@ -1,0 +1,67 @@
+# Goal 5 on the smallest fixture: a human adds Abs, the drift raises code ->
+# spec, and the spec the agent writes has to gain the interface and say what it
+# does.
+name: human-adds-abs
+context: calc
+difficulty: 1
+description: a human adds Abs to the calc library
+commit:
+  - patch:
+      path: calc/calc.go
+      find: |
+        // Multiply returns the product of two integers.
+        func Multiply(a, b int) int {
+        	return a * b
+        }
+      replace: |
+        // Multiply returns the product of two integers.
+        func Multiply(a, b int) int {
+        	return a * b
+        }
+
+        // Abs returns the absolute value of an integer.
+        func Abs(a int) int {
+        	if a < 0 {
+        		return -a
+        	}
+        	return a
+        }
+expectedInterfacesAdded: ["Abs"]
+expectedInterfacesRemoved: []
+expectedDeltaEntries: 1
+prose:
+  - id: f-abs
+    text: Abs returns the absolute value of an integer.
+    must: [abs, absolute]
+draft:
+  summary: |
+    The calc package is integer arithmetic behind one exported surface.
+  intent: |
+    Arithmetic on two integers, as a library the command line front end
+    wraps. It exists to be a small, complete example of a managed context.
+  requirements:
+    - id: r.add
+      level: MUST
+      text: Add returns the sum of two integers.
+      codeRefs: ["Add", "file:calc/calc.go"]
+    - id: r.multiply
+      level: MUST
+      text: Multiply returns the product of two integers.
+      codeRefs: ["Multiply", "file:calc/calc.go"]
+    - id: r.abs
+      level: SHOULD
+      text: Abs returns the absolute value of an integer.
+      codeRefs: ["Abs", "file:calc/calc.go"]
+  interfaces:
+    - name: Add
+      kind: function
+      signature: "(a, b int) int"
+      file: calc/calc.go
+    - name: Multiply
+      kind: function
+      signature: "(a, b int) int"
+      file: calc/calc.go
+    - name: Abs
+      kind: function
+      signature: "(a int) int"
+      file: calc/calc.go

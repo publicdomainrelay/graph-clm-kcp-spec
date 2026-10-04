@@ -1,0 +1,111 @@
+# Goal 5, the requirement-only case: a human changes a behaviour and no
+# interface moves. The spec the agent writes has to say the new behaviour, and
+# the interface delta is zero because nothing about the surface changed.
+name: human-rejects-negative
+context: domain
+difficulty: 3
+description: a human makes Validate refuse a negative amount
+commit:
+  - patch:
+      path: domain/posting.go
+      find: |
+        // Validate reports whether an entry may be posted. Today it only asks for an
+        // account: an amount below zero is still accepted.
+        func Validate(entry Entry) error {
+        	if entry.Account == "" {
+        		return ErrEmptyAccount
+        	}
+        	return nil
+        }
+      replace: |
+        // Validate reports whether an entry may be posted.
+        func Validate(entry Entry) error {
+        	if entry.Account == "" {
+        		return ErrEmptyAccount
+        	}
+        	if entry.Amount < 0 {
+        		return ErrNegativeAmount
+        	}
+        	return nil
+        }
+expectedInterfacesAdded: []
+expectedInterfacesRemoved: []
+expectedDeltaEntries: 0
+prose:
+  - id: f-reject-negative
+    text: Validate rejects a negative amount with ErrNegativeAmount.
+    must: [validate, [negative, errnegativeamount]]
+draft:
+  summary: |
+    The ledger's rules, with the negative amount rule written down.
+  intent: |
+    The domain of a double-entry ledger. It owns the entry type, the
+    validation rule and the arithmetic; the storage remembers and the HTTP
+    front end translates, but neither decides anything.
+  requirements:
+    - id: r.validate
+      level: MUST
+      text: Validate rejects an entry with no account with ErrEmptyAccount, and a negative amount with ErrNegativeAmount.
+      codeRefs: ["Validate", "file:domain/posting.go"]
+    - id: r.sum
+      level: MUST
+      text: Sum totals the amounts of a set of entries.
+      codeRefs: ["Sum", "file:domain/posting.go"]
+    - id: r.new-ledger
+      level: MUST
+      text: NewLedger returns an empty ledger.
+      codeRefs: ["NewLedger", "file:domain/ledger.go"]
+    - id: r.post
+      level: MUST
+      text: Post validates an entry and appends it to the ledger.
+      codeRefs: ["Ledger.Post", "file:domain/ledger.go"]
+    - id: r.balance
+      level: MUST
+      text: Balance returns the sum of the entries of one account, and ErrUnknownAccount for an empty account.
+      codeRefs: ["Ledger.Balance", "file:domain/ledger.go"]
+    - id: r.entries
+      level: MUST
+      text: Entries returns the entries of one account, oldest first; an empty account means every account.
+      codeRefs: ["Ledger.Entries", "file:domain/ledger.go"]
+    - id: r.account-valid
+      level: SHOULD
+      text: Account.Valid reports whether an account carries an id.
+      codeRefs: ["Account.Valid", "file:domain/account.go"]
+  interfaces:
+    - name: Account
+      kind: struct
+      file: domain/account.go
+    - name: Account.Valid
+      kind: method
+      signature: "() bool"
+      file: domain/account.go
+    - name: Entry
+      kind: struct
+      file: domain/entry.go
+    - name: Ledger
+      kind: struct
+      file: domain/ledger.go
+    - name: NewLedger
+      kind: function
+      signature: "() *Ledger"
+      file: domain/ledger.go
+    - name: Ledger.Post
+      kind: method
+      signature: "(entry Entry) error"
+      file: domain/ledger.go
+    - name: Ledger.Balance
+      kind: method
+      signature: "(account string) (int, error)"
+      file: domain/ledger.go
+    - name: Ledger.Entries
+      kind: method
+      signature: "(account string) []Entry"
+      file: domain/ledger.go
+    - name: Validate
+      kind: function
+      signature: "(entry Entry) error"
+      file: domain/posting.go
+    - name: Sum
+      kind: function
+      signature: "(entries []Entry) int"
+      file: domain/posting.go

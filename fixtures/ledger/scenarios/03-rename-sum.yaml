@@ -1,0 +1,48 @@
+# Difficulty 3: a rename. The declared surface loses one name and gains
+# another, so the delta carries a removal, an addition and the requirement that
+# pointed at the old name. The removal is a merge directive, because a merge by
+# key can add and change an entry but only a directive can take one away.
+name: rename-sum-to-total
+context: domain
+difficulty: 3
+description: rename an exported function and its requirement
+specPatch:
+  interfaces:
+    - {"$patch": "delete", "name": "Sum"}
+    - name: Total
+      kind: function
+      signature: "(entries []Entry) int"
+      file: domain/posting.go
+  requirements:
+    - id: r.sum
+      level: MUST
+      text: Total totals the amounts of a set of entries.
+      codeRefs: ["function:Total", "file:domain/posting.go"]
+expectedInterfaces: ["Total"]
+expectedRemovedInterfaces: ["Sum"]
+expectedDeltaEntries: 3
+acceptance:
+  - path: domain/acceptance_total_test.go
+    contents: |
+      package domain
+
+      import "testing"
+
+      func TestAcceptanceTotal(t *testing.T) {
+      	entries := []Entry{{Amount: 10}, {Amount: -3}, {Amount: 5}}
+      	if got := Total(entries); got != 12 {
+      		t.Fatalf("Total = %d, want 12", got)
+      	}
+      	if got := Total(nil); got != 0 {
+      		t.Fatalf("Total of nothing = %d, want 0", got)
+      	}
+      }
+realize:
+  - patch:
+      path: domain/posting.go
+      find: |
+        // Sum totals the amounts of a set of entries.
+        func Sum(entries []Entry) int {
+      replace: |
+        // Total totals the amounts of a set of entries.
+        func Total(entries []Entry) int {

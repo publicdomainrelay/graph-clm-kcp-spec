@@ -1,0 +1,12 @@
+# The behavioural facts a correct spec of calc must state. The observed
+# interface list is handed to the model, so these are the only code -> spec
+# claims that measure whether it read the code.
+contexts:
+  calc:
+    facts:
+      - id: f-add-sums
+        text: Add returns the sum of two integers.
+        must: [add, [sum, total]]
+      - id: f-multiply-products
+        text: Multiply returns the product of two integers.
+        must: [multiply, [product, multiplied]]

@@ -11,7 +11,7 @@ specPatch:
     - id: r.greet
       level: MUST
       text: greet returns the name and the greeting text for it, which ends with an exclamation mark.
-      codeRefs: ["greet", "file:mod.ts"]
+      codeRefs: ["function:greet", "file:mod.ts"]
 expectedInterfaces: ["Greeting", "Greeter", "greet", "shout"]
 expectedDeltaEntries: 1
 acceptance:

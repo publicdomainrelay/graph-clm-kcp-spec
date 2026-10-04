@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
@@ -36,11 +37,24 @@ func (k *Keyword) UnmarshalJSON(data []byte) error {
 		*k = Keyword{single}
 		return nil
 	}
-	many := []string{}
+	many := []any{}
 	if err := json.Unmarshal(data, &many); err != nil {
 		return fmt.Errorf("eval: a keyword is a string or a list of strings: %w", err)
 	}
-	*k = Keyword(many)
+	out := make(Keyword, 0, len(many))
+	for _, entry := range many {
+		// A YAML scalar that looks like a number arrives as one, and a fact
+		// about "0" or "-1" is still a word to look for.
+		switch value := entry.(type) {
+		case string:
+			out = append(out, value)
+		case float64:
+			out = append(out, strconv.FormatFloat(value, 'f', -1, 64))
+		default:
+			return fmt.Errorf("eval: a keyword is a string or a list of strings, not %T", entry)
+		}
+	}
+	*k = out
 	return nil
 }
 

@@ -1,0 +1,132 @@
+# Goal 5, the removal case: a human deletes an exported method (and the test
+# that used it) and the spec the agent writes has to stop declaring it.
+name: human-removes-save
+context: storage
+difficulty: 3
+description: a human removes Store.Save and the test that used it
+commit:
+  - patch:
+      path: storage/storage_test.go
+      find: |
+        import (
+        	"path/filepath"
+        	"testing"
+
+        	"example.com/ledger/domain"
+        )
+      replace: |
+        import (
+        	"os"
+        	"path/filepath"
+        	"testing"
+
+        	"example.com/ledger/domain"
+        )
+  - patch:
+      path: storage/json.go
+      find: |
+        // Save writes the store's entries to a JSON file.
+        func (s *Store) Save(path string) error {
+        	s.mu.Lock()
+        	defer s.mu.Unlock()
+        	encoded, err := json.MarshalIndent(s.entries, "", "  ")
+        	if err != nil {
+        		return err
+        	}
+        	return os.WriteFile(path, append(encoded, '\n'), 0o644)
+        }
+
+      replace: ""
+  - patch:
+      path: storage/storage_test.go
+      find: |
+        func TestSaveAndLoadRoundTrip(t *testing.T) {
+        	path := filepath.Join(t.TempDir(), "ledger.json")
+        	store := New()
+        	store.Add(domain.Entry{Account: "cash", Amount: 100, Memo: "opening"})
+        	if err := store.Save(path); err != nil {
+        		t.Fatalf("Save = %v", err)
+        	}
+        	loaded, err := Load(path)
+        	if err != nil {
+        		t.Fatalf("Load = %v", err)
+        	}
+        	got := loaded.All()
+        	if len(got) != 1 || got[0].Account != "cash" || got[0].Amount != 100 || got[0].Memo != "opening" {
+        		t.Fatalf("loaded = %+v", got)
+        	}
+        }
+      replace: |
+        func TestLoadReadsWhatWasWritten(t *testing.T) {
+        	path := filepath.Join(t.TempDir(), "ledger.json")
+        	body := `[{"account":"cash","amount":100,"memo":"opening"}]`
+        	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+        		t.Fatal(err)
+        	}
+        	loaded, err := Load(path)
+        	if err != nil {
+        		t.Fatalf("Load = %v", err)
+        	}
+        	got := loaded.All()
+        	if len(got) != 1 || got[0].Account != "cash" || got[0].Amount != 100 || got[0].Memo != "opening" {
+        		t.Fatalf("loaded = %+v", got)
+        	}
+        }
+expectedInterfacesAdded: []
+expectedInterfacesRemoved: ["Store.Save"]
+expectedDeltaEntries: 1
+prose:
+  - id: f-load-json
+    text: Load reads entries back from a JSON file.
+    must: [load, json]
+draft:
+  summary: |
+    The store that remembers what the domain accepted.
+  intent: |
+    The ledger's memory. It holds the entries and the file format and decides
+    nothing: what may be posted is the domain's rule.
+  requirements:
+    - id: r.new-store
+      level: MUST
+      text: New returns an empty store.
+      codeRefs: ["New", "file:storage/store.go"]
+    - id: r.add
+      level: MUST
+      text: Add appends one entry to the store.
+      codeRefs: ["Store.Add", "file:storage/memory.go"]
+    - id: r.for
+      level: MUST
+      text: For returns a copy of the entries of one account, oldest first.
+      codeRefs: ["Store.For", "file:storage/memory.go"]
+    - id: r.all
+      level: MUST
+      text: All returns a copy of every entry.
+      codeRefs: ["Store.All", "file:storage/memory.go"]
+    - id: r.load
+      level: MUST
+      text: Load reads entries back from a JSON file.
+      codeRefs: ["Load", "file:storage/json.go"]
+  interfaces:
+    - name: Store
+      kind: struct
+      file: storage/store.go
+    - name: New
+      kind: function
+      signature: "() *Store"
+      file: storage/store.go
+    - name: Store.Add
+      kind: method
+      signature: "(entry domain.Entry)"
+      file: storage/memory.go
+    - name: Store.For
+      kind: method
+      signature: "(account string) []domain.Entry"
+      file: storage/memory.go
+    - name: Store.All
+      kind: method
+      signature: "() []domain.Entry"
+      file: storage/memory.go
+    - name: Load
+      kind: function
+      signature: "(path string) (*Store, error)"
+      file: storage/json.go

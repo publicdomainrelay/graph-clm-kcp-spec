@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
@@ -434,7 +435,7 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 		return run, nil
 	}
 	for _, scenario := range fixture.Scenarios {
-		run.scenarios = append(run.scenarios, h.runScenario(ctx, fixture, scenario, scenarioFiles[scenario.Name], baselines[scenario.Context]))
+		run.scenarios = append(run.scenarios, h.runScenario(ctx, fixture, scenario, scenarioFiles[scenario.Name], baselines))
 	}
 	return run, nil
 }
@@ -664,7 +665,7 @@ func (h *harness) baselines(ctx context.Context, commit string) (map[string]base
 // runScenario resets the tree and the spec to the baseline, applies the
 // scenario's edit, waits for the controller to work it off, and grades the
 // result with the hidden acceptance tests.
-func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Scenario, scenarioFile string, start baseline) eval.ScenarioReport {
+func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Scenario, scenarioFile string, starts map[string]baseline) eval.ScenarioReport {
 	started := time.Now()
 	report := eval.ScenarioReport{
 		Fixture:     fixture.Name,
@@ -673,89 +674,110 @@ func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Sce
 		Difficulty:  scenario.Difficulty,
 		Description: scenario.Description,
 		Agent:       orScripted(h.options.Agent),
+		Via:         scenario.Via,
+		Request:     scenario.Request,
+	}
+	targets := scenario.resolvedTargets()
+	if len(targets) > 1 {
+		names := make([]string, 0, len(targets))
+		for _, target := range targets {
+			names = append(names, target.Context)
+		}
+		report.Context = strings.Join(names, "+")
 	}
 	deadline, cancel := context.WithTimeout(ctx, h.options.Timeout)
 	defer cancel()
+
+	// A CLM scenario is the model's work: it edits the context document and the
+	// host inside it applies the delta. The scripted baseline has no host in it,
+	// so the scenario is left out of the run and counted as skipped rather than
+	// scored as a failure.
+	if scenario.Via == "clm" && isScripted(h.realizeKind) {
+		report.Skipped = true
+		report.WallTimeSeconds = time.Since(started).Seconds()
+		return report
+	}
+
+	report.Pass = true
+	report.VerifyPass = true
+	report.AcceptancePass = true
+	report.Delta.Precise = true
+	entries, expected := 0, 0
+	for _, target := range targets {
+		report.Delta.Expected += target.ExpectedDeltaEntries
+		one, err := h.runTarget(deadline, fixture, scenario, scenarioFile, target, starts[target.Context])
+		entries += one.Delta.Entries
+		report.Attempts += one.Attempts
+		report.ProgressRecords += one.ProgressRecords
+		report.FilesOutside = append(report.FilesOutside, one.FilesOutside...)
+		report.VerifyPass = report.VerifyPass && one.VerifyPass
+		report.AcceptancePass = report.AcceptancePass && one.AcceptancePass
+		report.Delta.Precise = report.Delta.Precise && one.Delta.Precise
+		if err != nil {
+			report.Pass = false
+			if report.Error == "" {
+				report.Error = target.Context + ": " + err.Error()
+			}
+		}
+	}
+	expected = report.Delta.Expected
+	report.Delta.Entries = entries
+	report.Delta.Precise = report.Delta.Precise && entries == expected
+	report.WallTimeSeconds = time.Since(started).Seconds()
+	return report
+}
+
+// runTarget is one context of a scenario: reset that context and the tree,
+// apply the edit or drive the model, wait for the change, and grade it.
+func (h *harness) runTarget(ctx context.Context, fixture Fixture, scenario Scenario, scenarioFile string, target Target, start baseline) (eval.ScenarioReport, error) {
+	report := eval.ScenarioReport{Context: target.Context}
 
 	// The controller is stopped across the reset: the tree goes back to the
 	// baseline commit, and a reconcile of that window would read the revert
 	// against the last scenario's spec.
 	h.stopController()
-	if err := h.reset(deadline, scenario.Context, scenarioFile, start); err != nil {
+	if err := h.reset(ctx, target.Context, scenarioFile, start); err != nil {
 		h.startController()
-		report.Error = err.Error()
-		report.WallTimeSeconds = time.Since(started).Seconds()
-		return report
+		return report, err
 	}
 	if err := h.startController(); err != nil {
-		report.Error = err.Error()
-		report.WallTimeSeconds = time.Since(started).Seconds()
-		return report
+		return report, err
 	}
-	before, err := h.context(deadline, scenario.Context)
+	before, err := h.context(ctx, target.Context)
 	if err != nil {
-		report.Error = err.Error()
-		report.WallTimeSeconds = time.Since(started).Seconds()
-		return report
+		return report, err
+	}
+	if scenario.Via == "clm" {
+		if err := h.driveClm(ctx, scenario); err != nil {
+			return report, err
+		}
+	} else if err := h.applyPatch(ctx, target.Context, target.SpecPatch); err != nil {
+		return report, err
 	}
 
-	// A CLM scenario is the model's work: it edits the context document and the
-	// host inside it applies the delta. The scripted baseline has no such host,
-	// so the scenario is left out of the run and counted as skipped rather than
-	// scored as a failure.
-	if scenario.Via == "clm" && (isScripted(h.realizeKind) || isScripted(h.summarizeKind)) {
-		report.Skipped = true
-		report.Via = scenario.Via
-		report.Request = scenario.Request
-		report.WallTimeSeconds = time.Since(started).Seconds()
-		return report
-	}
-	switch scenario.Via {
-	case "clm":
-		report.Via = "clm"
-		report.Request = scenario.Request
-		if err := h.driveClm(deadline, scenario); err != nil {
-			report.Error = err.Error()
-			report.WallTimeSeconds = time.Since(started).Seconds()
-			return report
-		}
-	default:
-		if err := h.applyPatch(deadline, scenario.Context, scenario.SpecPatch); err != nil {
-			report.Error = err.Error()
-			report.WallTimeSeconds = time.Since(started).Seconds()
-			return report
-		}
-	}
-
-	change, err := h.waitChange(deadline, scenario.Context, specapi.DirectionSpecToCode)
-	report.WallTimeSeconds = time.Since(started).Seconds()
+	change, err := h.waitChange(ctx, target.Context, specapi.DirectionSpecToCode)
 	if err != nil {
-		report.Error = err.Error()
-		return report
+		return report, err
 	}
-	report.Attempts = h.changeCount(ctx, scenario.Context)
+	report.Attempts = h.changeCount(ctx, target.Context)
 	report.ProgressRecords = len(change.Status.Progress)
-	report.Delta = eval.ScoreDelta(change.Spec.Delta, scenario.ExpectedDeltaEntries)
+	report.Delta = eval.ScoreDelta(change.Spec.Delta, target.ExpectedDeltaEntries)
 	report.FilesOutside = eval.FilesOutsideContext(change.Status.FilesTouched, before.Status.Observed)
 	report.VerifyPass = change.Status.Phase == specapi.PhaseSucceeded && change.Status.VerifyExitCode == 0
 	if change.Status.Phase != specapi.PhaseSucceeded {
-		report.Error = strings.TrimSpace(change.Status.Phase + ": " + change.Status.Message + " " + change.Status.AgentLog)
-		return report
+		return report, fmt.Errorf("%s", strings.TrimSpace(change.Status.Phase+": "+change.Status.Message+" "+change.Status.AgentLog))
 	}
 
-	pass, err := h.runAcceptance(deadline, fixture.Config.Accept, scenario.Acceptance)
+	pass, err := h.runAcceptance(ctx, fixture.Config.Accept, target.Acceptance)
 	report.AcceptancePass = pass
 	if err != nil {
-		report.Error = err.Error()
-		return report
+		return report, err
 	}
-	missing := h.missingInterfaces(deadline, scenario.Context, scenario.ExpectedInterfaces)
+	missing := h.waitInterfaces(ctx, target.Context, target.ExpectedInterfaces, target.ExpectedRemovedInterfaces)
 	if len(missing) > 0 {
-		report.Error = "the observed surface is missing: " + strings.Join(missing, ", ")
-		return report
+		return report, fmt.Errorf("the observed surface is wrong: %s", strings.Join(missing, ", "))
 	}
-	report.Pass = true
-	return report
+	return report, nil
 }
 
 // reset puts the working tree and the context back where the scenario found
@@ -857,28 +879,183 @@ func (h *harness) restoreSpec(ctx context.Context, current *spec.SystemContext, 
 	})
 }
 
+// keyedLists names the spec lists that are keyed, and the key each is keyed by.
+// The CRD declares them as list maps, so a scenario patch addresses one entry by
+// its key and leaves the others alone, exactly as a server side apply would.
+var keyedLists = map[string]string{
+	"requirements": "id",
+	"interfaces":   "name",
+}
+
+// mergeKeyedList merges a scenario's list into the list the spec already holds.
+// An entry that says {"$patch": "delete"} takes its key away; any other entry
+// merges over the stored one by key, so a scenario changes the fields it names
+// and keeps the ones it does not (a stored code ref, for one, is canonical and
+// cannot be written by hand). The order the spec already had is kept, and new
+// keys go on the end.
+func mergeKeyedList(current, patch any, key string) ([]any, error) {
+	existing, _ := current.([]any)
+	incoming, _ := patch.([]any)
+	order := []string{}
+	entries := map[string]map[string]any{}
+	for _, raw := range existing {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := entry[key].(string)
+		if name == "" {
+			continue
+		}
+		if _, seen := entries[name]; !seen {
+			order = append(order, name)
+		}
+		entries[name] = entry
+	}
+	for _, raw := range incoming {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("eval: a %s entry is not an object", key)
+		}
+		name, _ := entry[key].(string)
+		if name == "" {
+			return nil, fmt.Errorf("eval: a %s entry names no %s", key, key)
+		}
+		if entry["$patch"] == "delete" {
+			delete(entries, name)
+			continue
+		}
+		merged := map[string]any{}
+		for field, value := range entries[name] {
+			merged[field] = value
+		}
+		for field, value := range entry {
+			if field == "$patch" {
+				continue
+			}
+			merged[field] = value
+		}
+		if _, seen := entries[name]; !seen {
+			order = append(order, name)
+		}
+		entries[name] = merged
+	}
+	out := make([]any, 0, len(entries))
+	for _, name := range order {
+		if entry, ok := entries[name]; ok {
+			out = append(out, entry)
+		}
+	}
+	return out, nil
+}
+
+// checkPatchRefs refuses a scenario whose code refs are not in the stored form.
+// A bare name is what a model may write, because the draft parser canonicalizes
+// it; a server side apply stores the ref exactly as written, and a bare one is
+// refused later by the validator with an error that names the object and not
+// the scenario. Catching it here names the file the mistake is in.
+func checkPatchRefs(name string, patch map[string]any) error {
+	requirements, _ := patch["requirements"].([]any)
+	for _, raw := range requirements {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		refs, _ := entry["codeRefs"].([]any)
+		for _, rawRef := range refs {
+			ref, _ := rawRef.(string)
+			valid := ref == ""
+			for _, prefix := range spec.CodeRefPrefixes {
+				if strings.HasPrefix(ref, prefix) {
+					valid = true
+				}
+			}
+			if !valid {
+				return fmt.Errorf("eval: the patch for %s names the code ref %q, which is not one of the prefixes %v", name, ref, spec.CodeRefPrefixes)
+			}
+		}
+	}
+	return nil
+}
+
+// applyPatch writes one scenario's spec edit the way a person writes one: read
+// the spec, change what the scenario names, write the whole thing back. It is
+// not a server side apply because a merge by key can add and change an entry
+// but cannot take one away, and a removal scenario needs the entry gone. The
+// removal is spelled the same way a Kubernetes apply spells one, with a
+// {"$patch": "delete"} entry, so a scenario says what it means.
 func (h *harness) applyPatch(ctx context.Context, name string, patch map[string]any) error {
-	object := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": specapi.APIVersion,
-		"kind":       specapi.SystemContextKind,
-		"metadata": map[string]any{
-			"name":      name,
-			"namespace": h.namespace,
-		},
-		"spec": patch,
-	}}
-	_, err := h.client.ServerSideApply(ctx, object, scenarioManager)
+	if err := checkPatchRefs(name, patch); err != nil {
+		return err
+	}
+	// The controller writes the status while this runs, so the read and the
+	// write can disagree by one resource version. A conflict means somebody
+	// else wrote; the read is taken again and the merge reapplied.
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		err = h.writePatch(ctx, name, patch)
+		if err == nil || !apierrors.IsConflict(err) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
 	return err
 }
 
-func (h *harness) setAgentKind(ctx context.Context, scenarioFile string) error {
-	repository, err := h.typedRepository(ctx)
+func (h *harness) writePatch(ctx context.Context, name string, patch map[string]any) error {
+	object, err := h.client.Get(ctx, specapi.SystemContextGVR, h.namespace, name)
 	if err != nil {
 		return err
 	}
-	kind := "scripted:" + scenarioFile
-	if h.options.Agent != "" {
+	current, found, err := unstructured.NestedMap(object.Object, "spec")
+	if err != nil {
+		return err
+	}
+	if !found {
+		current = map[string]any{}
+	}
+	for key, value := range patch {
+		keyField, keyed := keyedLists[key]
+		if !keyed {
+			current[key] = value
+			continue
+		}
+		merged, err := mergeKeyedList(current[key], value, keyField)
+		if err != nil {
+			return err
+		}
+		current[key] = merged
+	}
+	if err := unstructured.SetNestedMap(object.Object, current, "spec"); err != nil {
+		return err
+	}
+	_, err = h.client.Apply(ctx, object)
+	return err
+}
+
+// setAgentKind points the Repository's agent at the kind the spec -> code half
+// of one scenario must use. A live run names the live kind; the scripted
+// baseline names the scenario file that carries this scenario's edits. A reset
+// with no scenario file and no live agent leaves the agent alone, which is what
+// a drift scenario wants: its code -> spec pass sets the agent itself.
+func (h *harness) setAgentKind(ctx context.Context, scenarioFile string) error {
+	kind := ""
+	switch {
+	case h.options.Agent != "":
 		kind = h.options.Agent
+	case scenarioFile != "":
+		kind = agentfactory.Scripted + ":" + scenarioFile
+	}
+	if kind == "" {
+		return nil
+	}
+	repository, err := h.typedRepository(ctx)
+	if err != nil {
+		return err
 	}
 	repository.Spec.Agent = &spec.AgentSpec{Kind: kind}
 	return applyTyped(ctx, h.client, repository)
@@ -1084,17 +1261,18 @@ func (h *harness) waitChange(ctx context.Context, name, direction string) (spec.
 	return found, err
 }
 
-// missingInterfaces waits for the re-ingest that follows a realize to observe
-// the interfaces the scenario declared, and reports the ones that never
-// appeared.
-func (h *harness) missingInterfaces(ctx context.Context, name string, expected []string) []string {
-	if len(expected) == 0 {
+// waitInterfaces waits for the re-ingest that follows a realize to observe the
+// interfaces the scenario declared, and reports the ones that never appeared or
+// that should have gone and did not. A removal is graded here: a spec that lost
+// an interface and code that still exports it is a change that did not happen.
+func (h *harness) waitInterfaces(ctx context.Context, name string, expected, removed []string) []string {
+	if len(expected) == 0 && len(removed) == 0 {
 		return nil
 	}
-	missing := []string{}
+	wrong := []string{}
 	deadline := time.Now().Add(30 * time.Second)
 	for {
-		missing = missing[:0]
+		wrong = wrong[:0]
 		current, err := h.context(ctx, name)
 		if err == nil {
 			observed := map[string]bool{}
@@ -1103,15 +1281,20 @@ func (h *harness) missingInterfaces(ctx context.Context, name string, expected [
 			}
 			for _, want := range expected {
 				if !observed[want] {
-					missing = append(missing, want)
+					wrong = append(wrong, "missing "+want)
 				}
 			}
-			if len(missing) == 0 {
+			for _, gone := range removed {
+				if observed[gone] {
+					wrong = append(wrong, "still observed "+gone)
+				}
+			}
+			if len(wrong) == 0 {
 				return nil
 			}
 		}
 		if time.Now().After(deadline) || ctx.Err() != nil {
-			return missing
+			return wrong
 		}
 		time.Sleep(pollInterval)
 	}
@@ -1352,9 +1535,15 @@ func writeScenarioFiles(workDir string, fixture Fixture) (map[string]string, err
 	}
 	files := map[string]string{}
 	for _, scenario := range fixture.Scenarios {
+		realize := map[string][]scriptedagent.Step{}
+		for _, target := range scenario.resolvedTargets() {
+			if len(target.Realize) > 0 {
+				realize[target.Context] = target.Realize
+			}
+		}
 		merged := scriptedagent.Scenario{
 			Contexts: fixture.Drafts.Contexts,
-			Realize:  map[string][]scriptedagent.Step{scenario.Context: scenario.Realize},
+			Realize:  realize,
 		}
 		encoded, err := yaml.Marshal(merged)
 		if err != nil {

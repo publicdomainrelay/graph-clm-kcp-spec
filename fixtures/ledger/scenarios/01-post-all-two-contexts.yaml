@@ -1,0 +1,150 @@
+# Difficulty 3: one feature that spans two contexts. The domain gains a batch
+# post and the storage gains a batch add, each with its own requirement, so the
+# delta is two entries per context and the work crosses a package boundary.
+name: post-all-across-two-contexts
+context: domain
+difficulty: 3
+description: add a batch operation to the domain and to the storage
+targets:
+  - context: domain
+    specPatch:
+      interfaces:
+        - name: Ledger.PostAll
+          kind: method
+          signature: "(entries []Entry) error"
+          file: domain/ledger.go
+      requirements:
+        - id: r.post-all
+          level: MUST
+          text: PostAll validates every entry and appends them all, or posts none.
+          codeRefs: ["method:Ledger.PostAll", "file:domain/ledger.go"]
+    expectedInterfaces: ["Ledger.PostAll"]
+    expectedDeltaEntries: 2
+    acceptance:
+      - path: domain/acceptance_postall_test.go
+        contents: |
+          package domain
+
+          import (
+          	"errors"
+          	"testing"
+          )
+
+          func TestAcceptancePostAll(t *testing.T) {
+          	ledger := NewLedger()
+          	if err := ledger.PostAll([]Entry{{Account: "cash", Amount: 10}, {Account: "fees", Amount: 2}}); err != nil {
+          		t.Fatalf("PostAll = %v, want nil", err)
+          	}
+          	cash, _ := ledger.Balance("cash")
+          	fees, _ := ledger.Balance("fees")
+          	if cash != 10 || fees != 2 {
+          		t.Fatalf("balances = %d and %d, want 10 and 2", cash, fees)
+          	}
+          	if err := ledger.PostAll([]Entry{{Account: "cash", Amount: 5}, {Account: ""}}); !errors.Is(err, ErrEmptyAccount) {
+          		t.Fatalf("PostAll with an empty account = %v, want ErrEmptyAccount", err)
+          	}
+          	if after, _ := ledger.Balance("cash"); after != 10 {
+          		t.Fatalf("a refused batch posted part of itself: balance = %d, want 10", after)
+          	}
+          }
+    realize:
+      - patch:
+          path: domain/ledger.go
+          find: |
+            // Entries returns a copy of the entries of one account, oldest first. An empty
+            // account means every account.
+            func (l *Ledger) Entries(account string) []Entry {
+            	out := []Entry{}
+            	for _, entry := range l.entries {
+            		if account == "" || entry.Account == account {
+            			out = append(out, entry)
+            		}
+            	}
+            	return out
+            }
+          replace: |
+            // Entries returns a copy of the entries of one account, oldest first. An empty
+            // account means every account.
+            func (l *Ledger) Entries(account string) []Entry {
+            	out := []Entry{}
+            	for _, entry := range l.entries {
+            		if account == "" || entry.Account == account {
+            			out = append(out, entry)
+            		}
+            	}
+            	return out
+            }
+
+            // PostAll validates every entry and appends them all, or posts none.
+            func (l *Ledger) PostAll(entries []Entry) error {
+            	for _, entry := range entries {
+            		if err := Validate(entry); err != nil {
+            			return err
+            		}
+            	}
+            	l.entries = append(l.entries, entries...)
+            	return nil
+            }
+  - context: storage
+    specPatch:
+      interfaces:
+        - name: Store.AddAll
+          kind: method
+          signature: "(entries []domain.Entry)"
+          file: storage/memory.go
+      requirements:
+        - id: r.add-all
+          level: MUST
+          text: AddAll appends every entry it is given in one call.
+          codeRefs: ["method:Store.AddAll", "file:storage/memory.go"]
+    expectedInterfaces: ["Store.AddAll"]
+    expectedDeltaEntries: 2
+    acceptance:
+      - path: storage/acceptance_addall_test.go
+        contents: |
+          package storage
+
+          import (
+          	"testing"
+
+          	"example.com/ledger/domain"
+          )
+
+          func TestAcceptanceAddAll(t *testing.T) {
+          	store := New()
+          	store.AddAll([]domain.Entry{{Account: "cash", Amount: 1}, {Account: "fees", Amount: 2}})
+          	if got := store.All(); len(got) != 2 {
+          		t.Fatalf("All() = %+v, want two entries", got)
+          	}
+          	if got := store.For("fees"); len(got) != 1 || got[0].Amount != 2 {
+          		t.Fatalf("For(fees) = %+v", got)
+          	}
+          }
+    realize:
+      - patch:
+          path: storage/memory.go
+          find: |
+            // All returns a copy of every entry.
+            func (s *Store) All() []domain.Entry {
+            	s.mu.Lock()
+            	defer s.mu.Unlock()
+            	out := make([]domain.Entry, len(s.entries))
+            	copy(out, s.entries)
+            	return out
+            }
+          replace: |
+            // All returns a copy of every entry.
+            func (s *Store) All() []domain.Entry {
+            	s.mu.Lock()
+            	defer s.mu.Unlock()
+            	out := make([]domain.Entry, len(s.entries))
+            	copy(out, s.entries)
+            	return out
+            }
+
+            // AddAll appends every entry it is given in one call.
+            func (s *Store) AddAll(entries []domain.Entry) {
+            	s.mu.Lock()
+            	defer s.mu.Unlock()
+            	s.entries = append(s.entries, entries...)
+            }

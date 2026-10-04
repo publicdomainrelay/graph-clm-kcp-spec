@@ -1,0 +1,52 @@
+# The behavioural facts a correct spec of the ledger must state. The observed
+# interface list is in the bundle the model reads, so scoring interfaces
+# measures the prompt; these facts are only in the code. Each fact is graded by
+# a judge, with the `must` terms as the deterministic fallback: every entry has
+# to appear in the spec's prose, and an entry with alternatives is satisfied by
+# any one of them.
+contexts:
+  domain:
+    facts:
+      - id: f-post-appends
+        text: Post validates an entry and only then appends it to the ledger.
+        must: [post, [append, adds]]
+      - id: f-balance-sums-account
+        text: Balance returns the sum of the entries of one account.
+        must: [balance, [sum, total]]
+      - id: f-empty-account-error
+        text: Balance rejects an empty account with ErrUnknownAccount.
+        must: [balance, [errunknownaccount, unknown]]
+      - id: f-validate-empty-account
+        text: Validate rejects an entry that names no account with ErrEmptyAccount.
+        must: [validate, [erremptyaccount, empty]]
+      - id: f-entries-oldest-first
+        text: Entries returns the entries of one account, oldest first.
+        must: [entries, [oldest, order]]
+      - id: f-sum-totals
+        text: Sum totals the amounts of a set of entries.
+        must: [sum, [total, amounts]]
+  storage:
+    facts:
+      - id: f-add-appends
+        text: Add appends one entry to the store.
+        must: [add, [append, adds]]
+      - id: f-for-one-account
+        text: For returns the entries of one account.
+        must: [for, account]
+      - id: f-all-copies
+        text: All returns a copy of every entry.
+        must: [all, [every, copy]]
+      - id: f-save-json
+        text: Save writes the entries to a JSON file.
+        must: [save, json]
+      - id: f-load-reads
+        text: Load reads back the entries a Save wrote.
+        must: [load, [reads, read]]
+  httpapi:
+    facts:
+      - id: f-handler-routes
+        text: NewHandler returns the service's routes over one ledger.
+        must: [handler, [route, routes]]
+      - id: f-entries-query
+        text: The entries route lists what was posted, filtered by an account query parameter.
+        must: [entries]

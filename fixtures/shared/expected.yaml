@@ -1,0 +1,12 @@
+# The behavioural facts a correct spec of the shared fixture must state. The
+# point of the fixture is that two types offer a method with the same bare name,
+# so the facts are about which one does what.
+contexts:
+  shared:
+    facts:
+      - id: f-indexer-order
+        text: Indexer.List returns the items in the order they were added.
+        must: [indexer, [order, added]]
+      - id: f-set-sorted
+        text: Set.List returns the members in sorted order.
+        must: [set, [sorted, sort]]

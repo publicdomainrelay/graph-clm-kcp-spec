@@ -20,7 +20,7 @@ specPatch:
     - id: r.delete
       level: SHOULD
       text: Delete removes one item and reports whether it was there.
-      codeRefs: ["Indexer.Delete", "Set.Delete", "file:store.go"]
+      codeRefs: ["method:Indexer.Delete", "method:Set.Delete", "file:store.go"]
 expectedInterfaces:
   - Indexer
   - Set

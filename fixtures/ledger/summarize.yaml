@@ -1,0 +1,167 @@
+# The deterministic code -> spec answer for the ledger fixture. It names exactly
+# the surface the index observes, which is what makes the baseline CodeSynced:
+# an undeclared exported symbol would leave the context unsynced before any
+# scenario runs.
+contexts:
+  domain:
+    summary: |
+      The ledger's rules: what an entry is, what may be posted, and how a
+      balance is totalled.
+    intent: |
+      The domain of a double-entry ledger. It owns the entry type, the
+      validation rule and the arithmetic; the storage remembers and the HTTP
+      front end translates, but neither decides anything.
+    requirements:
+      - id: r.validate
+        level: MUST
+        text: Validate reports whether an entry may be posted, and rejects an entry with no account with ErrEmptyAccount.
+        codeRefs: ["Validate", "file:domain/posting.go"]
+      - id: r.sum
+        level: MUST
+        text: Sum totals the amounts of a set of entries.
+        codeRefs: ["Sum", "file:domain/posting.go"]
+      - id: r.new-ledger
+        level: MUST
+        text: NewLedger returns an empty ledger.
+        codeRefs: ["NewLedger", "file:domain/ledger.go"]
+      - id: r.post
+        level: MUST
+        text: Post validates an entry and appends it to the ledger.
+        codeRefs: ["Ledger.Post", "file:domain/ledger.go"]
+      - id: r.balance
+        level: MUST
+        text: Balance returns the sum of the entries of one account, and ErrUnknownAccount for an empty account.
+        codeRefs: ["Ledger.Balance", "file:domain/ledger.go"]
+      - id: r.entries
+        level: MUST
+        text: Entries returns the entries of one account, oldest first; an empty account means every account.
+        codeRefs: ["Ledger.Entries", "file:domain/ledger.go"]
+      - id: r.account-valid
+        level: SHOULD
+        text: Account.Valid reports whether an account carries an id.
+        codeRefs: ["Account.Valid", "file:domain/account.go"]
+    interfaces:
+      - name: Account
+        kind: struct
+        file: domain/account.go
+      - name: Account.Valid
+        kind: method
+        signature: "() bool"
+        file: domain/account.go
+      - name: Entry
+        kind: struct
+        file: domain/entry.go
+      - name: Ledger
+        kind: struct
+        file: domain/ledger.go
+      - name: NewLedger
+        kind: function
+        signature: "() *Ledger"
+        file: domain/ledger.go
+      - name: Ledger.Post
+        kind: method
+        signature: "(entry Entry) error"
+        file: domain/ledger.go
+      - name: Ledger.Balance
+        kind: method
+        signature: "(account string) (int, error)"
+        file: domain/ledger.go
+      - name: Ledger.Entries
+        kind: method
+        signature: "(account string) []Entry"
+        file: domain/ledger.go
+      - name: Validate
+        kind: function
+        signature: "(entry Entry) error"
+        file: domain/posting.go
+      - name: Sum
+        kind: function
+        signature: "(entries []Entry) int"
+        file: domain/posting.go
+  storage:
+    summary: |
+      The store that remembers what the domain accepted.
+    intent: |
+      The ledger's memory. It holds the entries and the file format and decides
+      nothing: what may be posted is the domain's rule.
+    requirements:
+      - id: r.new-store
+        level: MUST
+        text: New returns an empty store.
+        codeRefs: ["New", "file:storage/store.go"]
+      - id: r.add
+        level: MUST
+        text: Add appends one entry to the store.
+        codeRefs: ["Store.Add", "file:storage/memory.go"]
+      - id: r.for
+        level: MUST
+        text: For returns a copy of the entries of one account, oldest first.
+        codeRefs: ["Store.For", "file:storage/memory.go"]
+      - id: r.all
+        level: MUST
+        text: All returns a copy of every entry.
+        codeRefs: ["Store.All", "file:storage/memory.go"]
+      - id: r.save
+        level: MUST
+        text: Save writes the store's entries to a JSON file.
+        codeRefs: ["Store.Save", "file:storage/json.go"]
+      - id: r.load
+        level: MUST
+        text: Load reads the entries a Save wrote back into a store.
+        codeRefs: ["Load", "file:storage/json.go"]
+    interfaces:
+      - name: Store
+        kind: struct
+        file: storage/store.go
+      - name: New
+        kind: function
+        signature: "() *Store"
+        file: storage/store.go
+      - name: Store.Add
+        kind: method
+        signature: "(entry domain.Entry)"
+        file: storage/memory.go
+      - name: Store.For
+        kind: method
+        signature: "(account string) []domain.Entry"
+        file: storage/memory.go
+      - name: Store.All
+        kind: method
+        signature: "() []domain.Entry"
+        file: storage/memory.go
+      - name: Store.Save
+        kind: method
+        signature: "(path string) error"
+        file: storage/json.go
+      - name: Load
+        kind: function
+        signature: "(path string) (*Store, error)"
+        file: storage/json.go
+  httpapi:
+    summary: |
+      The JSON front end: three routes over the ledger, no framework.
+    intent: |
+      The HTTP surface of the ledger. It owns the wire format and the status
+      codes and holds no state of its own.
+    requirements:
+      - id: r.new-handler
+        level: MUST
+        text: NewHandler returns the service's routes over one ledger, post an entry, read an account's balance, and list entries.
+        codeRefs: ["NewHandler", "file:httpapi/handler.go"]
+    interfaces:
+      - name: NewHandler
+        kind: function
+        signature: "(ledger *domain.Ledger) http.Handler"
+        file: httpapi/handler.go
+  cmd-ledger:
+    summary: |
+      The command that serves the ledger on an address.
+    intent: |
+      The process entry point: it builds a ledger, mounts the front end and
+      listens.
+    requirements:
+      - id: r.serve
+        level: MUST
+        text: The command serves the ledger over HTTP on the address it is given.
+        codeRefs: ["file:cmd/ledger/main.go"]
+    interfaces: []

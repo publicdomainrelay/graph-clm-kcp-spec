@@ -11,7 +11,7 @@ specPatch:
     - id: r.list
       level: MUST
       text: List returns every task, newest first.
-      codeRefs: ["List", "file:todo/todo.go"]
+      codeRefs: ["method:List", "file:todo/todo.go"]
 expectedInterfaces: ["Store.Add", "Store.Complete", "Store.Get", "Store.List", "NewStore", "Store", "Task"]
 expectedDeltaEntries: 1
 acceptance:
