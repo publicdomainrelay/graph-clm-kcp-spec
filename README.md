@@ -221,7 +221,9 @@ sequenceDiagram
     S->>G: orphan commit, Code-Commit trailer
 ```
 
-## Worked example: one sentence to a pull request on deno-kcp
+## Worked examples: one sentence to a pull request
+
+### deno-kcp: a bidder and a PDS for bob
 
 The flow above, run for real on a repository this tool did not write:
 [publicdomainrelay/deno-kcp](https://github.com/publicdomainrelay/deno-kcp), a
@@ -319,6 +321,76 @@ distinct serials, `plc`, `relay` and bob's PDS run and answer. It is red further
 in, on three defects that are in the example or the provider and not in kcp-libs.
 Details, both pass/fail tables and the root cause:
 [`docs/examples/deno-kcp-pr.md`](docs/examples/deno-kcp-pr.md#live-acceptance).
+
+### atproto-market: the guest SSH transport moves to iroh / dumbpipe
+
+The same flow, second repository, a TypeScript one this time:
+[publicdomainrelay/atproto-market](https://github.com/publicdomainrelay/atproto-market)
+(the AT Protocol compute marketplace, 81 directories). One sentence:
+
+> switch from using did-key-ingress-proxy to iroh - use dumbpipe.dev to do this, you will need to switch out the onNetwork stuff and the ssh proxycommand as well and other things like that
+
+It became **[publicdomainrelay/atproto-market#1](https://github.com/publicdomainrelay/atproto-market/pull/1)**
+against the `pre-iroh` branch: a new `iroh` cloud-init `UserDataModule` that
+installs `dumbpipe` and runs `dumbpipe listen-tcp --host 127.0.0.1:22` on the
+guest, the ticket extracted to `/root/secrets/iroh-node-id`, the bidder
+publishing it on `vm.onNetwork`, and the requester's ProxyCommand becoming
+`dumbpipe connect <ticket>`. 17 files, +509 / -70, `deno check` over the whole
+workspace plus the cloud-init snapshot test (19 tests) green on every realize
+commit. `lib/did-key-ingress-proxy` stays for the XRPC/repo ingress plane the
+market runs on - the request is about the guest SSH transport.
+
+Try it (full walkthrough: [`docs/examples/atproto-market-iroh-pr.md`](docs/examples/atproto-market-iroh-pr.md)):
+
+```bash
+make build && export PATH=$PWD/bin:$PATH SPECD_SPECCTL=$PWD/bin/specctl
+PUSH=0 scripts/example-atproto-market-iroh-pr.sh    # PUSH=1 opens the pull request
+```
+
+`scripts/example-pr.sh` is now the general script - `REPO`, `SIBLINGS` (a
+sibling in the org root is preferred, otherwise cloned from GitHub under an
+optional other repository name), `PROMPT`, `BRANCH`, `BASE`, `VERIFY` and
+`ACCEPT` - and `scripts/example-deno-kcp-pr.sh` is a thin wrapper over it.
+
+| | this run |
+| --- | --- |
+| architecture built | 15 min 15 s, 81 contexts, 81 summarized |
+| harness (9 contexts, 10 changes) | 5 min 11 s |
+| first realize round | 23 min, all failed: the siblings came from the wrong source |
+| after the fix, to all ten `Succeeded` | 17 min, `verifyExitCode=0` |
+| review + four spec amendments realized | 8 min |
+| commits / diff | 7 commits, 17 files, +509 / -70 |
+| requirements | 807 before, 825 after |
+| `deno check` + snapshot test + `deno task check` | green, green, green |
+| project tree | clean |
+
+**Analysis.** The flow carried a transport swap through a repository this tool
+had never seen: the harness researched dumbpipe (iroh's own releases ship no
+`iroh` CLI), wrote the pinned release, the listener command, the ticket file
+path and the cross-repo `getNodeId` contract into requirements, and a code agent
+contained to a worktree implemented it. Reading the realized diff found three
+real defects the gate could not see - the ticket `grep` matched
+`dumbpipe connect <ticket>` while `listen-tcp` prints `dumbpipe connect-tcp
+<ticket>`, the module configured an sshd it never installed, and the
+dumbpipe/websocat choice keyed off `!= "fedproxy-ssh"` so the still-registered
+`tunnel` transport would have dialled an FQDN with `dumbpipe` - and all three
+went back through the spec as requirements, each realized and gated
+(`r.iroh-ticket-file`, `r.iroh-module-installs-sshd`,
+`r.proxycommand-follows-transport-id`). The run also cost 23 minutes to a bug in
+`scripts/example-pr.sh`: the org-root checkouts are git worktrees, the script
+tested for a `.git` *directory*, and every sibling silently came from GitHub at
+revisions the base branch was not built against. A live acceptance step is
+deliberately absent and the pull request says why: the canonical harness
+`test/bidder_container_integration_test.ts` is red *before* the change
+(`401 AuthenticationRequired: cannot resolve signing key` in the relay
+registration path, 0.26 s), on `pre-iroh` and on the org-root checkout alike, so
+gating on it would gate every realization on a pre-existing failure. The
+follow-ups went into [`docs/plans/0005-atproto-market-iroh.md`](docs/plans/0005-atproto-market-iroh.md):
+line-sensitive CodeGraph ids leaving three contexts `CodeSynced=False` after a
+successful realize (plan 0004 E2, second reproduction), `specctl retry` reusing
+the original change name so a retry is invisible afterwards, `specctl get -o
+json` returning a `List` that `specctl apply` rejects, and batching that does
+not order a dependent context after its dependency.
 
 ## Status
 

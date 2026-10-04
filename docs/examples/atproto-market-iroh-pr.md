@@ -1,0 +1,460 @@
+# One sentence to a pull request: atproto-market, iroh / dumbpipe
+
+This is the second worked example, run for real against a repository this tool
+did not write, [publicdomainrelay/atproto-market](https://github.com/publicdomainrelay/atproto-market)
+(the AT Protocol compute marketplace: bidder, requester, PLC, relays, ~81
+directories and 30 workspace packages). The only human input was one sentence
+plus a short brief naming the external project and the repository's own rules:
+
+> switch from using did-key-ingress-proxy to iroh - use dumbpipe.dev to do this,
+> you will need to switch out the onNetwork stuff and the ssh proxycommand as
+> well and other things like that
+
+The result is **[publicdomainrelay/atproto-market#1](https://github.com/publicdomainrelay/atproto-market/pull/1)**:
+17 files, +509 / -70, `deno check` over the whole workspace plus the cloud-init
+snapshot test green. The spec it realizes is on the orphan branch
+[`open-architecture/atproto-market--spec-iroh-dumbpipe-20261004141803`](https://github.com/publicdomainrelay/atproto-market/tree/open-architecture/atproto-market--spec-iroh-dumbpipe-20261004141803).
+
+The first worked example is [deno-kcp](deno-kcp-pr.md); the script below is the
+same one, generalized (`scripts/example-pr.sh`).
+
+```mermaid
+sequenceDiagram
+    participant U as you
+    participant C as specctl up
+    participant K as kcp (this clone)
+    participant H as harness: claude + cc-clm-mod
+    participant S as specd
+    participant R as realize agent (contained)
+    participant G as git
+    U->>C: clone atproto-market + 9 siblings, git switch -c BRANCH origin/pre-iroh
+    C->>K: kcp + kine on kernel ports, Repository
+    S->>K: 81 SystemContexts, each summarized by DeepSeek
+    S->>G: open-architecture/atproto-market--BRANCH (orphan)
+    U->>H: "switch from using did-key-ingress-proxy to iroh ... dumbpipe.dev ..."
+    H->>K: arch_outline, arch_context
+    H->>H: read lib/common/cloud-init-common, the requester, the siblings
+    H->>K: arch_edit: 9 contexts, 10 SpecToCode changes
+    S->>S: batches the pending changes of the repository
+    S->>R: one worktree, one agent run per batch
+    R->>R: deno check + cloud_init_snapshot_test.ts gate, then commit
+    U->>K: review; 4 more spec requirements through clm apply
+    S->>R: realizes those too
+    U->>G: git push, gh pr create --base pre-iroh
+```
+
+## Before you start
+
+| need | check |
+| --- | --- |
+| Go 1.26+, git | `go version && git --version` |
+| kcp v0.33, kine, kubectl | `kcp --version && kine --version && kubectl version --client` |
+| CodeGraph | `codegraph --version` |
+| Deno 2.x | `deno --version` |
+| the DeepSeek launcher (a `claude` that talks to DeepSeek) | `echo pong \| deepseek-claude -p` |
+| gh, only to open the pull request | `gh auth status` |
+| a graph DB, optional | ArcadeDB on `bolt://127.0.0.1:7688`, or `export SPECD_BOLT_URL=` to run without one |
+
+Build the tools from this worktree (the binaries must be this checkout's):
+
+```bash
+cd /home/johnandersen777/src/publicdomainrelay-kcp/hydradb-plan5
+make build
+export HYDRA=$PWD
+export PATH=$HYDRA/bin:$PATH
+export SPECD_SPECCTL=$HYDRA/bin/specctl
+```
+
+## The short way: one command
+
+```bash
+PUSH=0 $HYDRA/scripts/example-atproto-market-iroh-pr.sh
+```
+
+It clones atproto-market and the nine sibling repositories its relative imports
+need, checks out `pre-iroh`, runs `specctl up`, gives the harness the sentence
+and the brief, waits for specd, prints the commits, the gate, the orphan branch
+and the clean tree. `PUSH=1` publishes and opens the pull request.
+
+## The long way, step by step
+
+Everything below is what was run, in order, with the environment the script sets.
+
+### 0. Which base branch, and why
+
+`pre-iroh`, not `master`. `master` (at `7a2e9d9`) predates the cloud-init
+`UserDataModule` registry (`buildUserData` + `registerUserDataModule`) that the
+repository's own rules require the guest-side transport to use; `pre-iroh` (at
+`d20070c`) carries it and is 79 commits past the fork point. `master` also
+already contains a *fictional* iroh transport whose `buildIrohUserData` shells
+out to `iroh endpoint --bind ... --bridge ...`, a CLI the iroh project does not
+ship - `n0-computer/iroh`'s releases contain `iroh-relay` and `iroh-dns-server`
+only. The real tool is dumbpipe.
+
+### 1. Clone, side by side
+
+atproto-market's `deno.json` pulls nine sibling repositories through relative
+`../<dir>/...` imports. Three live on GitHub under a different directory name,
+so the script's `SIBLINGS` entries are `dir=repo`:
+
+| directory the imports need | repository |
+| --- | --- |
+| `hono-jsr` | `hono-package-registry` |
+| `hono-compute-provider` | `compute-provider-digitalocean` |
+| `deno-worker-sandbox` | `deno-hono-sandbox` |
+| `atproto-relay`, `deno-macos-runner-desktop`, `did-key-ingress-proxy`, `hono-pds`, `policy-engine`, `typescript-helpers` | same name |
+
+```bash
+export WORK=$(mktemp -d /tmp/specd-atproto-iroh.XXXXXX)
+export ORG_ROOT=/home/johnandersen777/src/publicdomainrelay-kcp   # siblings live here
+export SIBLINGS="atproto-relay deno-macos-runner-desktop deno-worker-sandbox=deno-hono-sandbox did-key-ingress-proxy hono-compute-provider=compute-provider-digitalocean hono-jsr=hono-package-registry hono-pds policy-engine typescript-helpers"
+cd $WORK
+git clone -q https://github.com/publicdomainrelay/atproto-market atproto-market
+for entry in $SIBLINGS; do d=${entry%%=*}; git clone -q $ORG_ROOT/$d $d; done
+cd atproto-market
+git switch -c spec/iroh-dumbpipe-20261004141803 origin/pre-iroh
+git log --oneline -1        # d20070c fix(requester): key onNetwork resolvers by receipt
+deno check >/dev/null && echo "pre-iroh typechecks against these siblings"
+```
+
+`deno check` here is the whole workspace, `test/*.ts` included - 4.6 s. Note the
+`$ORG_ROOT` clones: the sibling revisions matter. Cloning the three renamed ones
+from GitHub instead leaves `deno check` red (8 errors, including
+`Object literal may only specify known properties, and 'tls' does not exist in
+type 'SubscriberOptions'`), because the org root carries the revisions
+`pre-iroh` was developed against.
+
+### 2. Build the architecture in kcp
+
+```bash
+specctl up --remote "" --out $WORK/session.json
+```
+
+`--remote ""` indexes from scratch. Populate: **81 SystemContexts**, each
+summarized by DeepSeek, about **15 minutes** (14:18:03 to 14:33:18).
+
+```bash
+until [[ "$(specctl status)" == *"Populated ("* ]]; do specctl status | grep '^phase'; sleep 10; done
+specctl status
+# phase       Populated (81 contexts, 81 summarized, 0 failed)
+```
+
+### 3. Gate the Repository on an honest verify command
+
+`specctl up` sets `spec.verify` from the repository's build system, and for a
+`deno.json` repository that is `deno test` - which runs the integration suites
+and needs live services. The command the repository actually uses and that is
+green at baseline is:
+
+```bash
+export VERIFY='deno check && deno test -A test/cloud_init_snapshot_test.ts'
+specctl get repository atproto-market -o json > $WORK/repository.json
+# patch spec.verify to ["bash","-lc","<VERIFY>"] and apply it back
+specctl apply -f $WORK/repository.json
+# repository/atproto-market applied
+```
+
+Why this gate: `deno check` with no arguments type-checks every workspace member
+and every test file (4.6 s, green at `pre-iroh`), and
+`test/cloud_init_snapshot_test.ts` is the repository's own cloud-init
+verification surface - 16 tests at baseline (41 ms), byte-exact fixtures for
+each module composition plus semantic assertions. The transport change is
+exactly what that file gates.
+
+**Live acceptance is not added**, with a reason: the canonical harness
+`test/bidder_container_integration_test.ts` is red *before* this change. Docker
+is available on this machine (`docker info` -> 29.8.2), but the harness fails in
+0.25 s in the relay registration path, before any transport code runs:
+
+```
+relay ... POST /xrpc/com.fedproxy.temp.xrpc.getRegistrationNonce -> 401
+  {"error":"AuthenticationRequired","message":"Error: cannot resolve signing key for did:plc:..."}
+--- FAILED | 0 passed | 1 failed (0.26s)
+```
+
+The same failure occurs at `origin/pre-iroh`, at the org-root `pre-iroh` HEAD,
+and at the realized branch HEAD. A gating acceptance step would therefore gate
+every realization on a pre-existing failure.
+
+### 4. Ask for the change, through the spec
+
+The harness is headless and reads the architecture from kcp; it never touches a
+file.
+
+```bash
+export PROMPT='switch from using did-key-ingress-proxy to iroh - use dumbpipe.dev to do this, you will need to switch out the onNetwork stuff and the ssh proxycommand as well and other things like that'
+cat > $WORK/harness-prompt.txt <<EOF
+$PROMPT
+
+<a brief: the RFP flow is the spine, the guest transport must be a registered
+ cloud-init UserDataModule, iroh's releases ship no `iroh` CLI so dumbpipe
+ (`listen-tcp --host 127.0.0.1:22` prints the ticket; `connect-tcp --addr ...`
+ or stdio `connect <ticket>` on the host) is the tool, name every file, say how
+ the ticket reaches the requester, keep ssh as root with the requester's key,
+ and the gate is `deno check` + the snapshot test>
+
+How to do it: this repository's architecture lives in kcp, not in files. ...
+Change the SPEC only. Never create or edit files in this repository yourself ...
+EOF
+deepseek-claude -p --output-format text --plugin-dir $HYDRA/cc-clm-mod < $WORK/harness-prompt.txt | tee $WORK/harness.out
+```
+
+It returned in **5 minutes 11 seconds** (14:33:40 to 14:38:51) with:
+
+```
+Spec recorded. 9 contexts edited, 10 SpecToCode changes opened ...
+- lib-common-cloud-init-common (+3 ~1) — new `iroh` UserDataModule registered beside tunnel/fedproxy-ssh ...
+- lib-requester-xrpc (+4 ~4) — default transport `iroh`; `ensureDumbpipe` replaces websocat bootstrap ...
+- lib-abc-requester (+1 ~3) — default documented as `iroh`; SshSessionProvider target is transport-neutral ...
+- lib-market-bidder-compute (+1) — call `provider.getNodeId(providerId)` and publish the ticket ...
+- lib-market-bidder (+1) — `/v1/on-network` passes the ticket through verbatim ...
+- request-vm-ssh (+1 ~3) — `--user-data-transport` defaults to `iroh` ...
+- lib-did-key-ingress-proxy (+1) — keeps XRPC ingress role only ...
+- lib-compute-contract-gateway-xrpc (+1 ~2) — no fabricated `wss://` under iroh ...
+- test (+1) / test-fixtures-cloud-init (+1) — snapshot asserts iroh.yaml ...
+```
+
+It also researched dumbpipe itself and wrote the real CLI into the requirements.
+
+### 5. Watch specd realize
+
+The first round failed every change three times, and the reason was not the
+code:
+
+```
+TS2307 [ERROR]: Cannot find module '.../typescript-helpers/lib/tls-localhost/mod.ts'.
+TS2353 [ERROR]: Object literal may only specify known properties, and 'insecureHTTP'
+  does not exist in type 'RelayFactoryOptions'.
+```
+
+The realize worktrees symlink the clone's siblings, and the clone's siblings were
+the wrong revisions: the script tested `-d "$ORG_ROOT/$dir/.git"` to decide
+whether to clone from the org root, but the org-root checkouts are git
+**worktrees**, where `.git` is a file. Every sibling silently came from GitHub.
+Fixed in `scripts/example-pr.sh` (`git -C "$ORG_ROOT/$dir" rev-parse --git-dir`),
+the nine clones replaced, and the contexts retried:
+
+```bash
+for c in lib-common-cloud-init-common lib-abc-requester lib-requester-xrpc \
+         lib-did-key-ingress-proxy lib-compute-contract-gateway-xrpc \
+         lib-market-bidder-compute lib-market-bidder request-vm-ssh test \
+         test-fixtures-cloud-init; do specctl retry "$c"; done
+# lib-common-cloud-init-common: cleared 3 failed change(s); specd raises a fresh attempt ...
+```
+
+17 minutes later, at 15:18:04, all ten were `Succeeded` with `verifyExitCode=0`,
+landed as four commits - specd batches the pending changes of a repository into
+one realization, so one commit carries up to six `Spec-Change:` trailers.
+
+### 6. Review the diff, and iterate the spec where it is wrong
+
+Reading the realized code found three things the requirements had got wrong or
+left open. All three went back through the spec (never a file edit):
+
+| finding | requirement | commit |
+| --- | --- | --- |
+| the guest extracts the ticket with `grep 'dumbpipe connect <ticket>'`, but `dumbpipe listen-tcp` prints `dumbpipe connect-tcp <ticket>` - the ticket file is never written | `r.iroh-ticket-file` amended, `r.iroh-ticket-extraction-tested` added | `4f1174f` |
+| the `iroh` module writes an sshd drop-in and enables sshd but installs only `curl` | `r.iroh-module-installs-sshd` added; the snapshot test's "a module that configures an sshd installs openssh-server" rule now covers `iroh` | `4f1174f` |
+| `usesDumbpipe = transport !== "fedproxy-ssh"` - selecting the legacy `tunnel` transport would dial a relay FQDN with `dumbpipe connect` | `r.proxycommand-follows-transport-id` added | `b807bd4`, `4e520f5` |
+
+The amend-apply-realize cycle cost about **8 minutes** for all three, through
+the operator's CLM bridge:
+
+```bash
+specctl clm render --context lib-common-cloud-init-common > ctx.md
+# edit ctx.md: amend r.iroh-ticket-file, add r.iroh-module-installs-sshd
+specctl clm apply --context lib-common-cloud-init-common < ctx.md
+# specctl clm apply: lib-common-cloud-init-common applied (+1 ~1)
+```
+
+The second finding is the test rule biting on its own output: the first
+realization of `test-fixtures-cloud-init` had dropped `packages:
+["openssh-server"]` from the pre-existing `tunnel` and `fedproxy-ssh` modules,
+and the new rule caught it and restored both.
+
+### 7. Look at the result
+
+```bash
+git log --format='%h %s' origin/pre-iroh..HEAD
+# 4e520f5 realize request-vm-ssh: ~1
+# b807bd4 realize lib-requester-xrpc: +1
+# 4f1174f realize lib-common-cloud-init-common: +2 ~2
+# b9c1b77 realize lib-did-key-ingress-proxy: +6 ~3
+# b296a7e realize lib-abc-requester: +5 ~5
+# 857b94a realize lib-common-cloud-init-common: +3
+# 89b584d realize test-fixtures-cloud-init: +1
+git diff --stat origin/pre-iroh...HEAD | tail -1
+# 17 files changed, 509 insertions(+), 70 deletions(-)
+deno check && echo green
+deno test -A test/cloud_init_snapshot_test.ts
+# ok | 19 passed | 0 failed (43ms)
+deno task check && echo green          # the repository's own task
+git status --porcelain                 # empty
+```
+
+### 8. Publish, and stop
+
+```bash
+git push -u origin spec/iroh-dumbpipe-20261004141803
+git push origin 'refs/heads/open-architecture/*:refs/heads/open-architecture/*'
+gh pr create --repo publicdomainrelay/atproto-market --base pre-iroh \
+  --head spec/iroh-dumbpipe-20261004141803 --title "..." --body-file pr-body.md
+specctl down
+```
+
+## What happened, measured
+
+| step | value |
+| --- | --- |
+| clone + sibling clones | 15 s |
+| `specctl up` to `Populated` (81 contexts summarized) | 15 min 15 s |
+| harness: research + spec edit (9 contexts, 10 changes) | 5 min 11 s |
+| first realize round (all failed: wrong sibling revisions) | 23 min, 9 contexts x 3 attempts |
+| sibling fix + retries to all-`Succeeded` | 17 min, 10/10 changes, `verifyExitCode=0` |
+| review + 4 spec amendments realized | 8 min, 4 changes |
+| verify (`deno check` + snapshot test + `deno task check`) | 4.6 s / 43 ms / green |
+| commits / diff | 7 commits, 17 files, +509 / -70 |
+| project tree after | clean |
+
+Requirements: the architecture held **807** requirement entries before the
+harness and **825** after (+18 across ten contexts).
+
+| context | requirements before | after |
+| --- | --- | --- |
+| `lib-common-cloud-init-common` | 11 | 15 |
+| `lib-requester-xrpc` | 15 | 20 |
+| `lib-abc-requester` | 24 | 25 |
+| `lib-market-bidder-compute` | 15 | 16 |
+| `lib-market-bidder` | 21 | 22 |
+| `request-vm-ssh` | 18 | 19 |
+| `lib-did-key-ingress-proxy` | 10 | 11 |
+| `lib-compute-contract-gateway-xrpc` | 14 | 15 |
+| `test` | 7 | 9 |
+| `test-fixtures-cloud-init` | 5 | 6 |
+
+## What the change actually does
+
+Established by reading the diff, not by trusting the harness summary:
+
+- **Guest side.** `lib/common/cloud-init-common/mod.ts` gains an `iroh`
+  `UserDataModule`, registered beside the existing five. It installs
+  `openssh-server` and the pinned `dumbpipe` v0.39.0 release archive, writes
+  `authorized_keys` and `sshd_config.d/10-iroh.conf`, runs
+  `dumbpipe listen-tcp --host 127.0.0.1:22` under systemd with its stderr
+  appended to `/root/secrets/iroh-dumbpipe.log`, extracts the ticket from the
+  `dumbpipe connect-tcp <ticket>` line into `/root/secrets/iroh-node-id`, and
+  leaves the listener running. No sshd `ListenAddress`, so the provider can
+  still TCP-probe `:22`.
+- **Ticket path.** Guest writes the file -> the provider's `getNodeId(
+  providerId)` reads it -> `lib/market-bidder-compute` polls that hook with
+  bounded backoff and publishes the ticket as `vm.onNetwork.address` -> the
+  requester resolves it and settles the SSH wait, feeding the same value into
+  `pds.irohNodeId`/`resolveIrohNodeId`.
+- **Host side.** `runComputeContract` defaults `userData.transport` to `iroh`,
+  calls `ensureDumbpipe` (a sibling of `ensureWebsocat`, pinned to the same
+  release), and builds `ProxyCommand=dumbpipe connect <ticket>`; `tunnel` and
+  `fedproxy-ssh` keep `websocat`, and an explicit `sshProxyCommandFn` still
+  overrides everything.
+- **`lib/did-key-ingress-proxy` stays**, for the XRPC/repo ingress plane the
+  market runs on (bids, accepts, `submitEvent`, PDS hosting). The request asks
+  for the *guest SSH transport* to move; removing the relay entirely would break
+  the market, which is the one thing the org rules say not to do.
+
+## Analysis
+
+**What worked.**
+
+- **The spec carried the research.** The harness had no web access assumed: it
+  knew from the brief that iroh ships no CLI and that dumbpipe is the tool, and
+  it wrote requirements naming the pinned release, the listener command, the
+  ticket file path and the cross-repo contract (`getNodeId` reads
+  `/root/secrets/iroh-node-id`). A code agent contained to a worktree could
+  implement all of it.
+- **The realized code is honest about the RFP flow.** The guest transport is a
+  registered `UserDataModule`; no test hand-provisions a guest; ssh still
+  reaches the guest as root with the requester's key over a ProxyCommand. The
+  provider-side `getNodeId` hook and the accept-bundle path are untouched.
+- **`specctl retry` made iteration cheap.** After the sibling fix, ten failed
+  changes were re-run without redoing populate, the harness or the indexing.
+- **Reviewing found real bugs, and the flow fixed them.** All three findings are
+  the kind an offline gate cannot see by itself - one is a string that does not
+  match what the tool prints, one is a package that was never installed, one is
+  a predicate that is false for a transport the repository still registers. Each
+  became a requirement, a realized commit and a test.
+- **The test rule bit its own author.** The "a module that configures an sshd
+  installs openssh-server" rule caught a regression the first realization had
+  introduced in two other modules.
+
+**What did not work, and what it cost.**
+
+- **Sibling resolution picked the wrong revisions and cost 23 minutes.** The
+  org-root checkouts are worktrees (`.git` is a file); the script tested for a
+  directory and fell through to GitHub. Nine contexts failed three times each
+  before the cause was visible. Fixed in `scripts/example-pr.sh`; the general
+  lesson is that "clone the siblings beside the repo" must test for a git
+  repository, not for a directory.
+- **Cross-context ordering is still not guaranteed.** `test-fixtures-cloud-init`
+  realized before `lib-common-cloud-init-common`, i.e. before the module it
+  renders existed; it coped by implementing the module itself and then the other
+  context amended it. Two commits instead of one, and a scope overreach, but the
+  batch window did eventually collapse six changes into a single commit.
+- **The code -> spec direction does not converge after a batch realization.**
+  Three of 81 contexts are left `CodeSynced=False`:
+  `lib-common-cloud-init-common` and `lib-market-bidder-compute` with
+  `CodeRefsUnresolved` (their requirement `codeRefs` point at CodeGraph function
+  ids that shifted when the file was rewritten - plan 0004 E2), and
+  `lib-cocore-api` with `InterfacesMissing` (unrelated to this change; its
+  CodeToSpec succeeded and dropped three interfaces). The realized code is
+  unaffected, but the drift markers are the honest state of a run whose code
+  moved under the spec.
+- **A code agent will overreach to make its own gate pass.** The
+  `test-fixtures-cloud-init` change was scoped to a fixture; it wrote the whole
+  module because otherwise `deno test` could not pass. Reasonable, but it means
+  the commit-to-context mapping is looser than the spec suggests.
+
+**What is not demonstrated.**
+
+- **No green end-to-end SSH over dumbpipe.** The live harness that would prove
+  it is red at baseline for reasons outside the change (the relay's
+  registration nonce returns 401 against the local fake PLC). What is proven is
+  the composed cloud-init, the ticket extraction against the line dumbpipe
+  v0.39.0 actually prints (checked against upstream source), and the host-side
+  command construction. That gap is stated in the pull request.
+
+## hydradb defects this run found
+
+| defect | state |
+| --- | --- |
+| CodeGraph ids are line-sensitive, so a realize that rewrites a file leaves other requirements' `codeRefs` unresolved and the context pinned at `CodeSynced=False` (`CodeRefsUnresolved` on `lib-common-cloud-init-common` and `lib-market-bidder-compute`) | already recorded as plan 0004 E2; this run is fresh evidence, recorded in [plan 0005](../plans/0005-atproto-market-iroh.md) |
+| `specctl get <kind> -o json` returns a `List` wrapper, so an operator patching a Repository has to unwrap `items[0]` before `specctl apply` accepts it (`specapi: unknown kind "List"`) | recorded in plan 0005 |
+| the sibling-view heuristic in the example script (not hydradb proper) fell through to GitHub for worktree siblings; fixed in `scripts/example-pr.sh` | fixed here |
+
+## How this run was kicked off
+
+A coordinating Claude session on this machine dispatched the task to a headless
+agent. The prompt it wrote is `.kcp-specd/coord/iroh.txt` (in the main
+checkout's state directory): the change request verbatim, plus six steps - read
+the deno-kcp example first, generalize `scripts/example-pr.sh` so
+`example-deno-kcp-pr.sh` becomes a thin wrapper, choose atproto-market's verify
+gate honestly and record why if a live acceptance cannot run, run the flow on a
+fresh clone, review the realized diff as a human reviewer would, push and open
+the PR, and record everything as a human-followable example, and finally
+`gofmt`/`go vet`/`SPECD_REQUIRE_LIVE=1 go test ./...` green in the worktree,
+commit and push `plan5-iroh`, and tear down everything started.
+
+The dispatch pattern is the one in `.kcp-specd/coord/launch.sh`: the prompt is
+written to a file, and the agent is started detached with its own session and
+log, with a done-file marking completion so a waiter never has to poll a
+process:
+
+```bash
+C=/home/johnandersen777/src/publicdomainrelay-kcp/hydradb/.kcp-specd/coord
+rm -f "$C/done-$1"
+setsid nohup env WT="${WT:-}" bash -c \
+  "$C/run.sh $1 > $C/log-$1.txt 2>&1; touch $C/done-$1" >/dev/null 2>&1 < /dev/null &
+```
+
+The agent works in this repository's `plan5-iroh` worktree and pushes only that
+branch. Its own long run is started the same way (a `setsid` script plus a
+done-file), which is why the example above can be watched from outside without
+ever attaching to it.
