@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -107,6 +109,9 @@ func Persist(ctx context.Context, options Options) (Result, error) {
 	}
 	result.Branch = oabranch.BranchFor(options.Repository, codeBranch, defaultBranch)
 	ref := "refs/heads/" + result.Branch
+	if err := ensureBaseArchitecture(ctx, store, options.Repository, current, codeBranch, defaultBranch); err != nil {
+		return result, err
+	}
 	if err := branchOffDefault(ctx, store, options.Repository, ref, defaultBranch); err != nil {
 		return result, err
 	}
@@ -134,7 +139,7 @@ func Persist(ctx context.Context, options Options) (Result, error) {
 
 	current.snapshot.Branch = result.Branch
 	if current.snapshot.Branch != oabranch.Branch(options.Repository) {
-		baseline, err := readBaseline(ctx, store, options.Repository)
+		baseline, err := readBaseline(ctx, store, options.Repository, codeBranch, defaultBranch, ref)
 		if err != nil {
 			return result, err
 		}
@@ -167,7 +172,9 @@ func Persist(ctx context.Context, options Options) (Result, error) {
 		oabranch.PreserveChanges(files, previous)
 		plan = oabranch.PlanCommit(blobs, files)
 		plan, deferred := oabranch.CoalesceProgress(plan, previous)
-		result.Deferred = deferred
+		plan, noise := oabranch.CoalesceNoise(plan, previous)
+		result.Deferred = append(deferred, noise...)
+		sort.Strings(result.Deferred)
 		if plan.Empty() {
 			result.Commit = tip
 			break
@@ -419,22 +426,66 @@ func read(ctx context.Context, options Options) (state, error) {
 	return current, nil
 }
 
-// readBaseline reads the default architecture branch: what a feature branch's
-// CHANGES.md measures its requirement delta against.
-func readBaseline(ctx context.Context, store oagit.Store, repository string) (*oabranch.Baseline, error) {
-	baseline := &oabranch.Baseline{}
-	defaultRef := "refs/heads/" + oabranch.Branch(repository)
-	tip, err := store.Tip(ctx, defaultRef)
-	if err != nil || tip == "" {
-		return baseline, err
+// readBaseline reads the architecture a feature branch's CHANGES.md measures
+// its requirement delta against: the architecture branch of the code branch it
+// was cut from, falling back to the default branch's, and, on a branch that was
+// populated before any base was persisted, to the branch's own last commit
+// before its first spec edit.
+func readBaseline(ctx context.Context, store oagit.Store, repository, codeBranch, defaultBranch, featureRef string) (*oabranch.Baseline, error) {
+	for _, name := range baselineCandidates(ctx, store, repository, codeBranch, defaultBranch) {
+		tip, err := store.Tip(ctx, "refs/heads/"+name)
+		if err != nil {
+			return nil, err
+		}
+		if tip != "" {
+			return baselineFromCommit(ctx, store, tip)
+		}
 	}
+	commit, err := featureBaselineCommit(ctx, store, featureRef)
+	if err != nil {
+		return nil, err
+	}
+	if commit == "" {
+		return &oabranch.Baseline{}, nil
+	}
+	return baselineFromCommit(ctx, store, commit)
+}
+
+func baselineCandidates(ctx context.Context, store oagit.Store, repository, codeBranch, defaultBranch string) []string {
+	names := []string{}
+	add := func(name string) {
+		if name == "" || slices.Contains(names, name) {
+			return
+		}
+		names = append(names, name)
+	}
+	base := baseCodeBranch(ctx, store, codeBranch, defaultBranch)
+	add(oabranch.BranchFor(repository, base, defaultBranch))
+	add(oabranch.Branch(repository))
+	return names
+}
+
+// baseCodeBranch is the code branch a feature branch was cut from: the branch
+// it tracks, else the default branch.
+func baseCodeBranch(ctx context.Context, store oagit.Store, codeBranch, defaultBranch string) string {
+	if codeBranch == "" || codeBranch == defaultBranch {
+		return defaultBranch
+	}
+	if upstream := store.UpstreamBranch(ctx); upstream != "" && upstream != codeBranch {
+		return upstream
+	}
+	return defaultBranch
+}
+
+func baselineFromCommit(ctx context.Context, store oagit.Store, tip string) (*oabranch.Baseline, error) {
+	baseline := &oabranch.Baseline{}
 	files, err := store.ReadFiles(ctx, tip)
 	if err != nil {
-		return baseline, err
+		return nil, err
 	}
 	specs, err := oabranch.SpecFiles(files)
 	if err != nil {
-		return baseline, err
+		return nil, err
 	}
 	names := make([]string, 0, len(specs))
 	for name := range specs {
@@ -446,10 +497,101 @@ func readBaseline(ctx context.Context, store oagit.Store, repository string) (*o
 	}
 	changes, err := oabranch.ChangeFiles(files)
 	if err != nil {
-		return baseline, err
+		return nil, err
 	}
 	baseline.Changes = changes
 	return baseline, nil
+}
+
+// featureBaselineCommit is the feature branch's own last commit before the
+// first spec-to-code change appeared: the state the branch was populated with,
+// which is the architecture of the base code branch by another name.
+func featureBaselineCommit(ctx context.Context, store oagit.Store, featureRef string) (string, error) {
+	history, err := store.History(ctx, featureRef)
+	if err != nil || len(history) == 0 {
+		return "", err
+	}
+	for index, commit := range history {
+		paths, err := store.Paths(ctx, commit)
+		if err != nil {
+			return "", err
+		}
+		if !hasSpecToCodeChange(paths) {
+			continue
+		}
+		if index == 0 {
+			return "", nil
+		}
+		return history[index-1], nil
+	}
+	return history[0], nil
+}
+
+func hasSpecToCodeChange(paths []string) bool {
+	for _, path := range paths {
+		if oabranch.IsSpecToCodeChangePath(path) {
+			return true
+		}
+	}
+	return false
+}
+
+// ensureBaseArchitecture writes the architecture of the base code branch when
+// a feature branch is persisted before any base exists, so CHANGES.md has a
+// baseline instead of reporting the whole spec as added. It writes nothing once
+// a spec has been edited by a person or a model: the snapshot then is no longer
+// the base code's architecture.
+func ensureBaseArchitecture(ctx context.Context, store oagit.Store, repository string, current state, codeBranch, defaultBranch string) error {
+	if codeBranch == "" || codeBranch == defaultBranch {
+		return nil
+	}
+	baseBranch := baseCodeBranch(ctx, store, codeBranch, defaultBranch)
+	baseRef := oabranch.RefFor(repository, baseBranch, defaultBranch)
+	if baseRef == oabranch.RefFor(repository, codeBranch, defaultBranch) {
+		return nil
+	}
+	tip, err := store.Tip(ctx, baseRef)
+	if err != nil || tip != "" {
+		return err
+	}
+	if humanEdited(current.origins) {
+		return nil
+	}
+	base := current.snapshot
+	base.Branch = oabranch.BranchFor(repository, baseBranch, defaultBranch)
+	files, err := oabranch.Files(base)
+	if err != nil {
+		return err
+	}
+	plan := oabranch.PlanCommit(map[string]string{}, files)
+	message := fmt.Sprintf("architecture(%s): baseline for %s\n\n", repository, oabranch.BranchFor(repository, codeBranch, defaultBranch))
+	for _, path := range plan.Added {
+		message += "A " + path + "\n"
+	}
+	if _, err := store.Commit(ctx, baseRef, "", plan, message); err != nil {
+		if raced, raceErr := store.Tip(ctx, baseRef); raceErr == nil && raced != "" {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// humanEdited reports whether any context of the snapshot carries an origin
+// that is neither the ingest nor a reviewed branch edit, which is what a person
+// or a model editing the spec leaves behind.
+func humanEdited(origins map[string]string) bool {
+	for kind, origin := range origins {
+		if !strings.HasPrefix(kind, specapi.SystemContextKind+"/") {
+			continue
+		}
+		switch origin {
+		case specapi.OriginIngest, specapi.OriginGit:
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 func branchOffDefault(ctx context.Context, store oagit.Store, repository, ref, defaultBranch string) error {

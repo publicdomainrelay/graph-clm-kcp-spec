@@ -445,6 +445,120 @@ func TestABranchEditThatCollidesWithKcpIsReportedNotWritten(t *testing.T) {
 	}
 }
 
+func TestACommitIdOnlyReingestMakesNoCommit(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	ctx := context.Background()
+
+	first := readContext(t, cluster, "calc")
+	first.Status.ObservedCommit = "aaaa"
+	cluster.put(t, &first)
+	second := spec.SystemContext{}
+	second.APIVersion = specapi.Group + "/" + specapi.Version
+	second.Kind = specapi.SystemContextKind
+	second.Name = "cmd-calc"
+	second.Namespace = "default"
+	second.Spec = spec.SystemContextSpec{Repository: "calc", Upstream: "self"}
+	second.Status.ObservedCommit = "bbbb"
+	cluster.put(t, &second)
+
+	persisted, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.Committed {
+		t.Fatal("the first persist made no commit")
+	}
+
+	moved := readContext(t, cluster, "cmd-calc")
+	moved.Status.ObservedCommit = "cccc"
+	cluster.put(t, &moved)
+
+	again, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Committed {
+		t.Fatalf("a commit-id-only status rewrite made a commit: %+v", again)
+	}
+	if tip := git(t, repo, "rev-parse", oabranch.Branch("calc")); tip != persisted.Commit {
+		t.Fatalf("the branch moved to %s, want %s", tip, persisted.Commit)
+	}
+	if len(again.Deferred) == 0 || !strings.Contains(strings.Join(again.Deferred, " "), "status/cmd-calc.yaml") {
+		t.Fatalf("deferred = %v, want the status file", again.Deferred)
+	}
+}
+
+func TestAFeatureBranchFirstPopulatedWritesItsBaseArchitecture(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	ctx := context.Background()
+	feature, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc", CodeBranch: "spec/bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if feature.Branch != "open-architecture/calc--spec-bob" {
+		t.Fatalf("persisted to %s", feature.Branch)
+	}
+	base := git(t, repo, "rev-parse", oabranch.Branch("calc"))
+	if base == "" {
+		t.Fatal("no base architecture branch was written")
+	}
+	if parent := git(t, repo, "rev-parse", feature.Commit+"^"); parent != base {
+		t.Fatalf("the feature architecture does not branch off the base: parent %s, want %s", parent, base)
+	}
+	if out, err := exec.Command("git", "-C", repo, "cat-file", "-e", oabranch.Branch("calc")+":CHANGES.md").CombinedOutput(); err == nil {
+		t.Fatalf("the base branch carries a changes document: %s", out)
+	}
+	document := git(t, repo, "show", "open-architecture/calc--spec-bob:CHANGES.md")
+	if !strings.Contains(document, "_None: this branch declares the same requirements as the default branch._") {
+		t.Fatalf("the fresh feature branch has no baseline:\n%s", document)
+	}
+
+	edited := readContext(t, cluster, "calc")
+	edited.Spec.Requirements = append(edited.Spec.Requirements,
+		spec.Requirement{ID: "r.sub", Level: spec.LevelMust, Text: "Subtract returns the difference."})
+	edited.Annotations[specapi.OriginAnnotation] = specapi.OriginCLM
+	cluster.put(t, &edited)
+	if _, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc", CodeBranch: "spec/bob"}); err != nil {
+		t.Fatal(err)
+	}
+	document = git(t, repo, "show", "open-architecture/calc--spec-bob:CHANGES.md")
+	if !strings.Contains(document, "added `r.sub` (MUST)") || strings.Contains(document, "added `r.add`") {
+		t.Fatalf("CHANGES.md does not hold only the branch's own delta:\n%s", document)
+	}
+	if tip := git(t, repo, "rev-parse", oabranch.Branch("calc")); tip != base {
+		t.Fatal("the base architecture moved with the feature branch")
+	}
+}
+
+func TestAFeatureBranchWithNoBaseFallsBackToItsOwnLastPreEditCommit(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	ctx := context.Background()
+	if _, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc", CodeBranch: "spec/bob"}); err != nil {
+		t.Fatal(err)
+	}
+	git(t, repo, "update-ref", "-d", oabranch.Ref("calc"))
+
+	seedChange(t, cluster, "calc-s2c-aaaaaaaaaaaa", specapi.PhaseSucceeded)
+	edited := readContext(t, cluster, "calc")
+	edited.Spec.Requirements = append(edited.Spec.Requirements,
+		spec.Requirement{ID: "r.sub", Level: spec.LevelMust, Text: "Subtract returns the difference."})
+	edited.Annotations[specapi.OriginAnnotation] = specapi.OriginCLM
+	cluster.put(t, &edited)
+	if _, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc", CodeBranch: "spec/bob"}); err != nil {
+		t.Fatal(err)
+	}
+	document := git(t, repo, "show", "open-architecture/calc--spec-bob:CHANGES.md")
+	if !strings.Contains(document, "added `r.sub` (MUST)") || strings.Contains(document, "added `r.add`") {
+		t.Fatalf("the fallback baseline is not the branch's own pre-edit commit:\n%s", document)
+	}
+}
+
 func TestRestoreRebuildsKcpFromABranchOnTheRemote(t *testing.T) {
 	origin := clone(t)
 	cluster := newFakeCluster()

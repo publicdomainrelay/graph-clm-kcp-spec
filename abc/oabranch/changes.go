@@ -320,6 +320,66 @@ func isChangePath(path string) bool {
 	return IsChangePath(path)
 }
 
+// CoalesceNoise keeps a file out of a commit when nothing a reader tracks
+// changed: a spec file whose declared spec is identical differs only in its
+// derived code-ref index, and a status file whose only difference is the
+// commit it names says nothing new. Without it a branch carries one commit per
+// re-ingest that moved a commit id and touched no requirement.
+func CoalesceNoise(plan Plan, previous map[string][]byte) (Plan, []string) {
+	dropped := []string{}
+	for path, data := range plan.Write {
+		old, ok := previous[path]
+		if !ok {
+			continue
+		}
+		if !noiseOnly(path, old, data) {
+			continue
+		}
+		delete(plan.Write, path)
+		plan.Modified = without(plan.Modified, path)
+		plan.Added = without(plan.Added, path)
+		dropped = append(dropped, path)
+	}
+	sort.Strings(dropped)
+	return plan, dropped
+}
+
+func noiseOnly(path string, old, next []byte) bool {
+	switch {
+	case strings.HasPrefix(path, SpecsDir+"/") && strings.HasSuffix(path, ".yaml"):
+		return sameDeclaredSpec(path, old, next)
+	case strings.HasPrefix(path, StatusDir+"/") && strings.HasSuffix(path, ".yaml"):
+		return sameStatusExceptCommits(old, next)
+	}
+	return false
+}
+
+func sameDeclaredSpec(path string, old, next []byte) bool {
+	name := strings.TrimSuffix(strings.TrimPrefix(path, SpecsDir+"/"), ".yaml")
+	previous, err := mirrorParse(name, old)
+	if err != nil {
+		return false
+	}
+	current, err := mirrorParse(name, next)
+	if err != nil {
+		return false
+	}
+	return reflect.DeepEqual(declaredForBranch(previous), declaredForBranch(current))
+}
+
+func sameStatusExceptCommits(old, next []byte) bool {
+	before, after := statusDoc{}, statusDoc{}
+	if err := yaml.Unmarshal(old, &before); err != nil {
+		return false
+	}
+	if err := yaml.Unmarshal(next, &after); err != nil {
+		return false
+	}
+	before.ObservedCommit, after.ObservedCommit = "", ""
+	before.SyncedCommit, after.SyncedCommit = "", ""
+	return reflect.DeepEqual(before, after)
+}
+
 // PreserveChanges keeps every change file the branch already carries. changes/
 // is the branch's attempt history and is append-only: kcp holds only the
 // changes of the branch it is watching, so a re-render from a smaller kcp - a

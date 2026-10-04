@@ -1075,6 +1075,14 @@ func IsChangePath(path string) bool {
 	return ok && name != "" && !strings.Contains(name, "/") && strings.HasSuffix(name, ".yaml")
 }
 
+// IsSpecToCodeChangePath names a change the spec-to-code direction raised: a
+// spec edit a person or a model made, which is where a feature branch's own
+// declared delta begins.
+func IsSpecToCodeChangePath(path string) bool {
+	name, ok := strings.CutPrefix(path, ChangesDir+"/")
+	return ok && IsChangePath(path) && strings.Contains(name, "-s2c-")
+}
+
 // ChangePaths lists the change records a branch tree holds, from a path to blob
 // map such as oagit.Store.Blobs returns.
 func ChangePaths(blobs map[string]string) []string {
