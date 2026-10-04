@@ -203,16 +203,16 @@ sequenceDiagram
     participant S as specd
     participant A as agent + cc-clm-mod
     participant G as git: main / open-architecture
-    D->>C: clone, cd, specctl up
-    C->>K: start kcp + kine on kernel ports
-    C->>G: fetch open-architecture/REPO?
+    D->>C: clone, cd, git switch -c BRANCH, specctl up
+    C->>K: start this branch's kcp + kine on kernel ports
+    C->>G: fetch open-architecture/REPO (or REPO--BRANCH)?
     alt branch exists
-        C->>K: restore specs from the branch
+        C->>K: restore specs from that branch's architecture
     else no branch
         C->>K: apply Repository (index + summarize)
         S->>K: SystemContexts with specs
     end
-    S->>G: commit open-architecture/REPO
+    S->>G: commit open-architecture/REPO (or REPO--BRANCH)
     D->>A: change how X works
     A->>K: arch_outline, arch_context, arch_edit
     S->>A: SpecToCode: realize the delta
