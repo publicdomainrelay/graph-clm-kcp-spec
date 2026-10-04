@@ -337,8 +337,9 @@ graph.
 - `specctl ingest --repo <path>` applies a `Repository` manifest and waits for
   `Populated`, so the CLI and the controller are one code path.
 - Ingest runs CodeGraph over a working tree, partitions it, and fills
-  `status.observed` (`files`, `interfaces` with signature, file, line and
-  CodeGraph id, and a `fingerprint` over both) plus the conditions `SpecValid`,
+  `status.observed` (`files`, `treeFiles` the index does not cover,
+  `interfaces` with signature, file, line and CodeGraph id, and a
+  `fingerprint` over the files and the interfaces) plus the conditions `SpecValid`,
   `CodeSynced` and `Drifted`. Ingest is idempotent: a second run changes no spec
   and writes no status.
 - `specctl import-arch <arch.yaml>` turns every node of an open architecture
@@ -353,6 +354,15 @@ graph.
   annotation, moves the synced baseline so `Drifted` goes False, and writes the
   context document. The write never looks like a human edit, so it raises no
   `SpecToCode` change; the loop is proved in a unit test and in a live run.
+- The model's answer is held to a bar, in the prompt and in the parser: a
+  requirement that names an absolute machine path (`/home/...`) is rejected and
+  the change is retried, an interface the observed facts do not name is dropped
+  instead of declared, a requirement that is only a comma-separated list of
+  names is reported back for a rewrite, and a command entrypoint (a context
+  whose files are under `cmd/`) whose architecture knows its flags must state
+  its configuration surface — each flag, the environment variable behind it and
+  the default. The prompt renders the seeded arch node too, so the flags the
+  document carries are visible to the model that has to name them.
 - `specctl ingest --summarize --agent <kind>` fills the spec of every context
   whose intent is still empty, without a controller running.
 - Each context gets a CLM document at `$SPECD_CLM_DOC_DIR/<repository>/<name>.md`
@@ -743,7 +753,7 @@ works against it without extra flags.
 
 | Kind | Purpose | Key fields |
 | --- | --- | --- |
-| `Repository` | a codebase under management, and the one manifest that populates an unknown one | `spec.source.path` / `spec.source.git`, `spec.branch`, `spec.verify`, `spec.acceptance[]` (name, command, timeoutSeconds, gate, env), `spec.agent`, `spec.populate` (partition, include, exclude, summarize, agent), `status.phase`, `status.contexts`, `status.resolvedPath`, the `Indexed` and `Populated` conditions |
+| `Repository` | a codebase under management, and the one manifest that populates an unknown one | `spec.source.path` / `spec.source.git`, `spec.branch`, `spec.verify`, `spec.acceptance[]` (name, command, timeoutSeconds, gate, env), `spec.agent`, `spec.populate` (partition, include, exclude, summarize, arch, root, agent), `status.phase`, `status.contexts`, `status.resolvedPath`, the `Indexed` and `Populated` conditions |
 | `SystemContext` | one spec node (one system context) | `spec.repository`, `spec.upstream`, `spec.overlay`, `spec.orchestrator`, `spec.dependsOn[]`, `spec.introduces[]`, `spec.intent`, `spec.requirements[]`, `spec.interfaces[]`, `spec.codeRefs[]`, `spec.arch` |
 | `SpecChange` | one direction-tagged change, the unit of work | `spec.systemContext`, `spec.direction`, `spec.delta`, `spec.toSpecHash` / `spec.toCommit`, `status.phase`, `status.branch`, `status.commit`, `status.verifyExitCode`, `status.filesTouched`, `status.acceptance[]` (name, exitCode, durationSeconds, passed, outputTail) |
 
@@ -801,9 +811,22 @@ The pipeline:
    package or module root with `partition: package`. `include` and `exclude`
    are globs over the repository-relative path, where `**` crosses directories
    and a pattern without a slash also matches a base name. Test files stay in
-   `observed.files` but contribute no interfaces;
+   `observed.files` but contribute no interfaces. With `populate.root` (what
+   `specctl up` applies) the repository level is a context of its own — the
+   tracked files at the top level and under `docs/`, even when the index covers
+   none of them — named after the repository and the context every other one
+   hangs from. Each context also records what the code index's import edges say
+   it depends on as `spec.dependsOn` (`sc.<context>`), so the cross-context
+   relations come from the code, not from a guess;
 5. writes `Repository.status.headCommit` and `indexedCommit`, and for each
-   context fills `status.observed` and the three conditions. The fingerprint is
+   context fills `status.observed` and the three conditions. `observed` carries
+   the indexed `files` and also the `treeFiles`: the tracked files under the
+   context that the index does not cover (a shell script, a README, a yaml
+   manifest), which is what makes a `file:` ref to one of them resolve, so
+   `CodeSynced` is about the repository and not about the indexer's language
+   list. A context's declared surface is checked against the observed one, and
+   generated code is not a declared interface: a symbol from a `zz_generated*`
+   file, or one whose name begins with `DeepCopy`, is left out. The fingerprint is
    sha256 over the canonical JSON of the sorted files and interfaces, so the
    same tree always produces the same digest. Both the observed list and a
    spec's `spec.interfaces` are keyed the same way: a method by its qualified
@@ -820,7 +843,17 @@ The pipeline:
    author wrote, and leaves `intent`, `requirements`, `interfaces`, `upstream`,
    `overlay` and `orchestrator` alone. A spec written this way carries the
    `specs.publicdomainrelay.dev/origin: ingest` annotation and a
-   `status.realizedSpecHash`, so it never looks like a human edit;
+   `status.realizedSpecHash`, so it never looks like a human edit. When the
+   repository ships an open architecture document (`populate.arch`, default
+   `.tools/open-architecture/arch.yaml` when it is there), the generated
+   contexts are seeded from it first: each arch node is matched to the context
+   whose files it names (a `source` counts as a path), and its `upstream`,
+   `overlay`, `orchestrator`, `depends_on`, `introduces` and node body — the
+   trust boundaries and the kind overlays, flags included — are carried onto
+   that context, refs resolved onto the generated names, merged only where the
+   context has nothing yet, and marked realized so the facts never look like a
+   spec edit. The summary that follows refines that spec instead of replacing
+   it;
 7. when `populate.summarize` is true, raises one `CodeToSpec` change per
    context whose `intent` is still empty, at most `--max-concurrent-summaries`
    running at once, and works each one off with `populate.agent` (or `spec.agent`
