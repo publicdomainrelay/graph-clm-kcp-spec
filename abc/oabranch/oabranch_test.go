@@ -133,6 +133,51 @@ func TestFilesAreDeterministicWithManyRefs(t *testing.T) {
 	}
 }
 
+func TestFilesAreDeterministicWithMapFields(t *testing.T) {
+	snapshot := calcSnapshot()
+	snapshot.Repository.Labels = map[string]string{
+		"app.kubernetes.io/part-of":  "calc",
+		"app.kubernetes.io/name":     "calc",
+		"helm.sh/chart":              "calc-0.1.0",
+		"app.kubernetes.io/instance": "calc-7f3a",
+	}
+	snapshot.Repository.Spec.Acceptance = []spec.AcceptanceStep{{
+		Name:    "unit",
+		Command: []string{"go", "test", "./..."},
+		Env: map[string]string{
+			"HOME": "/root", "PATH": "/usr/bin:/bin", "BOB_WORKSPACE": "bob",
+			"GOCACHE": "/tmp/cache", "OPERATOR_NAMESPACE": "default",
+		},
+	}}
+	node := map[string]any{}
+	document := map[string]any{}
+	for index := 0; index < 20; index++ {
+		node[fmt.Sprintf("k:%08x", index*2654435761)] = index
+		document[fmt.Sprintf("doc:%02x", index*7)] = fmt.Sprintf("value-%d", index)
+	}
+	snapshot.Contexts[0].Spec.Arch = &spec.ArchSpec{
+		ID:       "deploy.calc",
+		Kind:     spec.ArchKindNode,
+		Node:     node,
+		Document: document,
+	}
+	first, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < 20; attempt++ {
+		next, err := Files(snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for path, data := range first {
+			if string(next[path]) != string(data) {
+				t.Fatalf("%s differs between two renders of the same state:\n%s\n---\n%s", path, data, next[path])
+			}
+		}
+	}
+}
+
 func TestBlobIDMatchesGit(t *testing.T) {
 	git, err := exec.LookPath("git")
 	if err != nil {
@@ -365,13 +410,13 @@ func TestSubjectsNameEveryKindOfChange(t *testing.T) {
 
 func TestCoalesceProgressDefersAProgressOnlyRewrite(t *testing.T) {
 	change := calcSnapshot().Changes[0]
-	before, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: change.Spec, Status: change.Status})
+	before, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: changeSpecDocOf(change.Spec), Status: change.Status})
 	if err != nil {
 		t.Fatal(err)
 	}
 	after := change
 	after.Status.Progress = append(after.Status.Progress, spec.ProgressRecord{Turn: 1, Tool: "edit", At: "2026-01-01T00:00:00Z"})
-	next, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: change.Spec, Status: after.Status})
+	next, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: changeSpecDocOf(change.Spec), Status: after.Status})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +427,7 @@ func TestCoalesceProgressDefersAProgressOnlyRewrite(t *testing.T) {
 		t.Fatalf("a progress-only rewrite was planned: %+v %v", plan, deferred)
 	}
 	after.Status.Phase = specapi.PhaseFailed
-	final, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: change.Spec, Status: after.Status})
+	final, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: changeSpecDocOf(change.Spec), Status: after.Status})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,13 +464,13 @@ func TestOneRecordPerEpisodeSummarizesTheEarlierAttempts(t *testing.T) {
 	}
 }
 
-func TestPreserveChangesKeepsTheBranchesOwnRecords(t *testing.T) {
+func TestPreserveChangesKeepsEveryRecordTheBranchHolds(t *testing.T) {
 	change := calcSnapshot().Changes[0]
-	survivor, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: change.Spec, Status: change.Status})
+	survivor, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: changeSpecDocOf(change.Spec), Status: change.Status})
 	if err != nil {
 		t.Fatal(err)
 	}
-	attempt, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name + "-a2"}, Spec: change.Spec, Status: spec.SpecChangeStatus{Phase: specapi.PhaseFailed}})
+	attempt, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name + "-a2"}, Spec: changeSpecDocOf(change.Spec), Status: spec.SpecChangeStatus{Phase: specapi.PhaseFailed}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,11 +487,89 @@ func TestPreserveChangesKeepsTheBranchesOwnRecords(t *testing.T) {
 	if string(files[ChangePath(change.Name)]) != string(survivor) {
 		t.Error("the rewritten change record was overwritten by the branch's copy")
 	}
-	if _, ok := files[ChangePath(change.Name+"-a2")]; ok {
-		t.Error("a superseded attempt came back from the branch")
+	if string(files[ChangePath(change.Name+"-a2")]) != string(attempt) {
+		t.Error("the branch's superseded attempt was dropped: changes/ is append-only")
 	}
 	if string(files[SpecPath("calc")]) != "spec" {
 		t.Error("a non-change file was preserved from the branch")
+	}
+}
+
+func TestChangeRecordCarriesASummaryNotTheWholeDelta(t *testing.T) {
+	snapshot := calcSnapshot()
+	change := &snapshot.Changes[0]
+	change.Spec.Delta = &spec.Delta{
+		Intent: &spec.FieldDelta{From: "old", To: "new"},
+		Requirements: []spec.RequirementDelta{
+			{Op: spec.OpAdded, ID: "r.sub", To: &spec.Requirement{ID: "r.sub", Level: spec.LevelMust, Text: "Subtract returns the difference."}},
+			{Op: spec.OpChanged, ID: "r.add", From: &spec.Requirement{ID: "r.add"}, To: &spec.Requirement{ID: "r.add", Text: "Add returns the sum of two integers."}},
+		},
+		Interfaces: []spec.InterfaceDelta{{Op: spec.OpRemoved, Name: "Multiply"}},
+	}
+	files, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := string(files[ChangePath(change.Name)])
+	for _, want := range []string{
+		"direction: SpecToCode",
+		"delta:",
+		"counts:",
+		"added: 1",
+		"changed: 2",
+		"- +r.sub",
+		"- ~r.add",
+		"- -Multiply",
+	} {
+		if !strings.Contains(record, want) {
+			t.Errorf("the record lacks %q:\n%s", want, record)
+		}
+	}
+	for _, unwanted := range []string{"Subtract returns the difference.", "from:", "to:"} {
+		if strings.Contains(record, unwanted) {
+			t.Errorf("the record still embeds the delta (%q):\n%s", unwanted, record)
+		}
+	}
+	parsed, err := ChangeFiles(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed) != 1 || parsed[0].Spec.Direction != specapi.DirectionSpecToCode || parsed[0].Spec.SystemContext != "calc" {
+		t.Fatalf("the compact record does not read back: %+v", parsed)
+	}
+}
+
+func TestABranchWrittenWithTheFullDeltaStillLoads(t *testing.T) {
+	legacy := `apiVersion: spec.graph-clm.dev/v1alpha1
+kind: SpecChange
+metadata:
+  name: calc-s2c-12345678
+spec:
+  systemContext: calc
+  direction: SpecToCode
+  toSpecHash: abc
+  delta:
+    requirements:
+    - op: added
+      id: r.sub
+      to:
+        id: r.sub
+        level: MUST
+        text: Subtract returns the difference.
+status:
+  phase: Succeeded
+  commit: c0ffee
+`
+	files := map[string][]byte{ChangePath("calc-s2c-12345678"): []byte(legacy)}
+	parsed, err := ChangeFiles(files)
+	if err != nil {
+		t.Fatalf("a branch written before the summary does not load: %v", err)
+	}
+	if len(parsed) != 1 || parsed[0].Name != "calc-s2c-12345678" || parsed[0].Spec.Direction != specapi.DirectionSpecToCode {
+		t.Fatalf("parsed = %+v", parsed)
+	}
+	if parsed[0].Status.Phase != specapi.PhaseSucceeded || parsed[0].Status.Commit != "c0ffee" {
+		t.Fatalf("the status was lost: %+v", parsed[0].Status)
 	}
 }
 

@@ -1302,7 +1302,7 @@ checkout are never touched, and it is never checked out beside the code.
 | `specs/<context>.yaml` | each context's declared spec; edit here to change kcp |
 | `status/<context>.yaml` | observed code facts and conditions |
 | `context/<context>.md` | the context's prose and its resolved code references; the spec lives in `specs/` |
-| `changes/<name>.yaml` | each SpecChange: direction, delta, progress, outcome |
+| `changes/<name>.yaml` | each SpecChange: direction, a delta summary (counts and ids), progress, outcome |
 | `CHANGES.md` | on a feature branch: the requirement-level delta against the default branch, and what this branch realized |
 | `graph/*.jsonl` | the context graph, one vertex or edge per line |
 

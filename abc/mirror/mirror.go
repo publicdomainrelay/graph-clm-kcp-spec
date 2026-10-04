@@ -8,6 +8,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/yamlx"
 )
 
 const LegacyDir = ".specs"
@@ -48,7 +49,7 @@ func RenderWithRefs(name, namespace string, contextSpec spec.SystemContextSpec, 
 		Spec:         declared,
 		CodeRefIndex: refs,
 	}
-	data, err := yaml.Marshal(document)
+	data, err := yamlx.Marshal(document)
 	if err != nil {
 		return nil, fmt.Errorf("mirror: render %s: %w", name, err)
 	}

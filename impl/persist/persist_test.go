@@ -337,6 +337,34 @@ func TestAFeatureBranchKeepsTheDefaultBranchesChangeRecords(t *testing.T) {
 	}
 }
 
+func TestAFreshKcpKeepsTheAttemptRecordsTheBranchHolds(t *testing.T) {
+	repo := clone(t)
+	ctx := context.Background()
+
+	older := newFakeCluster()
+	seed(t, older, repo)
+	seedChange(t, older, "calc-s2c-aaaaaaaaaaaa-a2", specapi.PhaseFailed)
+	if _, err := Persist(ctx, Options{Cluster: older, Repository: "calc"}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "show", oabranch.Branch("calc")+":changes/calc-s2c-aaaaaaaaaaaa-a2.yaml").CombinedOutput(); err != nil {
+		t.Fatalf("the first persist did not record the attempt: %v\n%s", err, out)
+	}
+
+	fresh := newFakeCluster()
+	seed(t, fresh, repo)
+	seedChange(t, fresh, "calc-s2c-aaaaaaaaaaaa", specapi.PhaseSucceeded)
+	if _, err := Persist(ctx, Options{Cluster: fresh, Repository: "calc"}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "show", oabranch.Branch("calc")+":changes/calc-s2c-aaaaaaaaaaaa.yaml").CombinedOutput(); err != nil {
+		t.Fatalf("the re-render did not record the surviving change: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repo, "show", oabranch.Branch("calc")+":changes/calc-s2c-aaaaaaaaaaaa-a2.yaml").CombinedOutput(); err != nil {
+		t.Fatalf("the re-render from a fresh kcp deleted the attempt the branch held: %v\n%s", err, out)
+	}
+}
+
 func commitOnBranch(t *testing.T, repo, path, content string) {
 	t.Helper()
 	worktree := filepath.Join(t.TempDir(), "edit")

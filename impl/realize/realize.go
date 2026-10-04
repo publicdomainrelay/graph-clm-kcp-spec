@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -410,13 +411,39 @@ func runAcceptanceStep(ctx context.Context, step spec.AcceptanceStep, dir string
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	process := exec.CommandContext(runCtx, step.Command[0], step.Command[1:]...)
+	log, err := os.CreateTemp("", "specd-acceptance-*.log")
+	if err != nil {
+		result.ExitCode = -1
+		result.OutputTail = err.Error()
+		return result
+	}
+	defer func() {
+		name := log.Name()
+		_ = log.Close()
+		_ = os.Remove(name)
+	}()
+	process := exec.Command(step.Command[0], step.Command[1:]...)
 	process.Dir = dir
 	process.WaitDelay = WaitDelay
 	process.Env = stepEnv(step.Env)
+	process.Stdout = log
+	process.Stderr = log
+	process.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	started := time.Now()
-	output, err := process.CombinedOutput()
+	err = process.Start()
+	if err == nil {
+		done := make(chan error, 1)
+		go func() { done <- process.Wait() }()
+		select {
+		case err = <-done:
+		case <-runCtx.Done():
+			killProcessGroup(process.Process.Pid)
+			err = <-done
+		}
+		killProcessGroup(process.Process.Pid)
+	}
 	result.DurationSeconds = time.Since(started).Seconds()
+	output, _ := os.ReadFile(log.Name())
 	text := string(output)
 	switch exitErr, ok := errors.AsType[*exec.ExitError](err); {
 	case err == nil:
@@ -429,6 +456,12 @@ func runAcceptanceStep(ctx context.Context, step spec.AcceptanceStep, dir string
 	}
 	result.OutputTail = tail(text)
 	return result
+}
+
+func killProcessGroup(pid int) {
+	if pid > 0 {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+	}
 }
 
 func stepEnv(extra map[string]string) []string {

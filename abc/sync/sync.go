@@ -713,6 +713,85 @@ func qualifiedRef(ref string, rewrites map[string]string) (string, bool) {
 	return "", false
 }
 
+// ReanchorRefs rewrites a code ref that names a symbol by its codegraph id when
+// that id moved: the ids hash the symbol's place in the file, so an edit that
+// inserts lines above a symbol changes every id below it. The symbol name the
+// previous facts recorded for the old id finds the new one, so requirements the
+// edit did not touch stay resolvable.
+func ReanchorRefs(declared spec.SystemContextSpec, previous, observed spec.ObservedFacts) spec.SystemContextSpec {
+	moved := movedIDs(previous, observed)
+	if len(moved) == 0 {
+		return declared
+	}
+	out := declared
+	if refs := rewriteRefs(declared.CodeRefs, moved); refs != nil {
+		out.CodeRefs = refs
+	}
+	requirements := declared.Requirements
+	copied := false
+	for index, requirement := range declared.Requirements {
+		refs := rewriteRefs(requirement.CodeRefs, moved)
+		if refs == nil {
+			continue
+		}
+		if !copied {
+			requirements = append([]spec.Requirement{}, declared.Requirements...)
+			copied = true
+		}
+		requirements[index].CodeRefs = refs
+	}
+	if copied {
+		out.Requirements = requirements
+	}
+	return out
+}
+
+func movedIDs(previous, observed spec.ObservedFacts) map[string]string {
+	byName := map[string]string{}
+	counts := map[string]int{}
+	live := map[string]bool{}
+	for _, entry := range observed.Interfaces {
+		if entry.CodegraphID != "" {
+			live[entry.CodegraphID] = true
+		}
+		if entry.Name == "" || entry.CodegraphID == "" {
+			continue
+		}
+		counts[entry.Name]++
+		if _, seen := byName[entry.Name]; !seen {
+			byName[entry.Name] = entry.CodegraphID
+		}
+	}
+	out := map[string]string{}
+	for _, entry := range previous.Interfaces {
+		if entry.CodegraphID == "" || entry.Name == "" || live[entry.CodegraphID] {
+			continue
+		}
+		if counts[entry.Name] != 1 {
+			continue
+		}
+		if next, ok := byName[entry.Name]; ok && next != entry.CodegraphID {
+			out[entry.CodegraphID] = next
+		}
+	}
+	return out
+}
+
+func rewriteRefs(refs []string, moved map[string]string) []string {
+	var out []string
+	for index, ref := range refs {
+		next, ok := moved[ref]
+		if !ok {
+			continue
+		}
+		if out == nil {
+			out = append([]string{}, refs...)
+		}
+		out[index] = next
+	}
+	return out
+}
+
 type fingerprintPayload struct {
 	Files      []string                 `json:"files"`
 	Interfaces []spec.ObservedInterface `json:"interfaces"`

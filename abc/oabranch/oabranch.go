@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"sigs.k8s.io/yaml"
+	yaml "sigs.k8s.io/yaml"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/clm"
@@ -16,6 +16,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/mirror"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/yamlx"
 )
 
 const (
@@ -213,11 +214,105 @@ type changeDoc struct {
 
 	Metadata objectMeta `json:"metadata"`
 
-	Spec spec.SpecChangeSpec `json:"spec"`
+	Spec changeSpecDoc `json:"spec"`
 
 	Status spec.SpecChangeStatus `json:"status"`
 
 	Superseded []supersededDoc `json:"superseded,omitempty"`
+}
+
+// changeSpecDoc is the compact spec a change record carries: what was attempted
+// and how it ended, and a delta summary rather than the whole delta.
+// CHANGES.md carries the readable delta.
+type changeSpecDoc struct {
+	SystemContext string `json:"systemContext,omitempty"`
+
+	Direction string `json:"direction,omitempty"`
+
+	FromSpecHash string `json:"fromSpecHash,omitempty"`
+	ToSpecHash   string `json:"toSpecHash,omitempty"`
+
+	FromCommit string `json:"fromCommit,omitempty"`
+	ToCommit   string `json:"toCommit,omitempty"`
+
+	Delta *changeDeltaDoc `json:"delta,omitempty"`
+}
+
+type changeDeltaDoc struct {
+	Counts changeDeltaCounts `json:"counts"`
+
+	Requirements []string `json:"requirements,omitempty"`
+
+	Interfaces []string `json:"interfaces,omitempty"`
+}
+
+type changeDeltaCounts struct {
+	Added int `json:"added,omitempty"`
+
+	Removed int `json:"removed,omitempty"`
+
+	Changed int `json:"changed,omitempty"`
+}
+
+// UnmarshalJSON keeps a record written before the summary - whose delta is the
+// full spec.Delta - loading; the summary is not needed to read a branch back.
+func (d *changeDeltaDoc) UnmarshalJSON(data []byte) error {
+	summary := struct {
+		Counts       changeDeltaCounts `json:"counts"`
+		Requirements []string          `json:"requirements"`
+		Interfaces   []string          `json:"interfaces"`
+	}{}
+	if err := json.Unmarshal(data, &summary); err != nil {
+		*d = changeDeltaDoc{}
+		return nil
+	}
+	d.Counts = summary.Counts
+	d.Requirements = summary.Requirements
+	d.Interfaces = summary.Interfaces
+	return nil
+}
+
+func changeSpecDocOf(in spec.SpecChangeSpec) changeSpecDoc {
+	return changeSpecDoc{
+		SystemContext: in.SystemContext,
+		Direction:     in.Direction,
+		FromSpecHash:  in.FromSpecHash,
+		ToSpecHash:    in.ToSpecHash,
+		FromCommit:    in.FromCommit,
+		ToCommit:      in.ToCommit,
+		Delta:         changeDeltaOf(in.Delta),
+	}
+}
+
+func (d changeSpecDoc) specChangeSpec() spec.SpecChangeSpec {
+	return spec.SpecChangeSpec{
+		SystemContext: d.SystemContext,
+		Direction:     d.Direction,
+		FromSpecHash:  d.FromSpecHash,
+		ToSpecHash:    d.ToSpecHash,
+		FromCommit:    d.FromCommit,
+		ToCommit:      d.ToCommit,
+	}
+}
+
+func changeDeltaOf(in *spec.Delta) *changeDeltaDoc {
+	if in == nil {
+		return nil
+	}
+	counts := in.Count()
+	out := &changeDeltaDoc{Counts: changeDeltaCounts{Added: counts.Added, Removed: counts.Removed, Changed: counts.Changed}}
+	for _, requirement := range in.Requirements {
+		out.Requirements = append(out.Requirements, op(requirement.Op)+requirement.ID)
+	}
+	for _, declared := range in.Interfaces {
+		out.Interfaces = append(out.Interfaces, op(declared.Op)+declared.Name)
+	}
+	sort.Strings(out.Requirements)
+	sort.Strings(out.Interfaces)
+	if out.Counts == (changeDeltaCounts{}) && len(out.Requirements) == 0 && len(out.Interfaces) == 0 {
+		return nil
+	}
+	return out
 }
 
 type supersededDoc struct {
@@ -283,14 +378,14 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 	files[ReadmePath] = []byte(readme(name))
 
 	contexts := sortedContexts(snapshot.Contexts)
-	repository, err := yaml.Marshal(repositoryDocOf(snapshot.Repository, contexts))
+	repository, err := yamlx.Marshal(repositoryDocOf(snapshot.Repository, contexts))
 	if err != nil {
 		return nil, fmt.Errorf("oabranch: render %s: %w", RepositoryPath, err)
 	}
 	files[RepositoryPath] = repository
 
 	refs := graph.CodeRefMap(contexts)
-	arch, err := yaml.Marshal(archDocOf(snapshot.Repository, contexts, snapshot.branch(), refs))
+	arch, err := yamlx.Marshal(archDocOf(snapshot.Repository, contexts, snapshot.branch(), refs))
 	if err != nil {
 		return nil, fmt.Errorf("oabranch: render %s: %w", ArchPath, err)
 	}
@@ -303,7 +398,7 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 		}
 		files[SpecPath(context.Name)] = specFile
 
-		status, err := yaml.Marshal(statusDocOf(context.Status, commonCommits(contexts)))
+		status, err := yamlx.Marshal(statusDocOf(context.Status, commonCommits(contexts)))
 		if err != nil {
 			return nil, fmt.Errorf("oabranch: render status of %s: %w", context.Name, err)
 		}
@@ -322,11 +417,11 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 
 	for _, episode := range episodes(snapshot.Changes) {
 		surviving := episode[0]
-		data, err := yaml.Marshal(changeDoc{
+		data, err := yamlx.Marshal(changeDoc{
 			APIVersion: specapi.Group + "/" + specapi.Version,
 			Kind:       specapi.SpecChangeKind,
 			Metadata:   objectMeta{Name: surviving.Name, Namespace: surviving.Namespace},
-			Spec:       surviving.Spec,
+			Spec:       changeSpecDocOf(surviving.Spec),
 			Status:     surviving.Status,
 			Superseded: superseded(episode),
 		})
@@ -375,7 +470,7 @@ func readme(repository string) string {
 		"| `specs/<context>.yaml` | each context's declared spec; edit here to change kcp |\n" +
 		"| `status/<context>.yaml` | observed code facts and conditions |\n" +
 		"| `context/<context>.md` | the context's prose and resolved code references; the spec lives in `specs/` |\n" +
-		"| `changes/<name>.yaml` | each SpecChange: direction, delta, progress, outcome |\n" +
+		"| `changes/<name>.yaml` | each SpecChange: direction, a delta summary (counts and ids), progress, outcome |\n" +
 		"| `CHANGES.md` | on a feature branch: the requirement delta against the default branch |\n" +
 		"| `graph/*.jsonl` | the context graph, one vertex or edge per line |\n"
 }
@@ -820,7 +915,7 @@ func ChangeFiles(files map[string][]byte) ([]spec.SpecChange, error) {
 		change.Kind = doc.Kind
 		change.Name = doc.Metadata.Name
 		change.Namespace = doc.Metadata.Namespace
-		change.Spec = doc.Spec
+		change.Spec = doc.Spec.specChangeSpec()
 		change.Status = doc.Status
 		out = append(out, change)
 	}

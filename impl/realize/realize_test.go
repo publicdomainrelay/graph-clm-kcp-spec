@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -134,6 +136,51 @@ func TestRunAcceptanceRecordsEachStep(t *testing.T) {
 	if len(empty) != 1 || empty[0].Passed || empty[0].ExitCode != -1 {
 		t.Errorf("a step without a command = %+v, want a recorded failure", empty)
 	}
+}
+
+func TestRunAcceptanceReapsWhatAStepLeavesBehind(t *testing.T) {
+	dir := t.TempDir()
+	steps := []spec.AcceptanceStep{
+		{Name: "daemon", Command: []string{"sh", "-c", "sleep 120 & echo $! > bg.pid; echo started"}, Gate: true},
+		{Name: "timeout", Command: []string{"sh", "-c", "sleep 120 & echo $! > blocked.pid; sleep 120"}, TimeoutSeconds: 2, Gate: false},
+	}
+	results := RunAcceptance(context.Background(), steps, dir, time.Minute)
+	if !results[0].Passed {
+		t.Fatalf("the daemon step did not pass: %+v", results[0])
+	}
+	if results[1].Passed {
+		t.Fatalf("the blocking step passed: %+v", results[1])
+	}
+	for _, name := range []string{"bg.pid", "blocked.pid"} {
+		pid := readPid(t, filepath.Join(dir, name))
+		if processAlive(pid) {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+			t.Errorf("the step left %s (%d) running", name, pid)
+		}
+	}
+}
+
+func readPid(t *testing.T, path string) int {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pid
+}
+
+func processAlive(pid int) bool {
+	for range 50 {
+		if err := syscall.Kill(pid, 0); err != nil {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return true
 }
 
 func TestRunGatesStopsAtTheFirstGate(t *testing.T) {

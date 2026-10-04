@@ -267,3 +267,54 @@ func TestPhase14TwoWorktreesRunAtTheSameTime(t *testing.T) {
 		t.Fatalf("specctl ls does not show two running specds:\n%s", listed)
 	}
 }
+
+func TestPhase14DownThenUpResumesOnTheSameRoot(t *testing.T) {
+	requireLive(t, "git", "kcp", "kine")
+	specctl, specd := buildSpecctlAndSpecd(t)
+	work := t.TempDir()
+	repo := filepath.Join(work, "calc")
+	cloneCalcFixture(t, repo)
+	machine := phase13Machine{state: filepath.Join(work, "state")}
+	t.Cleanup(func() { downEveryBranch(t, specctl, repo, machine.state, []string{"main"}) })
+
+	outFirst := filepath.Join(work, "first.json")
+	machine.run(t, specctl, repo, "up", "--summarize=false", "--remote", "", "--specd", specd, "--clm-mod", "", "--out", outFirst)
+	phase13Wait(t, "the checkout to be populated", func() bool {
+		return strings.Contains(machine.run(t, specctl, repo, "status"), "Populated")
+	})
+	first := branchSession(t, outFirst)
+	if !kcpServing(first) {
+		t.Fatalf("the first up left no kcp: %+v", first)
+	}
+	phase13Wait(t, "the architecture branch", func() bool {
+		return exec.Command("git", "-C", repo, "rev-parse", "-q", "--verify", "refs/heads/open-architecture/calc").Run() == nil
+	})
+	tip := phase13Git(t, repo, "rev-parse", "open-architecture/calc")
+
+	down := machine.run(t, specctl, repo, "down")
+	if !strings.Contains(down, "stopped") {
+		t.Fatalf("specctl down did not stop the instance:\n%s", down)
+	}
+	if kcpServing(first) {
+		t.Fatal("specctl down left the kcp serving")
+	}
+
+	outSecond := filepath.Join(work, "second.json")
+	up := machine.run(t, specctl, repo, "up", "--summarize=false", "--remote", "", "--specd", specd, "--clm-mod", "", "--out", outSecond)
+	if strings.Contains(up, "already running") {
+		t.Fatalf("up adopted a kcp that was stopped:\n%s", up)
+	}
+	if !strings.Contains(up, "kcp already holds Repository calc") {
+		t.Fatalf("the restart did not find the state the first up wrote:\n%s", up)
+	}
+	second := branchSession(t, outSecond)
+	if second.KcpRoot != first.KcpRoot || second.KcpPort != first.KcpPort {
+		t.Fatalf("the restart moved the instance: %+v, was %+v", second, first)
+	}
+	if !kcpServing(second) {
+		t.Fatalf("the restarted kcp does not serve: %+v", second)
+	}
+	if got := phase13Git(t, repo, "rev-parse", "open-architecture/calc"); got != tip {
+		t.Fatalf("the restart rewrote the architecture branch: %s, want %s", got, tip)
+	}
+}
