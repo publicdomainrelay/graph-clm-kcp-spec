@@ -120,6 +120,11 @@ type Options struct {
 
 	BatchWindow time.Duration
 
+	// LogDir keeps the full agent log and the raw verify output of a realized
+	// change. Empty means no log is kept; the change record carries the
+	// agent's report and the verify summary either way.
+	LogDir string
+
 	Log *slog.Logger
 }
 

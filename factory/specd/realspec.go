@@ -251,12 +251,13 @@ func (c *Controller) movedSinceBase(ctx context.Context, namespace string, repos
 
 func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, repository *spec.Repository, members []*spec.SpecChange, result realize.Result) {
 	for _, member := range members {
+		c.writeFullLog(member.Name, result)
 		status := map[string]any{
 			"phase":          specapi.PhaseSucceeded,
 			"branch":         result.Branch,
 			"verifyExitCode": result.VerifyExitCode,
 			"message":        batchSuccessMessage(member, members, result),
-			"agentLog":       tailMessage(result.Agent.Log + "\n" + result.VerifyOutput),
+			"agentLog":       tailMessage(changeAgentLog(result)),
 		}
 		if result.Commit != "" {
 			status["commit"] = result.Commit
@@ -282,7 +283,6 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 
 func (c *Controller) recordBatchFailure(ctx context.Context, namespace string, members []*spec.SpecChange, result realize.Result, failure error) {
 	message := failure.Error()
-	log := result.Agent.Log + "\n" + result.VerifyOutput
 	if verifyErr, ok := errors.AsType[*realize.VerifyError](failure); ok {
 		message = fmt.Sprintf("verify exited %d: %s", verifyErr.ExitCode, tailMessage(verifyErr.Output))
 	}
@@ -291,12 +291,13 @@ func (c *Controller) recordBatchFailure(ctx context.Context, namespace string, m
 			acceptanceErr.Result.Name, acceptanceErr.Result.ExitCode, tailMessage(acceptanceErr.Result.OutputTail))
 	}
 	for _, member := range members {
+		c.writeFullLog(member.Name, result)
 		status := map[string]any{
 			"phase":          specapi.PhaseFailed,
 			"branch":         result.Branch,
 			"verifyExitCode": result.VerifyExitCode,
 			"message":        tailMessage(message),
-			"agentLog":       tailMessage(log),
+			"agentLog":       tailMessage(changeAgentLog(result)),
 		}
 		if len(result.Acceptance) > 0 {
 			status["acceptance"] = result.Acceptance

@@ -118,6 +118,8 @@ type Result struct {
 
 	VerifyOutput string
 
+	VerifyDuration time.Duration
+
 	FilesTouched []string
 
 	Acceptance []spec.AcceptanceResult
@@ -373,9 +375,11 @@ func readContext(ctx context.Context, cluster Cluster, namespace, name string) (
 }
 
 func runGates(ctx context.Context, repository *spec.Repository, dir string, verifyTimeout, acceptanceTimeout time.Duration, result *Result) error {
+	started := time.Now()
 	exitCode, output := verify(ctx, repository.Spec.Verify, dir, verifyTimeout)
 	result.VerifyExitCode = exitCode
 	result.VerifyOutput = output
+	result.VerifyDuration = time.Since(started)
 	if exitCode != 0 {
 		return &VerifyError{Command: repository.Spec.Verify, ExitCode: exitCode, Output: output}
 	}
