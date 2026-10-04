@@ -441,6 +441,10 @@ func readBaseline(ctx context.Context, store oagit.Store, repository, codeBranch
 			return baselineFromCommit(ctx, store, tip)
 		}
 	}
+	tip, err := store.Tip(ctx, featureRef)
+	if err != nil || tip == "" {
+		return &oabranch.Baseline{}, err
+	}
 	commit, err := featureBaselineCommit(ctx, store, featureRef)
 	if err != nil {
 		return nil, err
@@ -554,6 +558,9 @@ func ensureBaseArchitecture(ctx context.Context, store oagit.Store, repository s
 	if err != nil || tip != "" {
 		return err
 	}
+	if !fullyPopulated(current.snapshot.Repository, len(current.snapshot.Contexts)) {
+		return nil
+	}
 	if humanEdited(current.origins) {
 		return nil
 	}
@@ -575,6 +582,19 @@ func ensureBaseArchitecture(ctx context.Context, store oagit.Store, repository s
 		return err
 	}
 	return nil
+}
+
+// fullyPopulated reports whether the populate that owns the snapshot has
+// finished: writing a base architecture from a half-built repository would pin
+// every context that arrived later as a spec this branch added.
+func fullyPopulated(repository spec.Repository, contexts int) bool {
+	if repository.Status.Phase != specapi.PhasePopulated {
+		return false
+	}
+	if counts := repository.Status.Contexts; counts != nil && counts.Total > contexts {
+		return false
+	}
+	return true
 }
 
 // humanEdited reports whether any context of the snapshot carries an origin

@@ -559,6 +559,40 @@ func TestAFeatureBranchWithNoBaseFallsBackToItsOwnLastPreEditCommit(t *testing.T
 	}
 }
 
+func TestAPartialPopulateDoesNotPinABaseArchitecture(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	ctx := context.Background()
+	object, err := cluster.Get(ctx, specapi.RepositoryGVR, "default", "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := typed.(*spec.Repository)
+	repository.Status.Phase = specapi.PhasePopulating
+	cluster.put(t, repository)
+
+	if _, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc", CodeBranch: "spec/bob"}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "rev-parse", "--verify", "--quiet", oabranch.Ref("calc")).CombinedOutput(); err == nil {
+		t.Fatalf("a half-built repository pinned a base architecture: %s", out)
+	}
+
+	repository.Status.Phase = specapi.PhasePopulated
+	cluster.put(t, repository)
+	if _, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc", CodeBranch: "spec/bob"}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "rev-parse", "--verify", "--quiet", oabranch.Ref("calc")).CombinedOutput(); err != nil {
+		t.Fatalf("the populated repository has no base architecture: %v\n%s", err, out)
+	}
+}
+
 func TestRestoreRebuildsKcpFromABranchOnTheRemote(t *testing.T) {
 	origin := clone(t)
 	cluster := newFakeCluster()
