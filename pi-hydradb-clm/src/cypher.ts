@@ -1,8 +1,3 @@
-// The Cypher the portable core subset allows. The write statements come from
-// clm/core, so pi writes the same rows as the Go writer and the Claude Code
-// mod, on the same ids; the reads below carry a limit pi's own tools ask for,
-// which the shared builders do not need.
-
 import { cypherLiteral, type Literal } from "../../clm/core/mod.ts";
 
 export {

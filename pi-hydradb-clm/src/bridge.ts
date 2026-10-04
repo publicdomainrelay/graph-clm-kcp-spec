@@ -1,9 +1,3 @@
-// The pi host's door into the shared state bridge. When the controller starts
-// pi inside a change it sets SPECD_CLM_CONTEXT and SPECD_CLM_CHANGE; the
-// extension then renders the same context document the Claude Code mod renders,
-// and reports what the tools touched into the same kcp record. Nothing here
-// talks to kcp or Bolt directly: `specctl clm` does, in Go.
-
 import { homedir } from "node:os";
 
 import { ClmHost, contextFromEnv, changeFromEnv, docPathFromEnv } from "../../clm/core/mod.ts";
@@ -14,11 +8,6 @@ export interface PiHostOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-/**
- * The host the controller put this process inside, or undefined when pi is
- * running on its own: an unset SPECD_CLM_CONTEXT means there is no change to
- * report into and the extension keeps its own session-scoped context.
- */
 export function clmHostFromEnv(options: PiHostOptions = {}): ClmHost | undefined {
   const env = options.env ?? process.env;
   const context = contextFromEnv(env);

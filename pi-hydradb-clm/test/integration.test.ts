@@ -94,7 +94,6 @@ test("a remembered concept specifies the requirement its code answers to", TIMEO
 
   try {
     assert.equal(await linkSpecifies(graph, memoryId, [codegraphId]), 1);
-    // A repeat writes nothing new: the edge is upserted, not duplicated.
     await linkSpecifies(graph, memoryId, [codegraphId]);
     const rows = await graph.selectNeighbors(
       EDGES.specifies,
@@ -105,7 +104,6 @@ test("a remembered concept specifies the requirement its code answers to", TIMEO
     );
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.reqId, `r.${suffix}`);
-    // A code reference the spec graph does not carry links nothing.
     assert.equal(await linkSpecifies(graph, memoryId, [`function:absent${suffix}`]), 0);
   } finally {
     await graph.deleteVertices([memoryId, requirementId, codeRefId]);

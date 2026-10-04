@@ -1,8 +1,3 @@
-// The zone markers, the budget and the reference extraction are the shared CLM
-// format (clm/core), so the file pi writes and the file the Claude Code mod
-// writes are read by one parser. What stays here is what only pi needs: the
-// session protocol and the turn summary.
-
 export {
   docPathFromEnv,
   DEFAULT_MANAGED_BUDGET,
@@ -28,8 +23,6 @@ import {
 
 export const CONTEXT_FILE_NAME = "live-context.md";
 
-// pi keeps a numeric id per reference for its own graph nodes; the shared
-// fields are the core's.
 export interface CodeRefRecord extends CoreCodeRefRecord {
   id: number;
 }

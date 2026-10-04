@@ -1,7 +1,5 @@
 import { isAbsolute, normalize, resolve } from "node:path";
 
-// The hash and the Cypher literals are shared with every other CLM host; the
-// path helpers are pi's own, because only a Node host has node:path.
 export {
   MAX_NODE_ID,
   cypherLiteral,

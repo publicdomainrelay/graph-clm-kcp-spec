@@ -8,9 +8,7 @@ export interface ProbeCase extends ProbeStatement {
   group: "read" | "traversal" | "aggregation" | "write" | "schema";
   setup?: ProbeStatement[];
   portable: boolean;
-  /** Minimum rows the probe must return, so a silently-empty result cannot pass. */
   minRows?: number;
-  /** Exact row count, when the engine's semantics make it deterministic. */
   expectRows?: number;
   note?: string;
 }

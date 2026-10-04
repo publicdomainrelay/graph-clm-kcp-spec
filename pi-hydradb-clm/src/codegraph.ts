@@ -72,7 +72,6 @@ export class CodegraphResolver {
   private db: SqliteDatabase | null = null;
   private readonly cache = new Map<string, CodegraphNode[]>();
   private sqliteFailed = false;
-  /** References dropped because a bare name matched symbols in several files. */
   readonly ambiguous = new Map<string, CodegraphNode[]>();
 
   private constructor(
@@ -194,7 +193,6 @@ export class CodegraphResolver {
     try {
       this.db?.close();
     } catch {
-      // best effort
     }
     this.db = null;
   }

@@ -18,8 +18,6 @@ export interface PartialTarget {
   database?: string;
 }
 
-// The GRAPH_* names are the current ones; the HYDRA_* names are kept as
-// aliases, so an existing shell or config file keeps working.
 export function envValue(env: NodeJS.ProcessEnv, ...names: string[]): string | undefined {
   for (const name of names) {
     const value = env[name];
