@@ -156,6 +156,12 @@ func startKcp(ctx context.Context, record *session.Record, previous session.Reco
 	}
 	reused := hadPrevious && kcpproc.Ready(instance)
 	if !reused {
+		if probed, ok := kcpproc.Probe(record.KcpRoot); ok {
+			instance = probed
+			reused = true
+		}
+	}
+	if !reused {
 		started, err := kcpproc.Start(ctx, kcpproc.Options{Root: record.KcpRoot})
 		if err != nil {
 			return err
