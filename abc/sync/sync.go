@@ -208,7 +208,7 @@ func filterFiles(files []SourceFile, include, exclude []string) []SourceFile {
 	excludes := compileGlobs(exclude)
 	out := make([]SourceFile, 0, len(files))
 	for _, file := range files {
-		if IsSpecArtifact(file.Path) {
+		if IsLegacySpecMirrorPath(file.Path) {
 			continue
 		}
 		if len(includes) > 0 && !matchAny(includes, file.Path) {
@@ -222,13 +222,13 @@ func filterFiles(files []SourceFile, include, exclude []string) []SourceFile {
 	return out
 }
 
-// IsSpecArtifact reports whether a repository-relative path is spec state
+// IsLegacySpecMirrorPath reports whether a repository-relative path is spec state
 // rather than code: the context documents and the `.specs/*.yaml` mirror the
 // tool itself writes. They are left out of every partition and out of the
 // observed facts, even when the index happened to read one, because a spec the
 // tool wrote must never look like code that drifted.
-func IsSpecArtifact(file string) bool {
-	return file == mirror.Dir || strings.HasPrefix(file, mirror.Dir+"/")
+func IsLegacySpecMirrorPath(file string) bool {
+	return file == mirror.LegacyDir || strings.HasPrefix(file, mirror.LegacyDir+"/")
 }
 
 // MatchGlob matches one repository-relative path against one glob. `*` and `?`

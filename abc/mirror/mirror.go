@@ -23,7 +23,7 @@ import (
 )
 
 // Dir is where the mirror lives inside the managed repository.
-const Dir = ".specs"
+const LegacyDir = ".specs"
 
 // ErrConflict is both sides of one context having moved since the last sync.
 var ErrConflict = errors.New("mirror: kcp and the file both changed since the last sync")

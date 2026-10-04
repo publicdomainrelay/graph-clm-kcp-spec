@@ -6,10 +6,10 @@ import (
 	"strings"
 )
 
-// equality is how close two measures must be to count as the same number. The
+// measureFloatTolerance is how close two measures must be to count as the same number. The
 // measures are ratios of small counts, so a float that differs by more than
 // this was computed from a different sample.
-const equality = 1e-9
+const measureFloatTolerance = 1e-9
 
 // MeasurePair is one measure of two runs side by side.
 type MeasurePair struct {
@@ -55,7 +55,7 @@ func Compare(baseline, live Report) Comparison {
 		switch {
 		case pair.Baseline.Measured() && pair.Live.Measured():
 			comparable++
-			pair.Equal = math.Abs(pair.Baseline.Value-pair.Live.Value) <= equality
+			pair.Equal = math.Abs(pair.Baseline.Value-pair.Live.Value) <= measureFloatTolerance
 			if pair.Equal {
 				equal++
 			}

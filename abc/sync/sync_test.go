@@ -520,7 +520,7 @@ func TestMatchGlob(t *testing.T) {
 // mirror are spec state the tool writes, so a partition and the observed facts
 // leave them out even when the index read one. Without this a mirror file would
 // become a context of its own and make the spec look like code that drifted.
-func TestSpecArtifactsAreNotCode(t *testing.T) {
+func TestLegacySpecMirrorPathsAreNotCode(t *testing.T) {
 	facts := Facts{
 		Files: []SourceFile{
 			{Path: "calc/calc.go"},
@@ -539,16 +539,16 @@ func TestSpecArtifactsAreNotCode(t *testing.T) {
 	}
 	observed := Observed(partitions[0])
 	for _, file := range observed.Files {
-		if IsSpecArtifact(file) {
+		if IsLegacySpecMirrorPath(file) {
 			t.Errorf("observed files carry the spec artifact %s", file)
 		}
 	}
 	for _, artifact := range []string{".specs", ".specs/calc.yaml", ".specs/context/calc.md"} {
-		if !IsSpecArtifact(artifact) {
+		if !IsLegacySpecMirrorPath(artifact) {
 			t.Errorf("%s is not read as a spec artifact", artifact)
 		}
 	}
-	if IsSpecArtifact("specs.go") || IsSpecArtifact("calc/calc.go") {
+	if IsLegacySpecMirrorPath("specs.go") || IsLegacySpecMirrorPath("calc/calc.go") {
 		t.Error("a source file is read as a spec artifact")
 	}
 }

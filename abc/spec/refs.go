@@ -81,13 +81,13 @@ func ArchName(id string) string {
 	if name == "" {
 		name = "node"
 	}
-	if len(name) <= maxArchName {
+	if len(name) <= maxDNS1123LabelLength {
 		return name
 	}
-	return name[:maxArchName-9] + "-" + archHash(id)
+	return name[:maxDNS1123LabelLength-9] + "-" + archHash(id)
 }
 
-const maxArchName = 63
+const maxDNS1123LabelLength = 63
 
 func archHash(id string) string {
 	hasher := fnv.New32a()

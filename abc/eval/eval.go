@@ -222,7 +222,7 @@ func FilesOutsideContext(touched []string, observed spec.ObservedFacts) []string
 	outside := []string{}
 	seen := map[string]bool{}
 	for _, file := range touched {
-		if file == "" || seen[file] || specsync.IsSpecArtifact(file) {
+		if file == "" || seen[file] || specsync.IsLegacySpecMirrorPath(file) {
 			continue
 		}
 		seen[file] = true
