@@ -25,13 +25,8 @@ import (
 
 const phase7Repository = "phase7-unseen"
 
-// phase7Contexts is what the directory partition of the unseen tree makes: the
-// greet module, its format directory, the calc package and its CLI.
 var phase7Contexts = []string{"calc-calc", "calc-cmd-calc", "greet", "greet-format"}
 
-// waitForPopulated waits until the manifest has been answered. A Failed phase
-// is not a slow populate: it is the answer, so it fails at once with what the
-// changes said.
 func waitForPopulated(t *testing.T, ctx context.Context, client *kcpclient.Client, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -51,8 +46,6 @@ func waitForPopulated(t *testing.T, ctx context.Context, client *kcpclient.Clien
 	t.Fatalf("timed out after %s waiting for Populated%s", timeout, phase7Status(t, ctx))
 }
 
-// phase7Status is the detail a timed out populate needs: the phase, the counts
-// and what the changes say.
 func phase7Status(t *testing.T, ctx context.Context) string {
 	t.Helper()
 	root := repoRoot(t)
@@ -78,9 +71,6 @@ func phase7Status(t *testing.T, ctx context.Context) string {
 	return "\n  phase " + phase + " contexts " + fmt.Sprint(counts) + changes
 }
 
-// phase7Source builds the codebase kcp has never seen: one working tree that
-// holds both fixtures, and a bare clone of it to clone from. It returns the
-// file url of the bare repository.
 func phase7Source(t *testing.T) string {
 	t.Helper()
 	tree := filepath.Join(t.TempDir(), "unseen")
@@ -105,8 +95,6 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// phase7Scenario copies the example scenario beside the test, because the
-// scripted agent reads it from a path.
 func phase7Scenario(t *testing.T) string {
 	t.Helper()
 	source := filepath.Join(repoRoot(t), "examples", "populate", "scenario.yaml")
@@ -121,8 +109,6 @@ func phase7Scenario(t *testing.T) string {
 	return target
 }
 
-// phase7Run is the whole phase 7 input: one Repository manifest, and a
-// controller started with no --agent of its own.
 func phase7Run(
 	t *testing.T,
 	ctx context.Context,
@@ -185,11 +171,6 @@ func phase7Run(
 	})
 }
 
-// TestPhase7OneManifestPopulatesAnUnknownCodebase is the phase 7 acceptance: a
-// codebase kcp has never seen, one Repository manifest with a git source and a
-// scripted agent, and nothing else. The controller clones, indexes, creates one
-// SystemContext per partition and summarizes every one of them, so the phase
-// reaches Populated with every context validated.
 func TestPhase7OneManifestPopulatesAnUnknownCodebase(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
@@ -226,7 +207,6 @@ func TestPhase7OneManifestPopulatesAnUnknownCodebase(t *testing.T) {
 		t.Errorf("Populated = %+v, want True", condition)
 	}
 
-	// Every context the partition made has a spec, and the validator passed it.
 	seen := []string{}
 	for _, name := range phase7Contexts {
 		object := getContext(t, ctx, client, name)
@@ -243,7 +223,6 @@ func TestPhase7OneManifestPopulatesAnUnknownCodebase(t *testing.T) {
 		t.Errorf("contexts = %v, want %v", seen, phase7Contexts)
 	}
 
-	// One change per context, all worked off; nothing else was raised.
 	ofRepository := []spec.SpecChange{}
 	for _, change := range liveSpecChanges(t, ctx, client) {
 		for _, name := range phase7Contexts {
@@ -266,7 +245,6 @@ func TestPhase7OneManifestPopulatesAnUnknownCodebase(t *testing.T) {
 	}
 	assertNoSpecArtefacts(t, repository.Status.ResolvedPath)
 
-	// Nothing moves once the manifest has been answered.
 	quiet := phase4Snapshot(t, ctx, client, phase7Contexts)
 	select {
 	case <-ctx.Done():
@@ -278,8 +256,6 @@ func TestPhase7OneManifestPopulatesAnUnknownCodebase(t *testing.T) {
 	}
 }
 
-// TestPhase7LiveModelPopulatesAnUnknownCodebase is the same manifest with the
-// real model: the only test that spends a model call on the populate path.
 func TestPhase7LiveModelPopulatesAnUnknownCodebase(t *testing.T) {
 	requireLiveModel(t, "deepseek-claude", "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
@@ -292,8 +268,6 @@ func TestPhase7LiveModelPopulatesAnUnknownCodebase(t *testing.T) {
 	if err := client.Ping(ctx); err != nil {
 		t.Fatalf("kcp is not serving the specs API: %v", err)
 	}
-	// A model is not deterministic, so a populate that names it gets one
-	// retry: a single bad answer must not fail the acceptance test.
 	phase7Run(t, ctx, client, root, phase7Source(t), &spec.AgentSpec{Kind: "claude"}, 10*time.Minute, 2)
 
 	waitForPopulated(t, ctx, client, 20*time.Minute)
@@ -344,11 +318,6 @@ func phase7Phase(t *testing.T, ctx context.Context, client *kcpclient.Client) st
 	return phase
 }
 
-// TestPhase7PackagePartitionAndGlobs covers the two populate inputs the
-// directory-only example never exercised: `partition: package`, which groups by
-// the directory that holds a package manifest, and include/exclude globs, which
-// decide what is indexed at all. The tree is the same unseen one, so the
-// difference is entirely the manifest.
 func TestPhase7PackagePartitionAndGlobs(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
@@ -362,8 +331,6 @@ func TestPhase7PackagePartitionAndGlobs(t *testing.T) {
 		t.Fatalf("kcp is not serving the specs API: %v", err)
 	}
 	source := phase7Source(t)
-	// Only Go files, and no test files: the greet module is a Deno one, so the
-	// package partition of what is left is the calc module alone.
 	wantContexts := []string{"calc"}
 	forgetObjects(t, ctx, client, []string{phase7Repository}, append(wantContexts, phase7Contexts...))
 	t.Cleanup(func() {
@@ -432,7 +399,6 @@ func TestPhase7PackagePartitionAndGlobs(t *testing.T) {
 		t.Errorf("contexts = %v, want %v: one per package root, filtered by the globs", created, wantContexts)
 	}
 
-	// The include/exclude globs decided the files the partition saw.
 	object, err := client.Get(ctx, specapi.SystemContextGVR, specapi.DefaultNamespace, wantContexts[0])
 	if err != nil {
 		t.Fatalf("read the calc context: %v", err)

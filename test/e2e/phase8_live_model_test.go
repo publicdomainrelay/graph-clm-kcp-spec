@@ -20,18 +20,8 @@ import (
 
 const phase8ModelRepository = "phase8-model-calc"
 
-// TestPhase8LiveModelRealizesWithTheMod is the whole point of phase 8, run for
-// real: specd launches deepseek-claude inside a SpecChange with cc-clm-mod
-// loaded, the mod reports into the same kcp record the controllers watch, and
-// the alignment of code to spec is therefore observed while the work happens,
-// not guessed afterwards.
-//
-// It is gated by SPECD_REQUIRE_LIVE_MODEL=1: a model is slow, costs money and
-// is not deterministic.
 func TestPhase8LiveModelRealizesWithTheMod(t *testing.T) {
 	requireLiveModel(t, "deepseek-claude", "claude", "kcp", "kine", "kubectl", "go")
-	// The model gate is on top of the cluster gate, not instead of it: without
-	// SPECD_REQUIRE_LIVE=1 a missing kcp skips rather than fails.
 	requireLive(t, "kcp", "kine", "kubectl")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -69,9 +59,6 @@ func TestPhase8LiveModelRealizesWithTheMod(t *testing.T) {
 		},
 	})
 
-	// The baseline a human would have written: the two interfaces the package
-	// exports today. Without it the context declares nothing and CodeSynced
-	// would be False for a reason that has nothing to do with the realize.
 	applyTyped(t, ctx, client, &spec.SystemContext{
 		ObjectMeta: metav1.ObjectMeta{Name: "calc", Namespace: specapi.DefaultNamespace},
 		Spec: spec.SystemContextSpec{
@@ -132,7 +119,6 @@ func TestPhase8LiveModelRealizesWithTheMod(t *testing.T) {
 		return realized != ""
 	})
 
-	// A human asks for Subtract, the same edit the phase 6 example makes.
 	edit := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": specapi.APIVersion,
 		"kind":       specapi.SystemContextKind,
@@ -152,9 +138,6 @@ func TestPhase8LiveModelRealizesWithTheMod(t *testing.T) {
 		t.Fatalf("apply the spec edit: %v", err)
 	}
 
-	// The interesting window: while the change is Running, the mod's reports
-	// must already be on the record. This is what "observed while it happens"
-	// means, and it is asserted here rather than after the fact.
 	progressDuringRun := false
 	waitFor(t, ctx, "the change to run with progress", func() bool {
 		changes := changesFor(liveSpecChanges(t, ctx, client), "calc", specapi.DirectionSpecToCode)
@@ -166,8 +149,6 @@ func TestPhase8LiveModelRealizesWithTheMod(t *testing.T) {
 			progressDuringRun = true
 			return true
 		}
-		// A model can be quick; a change that already settled with progress
-		// still proves the reporting, and the phase is recorded below.
 		return change.Status.Phase == specapi.PhaseSucceeded && len(change.Status.Progress) > 0
 	})
 

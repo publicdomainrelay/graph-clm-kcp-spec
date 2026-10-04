@@ -72,10 +72,6 @@ func changesFor(changes []spec.SpecChange, systemContext, direction string) []sp
 	return out
 }
 
-// forgetObjects removes the objects one live test owns. It takes the
-// repositories too, because the controller reconciles every Repository in the
-// workspace: a leftover Repository that points at fixtures/calc would recreate
-// the same contexts from a different tree.
 func forgetObjects(t *testing.T, ctx context.Context, client *kcpclient.Client, repositories, contexts []string) {
 	t.Helper()
 	for _, change := range liveSpecChanges(t, ctx, client) {
@@ -93,10 +89,6 @@ func forgetObjects(t *testing.T, ctx context.Context, client *kcpclient.Client, 
 	}
 }
 
-// TestPhase4ControllerDriftAndSpecChanges drives the real controller against
-// the real workspace: one commit of code must raise Drifted and one CodeToSpec
-// change, one human spec edit must raise one SpecToCode change, and a quiet
-// cluster must stay quiet.
 func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
@@ -181,7 +173,6 @@ func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
 		t.Errorf("a synced cluster raised changes: %+v", changes)
 	}
 
-	// The code moves.
 	calcFile := filepath.Join(repoPath, "calc", "calc.go")
 	contents, err := os.ReadFile(calcFile)
 	if err != nil {
@@ -221,7 +212,6 @@ func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
 		t.Errorf("observedCommit = %q, want %q", observed, secondCommit)
 	}
 
-	// A human edits the spec.
 	edited := getContext(t, ctx, client, "calc")
 	typed, err := kcpclient.Typed(edited)
 	if err != nil {
@@ -253,7 +243,6 @@ func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
 		t.Errorf("SpecToCode phase = %q, want Pending", specToCode.Status.Phase)
 	}
 
-	// Nothing else may move while the changes wait for an agent.
 	before := phase4Snapshot(t, ctx, client, names)
 	select {
 	case <-ctx.Done():
@@ -265,9 +254,6 @@ func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
 	}
 }
 
-// TestPhase4PollWatchReconciles runs the same controller with the list-and-diff
-// source instead of the informer, so the fallback is known to drive a reconcile
-// against a real kcp and not only against the fake in the unit test.
 func TestPhase4PollWatchReconciles(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
@@ -350,8 +336,6 @@ func TestPhase4TypeScriptIngest(t *testing.T) {
 	client := liveClient(t, root)
 	repoPath := fixture.Copy(t, "greet")
 
-	// The fixture is a working Deno module, not a directory of TypeScript that
-	// happens to parse: its own tests gate it before any of this touches it.
 	runDenoTest(t, repoPath)
 	forgetObjects(t, ctx, client, []string{"greet"}, []string{"greet", "format"})
 	t.Cleanup(func() {
@@ -407,8 +391,6 @@ func TestPhase4TypeScriptIngest(t *testing.T) {
 	}
 }
 
-// runDenoTest runs a Deno fixture's own tests, so the TypeScript fixture is
-// known to be a real module and not only something codegraph can parse.
 func runDenoTest(t *testing.T, dir string) {
 	t.Helper()
 	command := exec.Command("deno", "test")

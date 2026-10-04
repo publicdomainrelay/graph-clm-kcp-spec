@@ -17,9 +17,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 )
 
-// requireLiveModel gates the one test that spends a real model call. It is off
-// by default, because a model is slow, costs money and is not deterministic;
-// SPECD_REQUIRE_LIVE_MODEL=1 turns a missing prerequisite into a failure.
 func requireLiveModel(t *testing.T, tools ...string) {
 	t.Helper()
 	if os.Getenv("SPECD_REQUIRE_LIVE_MODEL") != "1" {
@@ -36,10 +33,6 @@ func requireLiveModel(t *testing.T, tools ...string) {
 	}
 }
 
-// TestPhase5LiveModelSummarizesCalc asks the real model for a spec of
-// fixtures/calc and holds it to the same contract the scripted agent is held
-// to: the answer parses, it validates, and it names the two functions the
-// package exports.
 func TestPhase5LiveModelSummarizesCalc(t *testing.T) {
 	requireLiveModel(t, "deepseek-claude", "codegraph")
 
@@ -108,8 +101,6 @@ func TestPhase5LiveModelSummarizesCalc(t *testing.T) {
 			t.Errorf("the model named %v, which does not include %s", names, want)
 		}
 	}
-	// The parser drops a ref the observed facts do not carry, so this must hold
-	// by construction; asserting it proves the strict parse really ran.
 	if unresolved := specsync.UnresolvedCodeRefs(merged.Requirements, observed); len(unresolved) > 0 {
 		t.Errorf("a requirement is anchored to nothing: %v", unresolved)
 	}

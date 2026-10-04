@@ -25,8 +25,6 @@ import (
 
 const phase5Repository = "phase5-calc"
 
-// calcScenario answers every context of the calc fixture, so whichever one
-// drifts the controller can work it off.
 const calcScenario = `
 contexts:
   calc:
@@ -81,7 +79,6 @@ contexts:
     interfaces: []
 `
 
-// greetScenario answers the two contexts of the Deno/TypeScript fixture.
 const greetScenario = `
 contexts:
   greet:
@@ -117,10 +114,6 @@ func phase5Scenario(t *testing.T) string {
 	return path
 }
 
-// TestPhase5CodeToSpecWithTheScriptedAgent drives the whole loop against the
-// live workspace: a commit drifts one context, the controller raises a
-// CodeToSpec change, the agent answers, the spec is written with the ingest
-// origin, and the episode ends without raising the opposite direction.
 func TestPhase5CodeToSpecWithTheScriptedAgent(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
@@ -191,7 +184,6 @@ func TestPhase5CodeToSpecWithTheScriptedAgent(t *testing.T) {
 		t.Errorf("a freshly ingested cluster raised changes: %+v", changes)
 	}
 
-	// The code moves: Subtract joins the calc package.
 	calcFile := filepath.Join(repoPath, "calc", "calc.go")
 	contents, err := os.ReadFile(calcFile)
 	if err != nil {
@@ -224,8 +216,6 @@ func TestPhase5CodeToSpecWithTheScriptedAgent(t *testing.T) {
 		t.Errorf("requirements = %v", requirements)
 	}
 
-	// The realized hash is the hash of the spec that was written, so the write
-	// is not a pending human edit.
 	typed, err := kcpclient.Typed(updated)
 	if err != nil {
 		t.Fatal(err)
@@ -260,7 +250,6 @@ func TestPhase5CodeToSpecWithTheScriptedAgent(t *testing.T) {
 		t.Errorf("document = %q, want the resolved code refs", document)
 	}
 
-	// Nothing else may move once the episode is over.
 	before := phase5Snapshot(t, ctx, client, names)
 	select {
 	case <-ctx.Done():
@@ -272,8 +261,6 @@ func TestPhase5CodeToSpecWithTheScriptedAgent(t *testing.T) {
 	}
 }
 
-// TestPhase5IngestSummarizeFillsEmptySpecs runs the same summarize the CLI runs:
-// ingest first, then one summarize per context whose intent is still empty.
 func TestPhase5IngestSummarizeFillsEmptySpecs(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
@@ -343,7 +330,6 @@ func TestPhase5IngestSummarizeFillsEmptySpecs(t *testing.T) {
 		t.Errorf("summarized %d of %d contexts", summarized, len(result.Contexts))
 	}
 
-	// A second pass finds every intent filled and touches nothing.
 	second, err := ingest.Run(ctx, client, ingest.Options{RepoPath: repoPath, RepositoryName: "greet"})
 	if err != nil {
 		t.Fatalf("second ingest: %v", err)

@@ -15,14 +15,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 )
 
-// TestPhase8PiHostSummarizesCalc is the pi half of phase 8 over a real model:
-// the same agent kind specd runs (`--agent pi`) summarizes fixtures/calc and is
-// held to the same contract the scripted agent and the claude host are held to.
-//
-// The default command is the npm package (impl/piagent.DefaultCommand), because
-// pi is not installed globally everywhere this repository runs, and the default
-// arguments name the hosted provider every measurement in docs/eval uses. A
-// local provider is not used anywhere in this repository.
 func TestPhase8PiHostSummarizesCalc(t *testing.T) {
 	requireLiveModel(t, "npx", "codegraph")
 

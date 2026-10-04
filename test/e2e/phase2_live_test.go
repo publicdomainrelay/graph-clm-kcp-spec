@@ -30,8 +30,6 @@ type backend struct {
 
 func backends(t *testing.T) []backend {
 	t.Helper()
-	// ArcadeDB first: it is the project's default backend, and the HydraDB
-	// check below proves the option still works.
 	out := []backend{
 		{
 			name: "arcadedb",
@@ -85,9 +83,6 @@ func connectBackend(t *testing.T, ctx context.Context, backend backend) *boltgra
 	return client
 }
 
-// prepareWorkspace clears the names this test owns. The repository goes too so
-// ingest creates it with the absolute path of the temporary working tree,
-// which is what the graph rebuild resolves code refs against.
 func prepareWorkspace(t *testing.T, ctx context.Context, client *kcpclient.Client, names ...string) {
 	t.Helper()
 	if err := client.Delete(ctx, specapi.RepositoryGVR, specapi.DefaultNamespace, "calc"); err != nil {

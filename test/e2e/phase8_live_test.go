@@ -26,13 +26,6 @@ import (
 
 const phase8Repository = "phase8-calc"
 
-// TestPhase8TheModPathReportsIntoKcp is the deterministic half of phase 8: the
-// Claude Code mod is a host with no kube client and no Bolt driver, so it
-// reaches the state by running `specctl clm render|apply|report`. This drives
-// exactly those three verbs, the way the mod does, and asserts what the
-// controller and the graph see: a one entry delta SpecChange for a model's spec
-// edit, a fold into the running change instead of a second change, progress
-// records growing while the change runs, and the TOUCHED edges in the graph.
 func TestPhase8TheModPathReportsIntoKcp(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "go")
 	root := repoRoot(t)
@@ -65,8 +58,6 @@ func TestPhase8TheModPathReportsIntoKcp(t *testing.T) {
 		},
 	})
 
-	// No --agent: every change stays Pending for a human, which is what makes
-	// the delta and the fold observable without a model in the loop.
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
 		Workspace:    "root:specs",
@@ -107,7 +98,6 @@ func TestPhase8TheModPathReportsIntoKcp(t *testing.T) {
 
 	specctl := buildSpecctl(t, root)
 
-	// 1. render: the context document the mod writes to .specs/context/calc.md.
 	rendered := runSpecctl(t, ctx, specctl, root, nil, "clm", "render", "--context", "calc")
 	for _, want := range []string{"# Context: calc", "```yaml spec", "SPECD_MANAGED_BEGIN"} {
 		if !strings.Contains(rendered, want) {
@@ -115,7 +105,6 @@ func TestPhase8TheModPathReportsIntoKcp(t *testing.T) {
 		}
 	}
 
-	// 2. apply: the model added one interface to the model zone.
 	edited := addInterface(rendered, spec.Interface{
 		Name:      "Subtract",
 		Kind:      "function",
@@ -139,8 +128,6 @@ func TestPhase8TheModPathReportsIntoKcp(t *testing.T) {
 		t.Error("a clm write carries origin-hash, which would hide the edit from the controller")
 	}
 
-	// The controller sees the edit as a spec edit and raises one SpecToCode
-	// change whose delta is the one entry the model asked for.
 	var raised spec.SpecChange
 	waitFor(t, ctx, "the SpecToCode change for the clm edit", func() bool {
 		found := changesFor(liveSpecChanges(t, ctx, client), "calc", specapi.DirectionSpecToCode)
@@ -154,9 +141,6 @@ func TestPhase8TheModPathReportsIntoKcp(t *testing.T) {
 		t.Fatalf("the change's delta = %+v, want the one added interface", raised.Spec.Delta)
 	}
 
-	// 3. a model that refines the spec while its own change is Running is folded
-	//    into that change: no second SpecChange, and the reason lands on the
-	//    change's own record.
 	running := phase8RunChange(t, ctx, client, "calc")
 	folded := runSpecctl(t, ctx, specctl, root, []byte(addInterface(rendered, spec.Interface{
 		Name: "Multiply", Kind: "function", Signature: "func Multiply(a, b int) int", File: "calc/calc.go",
@@ -170,7 +154,6 @@ func TestPhase8TheModPathReportsIntoKcp(t *testing.T) {
 	}
 	_ = foldedContext
 
-	// 4. report: what the mod sends for every file a tool touched.
 	report := runSpecctl(t, ctx, specctl, root, nil, "clm", "report",
 		"--change", running,
 		"--event", `{"turn":1,"tool":"Write","files":["calc/calc.go"],"note":"wrote Subtract"}`,
@@ -186,7 +169,6 @@ func TestPhase8TheModPathReportsIntoKcp(t *testing.T) {
 	if len(last.Files) != 1 || last.Files[0] != "calc/calc.go" {
 		t.Errorf("progress = %+v", last)
 	}
-	// A repeat of the same event is not appended twice.
 	repeat := runSpecctl(t, ctx, specctl, root, nil, "clm", "report",
 		"--change", running,
 		"--event", `{"turn":1,"tool":"Write","files":["calc/calc.go"],"note":"wrote Subtract"}`,
@@ -200,9 +182,6 @@ func TestPhase8TheModPathReportsIntoKcp(t *testing.T) {
 
 const phase8RunningChange = "phase8-fold-running"
 
-// phase8RunChange puts a SpecToCode change into Running by hand, which is what
-// the realize reconciler does before it launches an agent. The agent here is
-// the test, so the change stays Running while the mod path runs against it.
 func phase8RunChange(t *testing.T, ctx context.Context, client *kcpclient.Client, systemContext string) string {
 	t.Helper()
 	applyTyped(t, ctx, client, &spec.SpecChange{
@@ -220,15 +199,8 @@ func phase8RunChange(t *testing.T, ctx context.Context, client *kcpclient.Client
 	return phase8RunningChange
 }
 
-// phase8AssertTouched checks the graph half of a report: the change, the file
-// it touched on the shared CodeRef id, and the OCCURRED edge to the record.
-// The graph is optional for a host, so a Bolt backend that is not there skips
-// the assertion instead of failing the run.
 func phase8AssertTouched(t *testing.T, root, change string) {
 	t.Helper()
-	// The flags, the environment and the backend defaults resolve in one place
-	// (impl/boltflags), so `make test-live SPECD_BOLT_BACKEND=hydradb` really
-	// does move this check to HydraDB on 7687.
 	fs := flag.NewFlagSet("phase8", flag.ContinueOnError)
 	options := boltflags.Add(fs)
 	if err := fs.Parse(nil); err != nil {
@@ -275,8 +247,6 @@ func phase8AssertTouched(t *testing.T, root, change string) {
 	}
 }
 
-// buildSpecctl builds the CLI the mod shells out to. A mod has no kube client,
-// so this binary is its whole view of the state.
 func buildSpecctl(t *testing.T, root string) string {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "specctl")
@@ -290,9 +260,6 @@ func buildSpecctl(t *testing.T, root string) string {
 
 func runSpecctl(t *testing.T, ctx context.Context, binary, root string, stdin []byte, args ...string) string {
 	t.Helper()
-	// The globals go last: `clm render --context` names a SystemContext, and the
-	// global --context names a kubeconfig context, so the subcommand's own
-	// flags come first and are unambiguous.
 	full := append(append([]string{}, args...),
 		"--kubeconfig", filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
 		"--workspace", "root:specs",
@@ -326,8 +293,6 @@ func parseDelta(t *testing.T, stdout string) spec.Delta {
 	return out
 }
 
-// addInterface puts one interface into the model zone's spec block, the way a
-// model edits the context document it was given.
 func addInterface(document string, declared spec.Interface) string {
 	block := "```yaml spec"
 	open := strings.Index(document, block)

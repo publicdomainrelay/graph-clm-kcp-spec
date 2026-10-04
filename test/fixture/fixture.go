@@ -19,9 +19,6 @@ func Root(t *testing.T) string {
 	return filepath.Dir(filepath.Dir(filepath.Dir(file)))
 }
 
-// Copy puts a fixture into a fresh git repository under the test's temporary
-// directory, so the fixture in this repository stays a plain directory and no
-// nested .git is ever committed.
 func Copy(t *testing.T, name string) string {
 	t.Helper()
 	source := filepath.Join(Root(t), "fixtures", name)
@@ -48,8 +45,6 @@ func CopyAs(t *testing.T, name, as string) string {
 	return target
 }
 
-// Stage copies a fixture into target as a plain tree, with no git repository of
-// its own, so a test can build one working tree out of several fixtures.
 func Stage(t *testing.T, name, target string) {
 	t.Helper()
 	source := filepath.Join(Root(t), "fixtures", name)
@@ -58,8 +53,6 @@ func Stage(t *testing.T, name, target string) {
 	}
 }
 
-// Commit stages everything in a fixture working tree and commits it, which is
-// how a test simulates the code moving under the controller.
 func Commit(t *testing.T, dir, message string) string {
 	t.Helper()
 	run(t, dir, "git", "add", "-A")

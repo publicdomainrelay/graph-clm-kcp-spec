@@ -19,10 +19,6 @@ import (
 	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
-// TestPhase6LiveModelRealizesSubtract is the spec -> code direction with the
-// real model: a two entry delta, an agent that has to read the delta and the
-// code, edit a worktree, and leave the repository's tests passing. It is the
-// only test that spends a real model call on the realize path.
 func TestPhase6LiveModelRealizesSubtract(t *testing.T) {
 	requireLiveModel(t, "deepseek-claude", "kcp", "kine", "kubectl", "bash", "codegraph", "git", "go")
 	root := repoRoot(t)

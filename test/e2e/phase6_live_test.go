@@ -23,10 +23,6 @@ import (
 
 const phase6Repository = "phase6-calc"
 
-// TestPhase6KeyedListsAreDeltaAble is the core requirement of the manifest
-// format, checked against the live API server: every list is a keyed list, so a
-// server side apply naming one requirement adds that requirement and leaves the
-// other entries, and every other field, exactly as they were.
 func TestPhase6KeyedListsAreDeltaAble(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "bash")
 	root := repoRoot(t)
@@ -73,7 +69,6 @@ func TestPhase6KeyedListsAreDeltaAble(t *testing.T) {
 		t.Fatalf("server side apply the baseline: %v", err)
 	}
 
-	// One manager adds exactly two entries and nothing else.
 	patch := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": specapi.APIVersion,
 		"kind":       specapi.SystemContextKind,
@@ -112,7 +107,6 @@ func TestPhase6KeyedListsAreDeltaAble(t *testing.T) {
 		t.Errorf("codeRefs = %v, want the set untouched by the patch", refs)
 	}
 
-	// A server side apply of the same key replaces that entry in place.
 	replace := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": specapi.APIVersion,
 		"kind":       specapi.SystemContextKind,
@@ -137,11 +131,6 @@ func TestPhase6KeyedListsAreDeltaAble(t *testing.T) {
 	}
 }
 
-// TestPhase6SpecToCodeWithTheScriptedAgent drives the whole direction against
-// the live workspace and a real git worktree: a two entry spec edit, one
-// SpecChange carrying exactly those two entries, an agent commit signed by the
-// tool, the repository's verify command passing, the commit on the managed
-// branch, and a context that settles without raising the opposite change.
 func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "go")
 	root := repoRoot(t)
@@ -176,9 +165,6 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 	})
 	applyTyped(t, ctx, client, phase6Baseline())
 
-	// No --agent: the Repository names the scripted agent. Persistence is on,
-	// so every change of kcp lands on the orphan open-architecture/calc branch
-	// and none of it on the code branch.
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
 		Workspace:    "root:specs",
@@ -223,7 +209,6 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 	before := getContext(t, ctx, client, "calc")
 	beforeRealized := nestedString(t, before, "status", "realizedSpecHash")
 
-	// A human adds one interface and one requirement, each a keyed entry.
 	edit := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": specapi.APIVersion,
 		"kind":       specapi.SystemContextKind,
@@ -253,7 +238,6 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 		return true
 	})
 
-	// The delta is the two entries, not the whole spec.
 	if change.Spec.Delta == nil {
 		t.Fatal("the change carries no delta")
 	}
@@ -294,8 +278,6 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 	assertNoSpecArtefacts(t, repoPath)
 	waitForOrphanSpec(t, repoPath, phase6Repository, "calc", "Subtract", succeeded.Status.Commit)
 
-	// The commit is on the managed branch, signed by the tool, and the tree
-	// really has the code with its tests passing.
 	head := headOf(t, repoPath)
 	if head != succeeded.Status.Commit {
 		t.Errorf("HEAD = %s, want the change's commit %s", head, succeeded.Status.Commit)
@@ -318,7 +300,6 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 	}
 	runGoTest(t, repoPath)
 
-	// The context settled: synced, realized, and quiet.
 	settled := getContext(t, ctx, client, "calc")
 	typed, err := kcpclient.Typed(settled)
 	if err != nil {
@@ -345,7 +326,6 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 		t.Errorf("changes = %+v, want the one that was worked off and no other", changes)
 	}
 
-	// Nothing else may move once the episode is over.
 	quiet := phase4Snapshot(t, ctx, client, names)
 	select {
 	case <-ctx.Done():
@@ -360,9 +340,6 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 	}
 }
 
-// TestPhase6FailingVerifyKeepsTheBranch is the other half: a change the verify
-// command rejects ends Failed, its branch is kept for a human, and neither the
-// managed branch nor the spec moves.
 func TestPhase6FailingVerifyKeepsTheBranch(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "go")
 	root := repoRoot(t)
@@ -481,8 +458,6 @@ func TestPhase6FailingVerifyKeepsTheBranch(t *testing.T) {
 	if realized := nestedString(t, after, "status", "realizedSpecHash"); realized != beforeRealized {
 		t.Errorf("realizedSpecHash = %q, want the spec untouched at %q", realized, beforeRealized)
 	}
-	// The code did not move, so nothing drifted; what is true is that the spec
-	// asks for a surface the code does not have.
 	if condition := conditionOf(t, after, specapi.ConditionDrifted); condition == nil || condition["status"] != "False" {
 		t.Errorf("Drifted = %+v, want False: the code did not move", condition)
 	}
@@ -491,8 +466,6 @@ func TestPhase6FailingVerifyKeepsTheBranch(t *testing.T) {
 	}
 }
 
-// phase6Baseline is the spec the context starts from: the calc fixture's
-// existing surface, so the example's edit is the only change in the delta.
 func phase6Baseline() *spec.SystemContext {
 	return &spec.SystemContext{
 		ObjectMeta: metav1.ObjectMeta{Name: "calc", Namespace: specapi.DefaultNamespace},
@@ -513,8 +486,6 @@ func phase6Baseline() *spec.SystemContext {
 	}
 }
 
-// phase6Scenario copies one of the example scenarios into the test's temporary
-// directory.
 func phase6Scenario(t *testing.T, name string) string {
 	t.Helper()
 	source := filepath.Join(repoRoot(t), "examples", "phase6", name)

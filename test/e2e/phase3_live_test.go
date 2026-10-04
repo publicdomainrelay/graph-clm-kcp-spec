@@ -21,9 +21,6 @@ import (
 
 const archRepository = "deno-kcp"
 
-// TestPhase3ArchRoundTrip imports the open architecture document into kcp,
-// exports it again, and compares the two models. It owns the names under
-// repository deno-kcp and deletes them when it finishes.
 func TestPhase3ArchRoundTrip(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "bash")
 	root := repoRoot(t)
@@ -62,7 +59,6 @@ func TestPhase3ArchRoundTrip(t *testing.T) {
 	if result.Contexts != len(original.Nodes()) {
 		t.Fatalf("imported %d contexts, want %d", result.Contexts, len(original.Nodes()))
 	}
-	// kcp keeps the labels and the opaque spec.arch block exactly as written.
 	kindObject, err := client.Get(ctx, specapi.SystemContextGVR, specapi.DefaultNamespace, spec.ArchName("sc.kind.denopod"))
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +83,6 @@ func TestPhase3ArchRoundTrip(t *testing.T) {
 		t.Fatalf("the round trip through kcp changed the document:\n%s", strings.Join(differences, "\n"))
 	}
 
-	// A second import must be a no-op and the export must not move.
 	if _, err := archkcp.Import(ctx, client, data, archkcp.ImportOptions{Repository: archRepository, RepositoryPath: root}); err != nil {
 		t.Fatalf("second import: %v", err)
 	}
@@ -99,17 +94,12 @@ func TestPhase3ArchRoundTrip(t *testing.T) {
 		t.Fatal("the second import changed the exported document")
 	}
 
-	// The imported contexts are ordinary contexts, so the phase 2 graph code
-	// indexes them and the neighborhood is reachable by arch id.
 	backend := backends(t)[0]
 	writer := connectBackend(t, ctx, backend)
 	if err := ingest.RebuildGraph(ctx, client, writer, ingest.Options{}); err != nil {
 		t.Fatalf("rebuild on %s: %v", backend.name, err)
 	}
 	contextID := graph.ContextID(spec.ArchName("sc.deno-kcp"))
-	// sc.deno-kcp runs on an inline upstream node, and the kind contexts are
-	// nested in its overlay while the examples and test tiers point upstream at
-	// it.
 	out := oneHopKeys(t, ctx, writer, graph.LabelContext, contextID, graph.EdgeUpstream, true)
 	if !contains(out, spec.ArchName("sc.kcp-local")) {
 		t.Errorf("UPSTREAM out of sc.deno-kcp = %v", out)

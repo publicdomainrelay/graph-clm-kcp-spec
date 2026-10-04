@@ -10,14 +10,6 @@ import (
 	"time"
 )
 
-// TestPhase12ScopeGuardRefusesAFileOutsideTheRoot is the live half of the
-// scope guard. The unit tests prove the decision; this proves the decision is
-// reached inside a real session: deepseek-claude with cc-clm-mod loaded is
-// asked to read a file this repository owns, the mod's tool.call hook refuses
-// it, and the refusal is what the model reads.
-//
-// The file named is this checkout's own fixtures/, which is exactly the file a
-// realize agent must never read: the hidden acceptance tests live beside it.
 func TestPhase12ScopeGuardRefusesAFileOutsideTheRoot(t *testing.T) {
 	requireLiveModel(t, "deepseek-claude")
 	root := repoRoot(t)
@@ -60,8 +52,6 @@ func TestPhase12ScopeGuardRefusesAFileOutsideTheRoot(t *testing.T) {
 	t.Logf("the mod refused the read of %s inside a live session", outside)
 }
 
-// withEnv replaces a variable in an environment list, so a value this test
-// sets is the one the child reads and not whichever of two came first.
 func withEnv(environ []string, name, value string) []string {
 	prefix := name + "="
 	out := make([]string, 0, len(environ)+1)

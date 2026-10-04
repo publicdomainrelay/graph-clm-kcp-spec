@@ -222,8 +222,6 @@ func TestPhase1SystemContextRoundTrip(t *testing.T) {
 	statusBefore := fmt.Sprintf("%v", after.Object["status"])
 	generationBefore := after.GetGeneration()
 
-	// The other half of the subresource contract: a spec write bumps the
-	// generation and leaves status exactly as it was.
 	editedTyped, err := kcpclient.Typed(after)
 	if err != nil {
 		t.Fatal(err)

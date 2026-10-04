@@ -34,12 +34,6 @@ const (
 	phase9RepositoryB = "phase9-b-repo"
 )
 
-// TestPhase9TwoTenantsOneExportController is the multi workspace end to end:
-// two tenant workspaces bind the same APIExport, each holds its own Repository
-// and its own codebase, and one specd in export mode reconciles both through
-// the APIExport virtual workspace. Drift in one tenant must not touch the
-// other, and each tenant's status must be written back to its own logical
-// cluster.
 func TestPhase9TwoTenantsOneExportController(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
@@ -121,8 +115,6 @@ func TestPhase9TwoTenantsOneExportController(t *testing.T) {
 		}
 	})
 
-	// Both tenants are reconciled by the one controller, each in its own
-	// logical cluster.
 	waitFor(t, ctx, "the ingest of both tenants", func() bool {
 		return ingested(t, ctx, tenantA, "calc") && ingested(t, ctx, tenantB, phase9RepositoryB)
 	})
@@ -132,8 +124,6 @@ func TestPhase9TwoTenantsOneExportController(t *testing.T) {
 		t.Fatalf("fingerprints = %q and %q", fingerprintA, fingerprintB)
 	}
 
-	// The code of tenant A moves. Tenant B must not notice: no drift, the same
-	// fingerprint, and no change.
 	calcFile := filepath.Join(repoA, "calc", "calc.go")
 	contents, err := os.ReadFile(calcFile)
 	if err != nil {
@@ -149,13 +139,9 @@ func TestPhase9TwoTenantsOneExportController(t *testing.T) {
 		condition := conditionOf(t, getContext(t, ctx, tenantA, "calc"), specapi.ConditionDrifted)
 		return condition != nil && condition["status"] == "True"
 	})
-	// The change is raised by the next reconcile of the context, which is a
-	// separate cycle from the ingest that set the condition.
 	waitFor(t, ctx, "the CodeToSpec change in tenant A", func() bool {
 		return len(changesFor(liveSpecChanges(t, ctx, tenantA), "calc", specapi.DirectionCodeToSpec)) == 1
 	})
-	// Tenant B is read after tenant A has fully reacted, so this is the claim
-	// that drift in one tenant does not touch the other, not a timing artifact.
 	if got := fingerprintOf(t, ctx, tenantB, phase9RepositoryB); got != fingerprintB {
 		t.Errorf("tenant B's fingerprint moved from %s to %s", fingerprintB, got)
 	}
@@ -163,9 +149,6 @@ func TestPhase9TwoTenantsOneExportController(t *testing.T) {
 	if condition != nil && condition["status"] == "True" {
 		t.Error("tenant B drifted when only tenant A's code moved")
 	}
-	// The change tenant A's drift raised is in tenant A's cluster, and tenant B
-	// holds none: the controller wrote each object back to the logical cluster
-	// the watch said it came from.
 	changesA := changesFor(liveSpecChanges(t, ctx, tenantA), "calc", specapi.DirectionCodeToSpec)
 	if len(changesA) != 1 {
 		t.Errorf("tenant A has %d CodeToSpec changes, want 1", len(changesA))
@@ -175,9 +158,6 @@ func TestPhase9TwoTenantsOneExportController(t *testing.T) {
 	}
 }
 
-// bindWorkspace runs deploy/bind-workspace.sh, which is the documented way to
-// create a tenant and bind the export; the test drives it rather than a second
-// implementation of it.
 func bindWorkspace(t *testing.T, ctx context.Context, root, workspace string) {
 	t.Helper()
 	command := exec.CommandContext(ctx, filepath.Join(root, "deploy", "bind-workspace.sh"), workspace)
