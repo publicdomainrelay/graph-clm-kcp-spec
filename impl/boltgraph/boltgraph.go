@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"time"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 
@@ -60,7 +61,29 @@ func (c *Client) session(ctx context.Context) neo4j.SessionWithContext {
 	return c.driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: c.database})
 }
 
+const transientAttempts = 6
+
 func (c *Client) Run(ctx context.Context, query string, params map[string]any) ([]map[string]any, error) {
+	var lastError error
+	for attempt := range transientAttempts {
+		rows, err := c.runOnce(ctx, query, params)
+		if err == nil {
+			return rows, nil
+		}
+		if !transient(err) {
+			return nil, err
+		}
+		lastError = err
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Duration(1<<uint(attempt)) * 25 * time.Millisecond):
+		}
+	}
+	return nil, lastError
+}
+
+func (c *Client) runOnce(ctx context.Context, query string, params map[string]any) ([]map[string]any, error) {
 	session := c.session(ctx)
 	defer session.Close(ctx)
 	result, err := session.Run(ctx, query, params)
@@ -80,6 +103,14 @@ func (c *Client) Run(ctx context.Context, query string, params map[string]any) (
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+func transient(err error) bool {
+	var neo4jError *neo4j.Neo4jError
+	if !errors.As(err, &neo4jError) {
+		return false
+	}
+	return neo4jError.IsRetriableTransient()
 }
 
 const writeBatch = 64

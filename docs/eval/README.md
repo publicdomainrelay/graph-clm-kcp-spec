@@ -285,9 +285,12 @@ checkout after the fix, and it is the evidence.
 
 How a run is taken, and the rules that make it honest:
 
-- One live run at a time: the harness takes the exclusive lock in
-  `.kcp-specd/live.lock` (`--live-lock`, `SPECD_LIVE_LOCK`), and a second run
-  waits and names the file.
+- One run per workspace: the harness creates its own workspace
+  (`root:specs-eval-<token>`, deleted when the run ends) unless `--workspace` or
+  `SPECD_EVAL_WORKSPACE` names one, writes the graph under its own namespace,
+  and takes an exclusive lock keyed on (kubeconfig, workspace)
+  (`--live-lock`, `SPECD_LIVE_LOCK`) — a second run that shares a workspace
+  waits and names the file, and runs that do not share one never wait.
 - A scenario's spec patch, its hidden acceptance tests and the scripted draft
   stay beside the fixture and are copied into the tree only to grade. A scenario
   file left in the tree would be indexed by CodeGraph and become a context of

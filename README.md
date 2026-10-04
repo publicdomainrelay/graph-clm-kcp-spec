@@ -1306,10 +1306,12 @@ manifest with `deepseek-claude`. Without `SPECD_REQUIRE_LIVE=1` a missing
 `kcp`, `kine`, `kubectl`, `codegraph`, `deno`, `git` or Bolt endpoint skips the
 test instead of failing. `impl/boltgraph` has its own live test that writes, reads and deletes
 its own vertices, so it never disturbs the example graph; `impl/gitrepo` builds
-a temporary git repository. The phase 2 test takes over the `calc` names in the
-workspace and deletes them when it finishes, and the phase 3 test owns
-everything under the `deno-kcp` repository, so run `make example-phase2` or
-`make example-phase3` afterwards to put the example state back. The phase 4
+a temporary git repository. The phase 2 test takes over the `calc` names in its
+own workspace and deletes them when it finishes, and the phase 3 test owns
+everything under the `deno-kcp` repository there; with
+`SPECD_E2E_KUBECONFIG` pointed at the `.kcp-specd` cluster instead, run `make
+example-phase2` or `make example-phase3` afterwards to put the example state
+back. The phase 4
 tests start a real `specd` in the test process and stop it before they clean up,
 so no controller is left watching the workspace afterwards; the phase 5 ones run
 it with `--agent scripted:<file>`, so the loop is tested without a model, and

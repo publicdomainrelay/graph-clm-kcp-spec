@@ -55,8 +55,11 @@ test:
 test-live:
 	SPECD_REQUIRE_LIVE=1 go test ./... -count=1
 
-# The live tests reuse the calc names in the workspace; run example-phase2 to
-# put the example state back.
+# Every live test package starts its own kcp on kernel-assigned ports (state in
+# a temporary root), so two of these run at once and neither touches the
+# .kcp-specd cluster `make kcp-up` started. SPECD_E2E_KUBECONFIG=<admin
+# kubeconfig> names an existing one instead, and then the live lock serialises
+# runs that share it.
 
 # Kernel-assigned ports by default, written to .kcp-specd/endpoint.json, so
 # several of these run side by side. KCP_SECURE_PORT=6447 pins the old port.

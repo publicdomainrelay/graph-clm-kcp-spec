@@ -71,7 +71,7 @@ func TestMain(m *testing.M) {
 		createdDocs = docs
 	}
 
-	lock, err := startClusterForTests(root)
+	lock, err := startClusterForTests()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "e2e: %v\n", err)
 		os.Exit(1)
@@ -90,7 +90,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func startClusterForTests(root string) (*runlock.Lock, error) {
+func startClusterForTests() (*runlock.Lock, error) {
 	if missing := missingTools(); len(missing) > 0 {
 		fmt.Fprintf(os.Stderr, "e2e: live prerequisites missing: %s; every live test skips\n", strings.Join(missing, ", "))
 		return nil, nil
@@ -106,12 +106,21 @@ func startClusterForTests(root string) (*runlock.Lock, error) {
 		e2eKubeconfig = absolute
 		e2eWorkspace = envOr("SPECD_E2E_WORKSPACE", defaultWorkspace)
 		e2eStateRoot = envOr(envStateRoot, filepath.Dir(absolute))
-		lock, err := runlock.Acquire(runlock.PathFor(e2eStateRoot, absolute), runlock.Options{Name: "go test ./test/e2e"})
-		if err != nil {
-			return nil, err
+		lockPath, named := os.LookupEnv("SPECD_LIVE_LOCK")
+		if !named {
+			lockPath = runlock.PathFor(e2eStateRoot, absolute)
+		}
+		var lock *runlock.Lock
+		if lockPath != "" {
+			lock, err = runlock.Acquire(lockPath, runlock.Options{Name: "go test ./test/e2e"})
+			if err != nil {
+				return nil, err
+			}
 		}
 		if err := installSpecs(e2eStateRoot, absolute, e2eWorkspace); err != nil {
-			lock.Release()
+			if lock != nil {
+				lock.Release()
+			}
 			return nil, err
 		}
 		return lock, nil
