@@ -60,6 +60,14 @@ const (
 // here so a caller of this package needs one import and not two.
 type Report = eval.Report
 
+// Comparison is a live run beside the scripted baseline, and the two functions
+// that produce it, re-exported for the same reason as Report.
+type Comparison = eval.Comparison
+
+func ParseReport(encoded []byte) (eval.Report, error) { return eval.ParseReport(encoded) }
+
+func Compare(baseline, live eval.Report) eval.Comparison { return eval.Compare(baseline, live) }
+
 // Options is one eval run.
 type Options struct {
 	FixturesDir string
@@ -112,6 +120,19 @@ type Options struct {
 	// a fixture and not for a codebase of forty of them.
 	NoRoundTrip bool
 
+	// SkipSuffice drops the spec sufficiency measure, which is one model call
+	// and one test run per context. It is off by default because it is the
+	// strongest test of a spec there is.
+	SkipSuffice bool
+
+	// Judge overrides how facts are graded. Empty means the keyword judge under
+	// the scripted baseline and a model judge otherwise.
+	Judge eval.Judge
+
+	JudgeCommand string
+
+	JudgeArgs []string
+
 	Timeout time.Duration
 
 	MaxAttempts int
@@ -144,6 +165,21 @@ type harness struct {
 	dir string
 
 	repository *spec.Repository
+
+	// realizeKind and summarizeKind are the agent kinds of the two halves, fixed
+	// once per fixture so the sufficiency measure, a drift scenario and a CLM
+	// scenario can tell a live host from the scripted baseline.
+	realizeKind string
+
+	summarizeKind string
+
+	// scratch holds the generated scenario files, outside every working tree.
+	scratch string
+
+	// judge grades the behavioural facts a spec must state.
+	judge eval.Judge
+
+	judgeName string
 
 	// stop stops the in-process controller. A scenario stops it across the
 	// reset, so nothing reconciles the reverted tree while it is being put
@@ -213,17 +249,17 @@ func Run(ctx context.Context, options Options) (eval.Report, error) {
 
 	for _, fixture := range fixtures {
 		run, err := runFixture(ctx, options, fixture, workDir)
+		report.Populate = append(report.Populate, run.populate)
+		report.CodeToSpec = append(report.CodeToSpec, run.codeToSpec...)
+		report.Facts = append(report.Facts, run.facts...)
+		report.Sufficiency = append(report.Sufficiency, run.sufficiency...)
+		report.Drift = append(report.Drift, run.drift...)
+		report.Scenarios = append(report.Scenarios, run.scenarios...)
 		if err != nil {
-			report.Populate = append(report.Populate, run.populate)
-			report.CodeToSpec = append(report.CodeToSpec, run.codeToSpec...)
-			report.Scenarios = append(report.Scenarios, run.scenarios...)
 			report.Notes = append(report.Notes, fmt.Sprintf("fixture %s stopped early: %v", fixture.Name, err))
 			report.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 			return report, nil
 		}
-		report.Populate = append(report.Populate, run.populate)
-		report.CodeToSpec = append(report.CodeToSpec, run.codeToSpec...)
-		report.Scenarios = append(report.Scenarios, run.scenarios...)
 	}
 	report.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 	return report, nil
@@ -233,6 +269,12 @@ type fixtureRun struct {
 	populate eval.PopulateReport
 
 	codeToSpec []eval.CodeToSpecReport
+
+	facts []eval.FactsReport
+
+	sufficiency []eval.SufficiencyReport
+
+	drift []eval.DriftReport
 
 	scenarios []eval.ScenarioReport
 }
@@ -301,7 +343,17 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 		return run, err
 	}
 
-	h := &harness{options: options, client: client, namespace: options.Namespace, dir: dir, repository: repository}
+	h := &harness{
+		options:       options,
+		client:        client,
+		namespace:     options.Namespace,
+		dir:           dir,
+		repository:    repository,
+		realizeKind:   realizeKind,
+		summarizeKind: summarizeKind,
+		scratch:       filepath.Join(workDir, "eval-drift"),
+	}
+	h.judge = h.buildJudge(summarizeKind)
 	if err := h.startController(); err != nil {
 		return run, err
 	}
@@ -360,20 +412,38 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 		return run, err
 	}
 	run.codeToSpec = h.measureCodeToSpec(ctx, contexts, summarizer)
-	if options.CodeOnly || len(fixture.Scenarios) == 0 {
-		return run, nil
+	run.facts = h.gradeFacts(ctx, fixture, contexts)
+	if !options.SkipSuffice && !isScripted(h.realizeKind) {
+		run.sufficiency = h.measureSufficiency(ctx, fixture, contexts, baseCommit)
 	}
 
-	// The spec -> code half: every scenario starts from the same baseline, so
-	// the fixtures are compared with each other and not with their own history.
+	// Every scenario starts from the same baseline, so the fixtures are compared
+	// with each other and not with their own history. The baseline is read
+	// before the drift scenarios run, because a drift scenario changes the spec
+	// and the change must not become the next scenario's starting point.
 	baselines, err := h.baselines(ctx, baseCommit)
 	if err != nil {
 		return run, err
+	}
+	if len(fixture.Drift) > 0 {
+		run.drift = h.runDrift(ctx, fixture, baselines)
+	}
+
+	// The spec -> code half.
+	if options.CodeOnly || len(fixture.Scenarios) == 0 {
+		return run, nil
 	}
 	for _, scenario := range fixture.Scenarios {
 		run.scenarios = append(run.scenarios, h.runScenario(ctx, fixture, scenario, scenarioFiles[scenario.Name], baselines[scenario.Context]))
 	}
 	return run, nil
+}
+
+// isScripted reports whether an agent kind answers from a scenario file, which
+// is the deterministic baseline and the only agent that cannot rebuild code
+// from a spec or edit a context document for a reason.
+func isScripted(kind string) bool {
+	return kind == "" || strings.HasPrefix(kind, agentfactory.Scripted+":")
 }
 
 // kinds is the agent of each half. An empty Agent is the scripted baseline: the
@@ -472,6 +542,9 @@ func (h *harness) agentEnv() map[string]string {
 		"SPECD_WORKSPACE":  h.options.Workspace,
 		"SPECD_NAMESPACE":  h.namespace,
 		"SPECD_SPECCTL":    specctlPath(),
+		// A host inside the model keeps the context document under the working
+		// tree and applies it with specctl, so it needs the tree it owns.
+		"SPECD_CLM_REPO": h.dir,
 	}
 }
 
@@ -515,13 +588,14 @@ func (h *harness) measureCodeToSpec(ctx context.Context, contexts []spec.SystemC
 	out := make([]eval.CodeToSpecReport, 0, len(contexts))
 	for _, entry := range contexts {
 		report := eval.CodeToSpecReport{
-			Fixture:          h.repository.Name,
-			Context:          entry.Name,
-			Score:            eval.InterfaceScore(entry.Spec.Interfaces, entry.Status.Observed),
-			Requirements:     len(entry.Spec.Requirements),
-			AnchoringRate:    eval.AnchoringRate(entry.Spec.Requirements, entry.Status.Observed),
-			ValidatorPass:    eval.ValidatorPass(entry.Name, entry.Spec),
-			RoundTripJaccard: 1,
+			Fixture:        h.repository.Name,
+			Context:        entry.Name,
+			Score:          eval.InterfaceScore(entry.Spec.Interfaces, entry.Status.Observed),
+			Requirements:   len(entry.Spec.Requirements),
+			AnchoringRate:  eval.AnchoringRate(entry.Spec.Requirements, entry.Status.Observed),
+			ValidatorPass:  eval.ValidatorPass(entry.Name, entry.Spec),
+			Empty:          report0IsEmpty(entry),
+			NoRequirements: len(entry.Spec.Requirements) == 0,
 		}
 		if h.options.NoRoundTrip {
 			out = append(out, report)
@@ -542,11 +616,21 @@ func (h *harness) measureCodeToSpec(ctx context.Context, contexts []spec.SystemC
 		report.DroppedRefs = len(first.Dropped)
 		report.Score = eval.InterfaceScore(first.Draft.Interfaces, entry.Status.Observed)
 		report.AnchoringRate = eval.AnchoringRate(first.Draft.Requirements, entry.Status.Observed)
+		report.NoRequirements = len(first.Draft.Requirements) == 0
 		report.RoundTripJaccard = eval.Jaccard(interfaceNames(first.Draft.Interfaces), interfaceNames(second.Draft.Interfaces))
+		report.RoundTripMeasured = true
 		report.RequirementCountDelta = len(second.Draft.Requirements) - len(first.Draft.Requirements)
 		out = append(out, report)
 	}
 	return out
+}
+
+// report0IsEmpty marks the contexts that declare nothing and observe nothing.
+// They are left out of the means and counted instead: a context with no surface
+// scores a perfect 1 by definition, and averaging those in is how a run of
+// empty contexts reports 100%.
+func report0IsEmpty(entry spec.SystemContext) bool {
+	return len(entry.Spec.Interfaces) == 0 && len(entry.Status.Observed.Interfaces) == 0
 }
 
 func (h *harness) summarizeOnce(ctx context.Context, name string, summarizer agent.Agent) (summarize.Result, error) {
@@ -614,13 +698,36 @@ func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Sce
 		report.WallTimeSeconds = time.Since(started).Seconds()
 		return report
 	}
-	if err := h.applyPatch(deadline, scenario.Context, scenario.SpecPatch); err != nil {
-		report.Error = err.Error()
+
+	// A CLM scenario is the model's work: it edits the context document and the
+	// host inside it applies the delta. The scripted baseline has no such host,
+	// so the scenario is left out of the run and counted as skipped rather than
+	// scored as a failure.
+	if scenario.Via == "clm" && (isScripted(h.realizeKind) || isScripted(h.summarizeKind)) {
+		report.Skipped = true
+		report.Via = scenario.Via
+		report.Request = scenario.Request
 		report.WallTimeSeconds = time.Since(started).Seconds()
 		return report
 	}
+	switch scenario.Via {
+	case "clm":
+		report.Via = "clm"
+		report.Request = scenario.Request
+		if err := h.driveClm(deadline, scenario); err != nil {
+			report.Error = err.Error()
+			report.WallTimeSeconds = time.Since(started).Seconds()
+			return report
+		}
+	default:
+		if err := h.applyPatch(deadline, scenario.Context, scenario.SpecPatch); err != nil {
+			report.Error = err.Error()
+			report.WallTimeSeconds = time.Since(started).Seconds()
+			return report
+		}
+	}
 
-	change, err := h.waitChange(deadline, scenario.Context)
+	change, err := h.waitChange(deadline, scenario.Context, specapi.DirectionSpecToCode)
 	report.WallTimeSeconds = time.Since(started).Seconds()
 	if err != nil {
 		report.Error = err.Error()
@@ -956,15 +1063,15 @@ func blocked(status spec.RepositoryStatus) bool {
 	return false
 }
 
-func (h *harness) waitChange(ctx context.Context, name string) (spec.SpecChange, error) {
+func (h *harness) waitChange(ctx context.Context, name, direction string) (spec.SpecChange, error) {
 	var found spec.SpecChange
-	err := h.wait(ctx, "the SpecToCode change of "+name, func() bool {
+	err := h.wait(ctx, "the "+direction+" change of "+name, func() bool {
 		changes, err := h.changes(ctx, name)
 		if err != nil {
 			return false
 		}
 		for _, change := range changes {
-			if change.Spec.Direction != specapi.DirectionSpecToCode {
+			if change.Spec.Direction != direction {
 				continue
 			}
 			if change.Status.Phase == specapi.PhaseSucceeded || change.Status.Phase == specapi.PhaseFailed {

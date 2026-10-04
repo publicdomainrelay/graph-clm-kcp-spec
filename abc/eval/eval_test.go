@@ -154,17 +154,22 @@ func TestReportRendersEveryMeasure(t *testing.T) {
 			{Fixture: "calc", Phase: "Populated", Contexts: 2, Summarized: 2, WallTimeSeconds: 3.5},
 		},
 		CodeToSpec: []eval.CodeToSpecReport{
-			{Fixture: "calc", Context: "calc", Score: eval.Score{Declared: 2, Target: 2, Matched: 2, Recall: 1, Precision: 1, F1: 1}, AnchoringRate: 1, ValidatorPass: true, RoundTripJaccard: 1},
+			{Fixture: "calc", Context: "calc", Score: eval.Score{Declared: 2, Target: 2, Matched: 2, Recall: 1, Precision: 1, F1: 1}, AnchoringRate: 1, ValidatorPass: true, RoundTripJaccard: 1, RoundTripMeasured: true},
+		},
+		Facts: []eval.FactsReport{
+			{Fixture: "calc", Context: "calc", Expected: 1, Stated: 1, Score: 1},
 		},
 		Scenarios: []eval.ScenarioReport{
 			{Fixture: "calc", Scenario: "add-subtract", Context: "calc", Difficulty: 1, Pass: true, VerifyPass: true, AcceptancePass: true, Delta: eval.DeltaScore{Entries: 2, Expected: 2, Precise: true}},
 		},
 	}
-	if report.ScenarioPassRate() != 1 || report.MeanRecall() != 1 || report.MeanAnchoring() != 1 || report.DeltaPrecisionRate() != 1 {
-		t.Fatalf("rates = %v %v %v %v", report.ScenarioPassRate(), report.MeanRecall(), report.MeanAnchoring(), report.DeltaPrecisionRate())
+	for _, measure := range []eval.Measure{report.PassRate(""), report.MeanRecall(), report.MeanAnchoring(), report.DeltaPrecisionRate(), report.FactsScore()} {
+		if !measure.Measured() || measure.Value != 1 {
+			t.Fatalf("measure = %+v, want 1 over one sample", measure)
+		}
 	}
 	markdown := report.Markdown()
-	for _, want := range []string{"spec -> code pass rate", "interface recall", "add-subtract", "Populated"} {
+	for _, want := range []string{"spec -> code pass rate", "interface recall", "add-subtract", "Populated", "code -> spec facts stated", "samples"} {
 		if !strings.Contains(markdown, want) {
 			t.Errorf("the markdown report does not mention %q:\n%s", want, markdown)
 		}
@@ -178,9 +183,168 @@ func TestReportRendersEveryMeasure(t *testing.T) {
 	}
 }
 
-func TestReportRatesAreOneWhenNothingWasMeasured(t *testing.T) {
+// TestReportSaysNotMeasuredWhenNothingWasMeasured is the honest-reporting rule
+// phase 11 added: a measure with no samples has no value, and it is never
+// printed as 0% or as 100%.
+func TestReportSaysNotMeasuredWhenNothingWasMeasured(t *testing.T) {
 	empty := eval.Report{}
-	if empty.ScenarioPassRate() != 1 || empty.MeanRecall() != 1 || empty.MeanAnchoring() != 1 {
-		t.Fatalf("empty rates = %v %v %v", empty.ScenarioPassRate(), empty.MeanRecall(), empty.MeanAnchoring())
+	for name, measure := range map[string]eval.Measure{
+		"pass rate":   empty.PassRate(""),
+		"recall":      empty.MeanRecall(),
+		"anchoring":   empty.MeanAnchoring(),
+		"delta":       empty.DeltaPrecisionRate(),
+		"facts":       empty.FactsScore(),
+		"sufficiency": empty.SufficiencyPassRate(),
+		"drift":       empty.DriftPassRate(),
+		"validator":   empty.ValidatorPassRate(),
+		"round trip":  empty.MeanRoundTripJaccard(),
+		"populate":    empty.PopulatedFixtures(),
+		"clm":         empty.PassRate("clm"),
+	} {
+		if measure.Measured() {
+			t.Errorf("the %s of an empty report is measured: %+v", name, measure)
+		}
+		if measure.Text() != "not measured" {
+			t.Errorf("the %s of an empty report prints %q", name, measure.Text())
+		}
+	}
+	if markdown := empty.Markdown(); !strings.Contains(markdown, "not measured") {
+		t.Errorf("the empty report does not say not measured:\n%s", markdown)
+	}
+}
+
+// TestMeansExcludeEmptyContexts is the other half of the rule: a context with
+// no declared and no observed surface scores a perfect 1 by definition, and
+// averaging those in is how a run of empty contexts reports 100%.
+func TestMeansExcludeEmptyContexts(t *testing.T) {
+	report := eval.Report{
+		CodeToSpec: []eval.CodeToSpecReport{
+			{Fixture: "f", Context: "half", Score: eval.Score{Declared: 1, Target: 2, Matched: 1, Recall: 0.5, Precision: 1, F1: 2.0 / 3.0}, AnchoringRate: 0.5, RoundTripMeasured: true, RoundTripJaccard: 0.5},
+			{Fixture: "f", Context: "empty", Empty: true, NoRequirements: true, ValidatorPass: true, RoundTripJaccard: 1},
+		},
+	}
+	recall := report.MeanRecall()
+	if recall.Samples != 1 || recall.Excluded != 1 {
+		t.Fatalf("recall = %+v, want one sample and one exclusion", recall)
+	}
+	if recall.Value != 0.5 {
+		t.Errorf("recall = %v, want the empty context left out", recall.Value)
+	}
+	if len(recall.ExcludedNames) != 1 || recall.ExcludedNames[0] != "f/empty" {
+		t.Errorf("excluded = %v", recall.ExcludedNames)
+	}
+	if got := report.MeanAnchoring(); got.Samples != 1 || got.Value != 0.5 {
+		t.Errorf("anchoring = %+v", got)
+	}
+	if got := report.ValidatorPassRate(); got.Samples != 1 {
+		t.Errorf("validator = %+v, want the empty context left out", got)
+	}
+	if got := report.MeanRoundTripJaccard(); got.Samples != 1 || got.Value != 0.5 {
+		t.Errorf("round trip = %+v", got)
+	}
+	if text := report.Markdown(); !strings.Contains(text, "1 (1 excluded)") {
+		t.Errorf("the report does not count the exclusion:\n%s", text)
+	}
+}
+
+func TestSkippedScenariosAreCountedNotScored(t *testing.T) {
+	report := eval.Report{
+		Scenarios: []eval.ScenarioReport{
+			{Fixture: "f", Scenario: "did", Pass: true, Delta: eval.DeltaScore{Precise: true}},
+			{Fixture: "f", Scenario: "clm", Via: "clm", Skipped: true, Pass: false, Delta: eval.DeltaScore{Expected: 1}},
+		},
+	}
+	rate := report.PassRate("")
+	if rate.Samples != 1 || rate.Excluded != 1 || rate.Value != 1 {
+		t.Fatalf("pass rate = %+v, want one sample and one skip", rate)
+	}
+	if clm := report.PassRate("clm"); clm.Measured() {
+		t.Fatalf("the clm pass rate = %+v, want not measured", clm)
+	}
+	if delta := report.DeltaPrecisionRate(); delta.Samples != 1 {
+		t.Fatalf("delta = %+v, want the skipped scenario left out", delta)
+	}
+}
+
+func TestKeywordJudgeIsDeterministicAndReadsAlternatives(t *testing.T) {
+	facts := []eval.Fact{
+		{ID: "zero", Text: "Divide rejects a zero divisor.", Must: []eval.Keyword{{"zero", "0"}, {"error", "err"}}},
+		{ID: "absent", Text: "Abs is exported.", Must: []eval.Keyword{{"abs"}}},
+	}
+	result, err := eval.KeywordJudge{}.Judge(t.Context(), eval.JudgeRequest{
+		Context: "calc",
+		Facts:   facts,
+		Spec:    "Divide returns an error when b is 0.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := eval.ScoreFacts("calc", "calc", facts, result, "keyword")
+	if report.Stated != 1 || report.Expected != 2 || report.Score != 0.5 {
+		t.Fatalf("facts report = %+v", report)
+	}
+	byID := map[string]eval.FactVerdict{}
+	for _, verdict := range report.Verdicts {
+		byID[verdict.ID] = verdict
+	}
+	if !byID["zero"].Stated {
+		t.Error("the alternative 0 did not satisfy the zero keyword")
+	}
+	if byID["absent"].Stated {
+		t.Error("a fact with no matching word was stated")
+	}
+}
+
+func TestScoreInterfaceDeltaCountsOnlyInterfaces(t *testing.T) {
+	change := spec.Delta{
+		Intent:       &spec.FieldDelta{From: "old", To: "new"},
+		Requirements: []spec.RequirementDelta{{Op: spec.OpAdded, ID: "r.abs"}},
+		Interfaces: []spec.InterfaceDelta{
+			{Op: spec.OpAdded, Name: "Abs"},
+			{Op: spec.OpRemoved, Name: "Sign"},
+		},
+	}
+	entries, score := eval.ScoreInterfaceDelta(change, 2)
+	if entries.Added[0] != "Abs" || entries.Removed[0] != "Sign" {
+		t.Fatalf("entries = %+v", entries)
+	}
+	if score.Entries != 2 || !score.Precise {
+		t.Fatalf("score = %+v, want the intent text ignored", score)
+	}
+}
+
+func TestCompareFlagsARunEqualToTheBaseline(t *testing.T) {
+	baseline := eval.Report{Agent: "scripted", Scenarios: []eval.ScenarioReport{
+		{Fixture: "f", Scenario: "s", Pass: true, Delta: eval.DeltaScore{Precise: true}},
+	}}
+	live := eval.Report{Agent: "claude-mod", Scenarios: []eval.ScenarioReport{
+		{Fixture: "f", Scenario: "s", Pass: true, Delta: eval.DeltaScore{Precise: true}},
+	}}
+	comparison := eval.Compare(baseline, live)
+	if !comparison.NotDiscriminating {
+		t.Fatalf("comparison = %+v, want the flag", comparison)
+	}
+	if !strings.Contains(comparison.Markdown(), "not discriminating: **yes**") {
+		t.Errorf("the markdown does not flag it:\n%s", comparison.Markdown())
+	}
+
+	live.Scenarios[0].Pass = false
+	differing := eval.Compare(baseline, live)
+	if differing.NotDiscriminating {
+		t.Fatalf("comparison = %+v, want no flag when the pass rate differs", differing)
+	}
+
+	// A measure the baseline could not take at all is not equality: it is the
+	// live run reaching something the baseline cannot.
+	withClm := eval.Report{Agent: "claude-mod", Scenarios: []eval.ScenarioReport{
+		{Fixture: "f", Scenario: "s", Pass: true, Delta: eval.DeltaScore{Precise: true}},
+		{Fixture: "f", Scenario: "clm", Via: "clm", Pass: true, Delta: eval.DeltaScore{Precise: true}},
+	}}
+	reaching := eval.Compare(baseline, withClm)
+	if reaching.NotDiscriminating {
+		t.Fatalf("comparison = %+v, want no flag when the live run measured more", reaching)
+	}
+	if !strings.Contains(reaching.Note, "measured 1 measure(s) the baseline did not") {
+		t.Errorf("note = %q", reaching.Note)
 	}
 }

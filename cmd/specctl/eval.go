@@ -30,6 +30,10 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	agentCommand := fs.String("agent-command", "", "model command to run (default deepseek-claude)")
 	agentArgs := fs.String("agent-args", "", "model arguments (default -p --output-format text)")
 	agentTimeout := fs.Duration("agent-timeout", 0, "how long one model call may take")
+	judgeCommand := fs.String("judge-command", "", "command that grades behavioural facts (default the model command)")
+	judgeArgs := fs.String("judge-args", "", "arguments of the fact judge")
+	suffice := fs.Bool("suffice", true, "measure spec sufficiency: strip implementation bodies, rebuild from the spec, run the original tests")
+	baseline := fs.String("baseline", "", "a previous JSON report to compare against, for the not-discriminating check")
 	clmMod := fs.String("clm-mod", os.Getenv("SPECD_CLM_MOD"), "cc-clm-mod folder the claude-mod kind loads")
 	piExtension := fs.String("pi-extension", os.Getenv("SPECD_PI_EXTENSION"), "pi-hydradb-clm folder the pi kind loads")
 	out := fs.String("out", "", "write the markdown report here; the JSON report lands beside it")
@@ -109,6 +113,9 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 		Keep:           *keep,
 		CodeOnly:       *codeOnly,
 		NoRoundTrip:    !*roundTrip,
+		SkipSuffice:    !*suffice,
+		JudgeCommand:   *judgeCommand,
+		JudgeArgs:      splitArgs(*judgeArgs),
 		Timeout:        *timeout,
 		MaxAttempts:    *maxAttempts,
 		Tool:           *tool,
@@ -119,6 +126,20 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	fmt.Fprint(stdout, report.Markdown())
+	if *baseline != "" {
+		comparison, err := compareWithBaseline(*baseline, report)
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl eval: %v\n", err)
+			return exitError
+		}
+		fmt.Fprint(stdout, comparison.Markdown())
+		if *out != "" {
+			if err := writeFile(comparePath(markdownPath(*out)), []byte(comparison.Markdown())); err != nil {
+				fmt.Fprintf(stderr, "specctl eval: %v\n", err)
+				return exitError
+			}
+		}
+	}
 	if *out == "" {
 		return exitOK
 	}
@@ -167,6 +188,27 @@ func jsonPath(path string) string {
 
 func markdownPath(path string) string {
 	return strings.TrimSuffix(path, filepath.Ext(path)) + ".md"
+}
+
+// comparePath is where the side by side table lands: beside the report, named
+// so two runs of the same date do not write over one another.
+func comparePath(path string) string {
+	return strings.TrimSuffix(path, filepath.Ext(path)) + "-compare.md"
+}
+
+// compareWithBaseline reads a previous report and flags a live run whose every
+// measure is exactly the baseline's. That flag is the whole point of phase 11:
+// an eval that cannot tell the model from the scripted answer measures nothing.
+func compareWithBaseline(path string, report eval.Report) (eval.Comparison, error) {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return eval.Comparison{}, fmt.Errorf("read the baseline %s: %w", path, err)
+	}
+	baseline, err := eval.ParseReport(contents)
+	if err != nil {
+		return eval.Comparison{}, err
+	}
+	return eval.Compare(baseline, report), nil
 }
 
 func countFailed(report eval.Report) int {

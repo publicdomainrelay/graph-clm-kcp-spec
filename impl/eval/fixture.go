@@ -16,6 +16,7 @@ import (
 
 	"sigs.k8s.io/yaml"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/eval"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/scriptedagent"
 )
 
@@ -66,6 +67,10 @@ type AcceptanceFile struct {
 // Scenario is one spec edit and the test that decides whether it landed. The
 // spec patch is applied to the SystemContext as a merge: the entries it names
 // are added or replaced and the rest of the spec is left alone.
+//
+// A scenario with Via "clm" carries no patch: the model is asked in natural
+// language and edits the context document, and the host inside the model
+// applies the delta. Request is that ask.
 type Scenario struct {
 	Name string `json:"name"`
 
@@ -74,6 +79,10 @@ type Scenario struct {
 	Difficulty int `json:"difficulty"`
 
 	Description string `json:"description"`
+
+	Via string `json:"via,omitempty"`
+
+	Request string `json:"request,omitempty"`
 
 	SpecPatch map[string]any `json:"specPatch"`
 
@@ -91,6 +100,45 @@ type Scenario struct {
 	File string `json:"-"`
 }
 
+// Expectations is the fixture's expected.yaml: the behavioural facts a correct
+// spec of each context must state. It is what the code -> spec half is graded
+// on, because the observed interface list is handed to the model and scoring it
+// measures the prompt.
+type Expectations struct {
+	Contexts map[string]ContextExpectation `json:"contexts"`
+}
+
+type ContextExpectation struct {
+	Facts []eval.Fact `json:"facts"`
+}
+
+// DriftScenario is one human code edit and the spec specd should write for it.
+// The edit is committed the way a person commits one; the controller raises the
+// CodeToSpec change; the spec it writes is graded against this.
+type DriftScenario struct {
+	Name string `json:"name"`
+
+	Context string `json:"context"`
+
+	Difficulty int `json:"difficulty"`
+
+	Description string `json:"description"`
+
+	Commit []scriptedagent.Step `json:"commit"`
+
+	ExpectedInterfacesAdded []string `json:"expectedInterfacesAdded"`
+
+	ExpectedInterfacesRemoved []string `json:"expectedInterfacesRemoved"`
+
+	ExpectedDeltaEntries int `json:"expectedDeltaEntries"`
+
+	Prose []eval.Fact `json:"prose"`
+
+	Draft scriptedagent.Draft `json:"draft"`
+
+	File string `json:"-"`
+}
+
 // Fixture is one repository under fixtures/ with its scenarios.
 type Fixture struct {
 	Name string
@@ -101,7 +149,11 @@ type Fixture struct {
 
 	Drafts *scriptedagent.Scenario
 
+	Expectations Expectations
+
 	Scenarios []Scenario
+
+	Drift []DriftScenario
 }
 
 const (
@@ -109,7 +161,11 @@ const (
 
 	fixtureDrafts = "summarize.yaml"
 
+	fixtureExpectations = "expected.yaml"
+
 	scenarioDir = "scenarios"
+
+	driftDir = "drift"
 )
 
 // Load reads every fixture under dir: a directory with a fixture.yaml, the
@@ -198,6 +254,11 @@ func loadFixture(root string) (Fixture, error) {
 		return fixture, fmt.Errorf("eval: load the drafts of %s: %w", fixture.Name, err)
 	}
 	fixture.Drafts = drafts
+	expectations, err := loadExpectations(filepath.Join(root, fixtureExpectations))
+	if err != nil {
+		return fixture, fmt.Errorf("eval: load the expectations of %s: %w", fixture.Name, err)
+	}
+	fixture.Expectations = expectations
 	scenarios, err := loadScenarios(filepath.Join(root, scenarioDir))
 	if err != nil {
 		return fixture, err
@@ -206,7 +267,70 @@ func loadFixture(root string) (Fixture, error) {
 		return fixture, fmt.Errorf("eval: %s has no scenario under %s", fixture.Name, scenarioDir)
 	}
 	fixture.Scenarios = scenarios
+	drift, err := loadDrift(filepath.Join(root, driftDir))
+	if err != nil {
+		return fixture, err
+	}
+	fixture.Drift = drift
 	return fixture, nil
+}
+
+// loadExpectations reads the behavioural facts a correct spec must state. A
+// fixture without the file has no facts, and the fact measure says not measured
+// for it rather than scoring it 100%.
+func loadExpectations(path string) (Expectations, error) {
+	expectations := Expectations{}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return expectations, nil
+		}
+		return expectations, err
+	}
+	if err := yaml.Unmarshal(contents, &expectations); err != nil {
+		return expectations, err
+	}
+	return expectations, nil
+}
+
+// loadDrift reads the drift scenarios: a code change committed as a human, and
+// what a correct code -> spec pass should write for it.
+func loadDrift(dir string) ([]DriftScenario, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("eval: read %s: %w", dir, err)
+	}
+	scenarios := []DriftScenario{}
+	for _, entry := range entries {
+		if entry.IsDir() || !isYAML(entry.Name()) {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("eval: read %s: %w", path, err)
+		}
+		scenario := DriftScenario{}
+		if err := yaml.Unmarshal(contents, &scenario); err != nil {
+			return nil, fmt.Errorf("eval: parse %s: %w", path, err)
+		}
+		scenario.File = strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		if scenario.Name == "" {
+			scenario.Name = scenario.File
+		}
+		if scenario.Context == "" {
+			return nil, fmt.Errorf("eval: %s names no context", path)
+		}
+		if len(scenario.Commit) == 0 {
+			return nil, fmt.Errorf("eval: %s commits no code change", path)
+		}
+		scenarios = append(scenarios, scenario)
+	}
+	sort.Slice(scenarios, func(left, right int) bool { return scenarios[left].Name < scenarios[right].Name })
+	return scenarios, nil
 }
 
 func loadScenarios(dir string) ([]Scenario, error) {
@@ -238,8 +362,17 @@ func loadScenarios(dir string) ([]Scenario, error) {
 		if scenario.Context == "" {
 			return nil, fmt.Errorf("eval: %s names no context", path)
 		}
-		if len(scenario.SpecPatch) == 0 {
-			return nil, fmt.Errorf("eval: %s carries no specPatch", path)
+		switch scenario.Via {
+		case "":
+			if len(scenario.SpecPatch) == 0 {
+				return nil, fmt.Errorf("eval: %s carries no specPatch", path)
+			}
+		case "clm":
+			if strings.TrimSpace(scenario.Request) == "" {
+				return nil, fmt.Errorf("eval: %s is a CLM scenario with no request", path)
+			}
+		default:
+			return nil, fmt.Errorf("eval: %s names an unknown via %q", path, scenario.Via)
 		}
 		if len(scenario.Acceptance) == 0 {
 			return nil, fmt.Errorf("eval: %s carries no acceptance test", path)
@@ -332,7 +465,7 @@ func CopyTree(source, target string) error {
 			return nil
 		}
 		switch relative {
-		case scenarioDir, fixtureManifest, fixtureDrafts:
+		case scenarioDir, driftDir, fixtureManifest, fixtureDrafts, fixtureExpectations:
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}

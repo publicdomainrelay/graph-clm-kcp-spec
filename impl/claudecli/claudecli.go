@@ -120,6 +120,15 @@ func (a *Agent) Realize(ctx context.Context, request agent.RealizeRequest) (agen
 	return result, nil
 }
 
+// Run drives the model with a prompt the caller owns. The summarize and realize
+// contracts cover the loop's two directions; the CLM path needs a third ask
+// ("change the specification by editing the context document"), and a host
+// inside the model applies it. Everything about the transport is the same, so
+// this is the same process with a different prompt.
+func (a *Agent) Run(ctx context.Context, prompt string, extra map[string]string) (string, string, error) {
+	return a.run(ctx, prompt, extra)
+}
+
 // RealizePrompt is the ask for the other direction. The delta comes first: the
 // agent is told what changed in the specification, then the spec the code must
 // reach, then the command that decides whether the change is accepted. The

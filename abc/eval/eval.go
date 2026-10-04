@@ -157,6 +157,52 @@ func ScoreDelta(change *spec.Delta, expected int) DeltaScore {
 	return score
 }
 
+// InterfaceDelta is the interface half of a spec diff: the interfaces a change
+// added, removed or changed. A drift scenario grades on this rather than on the
+// whole delta, because a model that rewrites the intent while adding one
+// interface has still done the intended one thing.
+type InterfaceDelta struct {
+	Added []string `json:"added,omitempty"`
+
+	Removed []string `json:"removed,omitempty"`
+
+	Changed []string `json:"changed,omitempty"`
+}
+
+// InterfaceDeltaOf reads the interface entries of a delta.
+func InterfaceDeltaOf(change spec.Delta) InterfaceDelta {
+	out := InterfaceDelta{}
+	for _, entry := range change.Interfaces {
+		switch entry.Op {
+		case spec.OpAdded:
+			out.Added = append(out.Added, entry.Name)
+		case spec.OpRemoved:
+			out.Removed = append(out.Removed, entry.Name)
+		case spec.OpChanged:
+			out.Changed = append(out.Changed, entry.Name)
+		}
+	}
+	sort.Strings(out.Added)
+	sort.Strings(out.Removed)
+	sort.Strings(out.Changed)
+	return out
+}
+
+// ScoreInterfaceDelta reads a change's interface entries against the count a
+// drift scenario intended.
+func ScoreInterfaceDelta(change spec.Delta, expected int) (InterfaceDelta, DeltaScore) {
+	entries := InterfaceDeltaOf(change)
+	score := DeltaScore{
+		Added:    len(entries.Added),
+		Removed:  len(entries.Removed),
+		Changed:  len(entries.Changed),
+		Expected: expected,
+	}
+	score.Entries = score.Added + score.Removed + score.Changed
+	score.Precise = score.Entries == score.Expected
+	return entries, score
+}
+
 // FilesOutsideContext is the files a realize touched that its context does not
 // own. A file counts as owned when the context's observed facts already name it
 // or when it is a new file in a directory the context already has files in,
