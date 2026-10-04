@@ -56,8 +56,8 @@ flowchart LR
   updates the spec (intent, requirements, interfaces). Every claim is anchored
   to real CodeGraph ids.
 - **spec -> code:** a person or a model edits a spec, the controller computes a
-  structured delta, an agent changes the code to match, and tests gate the
-  commit.
+  structured delta, an agent changes the code to match, tests gate the commit,
+  and the repository's acceptance steps prove the result where it has to run.
 
 **Why a graph database.** A model cannot read 3000 lines for every task.
 A graph database indexes specs, requirements, interfaces and code references,
@@ -100,7 +100,7 @@ flowchart TB
     cli -- "the context file" --> ctx
     kcp -- "watch" --> specd
     specd -- "status, SpecChange" --> kcp
-    specd -- "realize: agent + mod + verify + commit" --> repo
+    specd -- "realize: agent + mod + verify + acceptance + commit" --> repo
     repo -- "codegraph sync" --> cg
     cg -- "observed facts" --> specd
     specd -- "index" --> gdb
@@ -136,7 +136,7 @@ sequenceDiagram
     S->>K: SpecChange{SpecToCode, delta}
     S->>A: realize delta in worktree
     A->>G: edit files
-    S->>G: verify, commit, merge
+    S->>G: verify, acceptance, commit, merge
     S->>K: re-ingest, CodeSynced=True
 ```
 
@@ -376,11 +376,14 @@ graph.
   `specctl get specchange` prints the `+2 ~1 -1` summary.
 - `SpecToCode` is one worktree: branch `spec/<context>/<hash8>` off the managed
   branch, the agent edits files only, `Repository.spec.verify` gates the commit,
-  and a zero exit lands the commit as `specd <specd@localhost>` on the managed
-  branch with a re-ingest that adopts it in one status write, so the tool's own
-  work raises no opposite change. A failing verify keeps the branch, leaves the
-  spec and the managed branch untouched and hands the output to the next
-  attempt.
+  then `Repository.spec.acceptance` runs the repository's own steps in the same
+  worktree — a gating step blocks the commit like verify, a report-only step
+  records its result — and a clean run lands the commit as
+  `specd <specd@localhost>` on the managed branch with a re-ingest that adopts
+  it in one status write, so the tool's own work raises no opposite change. A
+  failing gate keeps the branch, leaves the spec and the managed branch
+  untouched and hands the output to the next attempt; the results are on
+  `status.acceptance` and the commit trailers.
 - `Repository.spec.agent.kind` selects the agent per repository (`claude`,
   `claude-mod`, `pi` or `scripted:<file>`) and wins over the controller's
   `--agent`.
@@ -740,9 +743,9 @@ works against it without extra flags.
 
 | Kind | Purpose | Key fields |
 | --- | --- | --- |
-| `Repository` | a codebase under management, and the one manifest that populates an unknown one | `spec.source.path` / `spec.source.git`, `spec.branch`, `spec.verify`, `spec.agent`, `spec.populate` (partition, include, exclude, summarize, agent), `status.phase`, `status.contexts`, `status.resolvedPath`, the `Indexed` and `Populated` conditions |
+| `Repository` | a codebase under management, and the one manifest that populates an unknown one | `spec.source.path` / `spec.source.git`, `spec.branch`, `spec.verify`, `spec.acceptance[]` (name, command, timeoutSeconds, gate, env), `spec.agent`, `spec.populate` (partition, include, exclude, summarize, agent), `status.phase`, `status.contexts`, `status.resolvedPath`, the `Indexed` and `Populated` conditions |
 | `SystemContext` | one spec node (one system context) | `spec.repository`, `spec.upstream`, `spec.overlay`, `spec.orchestrator`, `spec.dependsOn[]`, `spec.introduces[]`, `spec.intent`, `spec.requirements[]`, `spec.interfaces[]`, `spec.codeRefs[]`, `spec.arch` |
-| `SpecChange` | one direction-tagged change, the unit of work | `spec.systemContext`, `spec.direction`, `spec.delta`, `spec.toSpecHash` / `spec.toCommit`, `status.phase`, `status.branch`, `status.commit`, `status.verifyExitCode`, `status.filesTouched` |
+| `SpecChange` | one direction-tagged change, the unit of work | `spec.systemContext`, `spec.direction`, `spec.delta`, `spec.toSpecHash` / `spec.toCommit`, `status.phase`, `status.branch`, `status.commit`, `status.verifyExitCode`, `status.filesTouched`, `status.acceptance[]` (name, exitCode, durationSeconds, passed, outputTail) |
 
 `SystemContext.status` carries the code facts (`observed.files`,
 `observed.interfaces` with `signature`, `file`, `line` and `codegraphId`, and
@@ -1059,6 +1062,44 @@ the managed branch has moved since the attempt's base (a sibling landed, or a
 human committed), the attempt is retried once on the new base, and that retry
 does not count against the cap. Attempts back off and stop after
 `--max-attempts`.
+
+**Acceptance: the proof that it runs.** `verify` says the code is sound; it
+does not say the thing works. `Repository.spec.acceptance` is a list of steps
+that run in the realize worktree once `verify` has passed, once per batch:
+
+```yaml
+spec:
+  verify: ["go", "test", "./..."]
+  acceptance:
+    - name: market
+      command: ["deploy/examples/atproto/market/apply.sh"]
+      timeoutSeconds: 600
+      gate: true
+      env: {BOB_WORKSPACE: bob}
+    - name: latency
+      command: ["scripts/measure-latency.sh"]
+      gate: false
+```
+
+A step with `gate: true` blocks the commit exactly like `verify`: the attempt
+ends `Failed` with a message naming the step, the branch is kept and the
+managed branch does not move. A step with `gate: false` records its result and
+lets the commit land, so a flaky or informational check never blocks a change.
+Every step's name, exit code, duration, pass flag and bounded output tail lands
+on `status.acceptance` of every member of the batch, and the commit carries one
+`Acceptance: <name> passed|failed (gate|report)` trailer per step. The same
+steps run on demand against the current tree:
+
+```bash
+bin/specctl accept --repo .                 # every step
+bin/specctl accept --repo . --name market   # one step; exit 1 if a gate fails
+```
+
+`specctl accept` exits 1 when a gating step fails and 0 when only report-only
+steps do, which is what a pre-push hook or a CI job wants. It resolves the
+`Repository` of the checkout's session (or of the directory name, outside a
+session) and runs the steps in `--repo`; the live test
+`TestPlan2cSpecctlAcceptRunsAgainstTheTree` runs exactly these two commands.
 
 ```bash
 bin/specd --agent claude --resync 5s                       # the real model

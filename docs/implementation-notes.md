@@ -122,17 +122,24 @@ code is what changed.
   returns.
 - An empty verify command passes: a repository that names none has not asked for
   a gate.
-- `realize.OutputTailBytes` (4000) bounds what a failed verify leaves in the
-  `SpecChange`; `realize.ChangedFilesLimit` (100) bounds the diff stat carried in
+- Acceptance runs after verify, never before: a step is a proof that the thing
+  works, and a tree that does not pass its own tests has nothing to prove yet.
+  Every step runs even when an earlier one failed, so one attempt reports the
+  whole picture, and the first failing gating step is what names the failure.
+  A step's own `timeoutSeconds` wins over the caller's default.
+- `realize.OutputTailBytes` (4000) bounds what a failed verify, and each
+  acceptance step's output, leaves in the `SpecChange`;
+  `realize.ChangedFilesLimit` (100) bounds the diff stat carried in
   `status.filesTouched`.
 
 ## impl/schemagen
 
 - An APIResourceSchema name is `<version>-<revision>.<plural>.<group>`. The
   object is immutable, so a changed CRD gets the next revision rather than an
-  edit; `Revision` is 3, and `deploy/specs-apiexport.yaml` names the published
-  revision with a test holding the two together. Revision 2 was the interface
-  `name` descriptions keyed by receiver.
+  edit; `Revision` is 4, and `deploy/specs-apiexport.yaml` names the published
+  revision with a test holding the two together. Revision 3 was the acceptance
+  step on the Repository and the acceptance results on the SpecChange, 2 the
+  interface `name` descriptions keyed by receiver.
 
 ## impl/stripbodies
 

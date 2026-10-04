@@ -177,6 +177,39 @@ change does not land, and a passing one lands with `Acceptance:` trailers;
 and the live market run on deno-kcp's PR branch with its output recorded in
 `docs/examples/deno-kcp-pr.md`.
 
+**Shipped (hydradb half).** `Repository.spec.acceptance` is a list of
+`{name, command, timeoutSeconds, gate, env}` (`abc/spec.AcceptanceStep`,
+validated: a name that is required, unique and single-line, a command, a
+non-negative timeout). `impl/realize` runs every step in the realize worktree
+once verify has passed, once per batch and again after a rebase retry, with the
+step's own timeout and environment; the runner is exported so the CLI and the
+reconciler cannot disagree. A `gate: true` step that fails ends the attempt
+`Failed` with a message naming the step (branch kept, managed branch still);
+`gate: false` records only. Results — name, exit code, duration, passed and the
+bounded output tail — land on `SpecChange.status.acceptance` on every member of
+the batch, and the commit gets one `Acceptance: <name> passed|failed
+(gate|report)` trailer per step. `specctl accept [--repo .] [--name <step>]`
+runs the same steps against the current tree and exits 1 when a gating step
+fails. The CRDs gained the field and the result list, `deploy/apiresourceschemas`
+is regenerated at revision 4 and `deploy/specs-apiexport.yaml` names the new
+schemas. Proven live by `TestPlan2cGatingAcceptanceKeepsTheChangeFromLanding`,
+`TestPlan2cAcceptanceResultsLandWithTheCommit` and
+`TestPlan2cSpecctlAcceptRunsAgainstTheTree`; the design sketch's `timeout` is
+spelled `timeoutSeconds` and the sketch's field list gained `env`.
+
+The realization work also had to fix `impl/kcpproc`: an instance adopted
+through `Probe` (a `specctl up` on a kcp that was already serving, or a session
+whose record carried no pids) came back with pid 0, because `Probe` read
+`kcp.pid`/`kine.pid`, which only `specctl kcp start` writes. `Probe` and `Stop`
+now find the real pids by scanning `/proc` for the kcp and kine whose command
+line names the instance root, `Stop` waits for the process to be gone after
+SIGTERM and again after SIGKILL, and `specctl down` fails, keeping its session,
+when a process is still alive.
+
+**Left (deno-kcp half).** The live market acceptance run on deno-kcp's PR
+branch, its output in `docs/examples/deno-kcp-pr.md`, and the PR #1 follow-up:
+those belong to the deno-kcp repository and its own spec flow.
+
 ## Order
 
 A and B touch different code (`cmd/specctl`, `impl/session`, `impl/kcpproc`
