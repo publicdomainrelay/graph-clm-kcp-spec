@@ -12,3 +12,8 @@
 - HydraDB runs on bolt://127.0.0.1:7687, token in `/tmp/hdb/token`. ArcadeDB on 7688.
 - Every change: `gofmt`, `go vet ./...`, `go test ./...` green, then commit and push.
 - Never edit outside this repo.
+- `fixtures/` are sample codebases standing in for other people's code. Keep
+  them realistic: their comments, docstrings and style are input to the code ->
+  spec measurement, so the no-comments rule does not apply to them.
+- Testing and evals use DeepSeek only (`deepseek-claude`, pi with
+  `--provider deepseek`); never run a local model.
