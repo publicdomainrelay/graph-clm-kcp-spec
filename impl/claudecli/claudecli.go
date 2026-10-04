@@ -18,7 +18,7 @@ import (
 const (
 	DefaultCommand = "deepseek-claude"
 
-	DefaultTimeout = 3 * time.Minute
+	DefaultTimeout = 15 * time.Minute
 
 	WaitDelay = 5 * time.Second
 

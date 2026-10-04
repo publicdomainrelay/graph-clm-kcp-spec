@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -78,6 +79,8 @@ type Options struct {
 	Tool string
 
 	VerifyTimeout time.Duration
+
+	WorktreeRoot string
 }
 
 type Result struct {
@@ -168,7 +171,11 @@ func Run(ctx context.Context, options Options) (Result, error) {
 			return nil
 		}
 		removed = true
-		return gitrepo.WorktreeRemove(ctx, repoPath, options.Worktree)
+		err := gitrepo.WorktreeRemove(ctx, repoPath, options.Worktree)
+		if options.WorktreeRoot != "" {
+			_ = os.RemoveAll(options.WorktreeRoot)
+		}
+		return err
 	}
 	defer func() { _ = removeWorktree() }()
 

@@ -392,3 +392,46 @@ func TestCommitAllLeavesTheCodegraphIndexOutWhateverIgnoresIt(t *testing.T) {
 		}
 	}
 }
+
+func TestSiblingViewKeepsRelativePathsBesideTheRepository(t *testing.T) {
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "deno-kcp")
+	if err := os.MkdirAll(filepath.Join(parent, "kcp-libs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, "kcp-libs", "go.mod"), []byte("module kcp-libs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, worktree, err := SiblingView(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	if filepath.Base(worktree) != "deno-kcp" || filepath.Dir(worktree) != root {
+		t.Fatalf("worktree %s under %s", worktree, root)
+	}
+	data, err := os.ReadFile(filepath.Join(worktree, "..", "kcp-libs", "go.mod"))
+	if err != nil || string(data) != "module kcp-libs\n" {
+		t.Fatalf("../kcp-libs from the worktree: %q %v", data, err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "deno-kcp")); err == nil {
+		t.Fatal("the repository itself was linked into the view")
+	}
+	other, _, err := SiblingView(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(other)
+	if other == root {
+		t.Fatal("two attempts share one view")
+	}
+	if err := os.RemoveAll(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(parent, "kcp-libs", "go.mod")); err != nil {
+		t.Fatal("removing the view removed a sibling")
+	}
+}

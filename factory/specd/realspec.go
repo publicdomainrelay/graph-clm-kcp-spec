@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -171,7 +170,7 @@ func (c *Controller) realizeOptions(ctx context.Context, namespace string, chang
 	if err != nil {
 		return realize.Options{}, err
 	}
-	worktree, err := worktreeDir(change.Name)
+	worktreeRoot, worktree, err := gitrepo.SiblingView(repoPath)
 	if err != nil {
 		return realize.Options{}, err
 	}
@@ -198,6 +197,7 @@ func (c *Controller) realizeOptions(ctx context.Context, namespace string, chang
 		Repository:    &scoped,
 		Agent:         built,
 		Delta:         changeDelta,
+		WorktreeRoot:  worktreeRoot,
 		Codegraph:     codegraphcli.Runner{Tool: c.opts.Tool, Dir: repoPath},
 		Writer:        c.opts.Graph,
 		Budget:        c.opts.Budget,
@@ -285,12 +285,4 @@ func shortenHash(hash string) string {
 		return hash
 	}
 	return hash[:8]
-}
-
-func worktreeDir(changeName string) (string, error) {
-	root, err := os.MkdirTemp("", "specd-worktree-")
-	if err != nil {
-		return "", fmt.Errorf("specd: create a worktree directory: %w", err)
-	}
-	return filepath.Join(root, changeName), nil
 }

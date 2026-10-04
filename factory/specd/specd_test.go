@@ -704,26 +704,12 @@ func realizedHashOf(t *testing.T, specification spec.SystemContextSpec) string {
 	return hash
 }
 
-func TestRealizeBranchAndWorktreeAreNamedAfterTheChange(t *testing.T) {
+func TestRealizeBranchIsNamedAfterTheChange(t *testing.T) {
 	if got := realizeBranch("calc", "0123456789abcdef"); got != "spec/calc/01234567" {
 		t.Errorf("branch = %q", got)
 	}
 	if got := realizeBranch("calc", "abc"); got != "spec/calc/abc" {
 		t.Errorf("branch = %q", got)
-	}
-	first, err := worktreeDir("calc-s2c-abc")
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := worktreeDir("calc-s2c-abc")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first == second {
-		t.Error("two attempts share one worktree directory")
-	}
-	if !strings.Contains(first, "calc-s2c-abc") {
-		t.Errorf("worktree = %q", first)
 	}
 }
 

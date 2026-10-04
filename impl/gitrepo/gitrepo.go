@@ -188,3 +188,31 @@ func run(ctx context.Context, path string, args ...string) (string, error) {
 	}
 	return strings.TrimSpace(string(output)), nil
 }
+
+func SiblingView(repoPath string) (string, string, error) {
+	absolute, err := filepath.Abs(repoPath)
+	if err != nil {
+		return "", "", err
+	}
+	root, err := os.MkdirTemp("", "specd-worktree-")
+	if err != nil {
+		return "", "", fmt.Errorf("gitrepo: create a worktree directory: %w", err)
+	}
+	parent := filepath.Dir(absolute)
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		os.RemoveAll(root)
+		return "", "", fmt.Errorf("gitrepo: read %s: %w", parent, err)
+	}
+	name := filepath.Base(absolute)
+	for _, entry := range entries {
+		if entry.Name() == name {
+			continue
+		}
+		if err := os.Symlink(filepath.Join(parent, entry.Name()), filepath.Join(root, entry.Name())); err != nil {
+			os.RemoveAll(root)
+			return "", "", fmt.Errorf("gitrepo: link %s beside the worktree: %w", entry.Name(), err)
+		}
+	}
+	return root, filepath.Join(root, name), nil
+}
