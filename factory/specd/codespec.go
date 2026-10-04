@@ -18,6 +18,14 @@ import (
 const messageLimit = 2000
 
 func (c *Controller) reconcileCodeToSpec(ctx context.Context, namespace, name string, change *spec.SpecChange) (time.Duration, error) {
+	if repository := c.changeRepository(ctx, namespace, change); repository != nil {
+		if status := c.branchStatus(ctx, repository); status.Mismatch {
+			c.log.Info("a code to spec change waits: the checkout is on another branch",
+				"change", name, "repository", repository.Name, "message", status.Message)
+			return 0, nil
+		}
+	}
+
 	running, err := c.runningChanges(ctx, namespace, change.Spec.SystemContext)
 	if err != nil {
 		return 0, err

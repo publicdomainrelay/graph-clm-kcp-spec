@@ -62,23 +62,28 @@ func (c *Controller) reconcileSpecChange(ctx context.Context, namespace, name st
 }
 
 func (c *Controller) codeToSpecAgent(ctx context.Context, namespace string, change *spec.SpecChange) bool {
+	repository := c.changeRepository(ctx, namespace, change)
+	return repository != nil && c.agents.PopulateConfiguredFor(repository)
+}
+
+func (c *Controller) changeRepository(ctx context.Context, namespace string, change *spec.SpecChange) *spec.Repository {
 	object, err := c.client.Get(ctx, specapi.SystemContextGVR, namespace, change.Spec.SystemContext)
 	if err != nil {
-		return false
+		return nil
 	}
 	typed, err := kcpclient.Typed(object)
 	if err != nil {
-		return false
+		return nil
 	}
 	systemContext, ok := typed.(*spec.SystemContext)
 	if !ok || systemContext.Spec.Repository == "" {
-		return false
+		return nil
 	}
 	repository, err := c.readRepository(ctx, namespace, systemContext.Spec.Repository)
 	if err != nil {
-		return false
+		return nil
 	}
-	return c.agents.PopulateConfiguredFor(repository)
+	return repository
 }
 
 func (c *Controller) runningChanges(ctx context.Context, namespace, systemContext string) ([]string, error) {

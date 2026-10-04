@@ -58,11 +58,12 @@ const (
 )
 
 const (
-	ConditionSpecValid  = "SpecValid"
-	ConditionCodeSynced = "CodeSynced"
-	ConditionDrifted    = "Drifted"
-	ConditionIndexed    = "Indexed"
-	ConditionPopulated  = "Populated"
+	ConditionSpecValid      = "SpecValid"
+	ConditionCodeSynced     = "CodeSynced"
+	ConditionDrifted        = "Drifted"
+	ConditionIndexed        = "Indexed"
+	ConditionPopulated      = "Populated"
+	ConditionBranchMismatch = "BranchMismatch"
 )
 
 const (
@@ -90,6 +91,8 @@ const (
 	ReasonPopulated          = "Populated"
 	ReasonPopulating         = "Populating"
 	ReasonPopulateFailed     = "PopulateFailed"
+	ReasonBranchMismatch     = "BranchMismatch"
+	ReasonBranchMatches      = "BranchMatches"
 )
 
 const (

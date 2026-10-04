@@ -88,6 +88,11 @@ func (c *Controller) reconcilePersist(ctx context.Context, namespace, repository
 	if !ok || current.WorkPath() == "" {
 		return 0, nil
 	}
+	if status := c.branchStatus(ctx, current); status.Mismatch {
+		c.log.Debug("open-architecture persist skipped: the checkout is on another branch",
+			"repository", repository, "message", status.Message)
+		return 0, nil
+	}
 	result, err := persist.Persist(ctx, persist.Options{
 		Cluster:       c.client,
 		Namespace:     namespace,

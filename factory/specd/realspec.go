@@ -146,6 +146,11 @@ func (c *Controller) realizeTarget(ctx context.Context, namespace string, change
 	if repository.WorkPath() == "" {
 		return nil, false, fmt.Errorf("specd: repository %s names no path", repository.Name)
 	}
+	if status := c.branchStatus(ctx, repository); status.Mismatch {
+		c.log.Info("a spec to code change waits: the checkout is on another branch",
+			"change", change.Name, "repository", repository.Name, "message", status.Message)
+		return repository, false, nil
+	}
 	if !c.agents.ConfiguredFor(repository) {
 		c.log.Info("leaving a spec to code change for a human: no agent is configured",
 			"change", change.Name, "repository", repository.Name)
