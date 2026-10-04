@@ -297,3 +297,26 @@ func (s Store) IsTopLevel(ctx context.Context) (bool, error) {
 	}
 	return top == here, nil
 }
+
+func (s Store) DefaultBranch(ctx context.Context) string {
+	out, _, err := s.git(ctx, nil, nil, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+	if err == nil {
+		if name := strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/"); name != "" {
+			return name
+		}
+	}
+	for _, candidate := range []string{"main", "master"} {
+		if tip, err := s.Tip(ctx, "refs/heads/"+candidate); err == nil && tip != "" {
+			return candidate
+		}
+	}
+	return "main"
+}
+
+func (s Store) CurrentBranch(ctx context.Context) string {
+	out, _, err := s.git(ctx, nil, nil, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}

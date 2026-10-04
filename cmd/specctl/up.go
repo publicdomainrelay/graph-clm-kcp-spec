@@ -98,7 +98,8 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 	case getErr == nil:
 		fmt.Fprintf(stdout, "kcp already holds Repository %s in %s\n", name, record.Workspace)
 	case kcpclient.IsNotFound(getErr):
-		restored, err := persist.Restore(ctx, persist.RestoreOptions{Cluster: client, Namespace: record.Namespace, Repository: name, RepoPath: top, Remote: *remote})
+		codeBranch, _ := currentBranch(top)
+		restored, err := persist.Restore(ctx, persist.RestoreOptions{Cluster: client, Namespace: record.Namespace, Repository: name, RepoPath: top, Remote: *remote, CodeBranch: codeBranch})
 		switch {
 		case err == nil:
 			from := "the local branch"
@@ -111,7 +112,7 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "specctl up: %v\n", err)
 				return exitError
 			}
-			fmt.Fprintf(stdout, "no %s yet: applied Repository %s; specd indexes %s and builds the specs\n", oabranch.Branch(name), name, top)
+			fmt.Fprintf(stdout, "no open-architecture/%s branch yet: applied Repository %s; specd indexes %s and builds the specs\n", name, name, top)
 		default:
 			fmt.Fprintf(stderr, "specctl up: restore: %v\n", err)
 			return exitError
@@ -326,7 +327,7 @@ func printNextSteps(stdout io.Writer, record session.Record) {
 	if record.ClmMod != "" {
 		fmt.Fprintf(stdout, "  claude --plugin-dir %s           # the agent inspects and edits the arch through kcp\n", record.ClmMod)
 	}
-	fmt.Fprintf(stdout, "  git log --oneline %s   # every change of kcp, outside the project tree\n", oabranch.Branch(record.Repository))
+	fmt.Fprintf(stdout, "  git log --oneline 'open-architecture/%s*'   # every change of kcp, outside the project tree\n", record.Repository)
 	fmt.Fprintf(stdout, "  specctl env -o json                 # this instance's kcp url, ports, kubeconfig, workspace\n")
 	fmt.Fprintf(stdout, "  specctl down                        # stop specd and this repository's kcp\n")
 }
@@ -423,8 +424,13 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		counts = *repository.Status.Contexts
 	}
 	fmt.Fprintf(stdout, "phase       %s (%d contexts, %d summarized, %d failed)\n", valueOr(repository.Status.Phase, "Pending"), counts.Total, counts.Summarized, counts.Failed)
-	tip, _ := oagit.Store{Repo: record.Repo}.Tip(ctx, oabranch.Ref(record.Repository))
-	fmt.Fprintf(stdout, "branch      %s at %s\n", oabranch.Branch(record.Repository), short(tip))
+	store := oagit.Store{Repo: record.Repo}
+	archBranch := oabranch.BranchFor(record.Repository, repository.Spec.Branch, store.DefaultBranch(ctx))
+	if status := repository.Status.OpenArchitecture; status != nil && status.Branch != "" {
+		archBranch = status.Branch
+	}
+	tip, _ := store.Tip(ctx, "refs/heads/"+archBranch)
+	fmt.Fprintf(stdout, "branch      %s at %s\n", archBranch, short(tip))
 	if status := repository.Status.OpenArchitecture; status != nil && len(status.Conflicts) > 0 {
 		fmt.Fprintf(stdout, "conflicts   %s\n", strings.Join(status.Conflicts, "; "))
 	}

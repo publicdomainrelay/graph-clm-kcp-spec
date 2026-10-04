@@ -42,6 +42,8 @@ type Options struct {
 	ManagedBudget int
 
 	Adopt bool
+
+	CodeBranch string
 }
 
 type Result struct {
@@ -88,14 +90,23 @@ func Persist(ctx context.Context, options Options) (Result, error) {
 		return Result{}, err
 	}
 	store := oagit.Store{Repo: current.repoPath}
-	ref := oabranch.Ref(options.Repository)
-	result := Result{Branch: oabranch.Branch(options.Repository), Conflicts: map[string][]string{}}
+	result := Result{Conflicts: map[string][]string{}}
 	top, err := store.IsTopLevel(ctx)
 	if err != nil {
 		return result, err
 	}
 	if !top {
 		return result, fmt.Errorf("%w: %s", ErrNotTopLevel, current.repoPath)
+	}
+	defaultBranch := store.DefaultBranch(ctx)
+	codeBranch := options.CodeBranch
+	if codeBranch == "" {
+		codeBranch = current.snapshot.Repository.Spec.Branch
+	}
+	result.Branch = oabranch.BranchFor(options.Repository, codeBranch, defaultBranch)
+	ref := "refs/heads/" + result.Branch
+	if err := branchOffDefault(ctx, store, options.Repository, ref, defaultBranch); err != nil {
+		return result, err
 	}
 
 	tip, err := store.Tip(ctx, ref)
@@ -105,6 +116,9 @@ func Persist(ctx context.Context, options Options) (Result, error) {
 	recorded := ""
 	if status := current.snapshot.Repository.Status.OpenArchitecture; status != nil {
 		recorded = status.Commit
+		if status.Branch != "" && status.Branch != result.Branch {
+			recorded = tip
+		}
 	}
 	if tip != "" && tip != recorded && (recorded != "" || options.Adopt) {
 		if err := adopt(ctx, options, store, current, recorded, tip, &result); err != nil {
@@ -381,6 +395,22 @@ func read(ctx context.Context, options Options) (state, error) {
 	return current, nil
 }
 
+func branchOffDefault(ctx context.Context, store oagit.Store, repository, ref, defaultBranch string) error {
+	defaultRef := oabranch.RefFor(repository, defaultBranch, defaultBranch)
+	if ref == defaultRef {
+		return nil
+	}
+	tip, err := store.Tip(ctx, ref)
+	if err != nil || tip != "" {
+		return err
+	}
+	base, err := store.Tip(ctx, defaultRef)
+	if err != nil || base == "" {
+		return err
+	}
+	return store.SetRef(ctx, ref, base, "")
+}
+
 var ErrNoBranch = errors.New("persist: the repository has no open-architecture branch")
 
 var ErrNotTopLevel = errors.New("persist: the repository path is not the top of its own git repository")
@@ -395,6 +425,8 @@ type RestoreOptions struct {
 	RepoPath string
 
 	Remote string
+
+	CodeBranch string
 }
 
 type RestoreResult struct {
@@ -418,24 +450,40 @@ func Restore(ctx context.Context, options RestoreOptions) (RestoreResult, error)
 		namespace = specapi.DefaultNamespace
 	}
 	store := oagit.Store{Repo: options.RepoPath}
-	branch := oabranch.Branch(options.Repository)
-	ref := oabranch.Ref(options.Repository)
-	result := RestoreResult{Branch: branch}
-	tip, err := store.Tip(ctx, ref)
-	if err != nil {
-		return result, err
+	defaultBranch := store.DefaultBranch(ctx)
+	codeBranch := options.CodeBranch
+	if codeBranch == "" {
+		codeBranch = store.CurrentBranch(ctx)
 	}
-	if tip == "" && options.Remote != "" {
-		fetched, err := store.Fetch(ctx, options.Remote, branch)
+	candidates := []string{oabranch.BranchFor(options.Repository, codeBranch, defaultBranch)}
+	if fallback := oabranch.Branch(options.Repository); fallback != candidates[0] {
+		candidates = append(candidates, fallback)
+	}
+	result := RestoreResult{}
+	tip := ""
+	for _, branch := range candidates {
+		ref := "refs/heads/" + branch
+		found, err := store.Tip(ctx, ref)
 		if err != nil {
 			return result, err
 		}
-		if fetched != "" {
-			if err := store.SetRef(ctx, ref, fetched, ""); err != nil {
+		if found == "" && options.Remote != "" {
+			fetched, err := store.Fetch(ctx, options.Remote, branch)
+			if err != nil {
 				return result, err
 			}
-			tip = fetched
-			result.Fetched = true
+			if fetched != "" {
+				if err := store.SetRef(ctx, ref, fetched, ""); err != nil {
+					return result, err
+				}
+				found = fetched
+				result.Fetched = true
+			}
+		}
+		if found != "" {
+			tip = found
+			result.Branch = branch
+			break
 		}
 	}
 	if tip == "" {
@@ -454,6 +502,9 @@ func Restore(ctx context.Context, options RestoreOptions) (RestoreResult, error)
 	repository.Namespace = namespace
 	repository.Spec.Path = ""
 	repository.Spec.Source = &spec.RepositorySource{Path: options.RepoPath}
+	if codeBranch != "" {
+		repository.Spec.Branch = codeBranch
+	}
 	repository.APIVersion = specapi.Group + "/" + specapi.Version
 	repository.Kind = specapi.RepositoryKind
 	if repository.Annotations == nil {
@@ -495,7 +546,7 @@ func Restore(ctx context.Context, options RestoreOptions) (RestoreResult, error)
 		}
 		result.Contexts = append(result.Contexts, name)
 	}
-	adopted := Result{Branch: branch, Commit: tip, Conflicts: map[string][]string{}}
+	adopted := Result{Branch: result.Branch, Commit: tip, Conflicts: map[string][]string{}}
 	if err := record(ctx, persistOptions, repository, adopted, ""); err != nil {
 		return result, err
 	}

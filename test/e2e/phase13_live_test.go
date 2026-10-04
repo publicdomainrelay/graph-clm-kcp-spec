@@ -126,7 +126,7 @@ func TestPhase13CloneUpPersistsAndASecondCloneRestores(t *testing.T) {
 
 	outA := filepath.Join(work, "a.json")
 	upA := machineA.run(t, specctl, cloneA, "up", "--summarize=false", "--push", "--specd", filepath.Join(bin, "specd"), "--clm-mod", "", "--out", outA)
-	if !strings.Contains(upA, "no open-architecture/calc yet") {
+	if !strings.Contains(upA, "no open-architecture/calc branch yet") {
 		t.Fatalf("clone A did not index from scratch:\n%s", upA)
 	}
 	phase13Wait(t, "the orphan branch on the remote", func() bool {

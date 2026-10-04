@@ -52,12 +52,38 @@ const (
 	ConflictTrailer = "Conflict"
 )
 
+const BranchSeparator = "--"
+
 func Branch(repository string) string {
 	return Prefix + repository
 }
 
 func Ref(repository string) string {
 	return "refs/heads/" + Branch(repository)
+}
+
+func BranchFor(repository, codeBranch, defaultBranch string) string {
+	if codeBranch == "" || codeBranch == defaultBranch {
+		return Branch(repository)
+	}
+	return Branch(repository) + BranchSeparator + branchSuffix(codeBranch)
+}
+
+func RefFor(repository, codeBranch, defaultBranch string) string {
+	return "refs/heads/" + BranchFor(repository, codeBranch, defaultBranch)
+}
+
+func branchSuffix(codeBranch string) string {
+	builder := strings.Builder{}
+	for _, char := range codeBranch {
+		switch {
+		case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z', char >= '0' && char <= '9', char == '-', char == '_', char == '.':
+			builder.WriteRune(char)
+		default:
+			builder.WriteByte('-')
+		}
+	}
+	return strings.Trim(builder.String(), ".-")
 }
 
 func SpecPath(context string) string {

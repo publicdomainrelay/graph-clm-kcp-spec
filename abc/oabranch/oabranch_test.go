@@ -238,3 +238,21 @@ func TestBranchNames(t *testing.T) {
 		t.Fatal(Branch("calc"), Ref("calc"))
 	}
 }
+
+func TestBranchForFollowsTheCodeBranch(t *testing.T) {
+	cases := []struct{ code, def, want string }{
+		{"main", "main", "open-architecture/deno-kcp"},
+		{"", "main", "open-architecture/deno-kcp"},
+		{"master", "master", "open-architecture/deno-kcp"},
+		{"spec/bidder-and-bob-pds", "main", "open-architecture/deno-kcp--spec-bidder-and-bob-pds"},
+		{"feature/x.y", "main", "open-architecture/deno-kcp--feature-x.y"},
+	}
+	for _, c := range cases {
+		if got := BranchFor("deno-kcp", c.code, c.def); got != c.want {
+			t.Errorf("BranchFor(%q, %q) = %q, want %q", c.code, c.def, got, c.want)
+		}
+	}
+	if RefFor("deno-kcp", "spec/a", "main") != "refs/heads/open-architecture/deno-kcp--spec-a" {
+		t.Fatal(RefFor("deno-kcp", "spec/a", "main"))
+	}
+}

@@ -21,6 +21,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/gitrepo"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/oagit"
 )
 
 const (
@@ -206,7 +207,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		return result, &VerifyError{Command: verifyCommand, ExitCode: exitCode, Output: output}
 	}
 
-	commit, err := gitrepo.CommitAll(ctx, options.Worktree, commitMessage(options.Context, options.Change, options.Repository.Name, options.Delta))
+	commit, err := gitrepo.CommitAll(ctx, options.Worktree, commitMessage(options.Context, options.Change, options.Repository.Name, oabranch.BranchFor(options.Repository.Name, branch, oagit.Store{Repo: repoPath}.DefaultBranch(ctx)), options.Delta))
 	if err != nil {
 		return result, err
 	}
@@ -320,13 +321,13 @@ func verify(ctx context.Context, command []string, dir string, timeout time.Dura
 	return -1, tail(string(output) + "\n" + err.Error())
 }
 
-func commitMessage(context, change, repository string, delta spec.Delta) string {
+func commitMessage(context, change, repository, archBranch string, delta spec.Delta) string {
 	message := fmt.Sprintf("realize %s: %s\n\n", context, deltaSummary(delta))
 	if change != "" {
 		message += oabranch.SpecChangeTrailer + ": " + change + "\n"
 	}
-	if repository != "" {
-		message += oabranch.OpenArchitectureTrailer + ": " + oabranch.Branch(repository) + "\n"
+	if archBranch != "" {
+		message += oabranch.OpenArchitectureTrailer + ": " + archBranch + "\n"
 	}
 	return message
 }

@@ -360,3 +360,55 @@ func TestPersistRefusesASubdirectoryOfAnotherRepository(t *testing.T) {
 		t.Fatalf("a branch was written into the enclosing repository: %s", out)
 	}
 }
+
+func TestAFeatureBranchPersistsToItsOwnArchitectureBranch(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	ctx := context.Background()
+	mainResult, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mainResult.Branch != "open-architecture/calc" {
+		t.Fatalf("main persisted to %s", mainResult.Branch)
+	}
+
+	edited := readContext(t, cluster, "calc")
+	edited.Spec.Intent = "Integer arithmetic, with bob."
+	cluster.put(t, &edited)
+	feature, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc", CodeBranch: "spec/bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if feature.Branch != "open-architecture/calc--spec-bob" || !feature.Committed {
+		t.Fatalf("feature = %+v", feature)
+	}
+	if parent := git(t, repo, "rev-parse", feature.Commit+"^"); parent != mainResult.Commit {
+		t.Fatalf("the feature architecture does not branch off main's: parent %s, want %s", parent, mainResult.Commit)
+	}
+	if tip := git(t, repo, "rev-parse", "open-architecture/calc"); tip != mainResult.Commit {
+		t.Fatal("main's architecture moved with the feature branch")
+	}
+	if strings.Contains(git(t, repo, "show", "open-architecture/calc:specs/calc.yaml"), "with bob") {
+		t.Fatal("the feature's spec leaked into main's architecture")
+	}
+
+	fresh := filepath.Join(t.TempDir(), "fresh")
+	if out, err := exec.Command("git", "clone", "-q", repo, fresh).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v\n%s", err, out)
+	}
+	git(t, fresh, "fetch", "-q", "origin", "+refs/heads/open-architecture/*:refs/remotes/origin/open-architecture/*")
+	onMain, err := Restore(ctx, RestoreOptions{Cluster: newFakeCluster(), Repository: "calc", RepoPath: fresh, Remote: "origin", CodeBranch: "main"})
+	if err != nil || onMain.Branch != "open-architecture/calc" {
+		t.Fatalf("restore on main = %+v, %v", onMain, err)
+	}
+	other := filepath.Join(t.TempDir(), "other")
+	if out, err := exec.Command("git", "clone", "-q", repo, other).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v\n%s", err, out)
+	}
+	onFeature, err := Restore(ctx, RestoreOptions{Cluster: newFakeCluster(), Repository: "calc", RepoPath: other, Remote: "origin", CodeBranch: "spec/bob"})
+	if err != nil || onFeature.Branch != "open-architecture/calc--spec-bob" {
+		t.Fatalf("restore on the feature branch = %+v, %v", onFeature, err)
+	}
+}
