@@ -33,6 +33,30 @@ Source: `docs/reviews/0002-atproto-market-iroh.md`.
 
 ## F2 - atproto-market#1 through its spec flow (recommendations 1-4, 9)
 
+Status: **done** (2026-10-04, hydradb `e9f129e`, fresh clone
+`/home/johnandersen777/specd-atproto-iroh-f2`, branch
+`spec/iroh-dumbpipe-20261004141803`). `specctl up` restored the 81-context
+architecture from the orphan branch; 12 `SpecToCode` changes were applied and
+realized as one 23-file commit (`1e1cd3c`, +1065/-234), then 3 more after the
+review of that commit. `spec.verify` grew the three new suites and the
+Repository gained its first `spec.acceptance` step
+(`test/bidder_container_integration_test.ts`, green). Full record:
+[`docs/examples/atproto-market-iroh-pr.md`](../examples/atproto-market-iroh-pr.md#round-2-after-review-0002).
+
+Two things the flow did not do on its own, and their state:
+
+- Requirement 4 is met as "delivered privately (no public record, no direct
+  addresses)"; the accept ref that authorises the report endpoint is itself
+  public, so a reader of the contract records can race the guest's first report.
+  The requirement and the pull request state this as a gap; closing it needs a
+  guest-held credential the cloud-init cannot carry (workload-identity /
+  secrets-capability channel).
+- Requirement 6 is met for the harness's own assertions (bid collection through
+  real RFP + accept + cloud-init), not as an ssh proof: the container-mode
+  provider still fails to provision in this environment
+  (`TypeError: fetch failed` after the assertions), and the harness runs
+  `skipSsh: true`.
+
 On the PR's branch, through `specctl clm apply` only:
 1. dumbpipe install extracts `./dumbpipe` from the real v0.39.0 archive (guest
    and host), with a test that extracts the real archive.

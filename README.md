@@ -432,6 +432,35 @@ the original change name so a retry is invisible afterwards, `specctl get -o
 json` returning a `List` that `specctl apply` rejects, and batching that does
 not order a dependent context after its dependency.
 
+**Round 2 (plan 0006 F2).** An independent review of that branch
+([`docs/reviews/0002-atproto-market-iroh.md`](docs/reviews/0002-atproto-market-iroh.md))
+found the realized transport did not work at all: the dumbpipe binary was never
+installed (the release archive stores `./dumbpipe`, and `tar ... dumbpipe` exits
+2), the iroh identity was not persisted so every restart invalidated the
+published ticket, the ticket was read from a provider `getNodeId` hook absent at
+the pinned sibling revisions, and it was published in the world-readable
+`vm.onNetwork` record. A second pass on the same branch, driven by an operator
+through `specctl clm apply` (never a file edit), fixed all four plus the
+lexicon/README/contradiction gaps, in **12 changes realized as one 23-file
+commit** (`1e1cd3c`, +1065/-234), then **5 more changes in two rounds** (the
+report endpoint moved to the requester's repo app, the credential dropped from
+cloud-init, a test that drives the route through an app that has already
+served) - **32 files, +1447/-136** against `pre-iroh`, three realize commits.
+
+The 401 that the first run declared unfixable is gone - the
+dispatcher in the container harness was built without `resolveDidKey`, so it
+could not verify any subscriber's service-auth JWT - and
+`test/bidder_container_integration_test.ts` is now the Repository's **acceptance
+step**, green (`1 passed | 0 failed`) where the baseline was
+`0 passed | 1 failed` in 0.25 s. The gate also grew three new suites: a real
+v0.39.0 archive extraction, transport selection, and the private report
+endpoint. Reviewed by hand, not only by the gate: a real
+`dumbpipe listen-tcp` / `connect-tcp` pair carried a TCP round trip locally
+(`b'echo:hello-over-iroh'`), and Hono was asked directly whether a route added
+to a child app after `parent.route("/", child)` is reachable (it is not - the
+first round had mounted the report endpoint exactly there). Full walkthrough:
+[`docs/examples/atproto-market-iroh-pr.md`](docs/examples/atproto-market-iroh-pr.md#round-2-after-review-0002).
+
 ## Status
 
 All ten phases are done: **kcp holds specs, code becomes facts in `status`

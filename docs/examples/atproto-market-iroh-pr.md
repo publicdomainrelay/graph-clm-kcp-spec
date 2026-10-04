@@ -421,6 +421,202 @@ Established by reading the diff, not by trusting the harness summary:
   v0.39.0 actually prints (checked against upstream source), and the host-side
   command construction. That gap is stated in the pull request.
 
+## Round 2: after review 0002
+
+The run above was reviewed independently (`docs/reviews/0002-atproto-market-iroh.md`)
+and the verdict was blunt: the spec delta was approvable, the **realized
+transport did not work**. The dumbpipe binary was never installed (the release
+archive stores `./dumbpipe`; `tar -xzf dp.tgz dumbpipe` is `tar: dumbpipe: Not
+found in archive`, exit 2), the iroh identity was not persisted so every restart
+invalidated the published ticket, the ticket came from a provider `getNodeId`
+hook that does not exist at the pinned sibling revisions, and the ticket was
+published in the world-readable `vm.onNetwork` record. The offline gate could
+not see any of it.
+
+Round 2 is plan 0006 F2: the same branch, the same pull request, driven this
+time by an operator (a human-level reviewer) instead of the harness, with every
+change still going through `specctl clm apply` - no file in atproto-market was
+edited by hand.
+
+### Setup, reproduced
+
+```bash
+export HYDRA=/home/johnandersen777/src/publicdomainrelay-kcp/hydradb   # e9f129e
+export PATH=$HYDRA/bin:$PATH SPECD_SPECCTL=$HYDRA/bin/specctl
+export TMPDIR=/home/johnandersen777/e2e-tmp
+W=/home/johnandersen777/specd-atproto-iroh-f2 && mkdir -p $W && cd $W
+git clone -q https://github.com/publicdomainrelay/atproto-market atproto-market
+for entry in atproto-relay deno-macos-runner-desktop \
+             deno-worker-sandbox=deno-hono-sandbox did-key-ingress-proxy \
+             hono-compute-provider=compute-provider-digitalocean \
+             hono-jsr=hono-package-registry hono-pds policy-engine \
+             typescript-helpers; do
+  d=${entry%%=*}; git clone -q "$ORG/$d" "$d"
+done
+cd atproto-market
+git switch -q -c spec/iroh-dumbpipe-20261004141803 origin/spec/iroh-dumbpipe-20261004141803
+specctl up --out $W/session.json      # restores the architecture from the branch
+# repository atproto-market ... on branch spec/iroh-dumbpipe-20261004141803
+# restored 81 context(s) from the branch on origin (open-architecture/... at 88dfb2ef9a54)
+# phase       Populated (81 contexts, 81 summarized, 0 failed)
+```
+
+The sibling revisions are the org-root checkouts this branch was developed
+against: `atproto-relay 1fab82b`, `deno-macos-runner-desktop dc7319f`,
+`deno-worker-sandbox dc0f847`, `did-key-ingress-proxy cb78c70`,
+`hono-compute-provider fb11e74` (**no `getNodeId`**), `hono-jsr 2d5d20e`,
+`hono-pds bcab50f`, `policy-engine 3bdcb08`, `typescript-helpers 356308e`.
+
+### The gate, strengthened
+
+`spec.verify` grew the three new unit suites, and `spec.acceptance` was added
+for the first time - the harness the first run declared unrunnable:
+
+```bash
+specctl get repository atproto-market -o json > $W/repository.json
+# unwrap items[0], then:
+#   spec.verify     = bash -lc 'deno check && deno test -A test/cloud_init_snapshot_test.ts \
+#                     test/iroh_dumbpipe_install_test.ts test/iroh_transport_test.ts \
+#                     test/iroh_private_report_test.ts'
+#   spec.acceptance = [{name: acceptance, gate: true,
+#                       command: bash -lc 'deno test --allow-all test/bidder_container_integration_test.ts'}]
+specctl apply -f $W/repository.json
+```
+
+The 401 is gone: the dispatcher in `test/bidder_container_integration_test.ts`
+(and the cross-platform, gateway SSH/request-VM and OAuth suites) is now built
+with `resolveDidKey`, which reads the fake PLC's DID document and returns
+`did:key:<publicKeyMultibase>`. Verified before writing the requirement by
+patching the test by hand and reverting: `1 passed | 0 failed` in 2 s where the
+baseline was `0 passed | 1 failed` in 0.25 s. The full cause is in the
+`r.container-harness-relay-resolves-did-keys` requirement.
+
+### Round 1: twelve changes, one commit
+
+```bash
+specctl clm render --context <ctx> > ctx.md   # for each of 12 contexts
+$EDITOR ctx.md
+specctl clm apply --context <ctx> < ctx.md
+specctl get specchanges                        # 12 SpecToCode, all Pending
+```
+
+specd batched all twelve into one agent run at 16:09 and committed at 16:17:58:
+
+```
+1e1cd3c realize lib-abc-requester: +10 ~17
+Spec-Change: lib-abc-requester-s2c-... / lib-common-cloud-init-common-s2c-...
+             lib-market-bidder-compute-s2c-... / lib-requester-xrpc-s2c-...
+             test-s2c-... / compute-contract-full-flow-s2c-... (+6 more)
+Open-Architecture: open-architecture/atproto-market--spec-iroh-dumbpipe-20261004141803
+23 files changed, 1065 insertions(+), 234 deletions(-)
+```
+
+### The review this run did by hand
+
+Reading the diff found two defects the new unit suites could not see, and both
+went back through the spec as amendments (round 2 below):
+
+1. **Hono copies a child app's routes at `route()` time.** `createRequesterPDS`
+   runs `serve.app.route("/", repoApp)`; the report endpoint was registered on
+   `repoApp` afterwards, so the guest's POST would have 404ed and the SSH wait
+   would have timed out - silently, because the unit test mounted on a fresh app
+   and fetched it directly. Verified with Hono itself:
+
+   ```bash
+   deno eval 'import {Hono} from "@hono/hono"; const p=new Hono(), c=new Hono();
+     c.get("/a",(x)=>x.text("a")); p.route("/",c); c.get("/b",(x)=>x.text("b"));
+     console.log((await p.fetch(new Request("http://x/a"))).status,
+                 (await p.fetch(new Request("http://x/b"))).status)'
+   # 200 404
+   ```
+
+2. **A bearer token in cloud-init is not a secret.** `runComputeContract`
+   publishes the composed `user_data` inside the `compute.vm` record, so the
+   token the first round added to the guest's report config was world-readable.
+   The endpoint is now keyed by the per-contract accept ref with a one-shot
+   rule, and the residual race is stated in the requirement and the PR.
+
+Outside the flow, the transport itself was exercised for real:
+
+```bash
+# the exact extraction the guest unit runs, against the real archive
+tar -xzf dumbpipe-v0.39.0-linux-x86_64.tar.gz ./dumbpipe        # ./dumbpipe, not dumbpipe
+./dumbpipe listen-tcp --host 127.0.0.1:2222 2>listen.log &      # ticket on stderr
+TICKET=$(grep -m1 -oE 'dumbpipe connect-tcp [^[:space:]]+' listen.log | awk '{print $3}')
+echo ${#TICKET}                                                  # 266
+./dumbpipe connect-tcp --addr 127.0.0.1:3333 "$TICKET" &         # the host-side transport
+python3 -c "import socket;s=socket.create_connection(('127.0.0.1',3333));s.sendall(b'hello-over-iroh');print(s.recv(200))"
+# b'echo:hello-over-iroh'
+```
+
+with `IROH_SECRET` set on the listener, the ticket's endpoint id is stable
+across restarts (the direct addresses inside it change, which is why the ticket
+is re-extracted and re-reported on every start).
+
+### Rounds 2 and 3: five changes
+
+```bash
+# round 2 - the report endpoint must be reachable through the ingress app,
+# no credential in cloud-init, and the report test must drive the served app
+specctl clm apply --context lib-requester-xrpc < requester-xrpc.md
+specctl clm apply --context lib-common-cloud-init-common < cloud-init-common.md
+specctl clm apply --context test < test.md
+# round 3 - the first attempt to fix (1) swapped Hono's own router after the
+# app had served; Hono throws on a late app.post(), so the requirement moved
+# the mount to createRequesterPDS, before the app is mounted under the serve,
+# and the test must prove the route survives an app that has already served
+specctl clm apply --context lib-requester-xrpc < requester-xrpc.md
+specctl clm apply --context test < test.md
+```
+
+The first shape of fix (1) worked but reached into Hono's private route
+registry (`app.routes.push`, `app.router = new Hono().router`) because Hono
+refuses to add a route once an app has served a request. The review rejected
+that as the requirement; the accepted shape mounts the route once, in
+`createRequesterPDS`, before `serve.app.route("/", app)` copies it in.
+
+### Verification, run by hand on the landed branch
+
+```bash
+git log --oneline origin/pre-iroh..HEAD
+# 0a87f24 realize lib-requester-xrpc: +5 ~2          <- round 3, 2 changes
+# a15d9cd realize lib-common-cloud-init-common: -5 ~4 <- round 2, 3 changes
+# 1e1cd3c realize lib-abc-requester: +10 ~17          <- round 1, 12 changes
+deno check                                     # green, whole workspace
+deno test -A test/cloud_init_snapshot_test.ts test/iroh_dumbpipe_install_test.ts \
+             test/iroh_transport_test.ts test/iroh_private_report_test.ts
+# ok | 33 passed | 0 failed
+deno test --allow-all test/bidder_container_integration_test.ts
+# ok | 1 passed | 0 failed          <- the acceptance step, green
+deno task check && echo green      # the repository's own task
+git status --porcelain             # empty
+git diff --shortstat origin/pre-iroh...HEAD
+# 32 files changed, 1447 insertions(+), 136 deletions(-)
+```
+
+| step | value |
+| --- | --- |
+| `specctl up`: restore 81 contexts from the branch to `Populated` | 3 min (15:55:55 to 15:58:55) |
+| round 1: 12 changes applied, realized, committed (`1e1cd3c`) | 10 min 42 s (16:07:12 to 16:17:54) |
+| round 2: 3 changes (`a15d9cd`) | 5 min 24 s (16:20:07 to 16:25:31) |
+| round 3: 2 changes (`0a87f24`) | 3 min (16:26:20 to 16:29:25) |
+| verification by hand (`deno check`, 33 tests, acceptance, `deno task check`) | 2 s / 2 s / 1 s / 1 s |
+| unpushed work at the end | 3 realize commits, 32 files, +1447 / -136 |
+
+The branch and its orphan architecture branch were pushed
+(`spec/iroh-dumbpipe-20261004141803` at `0a87f24`,
+`open-architecture/atproto-market--spec-iroh-dumbpipe-20261004141803`) and
+[PR #1](https://github.com/publicdomainrelay/atproto-market/pull/1) rewritten
+with the requirement-by-requirement account above.
+
+### What round 2 found about the tool
+
+| finding | state |
+| --- | --- |
+| an operator `clm apply` that drops requirements is accepted silently: a mis-sliced document removed five `test`-context requirements, the change showed `-5 ~1`, and specd realized it. Only the rendered requirement count revealed it. | new; not covered by plan 0006 F1.5/F1.6 (those cover no-op and code-less changes, not requirement loss) |
+| `specctl clm apply` folds a second apply of a *running* change into that change ("folded into the running change ..."), so the corrected document could not be re-applied until the batch settled | new; this is what made the `test` restore wait for a whole realize round |
+| the realize commit subject still names one context (`realize lib-abc-requester: +10 ~17`) for a 12-context batch | plan 0006 F1.4, unchanged |
+
 ## hydradb defects this run found
 
 | defect | state |
