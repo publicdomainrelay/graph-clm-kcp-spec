@@ -20,14 +20,15 @@ BIN=${BIN:-$REPO/bin}
 SPECD=${SPECD:-$BIN/specd}
 SPECCTL=${SPECCTL:-$BIN/specctl}
 KUBECTL=${KUBECTL:-kubectl}
-KUBECONFIG_PATH=${KUBECONFIG_PATH:-$REPO/.kcp-specd/admin.kubeconfig}
+source "$REPO/scripts/kcp-endpoint.sh"
+specd_resolve_endpoint "$REPO"
 NAMESPACE=${NAMESPACE:-default}
 WAIT_SECONDS=${WAIT_SECONDS:-180}
 TENANT_A=${TENANT_A:-phase9-a}
 TENANT_B=${TENANT_B:-phase9-b}
 PROVIDER=${PROVIDER:-root:specs-provider}
 EXPORT_NAME=${EXPORT_NAME:-specs.publicdomainrelay.dev}
-WORK=${WORK:-$REPO/.kcp-specd/example-phase9}
+WORK=${WORK:-$ROOT/example-phase9}
 
 export KUBECONFIG="$KUBECONFIG_PATH"
 

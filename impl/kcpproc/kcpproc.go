@@ -3,6 +3,7 @@ package kcpproc
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -38,6 +39,10 @@ type Options struct {
 	FeatureGates string
 
 	ReadyTimeout time.Duration
+
+	KcpPort int
+
+	KinePort int
 }
 
 type Instance struct {
@@ -56,6 +61,42 @@ type Instance struct {
 	KineURL string `json:"kineURL"`
 
 	AdminKubeconfig string `json:"adminKubeconfig"`
+}
+
+const EndpointFile = "endpoint.json"
+
+func EndpointPath(root string) string {
+	return filepath.Join(root, EndpointFile)
+}
+
+func SaveEndpoint(instance Instance) error {
+	return SaveEndpointTo(EndpointPath(instance.Root), instance)
+}
+
+func SaveEndpointTo(path string, instance Instance) error {
+	data, err := json.MarshalIndent(instance, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o644)
+}
+
+func LoadEndpoint(root string) (Instance, error) {
+	data, err := os.ReadFile(EndpointPath(root))
+	if err != nil {
+		return Instance{}, err
+	}
+	instance := Instance{}
+	if err := json.Unmarshal(data, &instance); err != nil {
+		return Instance{}, fmt.Errorf("kcpproc: read %s: %w", EndpointPath(root), err)
+	}
+	if instance.Root == "" {
+		instance.Root = root
+	}
+	return instance, nil
 }
 
 func (o Options) withDefaults() Options {
@@ -79,12 +120,15 @@ func Start(ctx context.Context, options Options) (Instance, error) {
 	if err := os.MkdirAll(options.Root, 0o755); err != nil {
 		return Instance{}, err
 	}
+	if serving, ok := Probe(options.Root); ok {
+		return serving, fmt.Errorf("kcpproc: a kcp is already serving %s at %s; reuse it or stop it before starting another", options.Root, serving.KcpURL)
+	}
 	instance := Instance{Root: options.Root, AdminKubeconfig: filepath.Join(options.Root, "admin.kubeconfig")}
 
 	kineLog := filepath.Join(options.Root, "kine.log")
 	kinePid, err := spawn(options.KineBin, kineLog,
 		"--endpoint", "sqlite://"+filepath.Join(options.Root, "kine.db"),
-		"--listen-address", "127.0.0.1:0",
+		"--listen-address", "127.0.0.1:"+strconv.Itoa(options.KinePort),
 		"--metrics-bind-address=0")
 	if err != nil {
 		return instance, fmt.Errorf("kcpproc: start kine: %w", err)
@@ -99,7 +143,7 @@ func Start(ctx context.Context, options Options) (Instance, error) {
 
 	var lastErr error
 	for attempt := 0; attempt < kcpAttempts; attempt++ {
-		port, err := kernelPort()
+		port, err := requestedPort(options.KcpPort)
 		if err != nil {
 			Stop(instance)
 			return instance, err
@@ -135,6 +179,72 @@ func Start(ctx context.Context, options Options) (Instance, error) {
 	return instance, lastErr
 }
 
+func Probe(root string) (Instance, bool) {
+	instance, err := LoadEndpoint(root)
+	if err != nil {
+		instance = Instance{Root: root, AdminKubeconfig: filepath.Join(root, "admin.kubeconfig")}
+	}
+	if Ready(instance) {
+		return refreshKine(instance), true
+	}
+	port, ok := kubeconfigPort(instance.AdminKubeconfig)
+	if !ok || !readyz(port) {
+		return instance, false
+	}
+	instance.KcpPort = port
+	instance.KcpURL = "https://127.0.0.1:" + strconv.Itoa(port)
+	instance.KcpPid = pidFromFile(filepath.Join(root, "kcp.pid"))
+	instance.KinePid = pidFromFile(filepath.Join(root, "kine.pid"))
+	return refreshKine(instance), true
+}
+
+func refreshKine(instance Instance) Instance {
+	if address := kineAddressFromProc(instance.KinePid); address != "" {
+		instance.KineURL = "http://" + address
+		instance.KinePort, _ = strconv.Atoi(address[strings.LastIndex(address, ":")+1:])
+		return instance
+	}
+	if data, err := os.ReadFile(filepath.Join(instance.Root, "kine.log")); err == nil {
+		if match := kineAvailable.FindStringSubmatch(string(data)); match != nil {
+			instance.KineURL = match[1]
+			instance.KinePort, _ = strconv.Atoi(match[2])
+		}
+	}
+	return instance
+}
+
+func kineAddressFromProc(pid int) string {
+	if pid <= 0 {
+		return ""
+	}
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return ""
+	}
+	fields := strings.Fields(strings.ReplaceAll(string(data), "\x00", " "))
+	for index, field := range fields {
+		if value, found := strings.CutPrefix(field, "--listen-address="); found {
+			return value
+		}
+		if field == "--listen-address" && index+1 < len(fields) {
+			return fields[index+1]
+		}
+	}
+	return ""
+}
+
+func pidFromFile(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0
+	}
+	return pid
+}
+
 func Ready(instance Instance) bool {
 	if instance.KcpPort == 0 || !owns(instance.KcpPid, instance.Root) || !owns(instance.KinePid, instance.Root) {
 		return false
@@ -147,7 +257,18 @@ func Stop(instance Instance) {
 	terminate(instance.KinePid, instance.Root)
 }
 
+func Terminate(pid int, root string) {
+	terminate(pid, root)
+}
+
 var errPortTaken = errors.New("kcpproc: the kcp port was taken before kcp bound it")
+
+func requestedPort(fixed int) (int, error) {
+	if fixed > 0 {
+		return fixed, nil
+	}
+	return kernelPort()
+}
 
 func kernelPort() (int, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

@@ -12,7 +12,8 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 BIN=${BIN:-$REPO/bin}
 SPECD=${SPECD:-$BIN/specd}
 KUBECTL=${KUBECTL:-kubectl}
-KUBECONFIG_PATH=${KUBECONFIG_PATH:-$REPO/.kcp-specd/admin.kubeconfig}
+source "$REPO/scripts/kcp-endpoint.sh"
+specd_resolve_endpoint "$REPO"
 WORKSPACE=${WORKSPACE:-root:specs}
 NAMESPACE=${NAMESPACE:-default}
 RESYNC=${RESYNC:-500ms}

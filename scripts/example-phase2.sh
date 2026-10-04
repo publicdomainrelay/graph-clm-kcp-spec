@@ -16,7 +16,8 @@ BIN=${BIN:-$REPO/bin}
 SPECD=${SPECD:-$BIN/specd}
 SPECCTL=${SPECCTL:-$BIN/specctl}
 KUBECTL=${KUBECTL:-kubectl}
-KUBECONFIG_PATH=${KUBECONFIG_PATH:-$REPO/.kcp-specd/admin.kubeconfig}
+source "$REPO/scripts/kcp-endpoint.sh"
+specd_resolve_endpoint "$REPO"
 WORKSPACE=${WORKSPACE:-root:specs}
 NAMESPACE=${NAMESPACE:-default}
 RESYNC=${RESYNC:-1s}
@@ -48,7 +49,7 @@ echo "--- the example contexts, as YAML, through kcp ---"
 "$SPECCTL" apply -f "$REPO/examples/calc/specs.yaml"
 
 echo "--- specd, the controller that owns the index ---"
-"$SPECD" --resync "$RESYNC" --retry-backoff 1s > "$REPO/.kcp-specd/example-phase2.specd.log" 2>&1 &
+"$SPECD" --resync "$RESYNC" --retry-backoff 1s > "$ROOT/example-phase2.specd.log" 2>&1 &
 specd_pid=$!
 
 echo "--- one manifest: specctl applies a Repository and waits for Populated ---"

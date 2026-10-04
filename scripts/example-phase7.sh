@@ -16,14 +16,15 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 BIN=${BIN:-$REPO/bin}
 SPECD=${SPECD:-$BIN/specd}
 KUBECTL=${KUBECTL:-kubectl}
-KUBECONFIG_PATH=${KUBECONFIG_PATH:-$REPO/.kcp-specd/admin.kubeconfig}
+source "$REPO/scripts/kcp-endpoint.sh"
+specd_resolve_endpoint "$REPO"
 WORKSPACE=${WORKSPACE:-root:specs}
 NAMESPACE=${NAMESPACE:-default}
 RESYNC=${RESYNC:-500ms}
 WAIT_SECONDS=${WAIT_SECONDS:-120}
 MANIFEST=${MANIFEST:-$REPO/examples/populate/repository.yaml}
 SOURCE=${SOURCE:-unseen}
-WORK=${WORK:-$REPO/.kcp-specd/example-phase7}
+WORK=${WORK:-$ROOT/example-phase7}
 export SPECD_CLM_DOC_DIR="${SPECD_CLM_DOC_DIR:-$WORK/clm-docs}"
 
 export KUBECONFIG="$KUBECONFIG_PATH"

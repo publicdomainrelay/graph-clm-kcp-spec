@@ -58,10 +58,12 @@ test-live:
 # The live tests reuse the calc names in the workspace; run example-phase2 to
 # put the example state back.
 
-kcp-up:
+# Kernel-assigned ports by default, written to .kcp-specd/endpoint.json, so
+# several of these run side by side. KCP_SECURE_PORT=6447 pins the old port.
+kcp-up: $(SPECCTL)
 	./deploy/start-kcp.sh
 
-kcp-down:
+kcp-down: $(SPECCTL)
 	./deploy/stop-kcp.sh
 
 install-specs:

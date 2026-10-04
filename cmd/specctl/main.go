@@ -175,6 +175,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runArch(rest, stdout, stderr)
 	case "eval":
 		return runEval(rest, stdout, stderr)
+	case "kcp":
+		return runKcp(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return exitOK
@@ -392,6 +394,12 @@ usage:
   specctl env [--repo .] [-o sh|json|server]
   specctl restore [--repo <path>] [--repository <name>] [--remote origin]
       rebuilds kcp from open-architecture/<repository>, fetching it if needed
+  specctl kcp start [--root <dir>] [--port <n>] [--kine-port <n>] [--out <file>]
+      starts a kcp and kine for <dir>; port 0 (the default) asks the kernel for
+      a free one and the bound ports land in <dir>/endpoint.json, so many
+      instances run side by side; a fixed port still works
+  specctl kcp stop [--root <dir>]
+  specctl kcp endpoint [--root <dir>] [-o json|sh]
   specctl eval [--fixtures fixtures] [--agent claude|claude-mod|pi]
       [--scenarios <glob>] [--out docs/eval/run-<date>.md]
       one Repository manifest per fixture, then one spec edit per scenario

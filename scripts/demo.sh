@@ -22,7 +22,8 @@ BIN=${BIN:-$REPO/bin}
 SPECCTL=${SPECCTL:-$BIN/specctl}
 SPECD=${SPECD:-$BIN/specd}
 KUBECTL=${KUBECTL:-kubectl}
-KUBECONFIG_PATH=${KUBECONFIG_PATH:-$REPO/.kcp-specd/admin.kubeconfig}
+source "$REPO/scripts/kcp-endpoint.sh"
+specd_resolve_endpoint "$REPO"
 WORKSPACE=${WORKSPACE:-root:specs}
 NAMESPACE=${NAMESPACE:-default}
 RESYNC=${RESYNC:-500ms}
@@ -116,7 +117,7 @@ SERVER=${SERVER%%/clusters/*}
 echo "=== the spec workspace, and the eval workspace beside it ==="
 SPECS_WORKSPACE=specs "$REPO/deploy/install-specs.sh" >/dev/null
 EVAL_WS_NAME=${EVAL_WORKSPACE#root:}
-SPECS_WORKSPACE="$EVAL_WS_NAME" WORKSPACE_KUBECONFIG="$REPO/.kcp-specd/${EVAL_WS_NAME}.kubeconfig" \
+SPECS_WORKSPACE="$EVAL_WS_NAME" WORKSPACE_KUBECONFIG="$ROOT/${EVAL_WS_NAME}.kubeconfig" \
   "$REPO/deploy/install-specs.sh" >/dev/null
 echo "  ${WORKSPACE} serves the specs API"
 echo "  ${EVAL_WORKSPACE} serves it too, so an eval run never fights this one"
