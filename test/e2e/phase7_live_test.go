@@ -48,10 +48,9 @@ func waitForPopulated(t *testing.T, ctx context.Context, client *kcpclient.Clien
 
 func phase7Status(t *testing.T, ctx context.Context) string {
 	t.Helper()
-	root := repoRoot(t)
 	client, err := kcpclient.New(kcpclient.Options{
-		Kubeconfig: filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
-		Workspace:  "root:specs",
+		Kubeconfig: e2eKubeconfig,
+		Workspace:  e2eWorkspace,
 		QPS:        50,
 		Burst:      100,
 	})
@@ -139,8 +138,8 @@ func phase7Run(
 	})
 
 	controller, err := specd.New(specd.Options{
-		Kubeconfig:             filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
-		Workspace:              "root:specs",
+		Kubeconfig:             e2eKubeconfig,
+		Workspace:              e2eWorkspace,
 		Namespace:              specapi.DefaultNamespace,
 		QPS:                    50,
 		Burst:                  100,
@@ -352,8 +351,8 @@ func TestPhase7PackagePartitionAndGlobs(t *testing.T) {
 	})
 
 	controller, err := specd.New(specd.Options{
-		Kubeconfig:   filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
-		Workspace:    "root:specs",
+		Kubeconfig:   e2eKubeconfig,
+		Workspace:    e2eWorkspace,
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,

@@ -19,6 +19,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 	"github.com/publicdomainrelay/kcp-libs/common/logging"
@@ -59,8 +60,8 @@ func TestPhase8TheModPathReportsIntoKcp(t *testing.T) {
 	})
 
 	controller, err := specd.New(specd.Options{
-		Kubeconfig:   filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
-		Workspace:    "root:specs",
+		Kubeconfig:   e2eKubeconfig,
+		Workspace:    e2eWorkspace,
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,
@@ -221,7 +222,7 @@ func phase8AssertTouched(t *testing.T, root, change string) {
 	defer writer.Close(ctx)
 
 	rows, err := writer.SelectOut(ctx, graph.EdgeTouched, graph.LabelChange, graph.LabelCodeRef,
-		graph.ChangeID(change), graph.LabelProperties[graph.LabelCodeRef])
+		graph.ChangeIDIn(graphns.FromEnv(), change), graph.LabelProperties[graph.LabelCodeRef])
 	if err != nil {
 		t.Fatalf("read the TOUCHED edges: %v", err)
 	}
@@ -238,7 +239,7 @@ func phase8AssertTouched(t *testing.T, root, change string) {
 		t.Errorf("TOUCHED edges = %+v, want file:calc/calc.go on the shared CodeRef id", rows)
 	}
 	occurred, err := writer.SelectOut(ctx, graph.EdgeOccurred, graph.LabelChange, graph.LabelProgress,
-		graph.ChangeID(change), graph.LabelProperties[graph.LabelProgress])
+		graph.ChangeIDIn(graphns.FromEnv(), change), graph.LabelProperties[graph.LabelProgress])
 	if err != nil {
 		t.Fatalf("read the OCCURRED edges: %v", err)
 	}
@@ -261,8 +262,8 @@ func buildSpecctl(t *testing.T, root string) string {
 func runSpecctl(t *testing.T, ctx context.Context, binary, root string, stdin []byte, args ...string) string {
 	t.Helper()
 	full := append(append([]string{}, args...),
-		"--kubeconfig", filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
-		"--workspace", "root:specs",
+		"--kubeconfig", e2eKubeconfig,
+		"--workspace", e2eWorkspace,
 		"--namespace", specapi.DefaultNamespace,
 	)
 	command := exec.CommandContext(ctx, binary, full...)

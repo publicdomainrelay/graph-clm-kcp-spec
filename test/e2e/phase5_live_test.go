@@ -143,8 +143,8 @@ func TestPhase5CodeToSpecWithTheScriptedAgent(t *testing.T) {
 	})
 
 	controller, err := specd.New(specd.Options{
-		Kubeconfig:   filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
-		Workspace:    "root:specs",
+		Kubeconfig:   e2eKubeconfig,
+		Workspace:    e2eWorkspace,
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,

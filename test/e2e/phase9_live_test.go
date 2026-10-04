@@ -84,8 +84,8 @@ func TestPhase9TwoTenantsOneExportController(t *testing.T) {
 	})
 
 	controller, err := specd.New(specd.Options{
-		Kubeconfig:        filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
-		Workspace:         "root:specs",
+		Kubeconfig:        e2eKubeconfig,
+		Workspace:         e2eWorkspace,
 		Namespace:         specapi.DefaultNamespace,
 		Mode:              specd.ModeExport,
 		ProviderWorkspace: phase9Provider,
@@ -162,7 +162,11 @@ func bindWorkspace(t *testing.T, ctx context.Context, root, workspace string) {
 	t.Helper()
 	command := exec.CommandContext(ctx, filepath.Join(root, "deploy", "bind-workspace.sh"), workspace)
 	command.Dir = root
-	command.Env = append(os.Environ(), "WAIT_SECONDS=180")
+	command.Env = append(os.Environ(),
+		"WAIT_SECONDS=180",
+		"ROOT="+e2eStateRoot,
+		"KUBECONFIG_PATH="+e2eKubeconfig,
+	)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("deploy/bind-workspace.sh %s: %v\n%s", workspace, err, output)
@@ -175,7 +179,7 @@ func bindWorkspace(t *testing.T, ctx context.Context, root, workspace string) {
 func deleteWorkspace(t *testing.T, ctx context.Context, root, workspace string) {
 	t.Helper()
 	command := exec.CommandContext(ctx, "kubectl", "--kubeconfig",
-		filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
+		e2eKubeconfig,
 		"delete", "workspace", workspace, "--wait=false")
 	command.Dir = root
 	_ = command.Run()
@@ -184,7 +188,7 @@ func deleteWorkspace(t *testing.T, ctx context.Context, root, workspace string) 
 func tenantClient(t *testing.T, root, workspace string) *kcpclient.Client {
 	t.Helper()
 	client, err := kcpclient.New(kcpclient.Options{
-		Kubeconfig: filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
+		Kubeconfig: e2eKubeconfig,
 		Workspace:  "root:" + workspace,
 		QPS:        50,
 		Burst:      100,

@@ -17,6 +17,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/ids"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltgraph"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
@@ -255,7 +256,7 @@ func TestPhase2IngestAndGraph(t *testing.T) {
 		t.Error("the second ingest reported a spec change")
 	}
 
-	contextID := graph.ContextID("calc")
+	contextID := graph.ContextIDIn(graphns.FromEnv(), "calc")
 	for _, backend := range backends(t) {
 		t.Run(backend.name, func(t *testing.T) {
 			writer := connectBackend(t, ctx, backend)
@@ -287,8 +288,12 @@ func TestPhase2IngestAndGraph(t *testing.T) {
 			if len(contexts) != 1 || contexts[0]["name"] != "calc" {
 				t.Errorf("context vertex = %+v", contexts)
 			}
-			if ids.Stable("context:calc") != contextID {
-				t.Errorf("context id = %d, want the stable id", contextID)
+			namespace := graphns.FromEnv()
+			if got := graph.Key(namespace, "context:calc"); got != contextID {
+				t.Errorf("context id = %d, want %d", contextID, got)
+			}
+			if namespace != "" && ids.Stable("context:calc") == contextID {
+				t.Error("a namespaced run reused the unscoped id, so it would collide with another run")
 			}
 		})
 	}

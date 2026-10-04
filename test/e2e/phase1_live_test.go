@@ -51,22 +51,16 @@ func repoRoot(t *testing.T) string {
 
 func startCluster(t *testing.T, root string) {
 	t.Helper()
-	command := exec.Command(filepath.Join(root, "deploy", "start-kcp.sh"))
-	command.Dir = root
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("deploy/start-kcp.sh failed: %v\n%s", err, output)
-	}
-	if !strings.Contains(string(output), "kcp ready") {
-		t.Fatalf("deploy/start-kcp.sh did not report a ready kcp:\n%s", output)
-	}
+	ensureCluster(t)
 }
 
 func liveClient(t *testing.T, root string) *kcpclient.Client {
 	t.Helper()
+	ensureCluster(t)
 	client, err := kcpclient.New(kcpclient.Options{
-		Kubeconfig: filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
-		Workspace:  "root:specs",
+		Kubeconfig: e2eKubeconfig,
+		Workspace:  e2eWorkspace,
+		Namespace:  e2eNamespace,
 		QPS:        50,
 		Burst:      100,
 	})
@@ -74,6 +68,16 @@ func liveClient(t *testing.T, root string) *kcpclient.Client {
 		t.Fatal(err)
 	}
 	return client
+}
+
+func clusterKubeconfig(t *testing.T) string {
+	t.Helper()
+	ensureCluster(t)
+	return e2eKubeconfig
+}
+
+func clusterWorkspace() string {
+	return e2eWorkspace
 }
 
 func nestedStatusString(t *testing.T, object *unstructured.Unstructured, field string) string {
@@ -140,7 +144,7 @@ func TestPhase1SystemContextRoundTrip(t *testing.T) {
 	if err := client.Ping(ctx); err != nil {
 		t.Fatalf("kcp is not serving the specs API: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".kcp-specd", "specs.kubeconfig")); err != nil {
+	if _, err := os.Stat(e2eWorkspaceKubeconfig); err != nil {
 		t.Fatalf("the workspace kubeconfig was not written: %v", err)
 	}
 

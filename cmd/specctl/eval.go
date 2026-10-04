@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 	eval "github.com/publicdomainrelay/graph-clm-kcp-spec/impl/eval"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/runlock"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/session"
 )
 
 const (
@@ -25,6 +28,44 @@ func defaultEvalWorkspace() string {
 		return fromEnv
 	}
 	return evalWorkspace
+}
+
+func evalRunWorkspace() string {
+	return "root:specs-eval-" + graphns.New("")
+}
+
+func ensureEvalWorkspace(ctx context.Context, kubeconfig, workspace string, stderr io.Writer) error {
+	deployDir, err := session.ExtractDeploy()
+	if err != nil {
+		return err
+	}
+	absolute, err := filepath.Abs(kubeconfig)
+	if err != nil {
+		return err
+	}
+	name := strings.TrimPrefix(workspace, "root:")
+	command := exec.CommandContext(ctx, "bash", filepath.Join(deployDir, "install-specs.sh"))
+	command.Env = append(os.Environ(),
+		"ROOT="+filepath.Dir(absolute),
+		"KUBECONFIG_PATH="+absolute,
+		"SPECS_WORKSPACE="+name,
+		"WORKSPACE_KUBECONFIG="+filepath.Join(filepath.Dir(absolute), name+".kubeconfig"),
+	)
+	command.Stdout = stderr
+	command.Stderr = stderr
+	return command.Run()
+}
+
+func deleteEvalWorkspace(kubeconfig, workspace string) {
+	absolute, err := filepath.Abs(kubeconfig)
+	if err != nil {
+		return
+	}
+	name := strings.TrimPrefix(workspace, "root:")
+	command := exec.Command("kubectl", "--kubeconfig", absolute, "delete", "workspace", name, "--wait=false")
+	command.Stdout = io.Discard
+	command.Stderr = io.Discard
+	_ = command.Run()
 }
 
 func runEval(args []string, stdout, stderr io.Writer) int {
@@ -51,11 +92,7 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	timeout := fs.Duration("timeout", eval.DefaultTimeout, "how long one scenario may take")
 	maxAttempts := fs.Int("max-attempts", eval.DefaultScenarioAttempts, "how many attempts one scenario's change gets")
 	tool := fs.String("codegraph", "", "codegraph command to run")
-	lockPath := os.Getenv("SPECD_LIVE_LOCK")
-	if lockPath == "" {
-		lockPath = runlock.DefaultPath
-	}
-	liveLock := fs.String("live-lock", lockPath,
+	liveLock := fs.String("live-lock", os.Getenv("SPECD_LIVE_LOCK"),
 		"file the live lock is taken on, so two live runs that share it serialize instead of corrupting each other; empty takes no lock")
 	options := addGlobals(fs)
 	bolt := boltflags.Add(fs)
@@ -66,11 +103,32 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl eval: %v\n", err)
 		return exitUsage
 	}
-	if !flagSet(fs, "workspace") {
+	namedWorkspace := flagSet(fs, "workspace")
+	if !namedWorkspace {
 		options.workspace = defaultEvalWorkspace()
+		namedWorkspace = os.Getenv(EnvEvalWorkspace) != ""
+	}
+	createdWorkspace := false
+	if !namedWorkspace {
+		options.workspace = evalRunWorkspace()
+		createdWorkspace = true
+	}
+	if os.Getenv(graphns.Env) == "" {
+		os.Setenv(graphns.Env, graphns.New("eval-"))
+	}
+	ctx := context.Background()
+	if err := ensureEvalWorkspace(ctx, options.kubeconfig, options.workspace, stderr); err != nil {
+		fmt.Fprintf(stderr, "specctl eval: %v\n", err)
+		return exitError
+	}
+	if createdWorkspace && !*keep {
+		defer deleteEvalWorkspace(options.kubeconfig, options.workspace)
 	}
 
-	ctx := context.Background()
+	if !flagSet(fs, "live-lock") && os.Getenv("SPECD_LIVE_LOCK") == "" {
+		*liveLock = runlock.PathFor(filepath.Dir(options.kubeconfig), options.kubeconfig+"|"+options.workspace)
+	}
+
 	client, err := options.client()
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl eval: %v\n", err)
@@ -95,6 +153,7 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 		}
 		defer lock.Release()
 	}
+	fmt.Fprintf(stderr, "specctl eval: workspace %s, graph namespace %s, lock %s\n", options.workspace, os.Getenv(graphns.Env), *liveLock)
 
 	report, err := eval.Run(ctx, eval.Options{
 		FixturesDir:    *fixtures,

@@ -75,8 +75,8 @@ func TestPhase8LiveModelRealizesWithTheMod(t *testing.T) {
 
 	specctl := buildSpecctl(t, root)
 	controller, err := specd.New(specd.Options{
-		Kubeconfig:   filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
-		Workspace:    "root:specs",
+		Kubeconfig:   e2eKubeconfig,
+		Workspace:    e2eWorkspace,
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,
@@ -88,7 +88,7 @@ func TestPhase8LiveModelRealizesWithTheMod(t *testing.T) {
 		AgentTimeout: 8 * time.Minute,
 		AgentEnv: map[string]string{
 			"SPECD_SPECCTL": specctl,
-			"KUBECONFIG":    filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
+			"KUBECONFIG":    e2eKubeconfig,
 		},
 		Log: logging.Discard(),
 	})

@@ -15,6 +15,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/archkcp"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 )
@@ -99,7 +100,7 @@ func TestPhase3ArchRoundTrip(t *testing.T) {
 	if err := ingest.RebuildGraph(ctx, client, writer, ingest.Options{}); err != nil {
 		t.Fatalf("rebuild on %s: %v", backend.name, err)
 	}
-	contextID := graph.ContextID(spec.ArchName("sc.deno-kcp"))
+	contextID := graph.ContextIDIn(graphns.FromEnv(), spec.ArchName("sc.deno-kcp"))
 	out := oneHopKeys(t, ctx, writer, graph.LabelContext, contextID, graph.EdgeUpstream, true)
 	if !contains(out, spec.ArchName("sc.kcp-local")) {
 		t.Errorf("UPSTREAM out of sc.deno-kcp = %v", out)
@@ -112,12 +113,12 @@ func TestPhase3ArchRoundTrip(t *testing.T) {
 	if !contains(overlay, spec.ArchName("sc.kind.denopod")) {
 		t.Errorf("OVERLAY out of sc.deno-kcp = %v", overlay)
 	}
-	serviceDNS := graph.ContextID(spec.ArchName("sc.provider.service-dns"))
+	serviceDNS := graph.ContextIDIn(graphns.FromEnv(), spec.ArchName("sc.provider.service-dns"))
 	introduced := oneHopKeys(t, ctx, writer, graph.LabelContext, serviceDNS, graph.EdgeIntroduces, true)
 	if !contains(introduced, spec.ArchName("sc.kcpdns.probe")) {
 		t.Errorf("INTRODUCES out of sc.provider.service-dns = %v", introduced)
 	}
-	watch := graph.ContextID(spec.ArchName("sc.provider.watch"))
+	watch := graph.ContextIDIn(graphns.FromEnv(), spec.ArchName("sc.provider.watch"))
 	dependencies := oneHopKeys(t, ctx, writer, graph.LabelContext, watch, graph.EdgeDependsOn, true)
 	if !contains(dependencies, spec.ArchName("sc.kcp.apiexport-vw")) {
 		t.Errorf("DEPENDS_ON out of sc.provider.watch = %v", dependencies)

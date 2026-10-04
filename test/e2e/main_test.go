@@ -1,8 +1,7 @@
 package e2e
 
 import (
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/statedir"
-
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,7 +10,43 @@ import (
 	"testing"
 	"time"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpproc"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/runlock"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/session"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/statedir"
+)
+
+const (
+	envKubeconfig = "SPECD_E2E_KUBECONFIG"
+
+	envWorkspace = "SPECD_E2E_WORKSPACE"
+
+	envStateRoot = "SPECD_E2E_STATE_ROOT"
+
+	defaultWorkspace = "root:specs"
+
+	defaultNamespace = "default"
+)
+
+var (
+	e2eRoot = ""
+
+	e2eStateRoot = ""
+
+	e2eKubeconfig = ""
+
+	e2eWorkspace = defaultWorkspace
+
+	e2eNamespace = defaultNamespace
+
+	e2eWorkspaceKubeconfig = ""
+
+	e2eInstance = kcpproc.Instance{}
+
+	e2ePrivate = false
+
+	e2eTools = "kcp kine kubectl bash"
 )
 
 func TestMain(m *testing.M) {
@@ -20,15 +55,11 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "e2e: locate the repository root: %v\n", err)
 		os.Exit(1)
 	}
-	path := os.Getenv("SPECD_LIVE_LOCK")
-	if path == "" {
-		path = filepath.Join(root, runlock.DefaultPath)
+	e2eRoot = root
+	if os.Getenv(graphns.Env) == "" {
+		os.Setenv(graphns.Env, graphns.New("e2e-"))
 	}
-	lock, err := runlock.Acquire(path, runlock.Options{Name: "go test ./test/e2e"})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "e2e: %v\n", err)
-		os.Exit(1)
-	}
+
 	createdDocs := ""
 	if os.Getenv(statedir.EnvClmDocDir) == "" {
 		docs, err := os.MkdirTemp("", "specd-e2e-clm-docs-")
@@ -39,16 +70,118 @@ func TestMain(m *testing.M) {
 		os.Setenv(statedir.EnvClmDocDir, docs)
 		createdDocs = docs
 	}
+
+	lock, err := startClusterForTests(root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "e2e: %v\n", err)
+		os.Exit(1)
+	}
+	if e2eKubeconfig != "" {
+		os.Setenv("SPECD_KUBECONFIG", e2eKubeconfig)
+		os.Setenv("SPECD_WORKSPACE", e2eWorkspace)
+	}
 	mark(os.Getenv("SPECD_LIVE_LOCK_MARK"), "begin")
 	code := m.Run()
 	mark(os.Getenv("SPECD_LIVE_LOCK_MARK"), "end")
-	if err := lock.Release(); err != nil {
-		fmt.Fprintf(os.Stderr, "e2e: release the live lock: %v\n", err)
-	}
+	stopClusterForTests(lock)
 	if createdDocs != "" {
 		os.RemoveAll(createdDocs)
 	}
 	os.Exit(code)
+}
+
+func startClusterForTests(root string) (*runlock.Lock, error) {
+	if missing := missingTools(); len(missing) > 0 {
+		fmt.Fprintf(os.Stderr, "e2e: live prerequisites missing: %s; every live test skips\n", strings.Join(missing, ", "))
+		return nil, nil
+	}
+	if named := os.Getenv(envKubeconfig); named != "" {
+		absolute, err := filepath.Abs(named)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := os.Stat(absolute); err != nil {
+			return nil, fmt.Errorf("%s names %s, which cannot be read: %w", envKubeconfig, absolute, err)
+		}
+		e2eKubeconfig = absolute
+		e2eWorkspace = envOr("SPECD_E2E_WORKSPACE", defaultWorkspace)
+		e2eStateRoot = envOr(envStateRoot, filepath.Dir(absolute))
+		lock, err := runlock.Acquire(runlock.PathFor(e2eStateRoot, absolute), runlock.Options{Name: "go test ./test/e2e"})
+		if err != nil {
+			return nil, err
+		}
+		if err := installSpecs(e2eStateRoot, absolute, e2eWorkspace); err != nil {
+			lock.Release()
+			return nil, err
+		}
+		return lock, nil
+	}
+
+	stateRoot, err := os.MkdirTemp("", "specd-e2e-kcp-")
+	if err != nil {
+		return nil, err
+	}
+	instance, err := kcpproc.Start(context.Background(), kcpproc.Options{Root: stateRoot})
+	if err != nil {
+		os.RemoveAll(stateRoot)
+		return nil, err
+	}
+	e2ePrivate = true
+	e2eInstance = instance
+	e2eStateRoot = stateRoot
+	e2eKubeconfig = instance.AdminKubeconfig
+	e2eWorkspace = envOr("SPECD_E2E_WORKSPACE", defaultWorkspace)
+	if err := installSpecs(e2eStateRoot, e2eKubeconfig, e2eWorkspace); err != nil {
+		kcpproc.Stop(instance)
+		os.RemoveAll(stateRoot)
+		return nil, err
+	}
+	fmt.Fprintf(os.Stderr, "e2e: private kcp on kernel ports at %s (kine %s), state %s\n", instance.KcpURL, instance.KineURL, stateRoot)
+	return nil, nil
+}
+
+func stopClusterForTests(lock *runlock.Lock) {
+	if lock != nil {
+		if err := lock.Release(); err != nil {
+			fmt.Fprintf(os.Stderr, "e2e: release the live lock: %v\n", err)
+		}
+	}
+	if e2ePrivate {
+		kcpproc.Stop(e2eInstance)
+		os.RemoveAll(e2eStateRoot)
+	}
+}
+
+func installSpecs(stateRoot, kubeconfig, workspace string) error {
+	deployDir, err := session.ExtractDeploy()
+	if err != nil {
+		return err
+	}
+	name := strings.TrimPrefix(workspace, "root:")
+	workspaceKubeconfig := filepath.Join(stateRoot, name+".kubeconfig")
+	command := exec.Command("bash", filepath.Join(deployDir, "install-specs.sh"))
+	command.Env = append(os.Environ(),
+		"ROOT="+stateRoot,
+		"KUBECONFIG_PATH="+kubeconfig,
+		"SPECS_WORKSPACE="+name,
+		"SPECS_NAMESPACE="+e2eNamespace,
+		"WORKSPACE_KUBECONFIG="+workspaceKubeconfig,
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("install-specs.sh: %w\n%s", err, strings.TrimSpace(string(output)))
+	}
+	e2eWorkspaceKubeconfig = workspaceKubeconfig
+	return nil
+}
+
+func missingTools() []string {
+	missing := []string{}
+	for _, tool := range strings.Fields(e2eTools) {
+		if _, err := exec.LookPath(tool); err != nil {
+			missing = append(missing, tool)
+		}
+	}
+	return missing
 }
 
 func mark(path, event string) {
@@ -60,7 +193,36 @@ func mark(path, event string) {
 		return
 	}
 	defer file.Close()
-	fmt.Fprintf(file, "%s %d\n", event, time.Now().UnixNano())
+	fmt.Fprintf(file, "%s %d %d\n", event, os.Getpid(), time.Now().UnixNano())
+}
+
+func ensureCluster(t *testing.T) {
+	t.Helper()
+	if missing := missingTools(); len(missing) > 0 {
+		if os.Getenv("SPECD_REQUIRE_LIVE") == "1" {
+			t.Fatalf("SPECD_REQUIRE_LIVE=1 but these tools are missing: %s", strings.Join(missing, ", "))
+		}
+		t.Skipf("live prerequisites missing: %s", strings.Join(missing, ", "))
+	}
+	if e2eKubeconfig == "" {
+		t.Fatal("the e2e cluster was not started; see the TestMain output")
+	}
+	if _, err := os.Stat(e2eKubeconfig); err != nil {
+		t.Fatalf("the e2e kubeconfig %s: %v", e2eKubeconfig, err)
+	}
+}
+
+func TestPhase14LiveClusterIsPrivate(t *testing.T) {
+	ensureCluster(t)
+	if e2eWorkspace != defaultWorkspace && os.Getenv(envKubeconfig) == "" {
+		t.Fatalf("workspace = %q, want %s", e2eWorkspace, defaultWorkspace)
+	}
+	if os.Getenv(graphns.Env) == "" {
+		t.Fatal("the run has no graph namespace, so parallel runs would collide in the shared graph")
+	}
+	if e2ePrivate && !kcpproc.Ready(e2eInstance) {
+		t.Fatalf("the private kcp at %s is not ready", e2eInstance.KcpURL)
+	}
 }
 
 func TestPhase12LiveLockMarker(t *testing.T) {

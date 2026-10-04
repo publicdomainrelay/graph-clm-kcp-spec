@@ -119,8 +119,8 @@ func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
 	applyTyped(t, ctx, client, repository)
 
 	controller, err := specd.New(specd.Options{
-		Kubeconfig: filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
-		Workspace:  "root:specs",
+		Kubeconfig: e2eKubeconfig,
+		Workspace:  e2eWorkspace,
 		Namespace:  specapi.DefaultNamespace,
 		QPS:        50,
 		Burst:      100,
@@ -282,8 +282,8 @@ func TestPhase4PollWatchReconciles(t *testing.T) {
 	})
 
 	controller, err := specd.New(specd.Options{
-		Kubeconfig:   filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
-		Workspace:    "root:specs",
+		Kubeconfig:   e2eKubeconfig,
+		Workspace:    e2eWorkspace,
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,

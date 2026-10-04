@@ -1,6 +1,8 @@
 package runlock
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +12,11 @@ import (
 )
 
 const DefaultPath = ".kcp-specd/live.lock"
+
+func PathFor(stateDir, key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return filepath.Join(stateDir, "live-"+hex.EncodeToString(sum[:])[:8]+".lock")
+}
 
 type Options struct {
 	Name string
