@@ -1,8 +1,8 @@
 {
   "agent": "scripted",
   "fixtures": "fixtures",
-  "startedAt": "2026-10-04T00:28:49Z",
-  "finishedAt": "2026-10-04T00:29:42Z",
+  "startedAt": "2026-10-04T00:43:30Z",
+  "finishedAt": "2026-10-04T00:44:25Z",
   "populate": [
     {
       "fixture": "calc",
@@ -10,7 +10,7 @@
       "contexts": 2,
       "summarized": 2,
       "failed": 0,
-      "wallTimeSeconds": 1.267337824
+      "wallTimeSeconds": 1.261953348
     },
     {
       "fixture": "greet",
@@ -18,7 +18,7 @@
       "contexts": 2,
       "summarized": 2,
       "failed": 0,
-      "wallTimeSeconds": 1.766125232
+      "wallTimeSeconds": 1.763528333
     },
     {
       "fixture": "ledger",
@@ -26,7 +26,7 @@
       "contexts": 4,
       "summarized": 4,
       "failed": 0,
-      "wallTimeSeconds": 1.763213413
+      "wallTimeSeconds": 2.776416506
     },
     {
       "fixture": "shared",
@@ -34,7 +34,7 @@
       "contexts": 1,
       "summarized": 1,
       "failed": 0,
-      "wallTimeSeconds": 1.7629126529999999
+      "wallTimeSeconds": 1.763706923
     },
     {
       "fixture": "todo",
@@ -42,7 +42,7 @@
       "contexts": 3,
       "summarized": 3,
       "failed": 0,
-      "wallTimeSeconds": 2.268740146
+      "wallTimeSeconds": 2.266594787
     }
   ],
   "codeToSpec": [
@@ -620,7 +620,7 @@
         "score": 1
       },
       "pass": true,
-      "wallTimeSeconds": 1.3971650580000001
+      "wallTimeSeconds": 1.4097130500000001
     },
     {
       "fixture": "ledger",
@@ -660,7 +660,7 @@
         "score": 1
       },
       "pass": true,
-      "wallTimeSeconds": 1.464068253
+      "wallTimeSeconds": 1.4320057849999999
     },
     {
       "fixture": "ledger",
@@ -694,7 +694,7 @@
         "score": 1
       },
       "pass": true,
-      "wallTimeSeconds": 2.089384405
+      "wallTimeSeconds": 2.067693879
     },
     {
       "fixture": "ledger",
@@ -734,7 +734,7 @@
         "score": 1
       },
       "pass": true,
-      "wallTimeSeconds": 2.069009029
+      "wallTimeSeconds": 2.065689271
     }
   ],
   "scenarios": [
@@ -757,7 +757,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 0.822220571,
+      "wallTimeSeconds": 0.810815588,
       "agent": "scripted"
     },
     {
@@ -779,7 +779,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.432360014,
+      "wallTimeSeconds": 1.452546621,
       "agent": "scripted"
     },
     {
@@ -801,7 +801,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.443877966,
+      "wallTimeSeconds": 1.298243563,
       "agent": "scripted"
     },
     {
@@ -823,7 +823,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 2.361956363,
+      "wallTimeSeconds": 2.390491004,
       "agent": "scripted"
     },
     {
@@ -845,7 +845,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 2.69806454,
+      "wallTimeSeconds": 2.65128595,
       "agent": "scripted"
     },
     {
@@ -867,7 +867,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 2.292630219,
+      "wallTimeSeconds": 2.6523211399999997,
       "agent": "scripted"
     },
     {
@@ -892,7 +892,7 @@
       },
       "attempts": 0,
       "progressRecords": 0,
-      "wallTimeSeconds": 0.0000015,
+      "wallTimeSeconds": 0.00000154,
       "agent": "scripted"
     },
     {
@@ -914,7 +914,7 @@
       },
       "attempts": 2,
       "progressRecords": 0,
-      "wallTimeSeconds": 2.916270263,
+      "wallTimeSeconds": 2.898358256,
       "agent": "scripted"
     },
     {
@@ -936,7 +936,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 2.186349681,
+      "wallTimeSeconds": 2.154553322,
       "agent": "scripted"
     },
     {
@@ -950,15 +950,15 @@
       "acceptancePass": true,
       "delta": {
         "added": 0,
-        "removed": 2,
+        "removed": 1,
         "changed": 0,
-        "entries": 2,
-        "expected": 2,
+        "entries": 1,
+        "expected": 1,
         "precise": true
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.984894996,
+      "wallTimeSeconds": 1.859379519,
       "agent": "scripted"
     },
     {
@@ -980,7 +980,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.696559987,
+      "wallTimeSeconds": 2.079152702,
       "agent": "scripted"
     },
     {
@@ -1002,7 +1002,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.418159323,
+      "wallTimeSeconds": 1.419231193,
       "agent": "scripted"
     },
     {
@@ -1024,7 +1024,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.7856786580000001,
+      "wallTimeSeconds": 1.788396817,
       "agent": "scripted"
     },
     {
@@ -1046,7 +1046,7 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.428894186,
+      "wallTimeSeconds": 1.454743629,
       "agent": "scripted"
     },
     {
@@ -1068,11 +1068,11 @@
       },
       "attempts": 1,
       "progressRecords": 0,
-      "wallTimeSeconds": 1.6730659129999998,
+      "wallTimeSeconds": 1.696206377,
       "agent": "scripted"
     }
   ],
   "notes": [
-    "working trees under /tmp/specd-eval.3078104291"
+    "working trees under /tmp/specd-eval.3106928978"
   ]
 }
