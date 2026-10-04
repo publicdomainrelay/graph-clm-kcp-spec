@@ -127,7 +127,7 @@ func specSubject(context spec.SystemContext, previous []byte, removed bool) stri
 	for _, declared := range change.Interfaces {
 		parts = append(parts, op(declared.Op)+declared.Name)
 	}
-	return "spec(" + context.Name + "): " + joined(parts)
+	return "spec(" + context.Name + "): " + joined(parts, "no declared change")
 }
 
 func op(kind string) string {
@@ -140,9 +140,9 @@ func op(kind string) string {
 	return "~"
 }
 
-func joined(parts []string) string {
+func joined(parts []string, fallback string) string {
 	if len(parts) == 0 {
-		return "no declared change"
+		return fallback
 	}
 	sorted := append([]string{}, parts...)
 	sort.Strings(sorted)
@@ -197,7 +197,7 @@ func statusSubject(context spec.SystemContext, previous []byte) string {
 	if old.RealizedSpecHash != context.Status.RealizedSpecHash {
 		parts = append(parts, "realizedSpec")
 	}
-	return "status(" + context.Name + "): " + joined(parts)
+	return "status(" + context.Name + "): " + joined(parts, "state")
 }
 
 func short(commit string) string {
