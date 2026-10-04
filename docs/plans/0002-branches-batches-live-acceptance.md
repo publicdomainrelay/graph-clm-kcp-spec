@@ -234,6 +234,29 @@ gate is red and blocks that repository's realizations, deliberately. The whole
 run, the table and the PR #1 follow-up are in `docs/examples/deno-kcp-pr.md`
 (see [Live acceptance](examples/deno-kcp-pr.md#live-acceptance)).
 
+**The blocker was fixed, through kcp-libs's own spec flow.** kcp-libs was cloned
+to a fresh directory, `specctl up` indexed its 44 contexts and summarized them
+(44 of 44), a `MUST` requirement (`r.no-default-issuer-is-no-authority`) and its
+test requirement (`r.no-default-issuer-tests`) were written into the
+`impl-openbaoclient` context with `specctl clm apply` -- and the existing
+`r.sentinel-error-matching` was amended so the spec does not contradict itself
+-- and specd realized them first try as `17c6ff5 realize impl-openbaoclient: +2
+~1` with `go test ./...` as the gate. `ResponseError.Is` now reports a 400 whose
+body says no default issuer as `pki.ErrNoAuthority`, `CASerial` treats it like a
+404, and an unrelated 400 stays an ordinary error; two unit tests cover both
+halves. The change is [publicdomainrelay/kcp-libs#1](https://github.com/publicdomainrelay/kcp-libs/pull/1),
+with the requirement on the orphan branch
+`open-architecture/kcp-libs--fix/openbao-no-default-issuer`. deno-kcp's own live
+test, the one that failed on `main` with the same message, then passed:
+`TestOpenBaoAuthorityIssuesTheCertificateADenoPodServesWith` green in 25.52 s,
+its `openbao.yaml` Ready with an intermediate and a leaf issued for
+`openbao-tls-probe.default.runtime.svc.kcp.local`. With the fix beside it, deno-kcp
+#1's acceptance brings the market up: `apply.sh` exits 0, all four OpenBao
+authorities report ready with distinct serials, `plc`, `relay` and bob's `pds`
+reach `Running` with `ready=true`, and bob's PDS answers on its own name. The
+line is no longer stopped at OpenBao; it is stopped further in, on the three
+defects listed below.
+
 Two findings about the flow itself came out of the run and are worth a phase:
 
 - **A gating acceptance that cannot pass freezes a repository.** `gate: true`
@@ -267,10 +290,72 @@ Two findings about the flow itself came out of the run and are worth a phase:
   the one process, and not depend on the child's trap for cleanup. Found by
   looking at `ps` after the run, not by a test; it needs one.
 
-- *Unrelated, found while reading the same tree:* the runtime's host check
-  prints `000000` when nothing is listening (`curl` writes `000`, the fallback
-  appends another). Cosmetic, and left alone on purpose: fixing it needs the
-  gate relaxed first.
+- *The runtime's host check printed `000000` when nothing was listening* (`curl`
+  writes `000`, the fallback appended another). Cosmetic, and left alone on
+  purpose at the time because fixing it needed the gate relaxed first. Fixed
+  with the fix below, in the same realize: `http_code` now prints the status
+  `curl` wrote and falls back to `000` exactly once.
+
+The kcp-libs fix landed, deno-kcp's own live test went green, and the acceptance
+run then got past OpenBao and reported what is left. Three more findings:
+
+- **`impl/kcpproc` cannot restart a kcp on a root it has already used.**
+  Reproduced with three commands: `specctl kcp start --root <dir>` succeeds,
+  `specctl kcp stop --root <dir>` stops it, and `specctl kcp start --root <dir>`
+  then fails with `kcpproc: kcp exited; ... Error: cannot create the
+  'admin.kubeconfig' file with an empty token for the shard-admin user`, leaving
+  the root without an `admin.kubeconfig`. `kcpproc.Start` removes that file
+  before starting kcp, which is only safe on a root that has never bootstrapped:
+  kcp does not write it again. `specctl up` after a `specctl down` therefore
+  cannot come back up on the same root -- the run that found this deleted the
+  branch's state root and restored from the architecture branch, which is the
+  documented path but not the one a user takes. `Start` should remove the file
+  only when the root holds no kine store, and a test should start, stop and start
+  one root.
+- **A realize unsyncs every requirement code ref whose node moved.** CodeGraph
+  node ids are line-sensitive, so an agent edit that inserts lines above a symbol
+  changes the id of every symbol below it; the stored `codeRefs` then name
+  symbols `status.observed` no longer has, and a context that was `CodeSynced`
+  reports `False` with `unresolved requirement code refs: ...` for requirements
+  the change never touched. Seen on kcp-libs's `impl-openbaoclient` right after
+  its own fix landed. `abc/sync.MigrateDeclared` re-anchors bare names only, so
+  stale ids survive. Either the ids must be stable across an edit or the
+  migration must re-anchor a stale id by the symbol its stored name resolves to.
+- **The market example is red past OpenBao, in three different places.** The
+  acceptance's own table, and what each line is, is in
+  `docs/examples/deno-kcp-pr.md`; the short form: `alice`'s `pds` runs and
+  answers `https://127.0.0.1:2583/xrpc/_health` with 200 from the host, but
+  reports `ready=false` for the whole run while `bob`'s identical pod reports
+  `ready=true`; the verifier fails 12 seconds in with `kcpdns:
+  pds.default.alice.svc.kcp.local is not in the table and could not be
+  discovered`, so the peers a pod can resolve are the open question, and the
+  fixed `sleep 10` before the verifier is not a wait for anything; and the
+  bidder crash-loops on `PlcNotFoundError: DID not found:
+  did:plc:wrpacy3svybmug6pnjcpjxad` (129 restarts in one run). The example's
+  host checks were also written as `http://` against ports whose pods set
+  `SERVICE_TLS: "true"` -- a check that could only ever pass while OpenBao was
+  broken; that one was fixed through the flow (`6c1bbe4 realize
+  deploy-examples-atproto-market: ~1`).
+
+  The provider itself is intermittent, which two further runs showed: it came
+  up, logged its startup line, and reconciled nothing -- the applied `OpenBao`
+  objects stayed without a `status`, `apply.sh` waited out its deadline, and the
+  process sat in `futex_do_wait` with no CPU. That is the failure
+  `cmd/deno-kcp-provider/main.go` already documents in a comment ("an informer's
+  initial list never completes and the provider sits with no cache and
+  reconciles nothing ... a provider that looks healthy and a workload that never
+  gets a status"), and it is timing-dependent: the same binary reconciled in
+  seconds on the run before. A live acceptance that is expected to gate a
+  repository has to survive that.
+
+**Status of C:** the hydradb half is done (the acceptance stage, the CRD and
+schema change, `specctl accept`, the trailer), and the blocker that made the run
+worthless is fixed and proven -- kcp-libs#1, with deno-kcp's own live test going
+from `FAIL (139.35 s)` to `PASS (25.52 s)`. C is **not** done: deno-kcp#1's gate
+is still red. What remains is entirely in deno-kcp or its provider -- `alice`'s
+`pds` never reporting ready, the verifier's fixed `sleep 10` and the missing
+resolved name beside it, the bidder's `PlcNotFoundError` crash loop, and the
+provider intermittently reconciling nothing at all.
 
 ## Order
 
