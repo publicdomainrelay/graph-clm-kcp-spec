@@ -43,6 +43,39 @@ func DeclaresConfigSurface(requirements []Requirement) bool {
 	return false
 }
 
+func ArchDeclaresConfigSurface(arch *ArchSpec) bool {
+	if arch == nil || len(arch.Node) == 0 {
+		return false
+	}
+	found := false
+	var walk func(any)
+	walk = func(value any) {
+		if found {
+			return
+		}
+		switch typed := value.(type) {
+		case string:
+			if len(NamedFlags(typed)) > 0 || len(NamedEnvironments(typed)) > 0 {
+				found = true
+			}
+		case []any:
+			for _, entry := range typed {
+				walk(entry)
+			}
+		case map[string]any:
+			for key, entry := range typed {
+				if len(NamedFlags(key)) > 0 || len(NamedEnvironments(key)) > 0 {
+					found = true
+					return
+				}
+				walk(entry)
+			}
+		}
+	}
+	walk(arch.Node)
+	return found
+}
+
 func CommandContext(files []string) bool {
 	for _, file := range files {
 		if strings.HasPrefix(file, "cmd/") || strings.Contains(file, "/cmd/") {

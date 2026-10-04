@@ -230,6 +230,7 @@ func ValidateDraft(name string, base spec.SystemContextSpec, observed spec.Obser
 	candidate.Spec = merged
 	result := spec.ValidateSystemContext(&candidate)
 	if spec.CommandContext(append(append([]string{}, observed.Files...), observed.TreeFiles...)) &&
+		spec.ArchDeclaresConfigSurface(base.Arch) &&
 		!spec.DeclaresConfigSurface(merged.Requirements) {
 		result.Problems = append(result.Problems, spec.Problem{
 			Path:    "spec.requirements",

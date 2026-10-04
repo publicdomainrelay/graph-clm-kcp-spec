@@ -454,12 +454,26 @@ func TestValidateDraftMakesACommandDeclareItsConfigSurface(t *testing.T) {
 			{Name: "main", Kind: "function", File: "cmd/calc/main.go", Line: 10, CodegraphID: "function:main"},
 		},
 	}
-	base := spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf}
+	base := spec.SystemContextSpec{
+		Repository: "calc",
+		Upstream:   spec.RefSelf,
+		Arch: &spec.ArchSpec{
+			ID:   "ov.calc-flags",
+			Kind: spec.ArchKindNode,
+			Node: map[string]any{"data": map[string]any{"flags": map[string]any{
+				"runs-dir": map[string]any{"env": "RUNS_DIR", "default": "runs"},
+			}}},
+		},
+	}
 	silent := SpecDraft{Intent: "The command line front end.", Requirements: []spec.Requirement{
 		{ID: "r.run", Level: spec.LevelMust, Text: "main builds the engine and runs it."},
 	}}
 	if _, result := ValidateDraft("cmd-calc", base, observed, silent); result.OK() {
 		t.Fatal("a command context with no config surface validated")
+	}
+	plain := spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf}
+	if _, result := ValidateDraft("cmd-calc", plain, observed, silent); !result.OK() {
+		t.Fatalf("a command whose architecture knows no flags needs no surface: %v", result.Err())
 	}
 	declared := SpecDraft{Intent: "The command line front end.", Requirements: []spec.Requirement{
 		{ID: "r.config", Level: spec.LevelMust, Text: "main reads --runs-dir (RUNS_DIR, default runs) and --verbose."},

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -272,8 +273,19 @@ func renderSpec(specification spec.SystemContextSpec) string {
 				declared.Name, declared.Kind, declared.Signature, declared.File)
 		}
 	}
+	if specification.Arch != nil && len(specification.Arch.Node) > 0 {
+		if body, err := json.Marshal(specification.Arch.Node); err == nil {
+			text := string(body)
+			if len(text) > archBodyLimit {
+				text = text[:archBodyLimit] + "..."
+			}
+			fmt.Fprintf(&builder, "arch node %s:\n%s\n", specification.Arch.ID, text)
+		}
+	}
 	return builder.String()
 }
+
+const archBodyLimit = 2000
 
 func renderObserved(observed spec.ObservedFacts) string {
 	builder := strings.Builder{}
