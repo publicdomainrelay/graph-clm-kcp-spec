@@ -123,9 +123,20 @@ run (`scripts/example-deno-kcp-pr.sh`, `PUSH=0`) with the measures below.
 - *Tests.* `abc/oabranch/oabranch_test.go` covers the kind, the branch, the
   codeRefIndex, the REFERENCES edges, the prose-only context, the shared-commit
   status, the subjects, the progress coalescing, the episode summary, the preserved
-  records and CHANGES.md; `impl/persist/persist_test.go` covers the trailer, the
-  coalesced progress (no commit, the branch does not move), CHANGES.md on a feature
-  branch, and an inherited change record surviving a feature branch's first persist.
+  records, CHANGES.md, and that a branch written before this change still loads;
+  `impl/persist/persist_test.go` covers the trailer, the coalesced progress (no
+  commit, the branch does not move), CHANGES.md on a feature branch, and an
+  inherited change record surviving a feature branch's first persist.
+  `SPECD_REQUIRE_LIVE=1 go test ./... -count=1` is green (exit 0, test/e2e 238s).
+- *One flake, seen once.* Under three concurrent runs, `TestPhase7OneManifest-
+  PopulatesAnUnknownCodebase` failed: it saw five SpecChanges for four contexts.
+  The fifth was `calc-calc-c2s-…-a2`, Succeeded with "the spec already said this"
+  — a second CodeToSpec change raised for the same episode inside the same second
+  as the first, before the first was visible as Pending. That is the raise logic
+  in `factory/specd/systemcontext.go` (`unfinished` from the informer cache)
+  racing its own write, not this change; the test passes alone and in a full
+  rerun, and the run in question shared the machine with two other suites. Worth
+  a fix of its own.
 
 ## 3b - the spec says more, and says it more truly
 
