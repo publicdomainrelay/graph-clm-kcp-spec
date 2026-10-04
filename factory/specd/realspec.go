@@ -146,35 +146,22 @@ func (c *Controller) runBatch(ctx context.Context, namespace string, repository 
 	}
 
 	result := realize.Result{Context: members[0].Spec.SystemContext, Branch: batchBranch(work, idle, members)}
-	var failure error
 	if len(work) > 0 {
+		var failure error
 		result, failure = c.realizeWork(ctx, namespace, repository, work)
-	} else {
-		for _, member := range idle {
-			options, optionErr := c.settleOptions(ctx, namespace, repository, member)
-			if optionErr != nil {
-				failure = optionErr
-				break
-			}
-			if settleErr := realize.Settle(ctx, options); settleErr != nil {
-				failure = settleErr
-				break
-			}
+		if failure != nil {
+			c.recordBatchFailure(ctx, namespace, members, result, failure)
+			return 0, nil
 		}
-	}
-	if failure != nil {
-		c.recordBatchFailure(ctx, namespace, members, result, failure)
-		return 0, nil
 	}
 
 	for _, member := range idle {
-		options, optionErr := c.settleOptions(ctx, namespace, repository, member)
-		if optionErr != nil {
-			c.recordBatchFailure(ctx, namespace, members, result, optionErr)
-			return 0, nil
+		options, err := c.settleOptions(ctx, namespace, repository, member)
+		if err == nil {
+			err = realize.Settle(ctx, options)
 		}
-		if settleErr := realize.Settle(ctx, options); settleErr != nil {
-			c.recordBatchFailure(ctx, namespace, members, result, settleErr)
+		if err != nil {
+			c.recordBatchFailure(ctx, namespace, members, result, err)
 			return 0, nil
 		}
 	}
