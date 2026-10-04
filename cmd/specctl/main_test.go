@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	abceval "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/eval"
+
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 )
@@ -259,5 +261,18 @@ func TestSyncValidatesItsArguments(t *testing.T) {
 				t.Errorf("exit = %d, want %d", got, testCase.code)
 			}
 		})
+	}
+}
+
+// A skipped scenario is not a failure: the scripted baseline cannot take a CLM
+// scenario, and a baseline run that reports 14 passes and one skip is clean.
+func TestCountFailedLeavesASkippedScenarioOut(t *testing.T) {
+	report := abceval.Report{Scenarios: []abceval.ScenarioReport{
+		{Scenario: "apply-one", Pass: true},
+		{Scenario: "clm", Skipped: true},
+		{Scenario: "apply-two", Pass: false},
+	}}
+	if failed := countFailed(report); failed != 1 {
+		t.Errorf("countFailed = %d, want 1", failed)
 	}
 }

@@ -228,9 +228,16 @@ func compareWithBaseline(path string, report eval.Report) (eval.Comparison, erro
 	return eval.Compare(baseline, report), nil
 }
 
+// countFailed counts the scenarios that did not pass. A skipped scenario is not
+// one of them: the run could not take it (a CLM scenario under the scripted
+// baseline, which has no host inside the model), it is excluded from the
+// measures, and a baseline of 14 passes and one skip is a clean run.
 func countFailed(report eval.Report) int {
 	failed := 0
 	for _, scenario := range report.Scenarios {
+		if scenario.Skipped {
+			continue
+		}
 		if !scenario.Pass {
 			failed++
 		}
