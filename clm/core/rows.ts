@@ -1,9 +1,3 @@
-// The Cypher row builders. Go writes them in abc/graph and they are the same
-// statements, over the same ids, from the same content keys: a host that writes
-// a progress vertex and a controller that reads the graph meet on one row.
-// Only the subset every engine runs is used (UNWIND upsert, MERGE on id, one
-// hop out or in, DETACH DELETE).
-
 import { cypherLiteral, changeId, codeRefId, progressId } from "./ids.ts";
 import type { CodeRefRecord } from "./context-doc.ts";
 import type { ProgressRecord, SpecChange } from "./types.ts";
@@ -153,11 +147,6 @@ export function progressRow(change: string, index: number, record: ProgressRecor
   };
 }
 
-/**
- * The graph half of one report: the change, one vertex per file the tool
- * touched (on the same CodeRef id an ingest writes), one vertex per progress
- * record, and the TOUCHED and OCCURRED edges that join them.
- */
 export function liveRows(change: SpecChange, record: ProgressRecord, index: number): { vertices: VertexSet[]; edges: EdgeSet[] } {
   const vertices: VertexSet[] = [
     { label: LABELS.change, properties: VERTEX_PROPERTIES[LABELS.change] as string[], rows: [changeRow(change)] },

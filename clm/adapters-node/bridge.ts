@@ -1,31 +1,13 @@
-// The StateBridge over the Go CLI. kcp access, the delta authority and the
-// graph writes have one implementation, so a host reaches them the same way a
-// shell does: `specctl clm render|apply|report`. A host never needs a kube
-// client or a Bolt driver of its own.
-
 import type { ProgressRecord, StateBridge } from "../core/mod.ts";
 import { nodeRunner } from "./runner.ts";
 import type { Runner } from "../core/mod.ts";
 
 export interface BridgeOptions {
-  /** The specctl binary; SPECD_SPECCTL when unset, `specctl` when that is too. */
   specctl?: string;
   runner?: Runner;
-  /**
-   * The environment every call inherits. The workspace kubeconfig and the bolt
-   * endpoint come from the process environment when this is left out, so a host
-   * started by the controller needs nothing passed.
-   */
   env?: Record<string, string>;
   cwd?: string;
   timeoutMs?: number;
-  /**
-   * The logical cluster the specification lives in. A controller that owns more
-   * than one workspace sets SPECD_WORKSPACE and SPECD_NAMESPACE; without them
-   * every call lands on specctl's own default workspace, where the context the
-   * host is working on does not exist, and a failure to apply reads as a model
-   * that changed nothing. The mod passes the same two names.
-   */
   workspace?: string;
   namespace?: string;
   kubeconfig?: string;

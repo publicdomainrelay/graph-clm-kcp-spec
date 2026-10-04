@@ -1,7 +1,3 @@
-// The Node implementation of the Runner port: a host command by its argument
-// vector, no shell, the whole output read. It is the same transport the Go side
-// uses to call a model, so a host and a controller invoke a process alike.
-
 import { spawn } from "node:child_process";
 
 import type { CommandResult, RunOptions, Runner } from "../core/mod.ts";

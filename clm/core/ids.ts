@@ -1,7 +1,3 @@
-// The graph ids both sides share. Go computes them in common/ids with FNV-1a
-// over a content key; this is the same function, so a host that writes a
-// vertex and a controller that reads one land on the same number.
-
 export const MAX_NODE_ID = 0x1f_ffff_ffff_ffff;
 
 export function stable(value: string): number {

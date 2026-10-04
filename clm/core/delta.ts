@@ -1,8 +1,3 @@
-// The delta is the contract between the two directions, and Go computes it in
-// abc/delta. This is the same algebra, validated against the same golden files
-// (testdata/delta), so a host can show a model exactly what changed without
-// guessing: `Diff(old, new)`, its inverse `Apply`, and the compact `Summary`.
-
 import {
   canonicalInterfaces,
   canonicalObserved,
@@ -123,7 +118,6 @@ export function count(change: Delta): Counts {
   return counts;
 }
 
-/** The compact form a reader sees: `+2 ~1 -1`, or `-` for no change at all. */
 export function summary(change: Delta): string {
   const counts = count(change);
   const parts: string[] = [];
@@ -304,8 +298,6 @@ function unionKeys<T>(left: Map<string, T>, right: Map<string, T>): string[] {
   return [...new Set([...left.keys(), ...right.keys()])].sort();
 }
 
-// Go compares with reflect.DeepEqual, which has no opinion on key order, so the
-// comparison here sorts keys first: two spellings of one entry are one entry.
 function same(left: unknown, right: unknown): boolean {
   return stableKey(left) === stableKey(right);
 }

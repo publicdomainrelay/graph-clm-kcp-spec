@@ -1,9 +1,3 @@
-// What a host does, independently of which host it is. The pi extension and
-// the Claude Code mod run the same four steps — render the context document at
-// session start, inject it before every model request, report each file a tool
-// touched, and apply the model zone when the turn ends — so the steps live
-// here, over the ports, and each host only has to say how to reach them.
-
 import { parseModelZone, splitContextDoc } from "./context-doc.ts";
 import { deltaEmpty } from "./delta.ts";
 import type { Clock, FileStore, StateBridge } from "./ports.ts";
@@ -21,7 +15,6 @@ export interface HostOptions {
 
   context: string;
 
-  /** The SpecChange this session is working off, when there is one. */
   change?: string;
 
   clock?: Clock;
@@ -32,7 +25,6 @@ export interface StartResult {
 
   document: string;
 
-  /** Whether the rendered document differs from what was on disk. */
   changed: boolean;
 }
 
@@ -43,11 +35,6 @@ export interface ApplyResult {
 
   folded?: string;
 
-  /**
-   * Why the edit did not reach the specification. A host reports it instead of
-   * dropping it: an apply that failed and an edit that changed nothing look
-   * identical from the outside, and only one of them is the model's doing.
-   */
   error?: string;
 }
 
@@ -73,11 +60,6 @@ export class ClmHost {
     return this.options.change ?? "";
   }
 
-  /**
-   * session start: render the context from kcp and write it to the state dir,
-   * outside the project tree. A bridge that cannot answer (no workspace, no
-   * such context) leaves the session without a document rather than failing it.
-   */
   async start(): Promise<StartResult | undefined> {
     let document: string;
     try {
@@ -92,10 +74,6 @@ export class ClmHost {
     return { path, document, changed: previous !== document };
   }
 
-  /**
-   * before every model request: the context file as one system section. A
-   * missing file answers undefined and the section is simply not added.
-   */
   async section(): Promise<string | undefined> {
     const path = this.options.docPath;
     if (!(await this.options.files.exists(path))) return undefined;
@@ -103,7 +81,6 @@ export class ClmHost {
     return document.trim().length ? document : undefined;
   }
 
-  /** after a tool call: report the files it touched against the running change. */
   async touched(tool: string, files: readonly string[], note?: string): Promise<void> {
     if (!this.change || files.length === 0) return;
     const event: ProgressRecord = { turn: this.turn, tool, files: [...files], at: this.now() };
@@ -111,11 +88,9 @@ export class ClmHost {
     try {
       await this.options.bridge.report(this.change, event);
     } catch {
-      // A report is an observation; losing one must never fail the work.
     }
   }
 
-  /** end of turn: apply the model zone when it changed, then report the turn. */
   async finish(note?: string): Promise<ApplyResult | undefined> {
     const path = this.options.docPath;
     let result: ApplyResult | undefined;
@@ -142,7 +117,6 @@ export class ClmHost {
       try {
         await this.options.bridge.report(this.change, event);
       } catch {
-        // As above: an observation is best effort.
       }
     }
     this.turn += 1;
@@ -154,7 +128,6 @@ export class ClmHost {
   }
 }
 
-/** The context a host works on: SPECD_CLM_CONTEXT, else the environment. */
 export function contextFromEnv(env: Record<string, string | undefined>): string {
   return env.SPECD_CLM_CONTEXT ?? "";
 }
@@ -163,7 +136,6 @@ export function changeFromEnv(env: Record<string, string | undefined>): string {
   return env.SPECD_CLM_CHANGE ?? "";
 }
 
-/** The objects a host may read without shelling out again. */
 export type { Delta, ProgressRecord, SpecChange, SystemContext };
 
 export { deltaEmpty };

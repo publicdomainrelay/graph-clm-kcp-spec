@@ -1,7 +1,3 @@
-// The canonical form of a spec: the keyed lists ordered by their key, the sets
-// sorted and deduplicated. Go takes the spec hash over this form (abc/spec), so
-// reordering a list is not an edit and two spellings of one spec hash alike.
-
 import type { Interface, ObservedFacts, ObservedInterface, Requirement, SystemContextSpec } from "./types.ts";
 
 export function canonicalSet(values: readonly string[]): string[] {
@@ -28,7 +24,6 @@ export function canonicalSpec(inSpec: SystemContextSpec): SystemContextSpec {
   out.introduces = canonicalSet(inSpec.introduces ?? []);
   return out;
 }
-
 
 export function canonicalObservedInterfaces(interfaces: readonly ObservedInterface[]): ObservedInterface[] {
   return [...interfaces].sort((left, right) => (left.name < right.name ? -1 : 1));

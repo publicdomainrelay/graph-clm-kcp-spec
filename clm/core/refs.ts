@@ -1,8 +1,3 @@
-// Reference extraction: any backticked token in the model's prose is a claim
-// about the code, and a CodeGraph id spelled outright is a claim too. Both are
-// collected here so a host can resolve them against the index and report the
-// ones that do not answer, instead of silently keeping a guess.
-
 const CODEGRAPH_KINDS =
   "file|function|method|class|struct|interface|constant|type_alias|variable|import";
 

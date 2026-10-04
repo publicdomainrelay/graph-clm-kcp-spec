@@ -1,9 +1,3 @@
-// The context document is a real file the model owns. Its model zone is the
-// prose intent plus a fenced spec block; its managed zone is regenerated from
-// the resolved references. This is the same format Go renders in abc/clm, so a
-// document a host writes and a document `specctl clm render` prints are one
-// file, and an edit either host makes parses in the other.
-
 import { parse, stringify } from "yaml";
 
 import { canonicalInterfaces, canonicalRequirements, canonicalSet, canonicalSpec } from "./canonical.ts";
@@ -73,7 +67,6 @@ export function selectWithinBudget<T>(items: T[], budgetTokens: number, render: 
   return selected;
 }
 
-/** The spec block is exactly the fields a model owns; the tool's are absent. */
 interface SpecBlock {
   upstream?: string;
   overlay?: string[];
@@ -170,10 +163,6 @@ export function composeContextDoc(model: string, refs: ResolvedRef[], budgetToke
   return `${head}\n\n${renderManagedZone(refs, budgetTokens)}\n`;
 }
 
-/**
- * A `file:` ref is already its own CodeGraph id, so it belongs in the managed
- * zone without a lookup; a symbol ref needs the index to resolve.
- */
 export function fileRef(codeRef: string): ResolvedRef | undefined {
   const prefix = "file:";
   if (!codeRef.startsWith(prefix)) return undefined;
@@ -183,11 +172,6 @@ export function fileRef(codeRef: string): ResolvedRef | undefined {
   return { codegraphId: codeRef, kind: "file", name: cut === -1 ? filePath : filePath.slice(cut + 1), filePath };
 }
 
-// The spec block is YAML: the same format Go renders with sigs.k8s.io/yaml, so
-// either side reads what the other wrote. The parser is a dependency, not a
-// hand-rolled subset, because a spec block a model produced must never be read
-// almost-right; the build that vendors this module into a Claude Code mod
-// bundles the parser in, so the mod still imports one file of its own folder.
 function renderBlock(spec: SystemContextSpec): string {
   return stringify({
     upstream: spec.upstream || undefined,

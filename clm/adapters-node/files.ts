@@ -1,5 +1,3 @@
-// The Node implementation of the FileStore port.
-
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 

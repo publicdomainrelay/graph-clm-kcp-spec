@@ -79,8 +79,6 @@ function subtractObserved(): ObservedFacts {
   return next;
 }
 
-// Two types that both offer a method named List. The keys carry the receiver,
-// which is what lets a delta tell one List from the other.
 function methodSpec(): SystemContextSpec {
   return {
     repository: "store",
@@ -132,8 +130,6 @@ function golden(name: string): Delta {
   return JSON.parse(readFileSync(new URL(`../../testdata/delta/${name}`, import.meta.url), "utf8")) as Delta;
 }
 
-// The golden files are the contract: Go pins them in abc/delta, and this reads
-// the same four. A drift in either language fails on its own side.
 test("the delta mirror matches the Go golden files", () => {
   assert.deepEqual(diff(calcSpec(), subtractSpec()), golden("spec-edit.json"));
   assert.deepEqual(diffObserved(calcObserved(), subtractObserved()), golden("observed-edit.json"));
@@ -147,8 +143,6 @@ test("a method keyed by its receiver is one entry of its own", () => {
     (change.interfaces ?? []).map((entry) => `${entry.op}:${entry.name}`),
     ["changed:Indexer.List", "added:Set.Add"],
   );
-  // Set.List is in both specs, so it is not work; a surface keyed by the bare
-  // name could not have told the two Lists apart.
   assert.deepEqual(count(change), { added: 1, removed: 0, changed: 1 });
 });
 
@@ -208,8 +202,6 @@ test("the managed zone lists refs and the model zone survives a split", () => {
   ])}\n`;
   const split = splitContextDoc(document);
   assert.match(split.managed, /function:Add/);
-  // The model zone never carries the code refs, so the comparison is against
-  // the merge, which is what an apply actually writes.
   assert.equal(deltaEmpty(diff(calcSpec(), mergeDeclared(calcSpec(), parseModelZone(split.model)))), true);
 });
 
@@ -259,8 +251,6 @@ test("an apply that failed is reported and tried again", async () => {
   const first = await host.finish("turn");
   assert.equal(first?.applied, false);
   assert.match(first?.error ?? "", /no such context/);
-  // The edit is not marked as applied, so the next turn tries again instead of
-  // losing it: a failure that is swallowed once would be swallowed forever.
   const second = await host.finish("turn");
   assert.match(second?.error ?? "", /no such context/);
   assert.equal(attempts, 2);
