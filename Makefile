@@ -16,7 +16,7 @@ export SPECD_BOLT_BACKEND ?= arcadedb
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet generate-schemas test test-live kcp-up kcp-down install-specs install-specs-provider example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 example-phase9 example-phase13 demo demo-phases clean
+.PHONY: build check fmt vet generate-schemas test test-live test-live-model kcp-up kcp-down install-specs install-specs-provider example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 example-phase9 example-phase13 demo demo-phases clean
 
 ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
 ARCH_REPOSITORY ?= deno-kcp
@@ -54,6 +54,9 @@ test:
 
 test-live:
 	SPECD_REQUIRE_LIVE=1 go test ./... -count=1
+
+test-live-model:
+	SPECD_REQUIRE_LIVE=1 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -count=1 -v -run 'LiveModel|PiHost|ScopeGuard' 2>&1 | tee docs/eval/live-model-tests.log | grep -E '^(=== RUN|--- (PASS|FAIL|SKIP)|PASS|FAIL|ok)'
 
 # Every live test package starts its own kcp on kernel-assigned ports (state in
 # a temporary root), so two of these run at once and neither touches the

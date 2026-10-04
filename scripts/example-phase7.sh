@@ -82,6 +82,7 @@ echo "--- an unseen codebase: a bare git repository of two fixtures ---"
 rm -rf "$WORK"
 mkdir -p "$WORK/tree/greet" "$WORK/tree/calc"
 cp -r "$REPO/fixtures/greet/." "$WORK/tree/greet/"
+rm -rf "$WORK/tree/greet/.codegraph"
 cp -r "$REPO/fixtures/calc/." "$WORK/tree/calc/"
 rm -rf "$WORK/tree/calc/.codegraph"
 (cd "$WORK/tree" && git init -q -b main && git add -A \

@@ -72,6 +72,7 @@ fi
 
 echo "--- a working tree to manage ---"
 cp -r "$REPO/fixtures/calc/." "$WORK/"
+rm -rf "$WORK/.codegraph"
 # A codegraph index left in the fixture by an earlier ingest is not part of the
 # working tree, and copying it would index the index.
 rm -rf "$WORK/.codegraph"

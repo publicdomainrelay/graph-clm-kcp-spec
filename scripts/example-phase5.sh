@@ -82,6 +82,7 @@ done
 
 echo "--- a working tree to manage ---"
 cp -r "$REPO/fixtures/calc/." "$WORK/"
+rm -rf "$WORK/.codegraph"
 (cd "$WORK" && git init -q -b main && git add -A \
   && git -c user.email=example@example.com -c user.name=example commit -qm fixture)
 

@@ -114,7 +114,10 @@ func WorktreeRemove(ctx context.Context, repo, dir string) error {
 }
 
 func CommitAll(ctx context.Context, dir, message string) (string, error) {
-	if _, err := run(ctx, dir, "add", "-A", "--", ".", ":!"+codegraphDir); err != nil {
+	if _, err := run(ctx, dir, "add", "-A"); err != nil {
+		return "", err
+	}
+	if _, err := run(ctx, dir, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", codegraphDir); err != nil {
 		return "", err
 	}
 	if _, err := run(ctx, dir, "diff", "--cached", "--quiet"); err == nil {

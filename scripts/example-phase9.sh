@@ -86,7 +86,9 @@ echo "--- one codebase per tenant ---"
 rm -rf "$WORK"
 mkdir -p "$WORK"
 cp -r "$REPO/fixtures/calc/." "$WORK/calc/"
+rm -rf "$WORK/calc/.codegraph"
 cp -r "$REPO/fixtures/greet/." "$WORK/greet/"
+rm -rf "$WORK/greet/.codegraph"
 rm -rf "$WORK/calc/.codegraph" "$WORK/greet/.codegraph"
 for tree in calc greet; do
   (cd "$WORK/$tree" && git init -q -b main && git add -A \

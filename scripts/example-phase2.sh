@@ -4,7 +4,7 @@
 #
 # `specctl ingest` is a thin wrapper now: it applies a Repository manifest and
 # waits for the controller to reach Populated, so specd has to be running for
-# it. The controller indexes fixtures/calc with codegraph, partitions it into
+# it. The controller indexes a copy of fixtures/calc with codegraph, partitions it into
 # one SystemContext per directory, fills status.observed and the conditions, and
 # rewrites the graph; the callback then shows one hop of the graph in ArcadeDB,
 # the default backend, and in HydraDB, the option.
@@ -53,7 +53,11 @@ echo "--- specd, the controller that owns the index ---"
 specd_pid=$!
 
 echo "--- one manifest: specctl applies a Repository and waits for Populated ---"
-"$SPECCTL" ingest --repo "$REPO/fixtures/calc" --repo-name calc
+CALC_TREE=$(mktemp -d "${TMPDIR:-/tmp}/specd-phase2-calc.XXXXXX")
+cp -r "$REPO/fixtures/calc/." "$CALC_TREE/"
+rm -rf "$CALC_TREE/.codegraph"
+(cd "$CALC_TREE" && git init -q -b main && git add -A && git -c user.email=example@example.com -c user.name=example commit -qm fixture)
+"$SPECCTL" ingest --repo "$CALC_TREE" --repo-name calc
 
 echo "--- the same objects through kubectl, on the workspace kubeconfig ---"
 K get systemcontexts

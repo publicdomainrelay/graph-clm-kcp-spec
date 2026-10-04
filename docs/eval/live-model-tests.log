@@ -1,26 +1,21 @@
-# SPECD_REQUIRE_LIVE_MODEL tests, 2026-10-03T22:56:02Z
-# go test ./test/e2e/ -count=1 -v -run 'the five tests that spend a real model call'
-
+e2e: private kcp on kernel ports at https://127.0.0.1:37169 (kine http://127.0.0.1:41427), state /tmp/specd-e2e-kcp-3678806398
+=== RUN   TestPhase12ScopeGuardRefusesAFileOutsideTheRoot
+    phase12_live_model_test.go:52: the mod refused the read of /home/johnandersen777/src/publicdomainrelay-kcp/hydradb/fixtures/greet/mod.ts inside a live session
+--- PASS: TestPhase12ScopeGuardRefusesAFileOutsideTheRoot (5.59s)
 === RUN   TestPhase5LiveModelSummarizesCalc
-    phase5_live_model_test.go:116: the model wrote 5 requirement(s) and 2 interface(s)
---- PASS: TestPhase5LiveModelSummarizesCalc (7.77s)
+    phase5_live_model_test.go:107: the model wrote 3 requirement(s) and 2 interface(s)
+--- PASS: TestPhase5LiveModelSummarizesCalc (9.58s)
 === RUN   TestPhase6LiveModelRealizesSubtract
-    phase6_live_model_test.go:120: the model realized calc on spec/calc/4b0de6bd, commit 12076581b4c44c9f0707ed76a5b990721bdf313f, files [calc/calc.go]
---- PASS: TestPhase6LiveModelRealizesSubtract (11.24s)
+    phase6_live_model_test.go:116: the model realized calc on spec/calc/4b0de6bd, commit 819f2ebcf5c2eb8933be79497a20f682815427af, files [calc/calc.go]
+--- PASS: TestPhase6LiveModelRealizesSubtract (12.74s)
 === RUN   TestPhase7LiveModelPopulatesAnUnknownCodebase
---- PASS: TestPhase7LiveModelPopulatesAnUnknownCodebase (11.70s)
+--- PASS: TestPhase7LiveModelPopulatesAnUnknownCodebase (21.13s)
 === RUN   TestPhase8LiveModelRealizesWithTheMod
-    phase8_live_model_test.go:175: change calc-s2c-86cbeb0f63f5 ended Running with 2 progress record(s)
---- PASS: TestPhase8LiveModelRealizesWithTheMod (12.89s)
-# The pi host was re-run over the hosted provider. Its earlier entry was taken
-# against a local model and is withdrawn: no local provider is used anywhere in
-# this repository, and the default arguments name `deepseek`/`deepseek-flash`,
-# with DEEPSEEK_API_KEY taken from the deepseek-claude launcher when the
-# environment has not exported one.
+    phase8_live_model_test.go:156: change calc-s2c-86cbeb0f63f5 ended Running with 1 progress record(s)
+--- PASS: TestPhase8LiveModelRealizesWithTheMod (12.04s)
 === RUN   TestPhase8PiHostSummarizesCalc
-    phase8_pi_live_model_test.go:75: the pi host runs npx [--yes @earendil-works/pi-coding-agent@1.0.0 --provider deepseek --model deepseek-flash --no-session -ne -p]
-    phase8_pi_live_model_test.go:97: the pi host wrote 2 requirement(s) and 2 interface(s)
---- PASS: TestPhase8PiHostSummarizesCalc (3.83s)
+    phase8_pi_live_model_test.go:67: the pi host runs npx [--yes @earendil-works/pi-coding-agent@1.0.0 --provider deepseek --model deepseek-flash --no-session -ne -p]
+    phase8_pi_live_model_test.go:89: the pi host wrote 3 requirement(s) and 2 interface(s)
+--- PASS: TestPhase8PiHostSummarizesCalc (4.86s)
 PASS
-ok  	github.com/publicdomainrelay/graph-clm-kcp-spec/test/e2e	122.899s
-EXIT=0
+ok  	github.com/publicdomainrelay/graph-clm-kcp-spec/test/e2e	78.198s

@@ -357,3 +357,38 @@ func TestEnsureCheckoutDropsACacheFromAnotherSource(t *testing.T) {
 		t.Fatalf("the cache still holds the first source: %q", contents)
 	}
 }
+
+func TestCommitAllLeavesTheCodegraphIndexOutWhateverIgnoresIt(t *testing.T) {
+	for _, excluded := range []bool{false, true} {
+		repo := tempRepo(t)
+		if excluded {
+			exclude := filepath.Join(repo, ".git", "info", "exclude")
+			if err := os.MkdirAll(filepath.Dir(exclude), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(exclude, []byte(".codegraph/\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.MkdirAll(filepath.Join(repo, ".codegraph"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, ".codegraph", "codegraph.db"), []byte("index"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, "new.go"), []byte("package main\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		commit, err := CommitAll(context.Background(), repo, "work")
+		if err != nil {
+			t.Fatalf("excluded=%v: %v", excluded, err)
+		}
+		out, err := exec.Command("git", "-C", repo, "show", "--name-only", "--format=", commit).CombinedOutput()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.TrimSpace(string(out)); got != "new.go" {
+			t.Fatalf("excluded=%v: the commit carries %q, want new.go only", excluded, got)
+		}
+	}
+}
