@@ -45,18 +45,19 @@ for tool in "$SPECD" "$SPECCTL"; do
   fi
 done
 
-echo "--- the example contexts, as YAML, through kcp ---"
-"$SPECCTL" apply -f "$REPO/examples/calc/specs.yaml"
+CALC_TREE=$(mktemp -d "${TMPDIR:-/tmp}/specd-phase2-calc.XXXXXX")
+cp -r "$REPO/fixtures/calc/." "$CALC_TREE/"
+rm -rf "$CALC_TREE/.codegraph"
+(cd "$CALC_TREE" && git init -q -b main && git add -A && git -c user.email=example@example.com -c user.name=example commit -qm fixture)
+
+echo "--- the example contexts, as YAML, through kcp (pointed at a copy of the fixture) ---"
+sed "s#path: fixtures/calc#path: $CALC_TREE#" "$REPO/examples/calc/specs.yaml" | "$SPECCTL" apply -f -
 
 echo "--- specd, the controller that owns the index ---"
 "$SPECD" --resync "$RESYNC" --retry-backoff 1s > "$ROOT/example-phase2.specd.log" 2>&1 &
 specd_pid=$!
 
 echo "--- one manifest: specctl applies a Repository and waits for Populated ---"
-CALC_TREE=$(mktemp -d "${TMPDIR:-/tmp}/specd-phase2-calc.XXXXXX")
-cp -r "$REPO/fixtures/calc/." "$CALC_TREE/"
-rm -rf "$CALC_TREE/.codegraph"
-(cd "$CALC_TREE" && git init -q -b main && git add -A && git -c user.email=example@example.com -c user.name=example commit -qm fixture)
 "$SPECCTL" ingest --repo "$CALC_TREE" --repo-name calc
 
 echo "--- the same objects through kubectl, on the workspace kubeconfig ---"
