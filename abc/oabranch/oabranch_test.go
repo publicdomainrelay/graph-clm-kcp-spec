@@ -61,7 +61,7 @@ func TestFilesLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{ReadmePath, RepositoryPath, ArchPath, SpecPath("calc"), StatusPath("calc"), ContextPath("calc"), ChangePath("calc-s2c-12345678"), GraphVerticesPath, GraphEdgesPath} {
+	for _, path := range []string{ReadmePath, GitAttributesPath, RepositoryPath, ArchPath, SpecPath("calc"), StatusPath("calc"), ContextPath("calc"), ChangePath("calc-s2c-12345678"), GraphVerticesPath, GraphEdgesPath} {
 		if _, ok := files[path]; !ok {
 			t.Errorf("missing %s", path)
 		}
@@ -75,14 +75,91 @@ func TestFilesLayout(t *testing.T) {
 	if strings.Contains(string(files[SpecPath("calc")]), "codeRefs:\n- file:calc/calc.go\n  interfaces") {
 		t.Errorf("spec file carries the derived refs")
 	}
-	if !strings.Contains(string(files[ArchPath]), "id: sc.calc") || !strings.Contains(string(files[ArchPath]), "Integer arithmetic.") {
-		t.Errorf("arch.yaml lacks the context:\n%s", files[ArchPath])
+	arch := string(files[ArchPath])
+	for _, want := range []string{"id: sc.calc", "name: calc", "spec: specs/calc.yaml", "id: r.add", "level: MUST"} {
+		if !strings.Contains(arch, want) {
+			t.Errorf("arch.yaml lacks %q:\n%s", want, arch)
+		}
+	}
+	for _, unwanted := range []string{"Integer arithmetic.", "Add returns the sum.", "signature:"} {
+		if strings.Contains(arch, unwanted) {
+			t.Errorf("arch.yaml repeats the spec's text %q:\n%s", unwanted, arch)
+		}
 	}
 	if !strings.Contains(string(files[ContextPath("calc")]), "function:abc") {
 		t.Errorf("context document lacks the resolved ref:\n%s", files[ContextPath("calc")])
 	}
 	if !strings.Contains(string(files[GraphVerticesPath]), `"label":"SpecContext"`) {
 		t.Errorf("vertices lack the context:\n%s", files[GraphVerticesPath])
+	}
+}
+
+func TestArchYamlDoesNotRepeatTheSpecText(t *testing.T) {
+	before, err := Files(calcSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := calcSnapshot()
+	snapshot.Contexts[0].Spec.Intent = "Integer arithmetic, reworded."
+	snapshot.Contexts[0].Spec.Requirements[0].Text = "Add returns the sum of two integers."
+	snapshot.Contexts[0].Spec.Interfaces[0].Signature = "func Add(a, b int) int // reworded"
+	after, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before[ArchPath]) != string(after[ArchPath]) {
+		t.Errorf("arch.yaml moved when only the spec text did:\n%s", after[ArchPath])
+	}
+	if string(before[SpecPath("calc")]) == string(after[SpecPath("calc")]) {
+		t.Error("the spec file did not move when its text did")
+	}
+}
+
+func TestArchYamlMovesWhenTheStructureDoes(t *testing.T) {
+	before, err := Files(calcSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := calcSnapshot()
+	snapshot.Contexts[0].Spec.Requirements = append(snapshot.Contexts[0].Spec.Requirements,
+		spec.Requirement{ID: "r.sub", Level: spec.LevelShould, Text: "Subtract returns the difference."})
+	after, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arch := string(after[ArchPath])
+	if !strings.Contains(arch, "id: r.sub") || !strings.Contains(arch, "level: SHOULD") {
+		t.Errorf("arch.yaml lacks the added requirement's id and level:\n%s", arch)
+	}
+	if strings.Contains(arch, "Subtract returns the difference.") {
+		t.Errorf("arch.yaml carries the added requirement's text:\n%s", arch)
+	}
+	if string(before[ArchPath]) == arch {
+		t.Error("arch.yaml did not move when a requirement was added")
+	}
+}
+
+func TestGitAttributesCollapsesTheDerivedFiles(t *testing.T) {
+	files, err := Files(calcSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	attributes, ok := files[GitAttributesPath]
+	if !ok {
+		t.Fatal("the branch has no .gitattributes")
+	}
+	for _, marked := range []string{"arch.yaml", "repository.yaml", "changes/*", "context/*", "graph/*", "status/*"} {
+		if !strings.Contains(string(attributes), marked+" linguist-generated=true") {
+			t.Errorf(".gitattributes does not mark %s:\n%s", marked, attributes)
+		}
+	}
+	for _, line := range strings.Split(string(attributes), "\n") {
+		if !strings.Contains(line, "linguist-generated") {
+			continue
+		}
+		if strings.Contains(line, "specs/") || strings.Contains(line, "CHANGES.md") {
+			t.Errorf(".gitattributes marks the reviewable diff: %q", line)
+		}
 	}
 }
 
@@ -410,13 +487,13 @@ func TestSubjectsNameEveryKindOfChange(t *testing.T) {
 
 func TestCoalesceProgressDefersAProgressOnlyRewrite(t *testing.T) {
 	change := calcSnapshot().Changes[0]
-	before, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: changeSpecDocOf(change.Spec), Status: change.Status})
+	before, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: changeSpecDocOf(change.Spec), Status: changeStatusDocOf(change.Status)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	after := change
 	after.Status.Progress = append(after.Status.Progress, spec.ProgressRecord{Turn: 1, Tool: "edit", At: "2026-01-01T00:00:00Z"})
-	next, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: changeSpecDocOf(change.Spec), Status: after.Status})
+	next, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: changeSpecDocOf(change.Spec), Status: changeStatusDocOf(after.Status)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +504,7 @@ func TestCoalesceProgressDefersAProgressOnlyRewrite(t *testing.T) {
 		t.Fatalf("a progress-only rewrite was planned: %+v %v", plan, deferred)
 	}
 	after.Status.Phase = specapi.PhaseFailed
-	final, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: changeSpecDocOf(change.Spec), Status: after.Status})
+	final, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: changeSpecDocOf(change.Spec), Status: changeStatusDocOf(after.Status)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,11 +543,11 @@ func TestOneRecordPerEpisodeSummarizesTheEarlierAttempts(t *testing.T) {
 
 func TestPreserveChangesKeepsEveryRecordTheBranchHolds(t *testing.T) {
 	change := calcSnapshot().Changes[0]
-	survivor, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: changeSpecDocOf(change.Spec), Status: change.Status})
+	survivor, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: changeSpecDocOf(change.Spec), Status: changeStatusDocOf(change.Status)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	attempt, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name + "-a2"}, Spec: changeSpecDocOf(change.Spec), Status: spec.SpecChangeStatus{Phase: specapi.PhaseFailed}})
+	attempt, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name + "-a2"}, Spec: changeSpecDocOf(change.Spec), Status: changeStatusDocOf(spec.SpecChangeStatus{Phase: specapi.PhaseFailed})})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,6 +613,54 @@ func TestChangeRecordCarriesASummaryNotTheWholeDelta(t *testing.T) {
 	}
 	if len(parsed) != 1 || parsed[0].Spec.Direction != specapi.DirectionSpecToCode || parsed[0].Spec.SystemContext != "calc" {
 		t.Fatalf("the compact record does not read back: %+v", parsed)
+	}
+}
+
+func TestChangeRecordSummarizesProgressAndKeepsTheReport(t *testing.T) {
+	snapshot := calcSnapshot()
+	change := &snapshot.Changes[0]
+	change.Status.Progress = []spec.ProgressRecord{
+		{Tool: "Read", Files: []string{"calc/calc.go"}, At: "2026-10-04T21:05:24Z"},
+		{Tool: "Read", Files: []string{"calc/more.go"}, At: "2026-10-04T21:05:26Z"},
+		{Tool: "Edit", Files: []string{"calc/calc.go"}, At: "2026-10-04T21:05:37Z"},
+		{Note: "turn", At: "2026-10-04T21:06:44Z"},
+		{Turn: 3, Note: "turn", At: "2026-10-04T21:07:00Z"},
+	}
+	change.Status.AgentLog = "**Edited** calc.go.\n\nverify: exit 0, 13 ok"
+	files, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := string(files[ChangePath(change.Name)])
+	for _, want := range []string{
+		"progress:",
+		"turns: 3",
+		"tool: Edit",
+		"count: 1",
+		"tool: Read",
+		"count: 2",
+		"calc/more.go",
+		"notes: 2",
+		`first: "2026-10-04T21:05:24Z"`,
+		`last: "2026-10-04T21:07:00Z"`,
+		"**Edited** calc.go.",
+	} {
+		if !strings.Contains(record, want) {
+			t.Errorf("the record lacks %q:\n%s", want, record)
+		}
+	}
+	if strings.Count(record, "2026-10-04T21:0") != 2 {
+		t.Errorf("the record lists one timestamp per turn, not a first and a last:\n%s", record)
+	}
+	if strings.Count(record, "- tool:") != 2 {
+		t.Errorf("the record lists one entry per tool call, not one count per tool:\n%s", record)
+	}
+	parsed, err := ChangeFiles(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed) != 1 || parsed[0].Status.Phase != specapi.PhaseSucceeded {
+		t.Fatalf("the summarized record does not read back: %+v", parsed)
 	}
 }
 

@@ -38,6 +38,10 @@ const (
 
 	ChangesDocPath = "CHANGES.md"
 
+	GitAttributesPath = ".gitattributes"
+
+	GraphDir = "graph"
+
 	GraphVerticesPath = "graph/vertices.jsonl"
 
 	GraphEdgesPath = "graph/edges.jsonl"
@@ -216,9 +220,129 @@ type changeDoc struct {
 
 	Spec changeSpecDoc `json:"spec"`
 
-	Status spec.SpecChangeStatus `json:"status"`
+	Status changeStatusDoc `json:"status"`
 
 	Superseded []supersededDoc `json:"superseded,omitempty"`
+}
+
+// changeStatusDoc is the status a change record carries: the outcome, the
+// agent's own report with the verify summary, and a progress summary rather
+// than one entry per tool call. The full progress list and the raw logs stay
+// in kcp and the state dir.
+type changeStatusDoc struct {
+	Phase string `json:"phase,omitempty"`
+
+	Branch string `json:"branch,omitempty"`
+
+	Commit string `json:"commit,omitempty"`
+
+	VerifyExitCode int `json:"verifyExitCode,omitempty"`
+
+	FilesTouched []string `json:"filesTouched,omitempty"`
+
+	AgentLog string `json:"agentLog,omitempty"`
+
+	Message string `json:"message,omitempty"`
+
+	Acceptance []spec.AcceptanceResult `json:"acceptance,omitempty"`
+
+	Progress *changeProgressDoc `json:"progress,omitempty"`
+}
+
+type changeProgressDoc struct {
+	Turns int `json:"turns,omitempty"`
+
+	Tools []changeToolCount `json:"tools,omitempty"`
+
+	Files []string `json:"files,omitempty"`
+
+	Notes int `json:"notes,omitempty"`
+
+	First string `json:"first,omitempty"`
+
+	Last string `json:"last,omitempty"`
+}
+
+type changeToolCount struct {
+	Tool string `json:"tool"`
+
+	Count int `json:"count"`
+}
+
+func changeStatusDocOf(status spec.SpecChangeStatus) changeStatusDoc {
+	return changeStatusDoc{
+		Phase:          status.Phase,
+		Branch:         status.Branch,
+		Commit:         status.Commit,
+		VerifyExitCode: status.VerifyExitCode,
+		FilesTouched:   status.FilesTouched,
+		AgentLog:       status.AgentLog,
+		Message:        status.Message,
+		Acceptance:     status.Acceptance,
+		Progress:       progressSummary(status.Progress),
+	}
+}
+
+func (s changeStatusDoc) specChangeStatus() spec.SpecChangeStatus {
+	return spec.SpecChangeStatus{
+		Phase:          s.Phase,
+		Branch:         s.Branch,
+		Commit:         s.Commit,
+		VerifyExitCode: s.VerifyExitCode,
+		FilesTouched:   s.FilesTouched,
+		AgentLog:       s.AgentLog,
+		Message:        s.Message,
+		Acceptance:     s.Acceptance,
+	}
+}
+
+func progressSummary(records []spec.ProgressRecord) *changeProgressDoc {
+	if len(records) == 0 {
+		return nil
+	}
+	doc := &changeProgressDoc{}
+	tools := map[string]int{}
+	files := map[string]bool{}
+	for _, record := range records {
+		if record.Turn > doc.Turns {
+			doc.Turns = record.Turn
+		}
+		if record.Tool != "" {
+			tools[record.Tool]++
+		}
+		if record.Note != "" {
+			doc.Notes++
+		}
+		for _, file := range record.Files {
+			files[file] = true
+		}
+		if record.At == "" {
+			continue
+		}
+		if doc.First == "" || record.At < doc.First {
+			doc.First = record.At
+		}
+		if record.At > doc.Last {
+			doc.Last = record.At
+		}
+	}
+	for _, tool := range sortedKeys(tools) {
+		doc.Tools = append(doc.Tools, changeToolCount{Tool: tool, Count: tools[tool]})
+	}
+	for file := range files {
+		doc.Files = append(doc.Files, file)
+	}
+	sort.Strings(doc.Files)
+	return doc
+}
+
+func sortedKeys[V any](in map[string]V) []string {
+	out := make([]string, 0, len(in))
+	for key := range in {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // changeSpecDoc is the compact spec a change record carries: what was attempted
@@ -325,10 +449,15 @@ type supersededDoc struct {
 	Message string `json:"message,omitempty"`
 }
 
+// archContext is the structure of one context in arch.yaml, not its text: the
+// prose, the requirement text and the interfaces live in the spec file it
+// names, so an edit to a requirement's wording does not rewrite arch.yaml.
 type archContext struct {
 	ID string `json:"id"`
 
 	Name string `json:"name"`
+
+	Spec string `json:"spec"`
 
 	Upstream string `json:"upstream,omitempty"`
 
@@ -340,15 +469,35 @@ type archContext struct {
 
 	Introduces []string `json:"introduces,omitempty"`
 
-	Intent string `json:"intent,omitempty"`
+	Arch *archNodeDoc `json:"arch,omitempty"`
 
-	Requirements []spec.Requirement `json:"requirements,omitempty"`
-
-	Interfaces []spec.Interface `json:"interfaces,omitempty"`
-
-	Code []string `json:"code,omitempty"`
+	Requirements []archRequirement `json:"requirements,omitempty"`
 
 	CodeRefIndex []string `json:"codeRefIndex,omitempty"`
+}
+
+// archNodeDoc is where a context sits in the architecture document it was
+// seeded from; the node body stays in the spec file.
+type archNodeDoc struct {
+	ID string `json:"id"`
+
+	Kind string `json:"kind,omitempty"`
+
+	Section string `json:"section,omitempty"`
+
+	Form string `json:"form,omitempty"`
+
+	Position int `json:"position,omitempty"`
+
+	Parent string `json:"parent,omitempty"`
+
+	Slot string `json:"slot,omitempty"`
+}
+
+type archRequirement struct {
+	ID string `json:"id"`
+
+	Level spec.Level `json:"level,omitempty"`
 }
 
 type archMetadata struct {
@@ -376,6 +525,7 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 		return nil, fmt.Errorf("oabranch: the snapshot has no repository name")
 	}
 	files[ReadmePath] = []byte(readme(name))
+	files[GitAttributesPath] = []byte(gitAttributes())
 
 	contexts := sortedContexts(snapshot.Contexts)
 	repository, err := yamlx.Marshal(repositoryDocOf(snapshot.Repository, contexts))
@@ -422,7 +572,7 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 			Kind:       specapi.SpecChangeKind,
 			Metadata:   objectMeta{Name: surviving.Name, Namespace: surviving.Namespace},
 			Spec:       changeSpecDocOf(surviving.Spec),
-			Status:     surviving.Status,
+			Status:     changeStatusDocOf(surviving.Status),
 			Superseded: superseded(episode),
 		})
 		if err != nil {
@@ -457,20 +607,38 @@ func codeRefIndex(context spec.SystemContext, refs map[string]graph.CodeRef) []s
 	return graph.ContextRefLines(context, refs)
 }
 
+// gitAttributes marks every derived file as generated, so a review of a
+// branch or a pull request collapses them and leaves specs/ and CHANGES.md as
+// the diff a person reads.
+func gitAttributes() string {
+	return strings.Join([]string{
+		"# Written by specd from kcp; review specs/ and CHANGES.md instead.",
+		ArchPath + " linguist-generated=true",
+		RepositoryPath + " linguist-generated=true",
+		ChangesDir + "/* linguist-generated=true",
+		ContextDir + "/* linguist-generated=true",
+		GraphDir + "/* linguist-generated=true",
+		StatusDir + "/* linguist-generated=true",
+		"",
+	}, "\n")
+}
+
 func readme(repository string) string {
 	return "# " + Branch(repository) + "\n\n" +
 		"The architecture and specs of `" + repository + "`, as kcp holds them.\n\n" +
 		"Written by specd, one commit per change in kcp. An orphan branch: it shares no\n" +
 		"history with the code and is never checked out next to it, so an agent working\n" +
 		"on the code never mistakes the spec for the code.\n\n" +
+		"A `.gitattributes` marks every derived file `linguist-generated`, so a\n" +
+		"review shows `specs/` and `CHANGES.md` and collapses the rest.\n\n" +
 		"| path | holds |\n" +
 		"| --- | --- |\n" +
-		"| `arch.yaml` | the whole repository as generated system contexts (`kind: GeneratedArchitecture`) |\n" +
+		"| `arch.yaml` | the structure of the repository as generated system contexts (`kind: GeneratedArchitecture`): each one's id, upstream, depends_on, arch node, requirement ids and levels, and a pointer to its spec file |\n" +
 		"| `repository.yaml` | the Repository manifest, its populate state, and the commits every context shares |\n" +
 		"| `specs/<context>.yaml` | each context's declared spec; edit here to change kcp |\n" +
 		"| `status/<context>.yaml` | observed code facts and conditions |\n" +
 		"| `context/<context>.md` | the context's prose and resolved code references; the spec lives in `specs/` |\n" +
-		"| `changes/<name>.yaml` | each SpecChange: direction, a delta summary (counts and ids), progress, outcome |\n" +
+		"| `changes/<name>.yaml` | each SpecChange: direction, a delta summary (counts and ids), a progress summary, the agent's report and the verify summary |\n" +
 		"| `CHANGES.md` | on a feature branch: the requirement delta against the default branch |\n" +
 		"| `graph/*.jsonl` | the context graph, one vertex or edge per line |\n"
 }
@@ -567,15 +735,14 @@ func archDocOf(repository spec.Repository, contexts []spec.SystemContext, branch
 		doc.SystemContexts = append(doc.SystemContexts, archContext{
 			ID:           id,
 			Name:         context.Name,
+			Spec:         SpecPath(context.Name),
 			Upstream:     declared.Upstream,
 			Overlay:      declared.Overlay,
 			Orchestrator: declared.Orchestrator,
 			DependsOn:    declared.DependsOn,
 			Introduces:   declared.Introduces,
-			Intent:       declared.Intent,
-			Requirements: declared.Requirements,
-			Interfaces:   declared.Interfaces,
-			Code:         context.Status.Observed.Files,
+			Arch:         archNodeOf(declared.Arch),
+			Requirements: archRequirements(declared.Requirements),
 			CodeRefIndex: codeRefIndex(context, refs),
 		})
 	}
@@ -583,6 +750,32 @@ func archDocOf(repository spec.Repository, contexts []spec.SystemContext, branch
 		doc.SystemContexts = []archContext{}
 	}
 	return doc
+}
+
+func archNodeOf(arch *spec.ArchSpec) *archNodeDoc {
+	if arch == nil || arch.ID == "" {
+		return nil
+	}
+	return &archNodeDoc{
+		ID:       arch.ID,
+		Kind:     arch.Kind,
+		Section:  arch.Section,
+		Form:     arch.Form,
+		Position: arch.Position,
+		Parent:   arch.Parent,
+		Slot:     arch.Slot,
+	}
+}
+
+func archRequirements(requirements []spec.Requirement) []archRequirement {
+	if len(requirements) == 0 {
+		return nil
+	}
+	out := make([]archRequirement, 0, len(requirements))
+	for _, requirement := range requirements {
+		out = append(out, archRequirement{ID: requirement.ID, Level: requirement.Level})
+	}
+	return out
 }
 
 func sourceOf(repository spec.Repository) string {
@@ -916,7 +1109,7 @@ func ChangeFiles(files map[string][]byte) ([]spec.SpecChange, error) {
 		change.Name = doc.Metadata.Name
 		change.Namespace = doc.Metadata.Namespace
 		change.Spec = doc.Spec.specChangeSpec()
-		change.Status = doc.Status
+		change.Status = doc.Status.specChangeStatus()
 		out = append(out, change)
 	}
 	return out, nil
