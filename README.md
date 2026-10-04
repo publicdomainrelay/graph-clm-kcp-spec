@@ -1125,8 +1125,10 @@ bin/specctl eval --fixtures fixtures --agent claude-mod --clm-mod cc-clm-mod \
 SPECD_EVAL_UNKNOWN_REPO=../kcp-libs bin/specctl eval --fixtures fixtures/external \
   --agent claude-mod --clm-mod cc-clm-mod --code-only --round-trip=false
 
-# the pi host over a real model (the default command is the npm package;
-# SPECD_PI_ARGS names a provider or model when the environment needs one)
+# the pi host over a real model: the default command is the npm package and the
+# default arguments name the hosted provider (deepseek). The pi host takes the
+# provider credential from the deepseek-claude launcher when DEEPSEEK_API_KEY is
+# not exported. Local providers are not used in this repository.
 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase8PiHostSummarizesCalc -count=1 -v
 
 # the three tests that spend a real model call
