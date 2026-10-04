@@ -202,3 +202,36 @@ func TestSeedLooksLikeIngestNotLikeAHumanEdit(t *testing.T) {
 		t.Errorf("origin hash = %q, want the seeded spec hash", object.GetAnnotations()[specapi.OriginHashAnnotation])
 	}
 }
+
+func TestSeedKeepsAnOverlayRefTheDocumentSpellsAndNeverTurnsItIntoAnUpstream(t *testing.T) {
+	const document = `
+metadata: {name: calc, root: sc.calc}
+system_contexts:
+  - id: sc.calc
+    overlay: [sc.helper, ov.notes]
+  - id: sc.helper
+    upstream: up.go
+  - id: ov.notes
+    source: notes.md
+`
+	cluster := seedCluster(t, &spec.SystemContext{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc", Namespace: specapi.DefaultNamespace},
+		Spec:       spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf},
+	})
+	partitions := []specsync.Partition{{Name: "calc", Directory: ".", TreeFiles: []string{"Makefile"}}}
+	if _, err := Seed(context.Background(), cluster, SeedOptions{
+		Repository:  "calc",
+		Data:        []byte(document),
+		Partitions:  partitions,
+		RootContext: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	context := contextIn(t, cluster, "calc")
+	if !reflect.DeepEqual(context.Spec.Overlay, []string{"ov.notes", "sc.helper"}) {
+		t.Fatalf("overlay = %v, want the document's own spellings", context.Spec.Overlay)
+	}
+	if result := spec.ValidateSystemContext(context); !result.OK() {
+		t.Fatalf("the seeded root does not validate: %v", result.Err())
+	}
+}

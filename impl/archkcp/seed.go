@@ -237,14 +237,17 @@ func (r *refResolver) direct(ref string) string {
 	return ""
 }
 
-func (r *refResolver) refs(values []string, direct bool) []string {
+func (r *refResolver) refs(values []string, mode refMode) []string {
 	seen := map[string]bool{}
 	out := []string{}
 	for _, value := range values {
 		var resolved string
-		if direct {
+		switch mode {
+		case refKeep:
+			resolved = r.keep(value)
+		case refDirect:
 			resolved = r.direct(value)
-		} else {
+		default:
 			resolved = r.resolve(value)
 		}
 		if resolved == "" || seen[resolved] {
@@ -260,6 +263,33 @@ func (r *refResolver) refs(values []string, direct bool) []string {
 	return out
 }
 
+// keep resolves a ref onto the generated context that carries its node, and
+// leaves it spelled as the document does when no generated context carries it:
+// an overlay of the document's own contexts stays readable.
+func (r *refResolver) keep(ref string) string {
+	if !strings.HasPrefix(ref, spec.RefPrefixContext) {
+		return ref
+	}
+	payload, ok := spec.RefName(ref)
+	if !ok {
+		return ""
+	}
+	if name := r.contextOf(payload); name != "" {
+		return spec.RefPrefixContext + name
+	}
+	return ref
+}
+
+type refMode int
+
+const (
+	refKeep refMode = iota
+
+	refDirect
+
+	refFollow
+)
+
 func seedSpec(node *archyaml.Node, repository string, files []string, resolver *refResolver) spec.SystemContextSpec {
 	code := fileRefs(knownFiles(node.Code, files))
 	upstream := resolver.resolve(archRef(node.Upstream))
@@ -269,10 +299,10 @@ func seedSpec(node *archyaml.Node, repository string, files []string, resolver *
 	return spec.SystemContextSpec{
 		Repository:   repository,
 		Upstream:     upstream,
-		Overlay:      resolver.refs(archRefs(node.Overlay, spec.RefPrefixContext, spec.RefPrefixOverlay), false),
+		Overlay:      resolver.refs(archRefs(node.Overlay, spec.RefPrefixContext, spec.RefPrefixOverlay), refKeep),
 		Orchestrator: archRef(node.Orchestrator),
-		DependsOn:    resolver.refs(archRefs(node.DependsOn, spec.RefPrefixContext), true),
-		Introduces:   resolver.refs(archRefs(node.Introduces, spec.RefPrefixContext), true),
+		DependsOn:    resolver.refs(archRefs(node.DependsOn, spec.RefPrefixContext), refDirect),
+		Introduces:   resolver.refs(archRefs(node.Introduces, spec.RefPrefixContext), refDirect),
 		CodeRefs:     code,
 		Arch: &spec.ArchSpec{
 			ID:           node.ID,
