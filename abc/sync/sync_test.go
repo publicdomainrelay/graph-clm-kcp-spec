@@ -197,17 +197,31 @@ func TestReanchorRefsLeavesAMovedNameAndAnUnmovedIDAlone(t *testing.T) {
 		{Name: "Add", Kind: "function", File: "calc/calc.go", Line: 4, CodegraphID: "function:aaa"},
 	}}
 	declared := spec.SystemContextSpec{
+		CodeRefs:     []string{"file:calc/calc.go"},
 		Requirements: []spec.Requirement{{ID: "r.add", CodeRefs: []string{"function:aaa"}}},
 	}
 	if got := ReanchorRefs(declared, spec.ObservedFacts{}, observed); !reflect.DeepEqual(got, declared) {
 		t.Errorf("an unchanged id moved: %+v", got)
 	}
+	moved := spec.ObservedFacts{Interfaces: []spec.ObservedInterface{
+		{Name: "Subtract", Kind: "function", File: "calc/calc.go", Line: 20, CodegraphID: "function:zzz"},
+	}}
 	twice := spec.ObservedFacts{Interfaces: []spec.ObservedInterface{
+		{Name: "Add", Kind: "function", File: "calc/calc.go", Line: 8, CodegraphID: "function:ccc"},
+		{Name: "Subtract", Kind: "function", File: "calc/calc.go", Line: 24, CodegraphID: "function:yyy"},
+	}}
+	got := ReanchorRefs(declared, moved, twice)
+	if len(got.CodeRefs) != 1 || got.CodeRefs[0] != "file:calc/calc.go" {
+		t.Errorf("a ref that did not move was dropped: %v", got.CodeRefs)
+	}
+	if got.Requirements[0].CodeRefs[0] != "function:aaa" {
+		t.Errorf("an unrelated requirement moved: %v", got.Requirements[0].CodeRefs)
+	}
+	ambiguous := spec.ObservedFacts{Interfaces: []spec.ObservedInterface{
 		{Name: "Add", Kind: "function", File: "calc/calc.go", Line: 8, CodegraphID: "function:ccc"},
 		{Name: "Add", Kind: "function", File: "calc/other.go", Line: 3, CodegraphID: "function:eee"},
 	}}
-	got := ReanchorRefs(declared, observed, twice)
-	if got.Requirements[0].CodeRefs[0] != "function:aaa" {
+	if got := ReanchorRefs(declared, observed, ambiguous); got.Requirements[0].CodeRefs[0] != "function:aaa" {
 		t.Errorf("an ambiguous name picked a symbol: %v", got.Requirements[0].CodeRefs)
 	}
 }

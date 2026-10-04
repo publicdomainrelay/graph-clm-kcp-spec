@@ -724,7 +724,9 @@ func ReanchorRefs(declared spec.SystemContextSpec, previous, observed spec.Obser
 		return declared
 	}
 	out := declared
-	out.CodeRefs = rewriteRefs(declared.CodeRefs, moved)
+	if refs := rewriteRefs(declared.CodeRefs, moved); refs != nil {
+		out.CodeRefs = refs
+	}
 	requirements := declared.Requirements
 	copied := false
 	for index, requirement := range declared.Requirements {
