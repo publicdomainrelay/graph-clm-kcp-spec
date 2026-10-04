@@ -16,7 +16,7 @@ export SPECD_BOLT_BACKEND ?= arcadedb
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet generate-schemas test test-live kcp-up kcp-down install-specs install-specs-provider example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 example-phase9 demo demo-phases clean
+.PHONY: build check fmt vet generate-schemas test test-live kcp-up kcp-down install-specs install-specs-provider example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 example-phase9 example-phase13 demo demo-phases clean
 
 ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
 ARCH_REPOSITORY ?= deno-kcp
@@ -132,6 +132,10 @@ example-phase6-failing: $(SPECCTL) $(SPECD) kcp-up
 # through the CLM path. SPECD_AGENT=claude runs the body with the live model,
 # SPECD_CLM_PATH=off skips the closing scenario, SPECD_EVAL_OUT=<path> also
 # writes the report.
+
+example-phase13: build
+	bash scripts/example-phase13.sh
+
 demo: $(SPECCTL) $(SPECD) kcp-up
 	./scripts/demo.sh
 
