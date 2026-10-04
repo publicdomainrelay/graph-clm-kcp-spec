@@ -274,11 +274,12 @@ replaces), the model timeout is 15 minutes, `specctl up` adopts a still-running
 kcp, realize rebases onto a branch that moved instead of failing, `specctl retry`
 exists, and the architecture branch follows the code branch
 (`open-architecture/<repo>--<branch>`), so a pull request's spec never lands in
-the architecture of `main`. What is still weak: specd realizes the two changes
-independently, so the registry change, which depends on the example's files,
-fails its first attempt; and "running" is checked offline (manifests decode,
-fit the schemas, and `apply.sh` applies them), not by bringing the market stack
-up live. Details and the full table:
+the architecture of `main`. Since then one spec edit is realized as one change
+— one realization per Repository at a time, every pending change of it in the
+same batch and the same commit — so the registry change no longer races the
+example change that its files depend on. What is still weak: "running" is
+checked offline (manifests decode, fit the schemas, and `apply.sh` applies
+them), not by bringing the market stack up live. Details and the full table:
 [`docs/examples/deno-kcp-pr.md`](docs/examples/deno-kcp-pr.md#analysis).
 
 ## Status
@@ -871,8 +872,11 @@ A change of a direction is only created when nothing of that direction is still
 unit of work, not one per reconcile, and a controller restart does not queue
 another. `SpecChange` reconcile keeps a change `Pending` and enforces the
 admission rule from the plan: at most one change may be `Running` per
-`SystemContext`, and the lowest name wins, so a second one is marked `Failed`
-instead of racing.
+`SystemContext`, and the lowest name wins, so a second `CodeToSpec` change is
+marked `Failed` instead of racing. `SpecToCode` admission is keyed by
+`Repository` instead, and a sibling is not failed: the oldest pending change of
+the repository leads and the rest of its pending changes join the same batch
+(see [Spec becomes code, driven by a delta](#spec-becomes-code-driven-by-a-delta)).
 
 ```bash
 bin/specd --workspace root:specs --resync 5s --watch informer
@@ -996,36 +1000,57 @@ spec the last realize or ingest acknowledged, and `status.syncedObserved` is the
 fact set the synced baseline was taken from, so a delta never needs a second
 source.
 
-**One `SpecToCode` change is one worktree.** The reconciler:
+**One realization per repository, and one spec edit is one realization.** The
+reconciler:
 
 1. Reads the context, the repository and its `verify` command, and computes the
    delta against `status.realizedSpec`. A repository that names no agent, and a
    controller started with no `--agent`, leave the change `Pending` for a
    human.
-2. Makes a worktree on branch `spec/<context>/<hash8>` off the managed branch.
-3. Asks the agent. `impl/claudecli` puts the rendered delta first, then the spec
-   the code must reach, then the verify command, and the rule *edit files only,
-   do not commit*. `impl/scriptedagent` applies the scenario's write, patch and
-   delete steps instead.
-4. Runs `Repository.spec.verify` in the worktree. Zero is the gate.
-5. Commits the code the agent left (no spec artefact is in the worktree) as
+2. **Serializes by repository, not by context.** While a `SpecToCode`
+   realization of a repository is `Running`, no other realization of that
+   repository starts; the oldest pending change of it leads. No two realizations
+   race the managed branch.
+3. **Gathers the rest of the edit into the same change.** The leader waits a
+   gather window (`--batch-window`, default 5s, measured from the oldest pending
+   change); every pending `SpecToCode` change of the repository then joins it.
+   The batch is one worktree on branch `spec/<leader context>/<hash8>` off the
+   managed branch, one agent run whose prompt groups the deltas, and then the
+   target specs, by context in creation order, one verify, and one commit with
+   one `Spec-Change:` trailer per member. Every member is marked `Succeeded` (or
+   `Failed`) with the same commit, `filesTouched` and verify exit code; a batch
+   of two or more also records a progress entry naming the batch and its leader
+   on every member. So a harness that edits several contexts in a row lands one
+   commit, and a context whose files depend on another's is never realized on a
+   base without them.
+4. Asks the agent. `impl/claudecli` puts the rendered deltas first, then the
+   specs the code must reach, then the verify command, and the rule *edit files
+   only, do not commit*. `impl/scriptedagent` applies the scenario's write,
+   patch and delete steps, member by member, in the same order.
+5. Runs `Repository.spec.verify` in the worktree. Zero is the gate.
+6. Commits the code the agent left (no spec artefact is in the worktree) as
    `specd <specd@localhost>`, fast-forwards it onto the managed branch with
    `--ff-only` (so a branch a human moved is a failure, never a rewrite), and
-   deletes the change's branch.
-6. Re-ingests the tree and hands ingest the spec it realized, so the new file
-   refs, the new fingerprint, the new commit and the realized hash land in one
-   status write. That is what ends the episode: no drift is reported for the
-   tool's own work, so the controller cannot raise the opposite change.
+   deletes the batch's branch.
+7. Re-ingests the tree and hands ingest the spec each member realized, so the
+   new file refs, the new fingerprint, the new commit and the realized hash land
+   in one status write. That is what ends the episode: no drift is reported for
+   the tool's own work, so the controller cannot raise the opposite change.
 
-On a non-zero exit the change is `Failed` with the exit code, the files it
+On a non-zero exit every member is `Failed` with the exit code, the files it
 touched and the verify output; the branch is kept for a human, the managed
 branch and the spec do not move, and the next attempt is handed that output as
-its instruction. Attempts back off and stop after `--max-attempts`.
+its instruction. A failure caused by a sibling is not the change's fault: when
+the managed branch has moved since the attempt's base (a sibling landed, or a
+human committed), the attempt is retried once on the new base, and that retry
+does not count against the cap. Attempts back off and stop after
+`--max-attempts`.
 
 ```bash
 bin/specd --agent claude --resync 5s                       # the real model
 bin/specd --resync 5s                                      # agent named by the manifest
 bin/specd --agent scripted:examples/phase6/scenario.yaml    # deterministic
+bin/specd --batch-window 30s                               # a wider gather window
 ```
 
 `Repository.spec.agent.kind` selects the agent per repository

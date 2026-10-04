@@ -26,7 +26,7 @@ type batchPlan struct {
 	deferred bool
 }
 
-func (c *Controller) reconcileSpecToCode(ctx context.Context, namespace, name string, change *spec.SpecChange) (time.Duration, error) {
+func (c *Controller) reconcileSpecToCode(ctx context.Context, namespace string, change *spec.SpecChange) (time.Duration, error) {
 	repository, ready, err := c.realizeTarget(ctx, namespace, change)
 	if err != nil {
 		return 0, err
@@ -151,7 +151,7 @@ func (c *Controller) runBatch(ctx context.Context, namespace string, repository 
 		result, failure = c.realizeWork(ctx, namespace, repository, work)
 	} else {
 		for _, member := range idle {
-			options, optionErr := c.batchOptions(ctx, namespace, repository, []*spec.SpecChange{member})
+			options, optionErr := c.settleOptions(ctx, namespace, repository, member)
 			if optionErr != nil {
 				failure = optionErr
 				break
@@ -168,7 +168,7 @@ func (c *Controller) runBatch(ctx context.Context, namespace string, repository 
 	}
 
 	for _, member := range idle {
-		options, optionErr := c.batchOptions(ctx, namespace, repository, []*spec.SpecChange{member})
+		options, optionErr := c.settleOptions(ctx, namespace, repository, member)
 		if optionErr != nil {
 			c.recordBatchFailure(ctx, namespace, members, result, optionErr)
 			return 0, nil
@@ -370,6 +370,32 @@ func (c *Controller) batchOptions(ctx context.Context, namespace string, reposit
 		})
 	}
 	return options, nil
+}
+
+func (c *Controller) settleOptions(ctx context.Context, namespace string, repository *spec.Repository, member *spec.SpecChange) (realize.Options, error) {
+	repoPath, err := filepath.Abs(repository.WorkPath())
+	if err != nil {
+		return realize.Options{}, err
+	}
+	if !gitrepo.IsRepo(ctx, repoPath) {
+		return realize.Options{}, fmt.Errorf("specd: %s is not a git working tree", repoPath)
+	}
+	scoped := *repository
+	scoped.Spec.Path = repoPath
+	scoped.Status.ResolvedPath = repoPath
+	return realize.Options{
+		Cluster:       c.client,
+		Namespace:     namespace,
+		Context:       member.Spec.SystemContext,
+		Change:        member.Name,
+		Repository:    &scoped,
+		Codegraph:     codegraphcli.Runner{Tool: c.opts.Tool, Dir: repoPath},
+		Writer:        c.opts.Graph,
+		Budget:        c.opts.Budget,
+		NodeLimit:     c.opts.NodeLimit,
+		ManagedBudget: c.opts.ManagedBudget,
+		Tool:          c.opts.Tool,
+	}, nil
 }
 
 func (c *Controller) deltaForChange(ctx context.Context, namespace string, change *spec.SpecChange) (spec.Delta, error) {

@@ -32,8 +32,9 @@ sequenceDiagram
     H->>K: arch_outline, arch_context
     H->>H: read atproto-market/hono-bidder, hono-pds
     H->>K: arch_edit: 10 requirement changes in 2 contexts
-    S->>R: SpecToCode with the delta, in a worktree
-    R->>G: edits, go test ./... gates, commit lands on BRANCH
+    S->>S: one batch: every pending SpecToCode change of the repository
+    S->>R: every delta, one worktree, one agent run
+    R->>G: edits, go test ./... gates, one commit lands on BRANCH
     S->>G: open-architecture/deno-kcp--BRANCH, Code-Commit trailer
     U->>G: git push, gh pr create
 ```
@@ -237,14 +238,21 @@ Requirements the harness added to `deploy-examples-atproto-market` in run 1:
 | two changes realized at once; the second hit a fast-forward conflict and burned an attempt | realize rebases onto the moved branch and re-runs the gate before landing (`e765802`) |
 | after the attempt cap there was no clean way to try again | `specctl retry <context>` (`e765802`) |
 | the PR's spec persisted to `open-architecture/deno-kcp`, the branch every new clone restores from, while `main` did not have that code | the architecture branch follows the code branch: `open-architecture/<repo>--<branch>` for any branch but the default (`44ade2e`) |
+| the one spec edit touched two contexts, so it became two changes that raced the branch, and the registry's first attempt ran on a base without the example's files | one realization per Repository at a time, oldest first, and every pending change of that repository joins the oldest one as one batch: one worktree, one agent run carrying every delta, one verify, one commit with one `Spec-Change:` trailer per member (plan 0002 part B) |
 
 **What is still weak.**
 
-- **Cross-context ordering.** The registry change depends on the example's
-  files. specd realizes the two changes independently, so the registry's first
-  attempt ran against a base without those files and failed its own tests both
-  times; the retry recovered. A dependency between changes in one edit (the
-  example first) would save an attempt and a few minutes.
+- **Cross-context ordering: handled.** The registry change depends on the
+  example's files, and specd used to realize the two changes independently, so
+  the registry's first attempt ran against a base without those files. One spec
+  edit is now realized as one change: at most one `SpecToCode` realization runs
+  per Repository at a time, oldest first, and every pending change of that
+  repository joins the oldest one after a gather window (`--batch-window`,
+  default 5s). One worktree, one agent run that receives every delta grouped by
+  context in creation order, one verify, one commit carrying one
+  `Spec-Change:` trailer per member. The same sentence now lands as a single
+  change on the first attempt, and a failure whose branch moved under it is
+  retried once on the new base without counting against the attempt cap.
 - **"Running" is checked offline.** The manifests decode, fit the installed
   schemas, and `apply.sh` applies them, but neither run brought the market
   stack up live (provider, OpenBao, PLC, relay, both PDSes, the bidder). The

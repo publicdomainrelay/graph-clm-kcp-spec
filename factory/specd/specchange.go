@@ -35,7 +35,7 @@ func (c *Controller) reconcileSpecChange(ctx context.Context, namespace, name st
 		return c.reconcileCodeToSpec(ctx, namespace, name, change)
 	case change.Spec.Direction == specapi.DirectionSpecToCode &&
 		change.Status.Phase == specapi.PhasePending:
-		return c.reconcileSpecToCode(ctx, namespace, name, change)
+		return c.reconcileSpecToCode(ctx, namespace, change)
 	}
 
 	status := map[string]any{}
