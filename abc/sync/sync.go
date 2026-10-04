@@ -121,6 +121,10 @@ type PartitionOptions struct {
 
 	ModulePath string
 
+	ImportMap map[string]string
+
+	Generated map[string]bool
+
 	RootDirs []string
 
 	RootContext bool
@@ -141,7 +145,8 @@ func PartitionFactsWith(facts Facts, options PartitionOptions) []Partition {
 	if options.Mode != spec.PartitionPackage {
 		roots = nil
 	}
-	partitions := partitionsByKey(files, facts.Symbols, options.RepositoryName, roots)
+	options.Roots = roots
+	partitions := partitionsByKey(files, facts.Symbols, options)
 	return attachTreeFiles(partitions, options.TreeFiles, options)
 }
 
@@ -152,7 +157,7 @@ func rootDirs(options PartitionOptions) []string {
 	return DefaultRootDirs
 }
 
-func partitionsByKey(files []SourceFile, symbols []Symbol, repositoryName string, roots []string) []Partition {
+func partitionsByKey(files []SourceFile, symbols []Symbol, options PartitionOptions) []Partition {
 	byDirectory := map[string]*Partition{}
 	order := []string{}
 	for _, file := range files {
@@ -160,8 +165,9 @@ func partitionsByKey(files []SourceFile, symbols []Symbol, repositoryName string
 		if directory == "" {
 			directory = "."
 		}
-		if roots != nil {
-			directory = enclosingRoot(directory, roots)
+		directory = foldGenerated(directory, options.Roots, options.Generated)
+		if options.Mode == spec.PartitionPackage && options.Roots != nil {
+			directory = enclosingRoot(directory, options.Roots)
 		}
 		partition, ok := byDirectory[directory]
 		if !ok {
@@ -178,7 +184,7 @@ func partitionsByKey(files []SourceFile, symbols []Symbol, repositoryName string
 	for _, directory := range order {
 		partition := byDirectory[directory]
 		sort.Strings(partition.Files)
-		partition.Name = uniqueName(partitionName(directory, repositoryName), used)
+		partition.Name = uniqueName(partitionName(directory, options.RepositoryName), used)
 		partitions = append(partitions, *partition)
 	}
 	for index := range partitions {
@@ -250,6 +256,7 @@ func treeFileDirectory(file string, byDirectory map[string]int, options Partitio
 	if directory == "" {
 		directory = "."
 	}
+	directory = foldGenerated(directory, options.Roots, options.Generated)
 	roots := options.Roots
 	if options.Mode != spec.PartitionPackage {
 		roots = nil
@@ -302,6 +309,20 @@ func enclosingRoot(directory string, roots []string) string {
 		}
 	}
 	return best
+}
+
+// foldGenerated maps a directory that holds only generated code onto the
+// nearest ancestor that is not generated and not a package root, so a codegen
+// tree such as an @atproto/lex lexicon output never becomes a context of its
+// own.
+func foldGenerated(directory string, roots []string, generated map[string]bool) string {
+	for directory != "." && directory != "" && generated[directory] && !slices.Contains(roots, directory) {
+		directory = path.Dir(directory)
+		if directory == "" {
+			directory = "."
+		}
+	}
+	return directory
 }
 
 func filterFiles(files []SourceFile, include, exclude []string) []SourceFile {
@@ -494,7 +515,58 @@ func symbolsUnder(partition Partition, symbols []Symbol) []Symbol {
 
 const dependencyRoot = "."
 
-func PartitionDependencies(partitions []Partition, imports []Import, modulePath string) map[string][]string {
+// ModuleResolver turns an import specifier into the repository-relative path
+// it names. Go resolves through the module path; TypeScript resolves a relative
+// import against the importing file and a bare specifier through the deno.json
+// import map and the workspace member names.
+type ModuleResolver struct {
+	ModulePath string
+
+	ImportMap map[string]string
+}
+
+func (r ModuleResolver) Resolve(from, specifier string) (string, bool) {
+	if specifier == "" {
+		return "", false
+	}
+	if strings.HasPrefix(specifier, "./") || strings.HasPrefix(specifier, "../") || specifier == "." || specifier == ".." {
+		return path.Clean(path.Join(path.Dir(from), specifier)), true
+	}
+	if r.ModulePath != "" {
+		if directory, ok := importDirectory(specifier, r.ModulePath); ok {
+			return directory, true
+		}
+	}
+	return r.fromImportMap(specifier)
+}
+
+func (r ModuleResolver) fromImportMap(specifier string) (string, bool) {
+	best := ""
+	for key := range r.ImportMap {
+		trimmed := strings.TrimSuffix(key, "/")
+		if specifier == trimmed || strings.HasPrefix(specifier, trimmed+"/") {
+			if len(key) > len(best) {
+				best = key
+			}
+		}
+	}
+	if best == "" {
+		return "", false
+	}
+	target := r.ImportMap[best]
+	if !strings.HasPrefix(target, "./") && !strings.HasPrefix(target, "../") {
+		return "", false
+	}
+	trimmed := strings.TrimSuffix(best, "/")
+	rest := strings.TrimPrefix(strings.TrimPrefix(specifier, trimmed), "/")
+	joined := strings.TrimPrefix(target, "./")
+	if rest != "" {
+		joined = path.Join(joined, rest)
+	}
+	return path.Clean(joined), true
+}
+
+func PartitionDependencies(partitions []Partition, imports []Import, resolver ModuleResolver) map[string][]string {
 	byDirectory := map[string]string{}
 	for _, partition := range partitions {
 		byDirectory[partition.Directory] = partition.Name
@@ -514,7 +586,11 @@ func PartitionDependencies(partitions []Partition, imports []Import, modulePath 
 		if !ok {
 			continue
 		}
-		target, ok := importPartition(edge.Path, modulePath, byDirectory)
+		resolved, ok := resolver.Resolve(edge.From, edge.Path)
+		if !ok {
+			continue
+		}
+		target, ok := partitionForPath(resolved, byDirectory)
 		if !ok || target == from {
 			continue
 		}
@@ -541,14 +617,13 @@ func PartitionDependencies(partitions []Partition, imports []Import, modulePath 
 	return out
 }
 
-func importPartition(importPath, modulePath string, byDirectory map[string]string) (string, bool) {
-	directory, ok := importDirectory(importPath, modulePath)
-	if !ok {
+func partitionForPath(resolved string, byDirectory map[string]string) (string, bool) {
+	if resolved == "" || strings.HasPrefix(resolved, "..") {
 		return "", false
 	}
 	best := ""
 	for candidate := range byDirectory {
-		if directory == candidate || strings.HasPrefix(directory, candidate+"/") {
+		if resolved == candidate || strings.HasPrefix(resolved, candidate+"/") {
 			if len(candidate) > len(best) {
 				best = candidate
 			}
