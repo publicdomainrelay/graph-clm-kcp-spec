@@ -252,6 +252,21 @@ Two findings about the flow itself came out of the run and are worth a phase:
   read as `Pending`, and specd re-realizes them.) The restore should rebuild
   them as historical records without a phase, or the branch should say which
   part of itself is not restorable.
+- **A step's own `EXIT` trap is not a teardown the runner can rely on.** The
+  example's acceptance script stops everything it started from an `EXIT` trap,
+  which is the idiomatic way and works when the script is run by hand -- both
+  direct runs cleaned up completely. Run through `specctl accept`, the same
+  script printed its final `accept: fail`, exited 1, and left its whole stack
+  alive: kcp, kine, OpenBao, the provider and the state directory, with no
+  `bash accept.sh` process left to run anything. `impl/realize`'s
+  `runAcceptanceStep` uses `exec.CommandContext` and `CombinedOutput`, and
+  `CommandContext` kills only the direct child -- never the process group -- when
+  the context ends, so a step that spawns anything long-lived leaks it if its
+  trap does not get to finish. The runner should put the step in its own process
+  group, signal the group (SIGTERM, then SIGKILL after a grace period) instead of
+  the one process, and not depend on the child's trap for cleanup. Found by
+  looking at `ps` after the run, not by a test; it needs one.
+
 - *Unrelated, found while reading the same tree:* the runtime's host check
   prints `000000` when nothing is listening (`curl` writes `000`, the fallback
   appends another). Cosmetic, and left alone on purpose: fixing it needs the
