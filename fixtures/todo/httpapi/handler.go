@@ -1,3 +1,5 @@
+// Package httpapi is the JSON front end of the todo store: three routes, no
+// framework, so the handlers are the whole surface a client sees.
 package httpapi
 
 import (
@@ -10,6 +12,7 @@ import (
 	"example.com/todo/todo"
 )
 
+// NewHandler returns the service's routes over one store.
 func NewHandler(store *todo.Store) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tasks", func(writer http.ResponseWriter, request *http.Request) {

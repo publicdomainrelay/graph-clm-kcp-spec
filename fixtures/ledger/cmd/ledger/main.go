@@ -1,3 +1,4 @@
+// Command ledger serves the ledger over HTTP.
 package main
 
 import (

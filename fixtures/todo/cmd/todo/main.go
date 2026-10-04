@@ -1,3 +1,4 @@
+// Command todo serves the task list over HTTP.
 package main
 
 import (
