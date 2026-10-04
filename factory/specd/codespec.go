@@ -58,6 +58,9 @@ func (c *Controller) reconcileCodeToSpec(ctx context.Context, namespace, name st
 	if dropped := len(result.Dropped); dropped > 0 {
 		message += fmt.Sprintf("; dropped %d unresolved code ref(s)", dropped)
 	}
+	for _, warning := range result.Warnings {
+		message += "; " + warning
+	}
 	if !result.Applied {
 		message += "; the spec already said this"
 	}

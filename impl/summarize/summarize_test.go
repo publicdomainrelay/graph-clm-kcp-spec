@@ -291,3 +291,26 @@ func TestTheWrittenDocumentParsesAsACLMModelZone(t *testing.T) {
 		t.Errorf("intent = %q, want the model's prose", parsed.Intent)
 	}
 }
+
+func TestRunReportsARequirementThatOnlyEnumeratesNames(t *testing.T) {
+	cluster, repository := setup(t)
+	scenario := scripted(t, `
+contexts:
+  calc:
+    summary: Arithmetic.
+    intent: Arithmetic over two integers.
+    requirements:
+      - id: r.surface
+        level: MUST
+        text: Add, Multiply, Subtract
+`)
+	result, err := Run(context.Background(), Options{
+		Cluster: cluster, Context: "calc", Repository: repository, Agent: scenario,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "r.surface") {
+		t.Fatalf("warnings = %v, want one naming r.surface so the caller can report it", result.Warnings)
+	}
+}
