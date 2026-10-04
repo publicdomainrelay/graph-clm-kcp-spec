@@ -162,3 +162,32 @@ Validate: unit tests for each decider; a fixture-level e2e; then the deno-kcp ru
 3a and 3b run in parallel in two worktrees; the coordinator merges, reruns the
 deno-kcp example, and an independent review compares the new branches with the
 old ones.
+
+### Measured: 3a, 2026-10-04
+
+Run: the two reviewed clones copied to a temp tree, this worktree's binaries
+first on `PATH`, `specctl up --remote ""` on `main` (fresh DeepSeek populate,
+31 commits on `open-architecture/deno-kcp`), then on `spec/plan3a-bidder-and-bob-pds`
+(restored from it), the same harness request through `cc-clm-mod`, one SpecToCode
+change realized (code commit `7373377`, verify `go test ./...` exit 0), then
+`specctl down`. Both sides measured on the branches that run produced, with the
+reviewed branches re-measured the same way for "before".
+
+| measure | before (re-measured) | after | target | |
+| --- | --- | --- | --- | --- |
+| `REFERENCES` edges in `graph/edges.jsonl` | 0 | 662 | > 0 | met |
+| requirement refs that join a `CodeRef` vertex | 0 of 299 | 299 of 299 (0 unresolved) | every one | met |
+| commits the feature branch adds to the default's | 116 (99 after its 17 populate commits) | 8 | < 20 | met |
+| share of the feature diff that is `specs/` + `CHANGES.md` | 13.4% (173 of 1292) | 21.1% (172 of 815) | > 60% | **not met** |
+
+The last row is not met, and the number is worth reading in full rather than as a
+ratio. The diff fell from 1292 lines to 815. The churn the measure exists to
+remove did go: `status/` 83 -> 30, `context/` 154 -> 5, `repository.yaml` 11 -> 9,
+`graph/` 58 -> 68 (it grows: the run finally has `REFERENCES` edges), and
+`changes/` 637 -> 380. What is left of `changes/` is one SpecChange record, 380
+lines, of which 270 are its embedded `spec.delta`: this run's harness edits were
+much larger than the reviewed run's (12 requirement deltas against its 1, whose
+record was 154 lines for the same reason). So the ratio moved less than the
+absolute noise because one legitimate artifact grew. `arch.yaml` (151 lines) is
+the other duplication: it carries the requirement text `specs/` already carries,
+which item 5 did not ask to remove and 3b's seeding builds on.
