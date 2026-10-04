@@ -172,3 +172,33 @@ func TestSeedKeepsHumanEditsAndTheIngestDependencies(t *testing.T) {
 		t.Errorf("introduces = %v", context.Spec.Introduces)
 	}
 }
+
+func TestSeedLooksLikeIngestNotLikeAHumanEdit(t *testing.T) {
+	cluster := seedCluster(t, &spec.SystemContext{
+		ObjectMeta: metav1.ObjectMeta{Name: "cmd-calc", Namespace: specapi.DefaultNamespace},
+		Spec:       spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf},
+	})
+	partitions := []specsync.Partition{{Name: "cmd-calc", Directory: "cmd/calc", Files: []string{"cmd/calc/main.go"}}}
+	if _, err := Seed(context.Background(), cluster, SeedOptions{
+		Repository: "calc",
+		Data:       []byte(seedDocument),
+		Partitions: partitions,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	object := cluster.objects[key(specapi.SystemContextGVR, specapi.DefaultNamespace, "cmd-calc")]
+	if origin := object.GetAnnotations()[specapi.OriginAnnotation]; origin != specapi.OriginIngest {
+		t.Errorf("origin = %q, want %q", origin, specapi.OriginIngest)
+	}
+	context := contextIn(t, cluster, "cmd-calc")
+	hash, err := spec.HashSystemContextSpec(context.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if context.Status.RealizedSpecHash != hash {
+		t.Errorf("realizedSpecHash = %q, want the seeded spec so no spec to code change is raised", context.Status.RealizedSpecHash)
+	}
+	if object.GetAnnotations()[specapi.OriginHashAnnotation] != hash {
+		t.Errorf("origin hash = %q, want the seeded spec hash", object.GetAnnotations()[specapi.OriginHashAnnotation])
+	}
+}

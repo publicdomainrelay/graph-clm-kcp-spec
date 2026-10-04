@@ -22,6 +22,8 @@ type SeedCluster interface {
 	Get(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
 
 	Apply(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error)
+
+	PatchStatus(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, status map[string]any) (*unstructured.Unstructured, error)
 }
 
 type SeedOptions struct {
@@ -95,6 +97,10 @@ func Seed(ctx context.Context, cluster SeedCluster, options SeedOptions) (SeedRe
 		if !changed {
 			continue
 		}
+		hash, err := spec.HashSystemContextSpec(merged)
+		if err != nil {
+			return result, err
+		}
 		updated := &spec.SystemContext{
 			ObjectMeta: *current.ObjectMeta.DeepCopy(),
 			Spec:       merged,
@@ -104,12 +110,19 @@ func Seed(ctx context.Context, cluster SeedCluster, options SeedOptions) (SeedRe
 			updated.Annotations = map[string]string{}
 		}
 		updated.Annotations[specapi.OriginAnnotation] = specapi.OriginIngest
+		updated.Annotations[specapi.OriginHashAnnotation] = hash
 		updated.SetDefaults()
 		encoded, err := kcpclient.Unstructured(updated)
 		if err != nil {
 			return result, err
 		}
 		if _, err := cluster.Apply(ctx, encoded); err != nil {
+			return result, fmt.Errorf("archkcp: seed %s from %s: %w", name, node.ID, err)
+		}
+		if _, err := cluster.PatchStatus(ctx, specapi.SystemContextGVR, namespace, name, map[string]any{
+			"realizedSpecHash": hash,
+			"realizedSpec":     specObject(merged),
+		}); err != nil {
 			return result, fmt.Errorf("archkcp: seed %s from %s: %w", name, node.ID, err)
 		}
 		result.Seeded = append(result.Seeded, name)
@@ -307,6 +320,18 @@ func union(existing, added []string) []string {
 		return existing
 	}
 	return spec.CanonicalSet(append(append([]string{}, existing...), added...))
+}
+
+func specObject(value spec.SystemContextSpec) map[string]any {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return map[string]any{}
+	}
+	out := map[string]any{}
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return map[string]any{}
+	}
+	return out
 }
 
 func nodeBody(body map[string]any) map[string]any {

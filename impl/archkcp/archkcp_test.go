@@ -93,6 +93,26 @@ func (f *fakeCluster) Delete(_ context.Context, gvr schema.GroupVersionResource,
 	return nil
 }
 
+func (f *fakeCluster) PatchStatus(_ context.Context, gvr schema.GroupVersionResource, namespace, name string, status map[string]any) (*unstructured.Unstructured, error) {
+	stored, ok := f.objects[key(gvr, namespace, name)]
+	if !ok {
+		return nil, apierrors.NewNotFound(schema.GroupResource{Group: gvr.Group, Resource: gvr.Resource}, name)
+	}
+	updated := stored.DeepCopy()
+	merged := map[string]any{}
+	if existing, ok := updated.Object["status"].(map[string]any); ok {
+		for field, value := range existing {
+			merged[field] = value
+		}
+	}
+	for field, value := range status {
+		merged[field] = value
+	}
+	updated.Object["status"] = merged
+	f.objects[key(gvr, namespace, name)] = updated
+	return updated.DeepCopy(), nil
+}
+
 func testdata(t *testing.T, name string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "open-architecture", name))
