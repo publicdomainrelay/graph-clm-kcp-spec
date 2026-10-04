@@ -19,6 +19,24 @@ export interface BridgeOptions {
   env?: Record<string, string>;
   cwd?: string;
   timeoutMs?: number;
+  /**
+   * The logical cluster the specification lives in. A controller that owns more
+   * than one workspace sets SPECD_WORKSPACE and SPECD_NAMESPACE; without them
+   * every call lands on specctl's own default workspace, where the context the
+   * host is working on does not exist, and a failure to apply reads as a model
+   * that changed nothing. The mod passes the same two names.
+   */
+  workspace?: string;
+  namespace?: string;
+  kubeconfig?: string;
+}
+
+function scopeArgv(workspace?: string, namespace?: string, kubeconfig?: string): string[] {
+  const argv: string[] = [];
+  if (workspace) argv.push("--workspace", workspace);
+  if (namespace) argv.push("--namespace", namespace);
+  if (kubeconfig) argv.push("--kubeconfig", kubeconfig);
+  return argv;
 }
 
 export function specctlBridge(options: BridgeOptions = {}): StateBridge {
@@ -27,11 +45,17 @@ export function specctlBridge(options: BridgeOptions = {}): StateBridge {
   const env = { ...process.env, ...options.env } as Record<string, string>;
   const cwd = options.cwd;
   const timeoutMs = options.timeoutMs ?? 120_000;
+  const scope = scopeArgv(
+    options.workspace ?? env.SPECD_WORKSPACE,
+    options.namespace ?? env.SPECD_NAMESPACE,
+    options.kubeconfig ?? env.KUBECONFIG ?? env.SPECD_KUBECONFIG,
+  );
 
   const call = async (argv: readonly string[], stdin?: string) => {
-    const result = await runner.run([specctl, ...argv], { cwd, env, stdin, timeoutMs });
+    const full = [...argv, ...scope];
+    const result = await runner.run([specctl, ...full], { cwd, env, stdin, timeoutMs });
     if (result.exitCode !== 0) {
-      throw new Error(`${specctl} ${argv.join(" ")} exited ${result.exitCode}: ${result.stderr.trim()}`);
+      throw new Error(`${specctl} ${full.join(" ")} exited ${result.exitCode}: ${result.stderr.trim()}`);
     }
     return result;
   };

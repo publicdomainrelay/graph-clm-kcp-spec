@@ -197,6 +197,8 @@ async function settle($: Engine, session: Session): Promise<void> {
     const applied = await session.host.finish("turn");
     if (applied?.applied) {
       $.ui.log(`clm: applied the spec edit${applied.folded ? ` into ${applied.folded}` : ""}`);
+    } else if (applied?.error) {
+      $.ui.log(`clm: the spec edit was not applied: ${applied.error}`);
     }
   } catch (error) {
     $.ui.log(`clm: ${describe(error)}`, { to: "debug" });

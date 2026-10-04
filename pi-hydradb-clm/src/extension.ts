@@ -84,6 +84,11 @@ export function memoryNodeId(sessionKey: string, kind: string, title: string, bo
   return stableNodeId(nodeKey(sessionKey, "memory", `${kind}\u0001${title}\u0001${body}`));
 }
 
+/** A failed apply is said out loud: the alternative is a path that looks like a model which changed nothing. */
+function reportApplied(result: { error?: string } | undefined): void {
+  if (result?.error) console.error(`pi-hydradb-clm: the spec edit was not applied: ${result.error}`);
+}
+
 function text(content: string) {
   return { content: [{ type: "text" as const, text: content }], details: {} };
 }
@@ -246,7 +251,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
 
   pi.on("turn_end", async (event) => {
     if (!options.enabled) return;
-    if (clmHost) await clmHost.finish();
+    if (clmHost) reportApplied(await clmHost.finish());
     const client = graph;
     if (!client) return;
     await ensureSession(client);
@@ -299,7 +304,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
   });
 
   pi.on("session_shutdown", async () => {
-    if (clmHost) await clmHost.finish();
+    if (clmHost) reportApplied(await clmHost.finish());
     resolver.close();
     if (!graph) return;
     await graph.close();

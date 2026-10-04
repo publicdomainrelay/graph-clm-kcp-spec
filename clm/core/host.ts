@@ -41,6 +41,13 @@ export interface ApplyResult {
   applied: boolean;
 
   folded?: string;
+
+  /**
+   * Why the edit did not reach the specification. A host reports it instead of
+   * dropping it: an apply that failed and an edit that changed nothing look
+   * identical from the outside, and only one of them is the model's doing.
+   */
+  error?: string;
 }
 
 export class ClmHost {
@@ -115,12 +122,16 @@ export class ClmHost {
       const document = await this.options.files.read(path);
       const model = splitContextDoc(document).model;
       if (model !== this.appliedModelZone) {
-        this.appliedModelZone = model;
         try {
           const applied = await this.options.bridge.apply(this.options.context, model);
+          this.appliedModelZone = model;
           result = { delta: (applied.delta ?? {}) as Delta, applied: applied.applied, folded: applied.folded };
-        } catch {
-          result = undefined;
+        } catch (error) {
+          result = {
+            delta: {},
+            applied: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
         }
       }
     }

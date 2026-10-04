@@ -174,6 +174,33 @@ func TestPiKindLoadsTheExtensionFolder(t *testing.T) {
 	}
 }
 
+// TestPiKindNamesTheExtensionAbsolutely is the guard for a path the caller
+// typed where it stood: the model runs in the working tree, so a folder left
+// relative is looked for inside the tree and the run fails with "extension path
+// does not exist" instead of naming the caller's mistake.
+func TestPiKindNamesTheExtensionAbsolutely(t *testing.T) {
+	factory, err := New(Options{Kind: Pi, PiExtension: "pi-hydradb-clm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	built, err := factory.Agent(nil, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude, ok := built.(*claudecli.Agent)
+	if !ok {
+		t.Fatalf("built a %T", built)
+	}
+	args := claude.Args()
+	index := slices.Index(args, "--extension")
+	if index < 0 || index+1 >= len(args) {
+		t.Fatalf("the extension is not in %v", args)
+	}
+	if !filepath.IsAbs(args[index+1]) {
+		t.Errorf("--extension %q is not absolute", args[index+1])
+	}
+}
+
 func TestBadKindsAreRefused(t *testing.T) {
 	if _, err := New(Options{Kind: "magic"}); err == nil {
 		t.Error("an unknown kind was accepted")
