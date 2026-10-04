@@ -141,7 +141,7 @@ func (c *Controller) runBatch(ctx context.Context, namespace string, repository 
 
 	work, idle, err := c.splitByDelta(ctx, namespace, members)
 	if err != nil {
-		c.recordBatchFailure(ctx, namespace, members, realize.Result{}, err)
+		c.recordBatchFailure(ctx, namespace, members, realize.Result{}, err, len(repository.Spec.Verify) > 0)
 		return 0, nil
 	}
 
@@ -150,7 +150,7 @@ func (c *Controller) runBatch(ctx context.Context, namespace string, repository 
 		var failure error
 		result, failure = c.realizeWork(ctx, namespace, repository, work)
 		if failure != nil {
-			c.recordBatchFailure(ctx, namespace, members, result, failure)
+			c.recordBatchFailure(ctx, namespace, members, result, failure, len(repository.Spec.Verify) > 0)
 			return 0, nil
 		}
 	}
@@ -161,7 +161,7 @@ func (c *Controller) runBatch(ctx context.Context, namespace string, repository 
 			err = realize.Settle(ctx, options)
 		}
 		if err != nil {
-			c.recordBatchFailure(ctx, namespace, members, result, err)
+			c.recordBatchFailure(ctx, namespace, members, result, err, len(repository.Spec.Verify) > 0)
 			return 0, nil
 		}
 	}
@@ -257,7 +257,7 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 			"branch":         result.Branch,
 			"verifyExitCode": result.VerifyExitCode,
 			"message":        batchSuccessMessage(member, members, result),
-			"agentLog":       tailMessage(changeAgentLog(result)),
+			"agentLog":       tailMessage(changeAgentLog(result, len(repository.Spec.Verify) > 0)),
 		}
 		if result.Commit != "" {
 			status["commit"] = result.Commit
@@ -281,7 +281,7 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 		"branch", result.Branch, "commit", result.Commit, "files", len(result.FilesTouched))
 }
 
-func (c *Controller) recordBatchFailure(ctx context.Context, namespace string, members []*spec.SpecChange, result realize.Result, failure error) {
+func (c *Controller) recordBatchFailure(ctx context.Context, namespace string, members []*spec.SpecChange, result realize.Result, failure error, verifyConfigured bool) {
 	message := failure.Error()
 	if verifyErr, ok := errors.AsType[*realize.VerifyError](failure); ok {
 		message = fmt.Sprintf("verify exited %d: %s", verifyErr.ExitCode, tailMessage(verifyErr.Output))
@@ -297,7 +297,7 @@ func (c *Controller) recordBatchFailure(ctx context.Context, namespace string, m
 			"branch":         result.Branch,
 			"verifyExitCode": result.VerifyExitCode,
 			"message":        tailMessage(message),
-			"agentLog":       tailMessage(changeAgentLog(result)),
+			"agentLog":       tailMessage(changeAgentLog(result, verifyConfigured)),
 		}
 		if len(result.Acceptance) > 0 {
 			status["acceptance"] = result.Acceptance

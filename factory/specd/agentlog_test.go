@@ -19,7 +19,7 @@ func TestChangeAgentLogKeepsTheReportAndSummarizesVerify(t *testing.T) {
 		VerifyDuration: 1500 * time.Millisecond,
 		VerifyOutput:   "ok  \tgithub.com/x/calc\t(cached)\nok  \tgithub.com/x/more\t0.02s\n",
 	}
-	log := changeAgentLog(result)
+	log := changeAgentLog(result, true)
 	if !strings.Contains(log, "**Edited** apply.sh.") {
 		t.Errorf("the agent's report was dropped:\n%s", log)
 	}
@@ -30,6 +30,13 @@ func TestChangeAgentLogKeepsTheReportAndSummarizesVerify(t *testing.T) {
 		if strings.Contains(log, unwanted) {
 			t.Errorf("the record still carries %q:\n%s", unwanted, log)
 		}
+	}
+}
+
+func TestChangeAgentLogWithoutAVerifyCommand(t *testing.T) {
+	result := realize.Result{Agent: agent.RealizeResult{Log: "**Edited** calc.go."}}
+	if log := changeAgentLog(result, false); log != "**Edited** calc.go." {
+		t.Errorf("log = %q, want the report alone", log)
 	}
 }
 

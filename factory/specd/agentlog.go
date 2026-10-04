@@ -11,9 +11,12 @@ import (
 
 // changeAgentLog is what a change record carries: the agent's own report with
 // the harness's chatter removed, and the verify summary instead of the raw
-// verify output.
-func changeAgentLog(result realize.Result) string {
+// verify output. A repository with no verify command gets no verify line.
+func changeAgentLog(result realize.Result, verifyConfigured bool) string {
 	report := agent.Report(result.Agent.Log)
+	if !verifyConfigured {
+		return report
+	}
 	summary := spec.VerifySummary(result.VerifyExitCode, result.VerifyDuration, result.VerifyOutput)
 	if report == "" {
 		return summary
