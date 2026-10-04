@@ -42,7 +42,6 @@ func TestRenderParseRoundTrip(t *testing.T) {
 	if len(parsed.Interfaces) != 1 || parsed.Interfaces[0].Name != "Add" {
 		t.Fatalf("interfaces = %+v", parsed.Interfaces)
 	}
-	// The tool owns these, so they never round trip through the model zone.
 	if parsed.Repository != "" || parsed.CodeRefs != nil || parsed.Arch != nil {
 		t.Errorf("the model zone carried a tool-owned field: %+v", parsed)
 	}

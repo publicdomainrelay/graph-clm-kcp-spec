@@ -218,7 +218,6 @@ func TestRepositoryHelpers(t *testing.T) {
 	if !repository.Summarize() || repository.PopulateAgent().Kind != "claude" {
 		t.Errorf("populate = %+v", repository.Spec.Populate)
 	}
-	// The resolved path the controller wrote wins over the declared source.
 	if repository.WorkPath() != "/cache/unseen" {
 		t.Errorf("workPath = %q, want the resolved path", repository.WorkPath())
 	}
@@ -409,16 +408,12 @@ func TestNextChangeName(t *testing.T) {
 	if third != base+"-a3" {
 		t.Errorf("third attempt = %q, want %q", third, base+"-a3")
 	}
-	// A different commit pair is a different episode and starts at the base.
 	other := ChangeNameCodeToSpec("calc", "aaaa", "cccc")
 	if got := NextChangeName([]string{base, first}, other); got != other {
 		t.Errorf("another episode = %q, want %q", got, other)
 	}
 }
 
-// A working tree that is not a git repository has no commits, and the populate
-// of such a tree still raises one code -> spec change per context. Half a pair
-// stays invalid: it names a drift nobody can place.
 func TestValidateSpecChangeAllowsATreeWithoutCommits(t *testing.T) {
 	without := &SpecChange{
 		ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-none-none"},

@@ -8,8 +8,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 )
 
-// Section is one labelled block of a prompt. Priority orders the cut: the
-// lowest number is kept longest.
 type Section struct {
 	Title string
 
@@ -22,11 +20,6 @@ func EstimateTokens(text string) int {
 	return (len(text) + 3) / 4
 }
 
-// Fit keeps whole sections in priority order until the budget is spent, and
-// reports the titles it dropped. A section is never cut in half: a half a
-// signature is worse than no signature, and the caller can see what is missing.
-// The first section always survives, because a prompt without its contract is
-// not a prompt.
 func Fit(sections []Section, budgetTokens int) ([]Section, []string) {
 	ordered := append([]Section{}, sections...)
 	sort.SliceStable(ordered, func(left, right int) bool {
@@ -52,10 +45,6 @@ func renderSection(section Section) string {
 	return "## " + section.Title + "\n\n" + section.Body + "\n\n"
 }
 
-// RenderDelta renders a structured delta the way a model reads it: one line
-// per changed key, with the old and the new value of a changed field. It is the
-// first thing a realize ask shows, because the ask is "make this difference
-// true", not "here is a spec".
 func RenderDelta(change spec.Delta) string {
 	builder := strings.Builder{}
 	renderFieldDelta(&builder, "intent", change.Intent)
@@ -147,8 +136,6 @@ func fieldOf(changed bool, from, to string) *spec.FieldDelta {
 	return &spec.FieldDelta{From: from, To: to}
 }
 
-// setDeltaOf is the set difference of one entry's own list field, so a changed
-// requirement shows which refs it gained and lost.
 func setDeltaOf(after, before []string) *spec.StringSetDelta {
 	have := map[string]bool{}
 	for _, value := range before {
@@ -194,9 +181,6 @@ func renderSetDelta(builder *strings.Builder, label string, change *spec.StringS
 	}
 }
 
-// RenderPrompt is the instruction block every summarize ask carries. The
-// contract is the parser's contract: a model that keeps it produces a draft
-// that reads back.
 const RenderPrompt = `You summarize a piece of a code base into a specification.
 
 Answer with one JSON object and nothing else. No prose around it, no markdown fence.
@@ -227,9 +211,6 @@ Rules:
   that is there, not the code you would have written.
 `
 
-// RenderPromptWithSections turns a bundle into the text a model reads: the
-// contract, then the sections the budget kept. Dropped sections are named at
-// the end so the model knows what it is not being shown.
 func RenderPromptWithSections(bundle ContextBundle) (string, []string) {
 	kept, dropped := Fit(Sections(bundle), bundle.Budget)
 	builder := strings.Builder{}
@@ -244,8 +225,6 @@ func RenderPromptWithSections(bundle ContextBundle) (string, []string) {
 	return builder.String(), dropped
 }
 
-// Sections lays the bundle out in the order the model should read it and the
-// order the budget should cut it.
 func Sections(bundle ContextBundle) []Section {
 	sections := []Section{
 		{Title: "context", Body: bundle.Context + " in repository " + bundle.Repository, Priority: 0},

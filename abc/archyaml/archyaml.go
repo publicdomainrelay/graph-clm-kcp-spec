@@ -1,16 +1,3 @@
-// Package archyaml reads an open architecture document (arch.yaml) into a flat
-// node model and writes one back out.
-//
-// The document is a small header (schema, apiVersion, kind, metadata and any
-// other top-level key that is not a node section) plus sections of nodes. A
-// node is any mapping with a string id; nodes nest inside each other through
-// the upstream, overlay, orchestrator, children or context keys, and a nested
-// node is either inline (a mapping with an id) or a plain id ref. Parse keeps
-// that tree as one flat list: every node knows its parent id and the slot path
-// it occupied inside the parent, and its body holds everything the node owned,
-// with the inline children replaced by their id refs. Marshal walks the flat
-// list back into the tree, so import and export are inverse for the ids, the
-// refs and the data the document carries.
 package archyaml
 
 import (
@@ -92,8 +79,6 @@ func (d *Document) Node(id string) *Node {
 	return nil
 }
 
-// Roots are the nodes a section holds directly; a node with a parent is placed
-// inside that parent instead.
 func (s *Section) Roots() []*Node {
 	out := []*Node{}
 	for _, node := range s.Nodes {
@@ -141,8 +126,6 @@ func Parse(data []byte) (*Document, error) {
 	return document, nil
 }
 
-// isNodeMap matches the upstreams/orchestrators/types shape: a mapping whose
-// values are all mappings, so an arch id is the key and the node is the value.
 func isNodeMap(value any) bool {
 	mapping, ok := value.(map[string]any)
 	if !ok || len(mapping) == 0 {
@@ -156,8 +139,6 @@ func isNodeMap(value any) bool {
 	return true
 }
 
-// isNodeList matches the trust_boundaries/crossings/flows shape: a list of
-// mappings that each carry an id.
 func isNodeList(value any) bool {
 	list, ok := value.([]any)
 	if !ok || len(list) == 0 {
@@ -175,8 +156,6 @@ func isNodeList(value any) bool {
 	return true
 }
 
-// flattenMap handles the upstreams/orchestrators/types shape, where the key is
-// the id and the value is the node, so the value carries no id of its own.
 func flattenMap(key string, value map[string]any) *Section {
 	section := &Section{Key: key, Form: FormMap}
 	walker := &walker{section: section}
@@ -222,18 +201,12 @@ func flattenList(key string, value any) (*Section, error) {
 	return section, nil
 }
 
-// walker turns one section into flat nodes. It records the node it created last
-// so the section loop can stamp the position, which is the only thing the walk
-// itself does not know.
 type walker struct {
 	section *Section
 
 	last *Node
 }
 
-// transform copies a value, replacing every inline node with its id ref and
-// appending the node to the section. `parent` is the id of the nearest
-// enclosing node and `slot` is the path from that node to this value.
 func (w *walker) transform(value any, parent, slot string) any {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -325,11 +298,6 @@ func refsOf(value any) []string {
 	return nil
 }
 
-// codePaths turns the code field into file paths. The field is a path, a list
-// of paths, or a mapping of names to either, and a path may carry a symbol
-// after a colon (deploy/start-kcp.sh:KCP_BIN). A value that is not a path at
-// all (a shell command, say) is dropped rather than turned into a broken code
-// ref.
 func codePaths(value any) []string {
 	seen := map[string]bool{}
 	out := []string{}
@@ -374,9 +342,6 @@ func codePath(value string) (string, bool) {
 	return path, true
 }
 
-// Marshal writes the document back out. Top level keys come out sorted, which
-// is the canonical order for a semantic comparison; the order that matters, the
-// order of a list section, is kept by the node positions.
 func Marshal(document *Document) ([]byte, error) {
 	out := map[string]any{}
 	for key, value := range document.Header {
@@ -426,8 +391,6 @@ func childrenByParent(section *Section) map[string][]*Node {
 	return out
 }
 
-// rebuild puts a node back together, re-inlining every node that was nested
-// inside it at the slot the node recorded.
 func rebuild(node *Node, children map[string][]*Node) map[string]any {
 	out := deepCopy(node.Body).(map[string]any)
 	for _, child := range children[node.ID] {
@@ -436,8 +399,6 @@ func rebuild(node *Node, children map[string][]*Node) map[string]any {
 	return out
 }
 
-// slotLess orders two slots by list index, so inserting children into the same
-// list happens left to right and the indices stay the ones the nodes recorded.
 func slotLess(left, right string) bool {
 	leftName, leftIndex, leftIsIndex := parseStep(lastStep(left))
 	rightName, rightIndex, rightIsIndex := parseStep(lastStep(right))
@@ -528,8 +489,6 @@ func deepCopy(value any) any {
 	}
 }
 
-// Diff compares two documents by ids, refs, placement and preserved data. It
-// returns one line per difference, so an empty result is a semantic match.
 func Diff(left, right *Document) []string {
 	differences := []string{}
 	if !equalJSON(left.Header, right.Header) {
@@ -603,8 +562,6 @@ func byID(nodes []*Node) map[string]*Node {
 	return out
 }
 
-// equalJSON compares through JSON, the same path the kcp client takes, so two
-// values that made the same trip compare equal.
 func equalJSON(left, right any) bool {
 	leftJSON, err := json.Marshal(left)
 	if err != nil {

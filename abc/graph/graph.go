@@ -22,10 +22,6 @@ const (
 
 var ManagedLabels = []string{LabelRepo, LabelContext, LabelRequirement, LabelInterface, LabelCodeRef}
 
-// The live labels are what the hosts of a running change write: the change
-// itself and one vertex per progress record. They are not derived from kcp +
-// CodeGraph, so the rebuild that rewrites every managed label leaves them
-// alone; the status subresource of the SpecChange is their source of truth.
 const (
 	LabelChange   = "SpecChange"
 	LabelProgress = "SpecProgress"
@@ -44,16 +40,11 @@ const (
 	EdgeOrchestrator = "ORCHESTRATOR"
 	EdgeDependsOn    = "DEPENDS_ON"
 	EdgeIntroduces   = "INTRODUCES"
-	// EdgeTouched is a running change to a file it touched.
-	EdgeTouched = "TOUCHED"
-	// EdgeOccurred is a running change to one progress record it reported.
-	EdgeOccurred = "OCCURRED"
-	// EdgeSpecifies is a graph memory the pi host holds to the requirement it
-	// speaks about. It is how a concept the model remembered joins the spec.
-	EdgeSpecifies = "SPECIFIES"
+	EdgeTouched      = "TOUCHED"
+	EdgeOccurred     = "OCCURRED"
+	EdgeSpecifies    = "SPECIFIES"
 )
 
-// LiveEdgeSpecs are the edges a host writes while a change runs.
 var LiveEdgeSpecs = []EdgeSpec{
 	{Type: EdgeTouched, FromLabel: LabelChange, ToLabel: LabelCodeRef},
 	{Type: EdgeOccurred, FromLabel: LabelChange, ToLabel: LabelProgress},
@@ -108,9 +99,6 @@ func PiMemoryID(title string) int64 {
 	return ids.Stable("pimemory:" + title)
 }
 
-// FileCodeRef is the vertex a touched file lands on. Its id is the same
-// `coderef:file:<path>` an ingest writes, so a file the agent touched and a file
-// the index observed are one vertex, and the TOUCHED edge joins them.
 func FileCodeRef(path string) Vertex {
 	return Vertex{
 		ID: FileCodeRefID(path),
@@ -336,9 +324,6 @@ func Build(snapshot Snapshot) ([]VertexSet, []EdgeSet) {
 			}
 		}
 
-		// A context imported from arch.yaml keeps its refs as open architecture
-		// ids (sc.kind.denopod), whose dots are part of the id, so the object
-		// it points at is named by ArchName, not by RefName.
 		arch := context.Spec.Arch != nil
 		edges[upstreamIndex].Rows = appendRef(edges[upstreamIndex].Rows, contextID, context.Spec.Upstream, arch)
 		for _, overlay := range context.Spec.Overlay {
@@ -363,9 +348,6 @@ func appendRef(rows []Edge, from int64, ref string, arch bool) []Edge {
 	return append(rows, Edge{From: from, To: ContextID(name)})
 }
 
-// RefTarget is the object name a ref points at. A plain ref strips the prefix
-// (sc.calc is the context named calc); an open architecture id keeps it in the
-// name (sc.kind.denopod is the context named sc-kind-denopod).
 func RefTarget(ref string, arch bool) (string, bool) {
 	if ref == spec.RefSelf {
 		return "", false
@@ -384,8 +366,6 @@ func specHash(context spec.SystemContext) string {
 	return result.SpecHash
 }
 
-// BuildAll merges the per-repository plans into one write. A code ref shared
-// by two repositories lands on the same vertex id, which the upsert merges.
 func BuildAll(snapshots []Snapshot) ([]VertexSet, []EdgeSet) {
 	vertices := make([]VertexSet, 0, len(ManagedLabels))
 	for _, label := range ManagedLabels {
@@ -417,9 +397,6 @@ func BuildAll(snapshots []Snapshot) ([]VertexSet, []EdgeSet) {
 	return vertices, edges
 }
 
-// Rebuild drops every vertex this model owns and writes the snapshots again.
-// The graph is a derived index, so a full rewrite is the merge strategy: it
-// keeps repeated ingests to the same rows.
 func Rebuild(ctx context.Context, writer Writer, snapshots []Snapshot) error {
 	for _, label := range ManagedLabels {
 		existing, err := writer.SelectIDs(ctx, label)
@@ -471,7 +448,6 @@ func VertexSelect(label string, properties []string, filter map[string]any) stri
 
 func EdgeSelectOut(edgeType, fromLabel, toLabel string, fromID int64, properties []string) string {
 	return "MATCH (a:" + fromLabel + " {id: " + ids.CypherLiteral(fromID) + "})-[:" + edgeType + "]->(b:" + toLabel + ") RETURN " + projection("b", properties)
-
 }
 
 func EdgeSelectIn(edgeType, fromLabel, toLabel string, toID int64, properties []string) string {

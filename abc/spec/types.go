@@ -18,34 +18,22 @@ func Levels() []Level {
 	return []Level{LevelMust, LevelShould, LevelMay}
 }
 
-// AgentSpec selects the agent of one Repository. Kind is the same option
-// string specd takes (claude, scripted:<file>, later pi); Command and Args
-// override the model command of the claude kind.
 type AgentSpec struct {
 	Kind    string   `json:"kind,omitempty"`
 	Command string   `json:"command,omitempty"`
 	Args    []string `json:"args,omitempty"`
 }
 
-// GitSource is a remote working tree: where to clone from and which ref to
-// check out. An empty ref is the remote's default branch.
 type GitSource struct {
 	URL string `json:"url"`
 	Ref string `json:"ref,omitempty"`
 }
 
-// RepositorySource is where the working tree under management comes from. A
-// path is used as it is; a git url is cloned into the controller's cache and
-// kept up to date there. It is the phase 7 trigger: one manifest names either
-// kind of source and the controller populates it.
 type RepositorySource struct {
 	Path string     `json:"path,omitempty"`
 	Git  *GitSource `json:"git,omitempty"`
 }
 
-// RepositoryPopulate is what the controller does with a working tree once it
-// has one: which files to index, how to split them into SystemContexts, and
-// whether to send a model over each new context.
 type RepositoryPopulate struct {
 	Partition string     `json:"partition,omitempty"`
 	Include   []string   `json:"include,omitempty"`
@@ -55,10 +43,8 @@ type RepositoryPopulate struct {
 }
 
 const (
-	// PartitionDirectory is one context per directory that holds a source file.
 	PartitionDirectory = "directory"
-	// PartitionPackage is one context per package or module root.
-	PartitionPackage = "package"
+	PartitionPackage   = "package"
 )
 
 type RepositorySpec struct {
@@ -71,9 +57,6 @@ type RepositorySpec struct {
 	Populate *RepositoryPopulate `json:"populate,omitempty"`
 }
 
-// PopulateCounts is the tally Repository.status.contexts carries: how many
-// SystemContexts the repository has, how many of them a model has summarized,
-// and how many of the rest could not be summarized at all.
 type PopulateCounts struct {
 	Total      int `json:"total"`
 	Summarized int `json:"summarized"`
@@ -81,23 +64,15 @@ type PopulateCounts struct {
 }
 
 type RepositoryStatus struct {
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-	// ResolvedPath is the working tree the controller resolved the source to:
-	// spec.path for a path source, a directory under --cache-dir for a git one.
-	// Everything that needs to read or write the tree reads it through
-	// Repository.WorkPath.
-	ResolvedPath  string `json:"resolvedPath,omitempty"`
-	HeadCommit    string `json:"headCommit,omitempty"`
-	IndexedCommit string `json:"indexedCommit,omitempty"`
-	// Phase runs Cloning -> Indexing -> Populating -> Populated, or Failed.
-	Phase    string          `json:"phase,omitempty"`
-	Contexts *PopulateCounts `json:"contexts,omitempty"`
-	// PopulateRequest is the specs.publicdomainrelay.dev/populate-request
-	// annotation value this status answers, so a caller can ask for a re-index
-	// and wait for it to have happened.
-	PopulateRequest  string                  `json:"populateRequest,omitempty"`
-	OpenArchitecture *OpenArchitectureStatus `json:"openArchitecture,omitempty"`
-	Conditions       []metav1.Condition      `json:"conditions,omitempty"`
+	ObservedGeneration int64                   `json:"observedGeneration,omitempty"`
+	ResolvedPath       string                  `json:"resolvedPath,omitempty"`
+	HeadCommit         string                  `json:"headCommit,omitempty"`
+	IndexedCommit      string                  `json:"indexedCommit,omitempty"`
+	Phase              string                  `json:"phase,omitempty"`
+	Contexts           *PopulateCounts         `json:"contexts,omitempty"`
+	PopulateRequest    string                  `json:"populateRequest,omitempty"`
+	OpenArchitecture   *OpenArchitectureStatus `json:"openArchitecture,omitempty"`
+	Conditions         []metav1.Condition      `json:"conditions,omitempty"`
 }
 
 type OpenArchitectureStatus struct {
@@ -107,8 +82,6 @@ type OpenArchitectureStatus struct {
 	Conflicts []string `json:"conflicts,omitempty"`
 }
 
-// Source is the declared source, with the phase 1 path field read as a path
-// source so an older manifest keeps working.
 func (r *Repository) Source() RepositorySource {
 	if r.Spec.Source != nil {
 		return *r.Spec.Source
@@ -116,9 +89,6 @@ func (r *Repository) Source() RepositorySource {
 	return RepositorySource{Path: r.Spec.Path}
 }
 
-// WorkPath is the working tree the controller resolved the source to. A reader
-// that needs the tree itself asks for this, never for spec.path: a git source
-// has no spec.path at all.
 func (r *Repository) WorkPath() string {
 	if r.Status.ResolvedPath != "" {
 		return r.Status.ResolvedPath
@@ -132,8 +102,6 @@ func (r *Repository) WorkPath() string {
 	return ""
 }
 
-// Partition is the partition mode of the populate step, defaulted to the
-// directory partition so an older manifest means what it always meant.
 func (r *Repository) Partition() string {
 	if r.Spec.Populate != nil && r.Spec.Populate.Partition != "" {
 		return r.Spec.Populate.Partition
@@ -145,8 +113,6 @@ func (r *Repository) Summarize() bool {
 	return r.Spec.Populate != nil && r.Spec.Populate.Summarize
 }
 
-// PopulateAgent is the agent the populate step uses. It is separate from
-// spec.agent, which selects the agent of a spec -> code realize.
 func (r *Repository) PopulateAgent() *AgentSpec {
 	if r.Spec.Populate != nil {
 		return r.Spec.Populate.Agent
@@ -177,19 +143,10 @@ type Interface struct {
 }
 
 const (
-	// ArchKindNode marks a SystemContext that is one node of an arch.yaml.
-	ArchKindNode = "node"
-	// ArchKindDocument marks the one SystemContext that carries the arch.yaml
-	// top-level header and the order of its sections.
+	ArchKindNode     = "node"
 	ArchKindDocument = "document"
 )
 
-// ArchSpec is the open architecture (arch.yaml) view of a SystemContext. Every
-// node of an imported arch.yaml becomes one SystemContext; this block carries
-// the id the document used, where the node sat in the tree, and the node body
-// with its inline children replaced by their id refs, so export can put the
-// document back together. The document object (Kind document) carries the
-// top-level header instead of a node body.
 type ArchSpec struct {
 	ID       string `json:"id"`
 	Kind     string `json:"kind,omitempty"`
@@ -213,8 +170,6 @@ type ArchSpec struct {
 	Document map[string]any `json:"document,omitempty"`
 }
 
-// ArchSection is one top-level section of the document, in document order: the
-// key and whether it is a map (id is the key) or a list of nodes.
 type ArchSection struct {
 	Key  string `json:"key"`
 	Form string `json:"form,omitempty"`
@@ -249,27 +204,16 @@ type ObservedFacts struct {
 	Fingerprint string              `json:"fingerprint,omitempty"`
 }
 
-// SystemContextStatus is the observed state. ObservedCommit and Observed are
-// what the code is right now. SyncedCommit and SyncedFingerprint are the
-// baseline the spec was last brought into agreement with: they move only when
-// an ingest, a realize or a human edit acknowledges the code, so Drifted stays
-// true until the drift is worked off.
 type SystemContextStatus struct {
-	ObservedGeneration int64         `json:"observedGeneration,omitempty"`
-	ObservedCommit     string        `json:"observedCommit,omitempty"`
-	Observed           ObservedFacts `json:"observed,omitempty"`
-	SyncedCommit       string        `json:"syncedCommit,omitempty"`
-	SyncedFingerprint  string        `json:"syncedFingerprint,omitempty"`
-	// SyncedObserved is the facts the synced baseline was taken from. Observed
-	// is overwritten by every ingest, so the code -> spec delta needs the old
-	// side kept: this is that side.
-	SyncedObserved   ObservedFacts `json:"syncedObserved,omitempty"`
-	RealizedSpecHash string        `json:"realizedSpecHash,omitempty"`
-	// RealizedSpec is the spec the hash above was taken from: the last spec
-	// that was realized or absorbed. It is the old side of a spec -> code
-	// delta, which is therefore computable from kcp alone.
-	RealizedSpec *SystemContextSpec `json:"realizedSpec,omitempty"`
-	Conditions   []metav1.Condition `json:"conditions,omitempty"`
+	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
+	ObservedCommit     string             `json:"observedCommit,omitempty"`
+	Observed           ObservedFacts      `json:"observed,omitempty"`
+	SyncedCommit       string             `json:"syncedCommit,omitempty"`
+	SyncedFingerprint  string             `json:"syncedFingerprint,omitempty"`
+	SyncedObserved     ObservedFacts      `json:"syncedObserved,omitempty"`
+	RealizedSpecHash   string             `json:"realizedSpecHash,omitempty"`
+	RealizedSpec       *SystemContextSpec `json:"realizedSpec,omitempty"`
+	Conditions         []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type SystemContext struct {
@@ -291,8 +235,6 @@ type SpecChangeSpec struct {
 	FromCommit string `json:"fromCommit,omitempty"`
 	ToCommit   string `json:"toCommit,omitempty"`
 
-	// Delta is what the change asks for, never the whole spec: the spec edit
-	// for a SpecToCode change, the observed fact change for a CodeToSpec one.
 	Delta *Delta `json:"delta,omitempty"`
 }
 
@@ -307,10 +249,6 @@ type SpecChangeStatus struct {
 	AgentLog       string   `json:"agentLog,omitempty"`
 	Message        string   `json:"message,omitempty"`
 
-	// Progress is what the host running the change reported while it ran: the
-	// files it touched per turn, and the notes it made. It is the live half of
-	// the record; FilesTouched and Commit are the summary written when the
-	// change settles.
 	Progress []ProgressRecord `json:"progress,omitempty"`
 }
 

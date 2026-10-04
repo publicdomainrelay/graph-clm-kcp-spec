@@ -65,9 +65,6 @@ func subtractObserved() spec.ObservedFacts {
 	return next
 }
 
-// methodSpec describes a store whose two types both offer a method named List.
-// The keys carry the receiver, which is what lets a delta tell one List from
-// the other; a surface keyed by bare name could not.
 func methodSpec() spec.SystemContextSpec {
 	return spec.SystemContextSpec{
 		Repository: "store",
@@ -115,8 +112,6 @@ func methodObservedNext() spec.ObservedFacts {
 	return next
 }
 
-// TestDeltaGolden pins the JSON form. It is the shape phase 8 mirrors in
-// TypeScript, so a change to it is a change to a shared contract.
 func TestDeltaGolden(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -250,8 +245,6 @@ func TestDiffAndApplyRoundTrip(t *testing.T) {
 	}
 }
 
-// TestDiffApplyProperty is the property the plan asks for, over randomly
-// generated specs: Apply(old, Diff(old, new)) equals new.
 func TestDiffApplyProperty(t *testing.T) {
 	random := rand.New(rand.NewSource(20261003))
 	for round := 0; round < 500; round++ {
@@ -264,8 +257,6 @@ func TestDiffApplyProperty(t *testing.T) {
 		if change := delta.Diff(old, old); !change.Empty() {
 			t.Fatalf("round %d: Diff(x, x) = %+v", round, change)
 		}
-		// Diff of the canonical forms is the same delta, so the hash and the
-		// delta agree about what an edit is.
 		canonical := delta.Diff(spec.Canonicalize(old), spec.Canonicalize(next))
 		plain := delta.Diff(old, next)
 		if !reflect.DeepEqual(canonical, plain) {

@@ -6,12 +6,8 @@ import (
 	"strings"
 )
 
-// measureFloatTolerance is how close two measures must be to count as the same number. The
-// measures are ratios of small counts, so a float that differs by more than
-// this was computed from a different sample.
 const measureFloatTolerance = 1e-9
 
-// MeasurePair is one measure of two runs side by side.
 type MeasurePair struct {
 	Name string `json:"name"`
 
@@ -19,15 +15,9 @@ type MeasurePair struct {
 
 	Live Measure `json:"live"`
 
-	// Equal is true only when both runs measured the measure and reached the
-	// same number.
 	Equal bool `json:"equal"`
 }
 
-// Comparison is a live run against the scripted baseline. NotDiscriminating is
-// the flag the phase 11 review asked for: the live model scored exactly the
-// baseline on every measure both runs took and nothing below perfect on a
-// measure only it could take, so nothing in the run separates the two agents.
 type Comparison struct {
 	BaselineAgent string `json:"baselineAgent"`
 
@@ -40,9 +30,6 @@ type Comparison struct {
 	Note string `json:"note"`
 }
 
-// Compare puts a live run beside the scripted baseline. A measure the live run
-// took and the baseline could not is part of the comparison and counts as
-// discriminating, because the baseline did not score it at all.
 func Compare(baseline, live Report) Comparison {
 	comparison := Comparison{BaselineAgent: orNone(baseline.Agent), LiveAgent: orNone(live.Agent)}
 	names := measureNames()
@@ -86,8 +73,6 @@ func Compare(baseline, live Report) Comparison {
 	return comparison
 }
 
-// measureNames is every measure a report carries, in the order the headline
-// table prints them, so a comparison reads like the report above it.
 func measureNames() []string {
 	return []string{
 		"spec -> code pass rate (verify + acceptance)",
@@ -138,7 +123,6 @@ func measureNamed(report Report, name string) Measure {
 	return Measure{}
 }
 
-// Markdown is the side by side table the report ends with.
 func (c Comparison) Markdown() string {
 	builder := &strings.Builder{}
 	fmt.Fprintf(builder, "# specctl eval comparison\n\n")

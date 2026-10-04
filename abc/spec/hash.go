@@ -8,10 +8,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
 
-// HashSystemContextSpec hashes the canonical form of a spec, so the keyed
-// lists the CRD declares (requirements by id, interfaces by name, codeRefs and
-// the other ref lists as sets) contribute the same hash however they are
-// ordered in a manifest.
 func HashSystemContextSpec(specification SystemContextSpec) (string, error) {
 	hash, err := specapi.HashJSON(Canonicalize(specification))
 	if err != nil {
@@ -22,23 +18,15 @@ func HashSystemContextSpec(specification SystemContextSpec) (string, error) {
 
 const changeNameHashLength = 12
 
-// ChangeNameCodeToSpec names a CodeToSpec change after the context and the
-// commit pair, so a reconcile that runs twice lands on the same object and the
-// change is created exactly once.
 func ChangeNameCodeToSpec(context, fromCommit, toCommit string) string {
 	return context + "-c2s-" + shorten(fromCommit) + "-" + shorten(toCommit)
 }
 
-// ChangeNameSpecToCode names a SpecToCode change after the context and the
-// spec hash it carries.
 func ChangeNameSpecToCode(context, specHash string) string {
 	return context + "-s2c-" + shorten(specHash)
 }
 
 func shorten(value string) string {
-	// An empty commit names "none" rather than the empty string: the name is a
-	// DNS-1123 label, and a populate of a working tree that is not a git
-	// repository has no commit pair to carry.
 	if value == "" {
 		return "none"
 	}
@@ -50,8 +38,6 @@ func shorten(value string) string {
 
 const attemptSuffix = "-a"
 
-// AttemptCount is how many records of one episode exist: the bare name plus
-// every numbered retry. It is what a failure cap counts.
 func AttemptCount(existing []string, base string) int {
 	attempts := 0
 	for _, name := range existing {
@@ -62,17 +48,10 @@ func AttemptCount(existing []string, base string) int {
 	return attempts
 }
 
-// ChangeNameMatches reports whether a change name belongs to one episode: the
-// bare deterministic name or one of its numbered retries.
 func ChangeNameMatches(name, base string) bool {
 	return name == base || strings.HasPrefix(name, base+attemptSuffix)
 }
 
-// NextChangeName names the next attempt at one episode. The first attempt
-// carries the bare deterministic name; a later one is suffixed with its
-// attempt number. A change that failed is therefore retried as a new record
-// instead of colliding with its own name and being dropped, while an
-// unfinished change still blocks the caller before it ever asks.
 func NextChangeName(existing []string, base string) string {
 	attempts := AttemptCount(existing, base)
 	if attempts == 0 {

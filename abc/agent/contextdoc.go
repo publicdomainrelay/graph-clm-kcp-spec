@@ -9,10 +9,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 )
 
-// The context document is a real file in the managed repository. The model owns
-// everything above the markers; the part between them is regenerated from the
-// resolved code refs on every summarize, so a model edit there is lost. This is
-// the pi-hydradb-clm pattern, with specd's own marker names.
 const (
 	ManagedBegin = "<!-- SPECD_MANAGED_BEGIN -->"
 
@@ -21,9 +17,6 @@ const (
 	DefaultManagedBudget = 1500
 )
 
-// ResolvedRef is a code reference the index answered: the stable CodeGraph id
-// and the facts that describe it. The managed zone lists these, so the model
-// can cite an id instead of re-deriving one.
 type ResolvedRef struct {
 	CodegraphID string
 
@@ -34,9 +27,6 @@ type ResolvedRef struct {
 	FilePath string
 }
 
-// FileRef is the resolved reference of one `file:` code ref. A file is already
-// keyed by its CodeGraph id, so it needs no lookup to belong in the managed
-// zone; a symbol ref does, which is why only files are built this way.
 func FileRef(codeRef string) (ResolvedRef, bool) {
 	filePath, ok := strings.CutPrefix(codeRef, "file:")
 	if !ok || filePath == "" {
@@ -54,8 +44,6 @@ func ContextDocPath(docDir, repository, context string) string {
 	return path.Join(docDir, repository, context+".md")
 }
 
-// SplitContextDoc separates the model zone from the managed zone. A document
-// with no markers is all model zone, which is what the first summarize sees.
 func SplitContextDoc(text string) (string, string) {
 	begin := strings.Index(text, ManagedBegin)
 	end := strings.Index(text, ManagedEnd)
@@ -66,9 +54,6 @@ func SplitContextDoc(text string) (string, string) {
 	return model, strings.TrimSpace(text[begin : end+len(ManagedEnd)])
 }
 
-// ComposeContextDoc puts the model zone above a freshly rendered managed zone.
-// An empty model zone becomes a placeholder, so the file always tells the model
-// where to write.
 func ComposeContextDoc(model string, refs []ResolvedRef, budget int) string {
 	if budget <= 0 {
 		budget = DefaultManagedBudget

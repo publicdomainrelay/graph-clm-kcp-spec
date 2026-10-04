@@ -155,7 +155,6 @@ func TestBuildResolvesArchRefsAndExtraEdges(t *testing.T) {
 			t.Errorf("%s has no edge to the context named %s", edgeType, name)
 		}
 	}
-	// The parent's up.kcp and the child's sc.deno-kcp are both upstream edges.
 	if got := len(findEdgeSet(edges, EdgeUpstream, LabelContext).Rows); got != 2 {
 		t.Fatalf("upstream edges = %d, want 2", got)
 	}

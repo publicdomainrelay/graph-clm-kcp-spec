@@ -1,15 +1,3 @@
-// Package mirror is the pure half of the git-native spec mirror: one YAML
-// document per SystemContext under `.specs/` in the managed repository, so a
-// pull request carries the spec and the code together.
-//
-// The document is the spec and nothing else: no status, no conditions, no
-// runtime metadata. Its key order comes from the Go struct field order, so the
-// same spec always renders to the same bytes and a pull that changed nothing
-// leaves the file alone.
-//
-// Sync semantics are decided here, with no I/O, so the conflict rule is a unit
-// test: a file and kcp are only in conflict when both moved since the last sync
-// recorded in the `synced-hash` annotation.
 package mirror
 
 import (
@@ -22,10 +10,8 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
 
-// Dir is where the mirror lives inside the managed repository.
 const LegacyDir = ".specs"
 
-// ErrConflict is both sides of one context having moved since the last sync.
 var ErrConflict = errors.New("mirror: kcp and the file both changed since the last sync")
 
 type Metadata struct {
@@ -34,7 +20,6 @@ type Metadata struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
-// Document is one `.specs/<name>.yaml`.
 type Document struct {
 	APIVersion string `json:"apiVersion"`
 
@@ -45,12 +30,6 @@ type Document struct {
 	Spec spec.SystemContextSpec `json:"spec"`
 }
 
-// Render writes one context's spec as the mirror document. The spec is
-// canonicalized first, so the keyed lists come out in their key order and a
-// reordered manifest does not change the file. The code refs ingest derived
-// from the tree are left out: they are an observation, not a decision, and
-// including them would rewrite every file on every commit and drown a pull
-// request in spec churn.
 func Render(name, namespace string, contextSpec spec.SystemContextSpec) ([]byte, error) {
 	declared := spec.Canonicalize(contextSpec)
 	declared.CodeRefs = nil
@@ -67,8 +46,6 @@ func Render(name, namespace string, contextSpec spec.SystemContextSpec) ([]byte,
 	return data, nil
 }
 
-// Parse reads one mirror document and validates it as a spec a human could
-// have applied to kcp.
 func Parse(name string, data []byte) (spec.SystemContext, error) {
 	document := Document{}
 	if err := yaml.Unmarshal(data, &document); err != nil {

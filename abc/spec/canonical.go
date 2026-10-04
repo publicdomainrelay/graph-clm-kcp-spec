@@ -5,10 +5,6 @@ import (
 	"sort"
 )
 
-// CanonicalSet returns a sorted, deduplicated copy of a string list. An empty
-// list becomes nil, so two spellings of the same set hash alike: the CRD
-// declares these fields as sets (x-kubernetes-list-type: set), where order and
-// repetition carry no meaning.
 func CanonicalSet(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -26,16 +22,12 @@ func CanonicalSet(values []string) []string {
 	return out
 }
 
-// CanonicalRequirement sorts the code refs of one requirement, so the same
-// requirement written twice hashes the same way.
 func CanonicalRequirement(requirement Requirement) Requirement {
 	out := requirement
 	out.CodeRefs = CanonicalSet(requirement.CodeRefs)
 	return out
 }
 
-// CanonicalRequirements orders requirements by id, which is the key the CRD
-// declares them under.
 func CanonicalRequirements(requirements []Requirement) []Requirement {
 	if len(requirements) == 0 {
 		return nil
@@ -48,14 +40,10 @@ func CanonicalRequirements(requirements []Requirement) []Requirement {
 	return out
 }
 
-// CanonicalInterface normalizes one declared interface. It has no list field,
-// so it is the identity; it exists so the delta code has one spelling to call.
 func CanonicalInterface(declared Interface) Interface {
 	return declared
 }
 
-// CanonicalInterfaces orders interfaces by name, which is the key the CRD
-// declares them under.
 func CanonicalInterfaces(interfaces []Interface) []Interface {
 	if len(interfaces) == 0 {
 		return nil
@@ -65,9 +53,6 @@ func CanonicalInterfaces(interfaces []Interface) []Interface {
 	return out
 }
 
-// CanonicalObserved orders the observed facts: files sorted and deduplicated,
-// interfaces sorted by name. The fingerprint is left alone, because it is the
-// digest of exactly these facts.
 func CanonicalObserved(observed ObservedFacts) ObservedFacts {
 	out := observed
 	out.Files = CanonicalSet(observed.Files)
@@ -75,8 +60,6 @@ func CanonicalObserved(observed ObservedFacts) ObservedFacts {
 	return out
 }
 
-// CanonicalObservedInterfaces orders observed interfaces by name, the key the
-// CRD declares them under.
 func CanonicalObservedInterfaces(interfaces []ObservedInterface) []ObservedInterface {
 	if len(interfaces) == 0 {
 		return nil
@@ -86,20 +69,12 @@ func CanonicalObservedInterfaces(interfaces []ObservedInterface) []ObservedInter
 	return out
 }
 
-// SameDeclaredState reports whether two specs say the same thing about the
-// fields a human owns: the repository, the refs, the intent, the requirements,
-// the interfaces and the arch block. The code refs ingest derives from the tree
-// are left out, so an ingest that only added a file ref is not read as a human
-// edit.
 func SameDeclaredState(left, right SystemContextSpec) bool {
 	left.CodeRefs = nil
 	right.CodeRefs = nil
 	return reflect.DeepEqual(Canonicalize(left), Canonicalize(right))
 }
 
-// Canonicalize orders every keyed list and set of a spec. The hash is taken
-// over the canonical form, so reordering a list in a manifest is not a spec
-// edit, exactly as the CRD's list keys say.
 func Canonicalize(in SystemContextSpec) SystemContextSpec {
 	out := in
 	out.Requirements = CanonicalRequirements(in.Requirements)

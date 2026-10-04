@@ -47,7 +47,6 @@ func TestParseDraftReadsAFencedAnswer(t *testing.T) {
 	if len(draft.Requirements) != 2 || draft.Requirements[0].ID != "r.add" || draft.Requirements[0].Level != spec.LevelMust {
 		t.Fatalf("requirements = %+v", draft.Requirements)
 	}
-	// Four spellings of one interface collapse to the one ref the spec stores.
 	if refs := draft.Requirements[0].CodeRefs; len(refs) != 2 || refs[0] != "function:abc" || refs[1] != "file:calc/calc.go" {
 		t.Errorf("codeRefs = %v, want the canonical id and the file", refs)
 	}
@@ -95,14 +94,11 @@ func TestParseDraftCanonicalizesABareNameToTheObservedID(t *testing.T) {
 	if len(draft.Dropped) != 0 {
 		t.Errorf("dropped = %+v, want none: every spelling names Add", draft.Dropped)
 	}
-	// The canonical form is what the validator accepts, which is the point.
 	if _, result := ValidateDraft("calc", spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf}, draft); !result.OK() {
 		t.Errorf("the canonicalized draft does not validate: %v", result.Err())
 	}
 }
 
-// methodObserved is a context whose two types each offer a method named List,
-// so the surface can only describe them by their receivers.
 func methodObserved() spec.ObservedFacts {
 	return spec.ObservedFacts{
 		Files: []string{"store/store.go"},
@@ -148,8 +144,6 @@ func TestParseDraftResolvesABareMethodNameOnlyWhenItIsUnique(t *testing.T) {
 	if refs := draft.Requirements[0].CodeRefs; len(refs) != 1 || refs[0] != "method:set" {
 		t.Errorf("qualified ref = %v", refs)
 	}
-	// Two types offer List, so the bare name names neither and is dropped
-	// rather than guessed.
 	if refs := draft.Requirements[1].CodeRefs; len(refs) != 0 {
 		t.Errorf("an ambiguous bare name resolved to %v", refs)
 	}
@@ -365,10 +359,6 @@ func TestRenderDeltaCoversObservedFacts(t *testing.T) {
 	}
 }
 
-// A model names a symbol the way it reads it, and the parser canonicalizes that
-// to the observed CodeGraph id. Those ids carry the index's own kind, so the
-// validator has to accept every kind the index emits, or the parser and the
-// validator disagree about the model's answer and the whole draft is rejected.
 func TestEveryCanonicalRefTheParserBuildsIsAValidCodeRef(t *testing.T) {
 	observed := spec.ObservedFacts{
 		Files: []string{"greet/mod.ts"},

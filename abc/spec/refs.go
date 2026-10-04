@@ -19,10 +19,6 @@ const (
 
 var RefPrefixes = []string{RefPrefixContext, RefPrefixUpstream, RefPrefixOverlay, RefPrefixOrchestrator}
 
-// IsRef accepts the plain vocabulary (self, sc.<name>, up.<name>, ov.<name>,
-// orch.<name> with a DNS-1123 label payload) and the open architecture ids the
-// arch.yaml importer keeps verbatim (sc.kind.denopod, up.hono-pds), whose
-// payload is a DNS-1123 subdomain so the dots survive.
 func IsRef(value string) bool {
 	if value == RefSelf {
 		return true
@@ -35,9 +31,6 @@ func IsRef(value string) bool {
 	return false
 }
 
-// RefName is the object name a plain ref points at. An open architecture id
-// needs ArchName instead, because its dots are part of the id, not a separator:
-// the importer names sc.kind.denopod "sc-kind-denopod".
 func RefName(value string) (string, bool) {
 	for _, prefix := range RefPrefixes {
 		if payload, ok := strings.CutPrefix(value, prefix); ok {
@@ -49,18 +42,10 @@ func RefName(value string) (string, bool) {
 
 var archIDPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-// IsArchID reports whether a value is an open architecture id: a prefix, a
-// dot, then a payload (sc.kind.denopod, up.kcp, type.DenoPermissions, x.1). The
-// plain vocabulary and the arch vocabulary overlap (sc.calc is both), so a
-// caller that knows the source is arch.yaml uses this, and a caller that does
-// not keeps RefName.
 func IsArchID(value string) bool {
 	return value != RefSelf && archIDPattern.MatchString(value)
 }
 
-// ArchName maps an open architecture id to the DNS-1123 object name the
-// importer uses for it. The mapping is a pure function of the id, so a reimport
-// lands on the same object.
 func ArchName(id string) string {
 	lowered := strings.ToLower(id)
 	builder := strings.Builder{}
@@ -109,12 +94,6 @@ const (
 	CodeRefPrefixPackage  = "package:"
 )
 
-// CodeRefKinds are the CodeGraph node kinds a code ref may name. The list is
-// the index's own vocabulary, because a ref the model copied from an observed
-// fact is a valid ref by construction: a TypeScript interface is
-// interface:<hex> and a class is class:<hex>, not type:<hex>. A parser that
-// canonicalizes a bare name to the observed CodeGraph id and a validator that
-// only knew a shorter list would disagree about the model's own answer.
 var CodeRefKinds = []string{
 	"file", "package", "module",
 	"function", "method", "constructor",

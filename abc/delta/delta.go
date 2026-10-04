@@ -1,11 +1,3 @@
-// Package delta is the pure difference of two specs and of two observed fact
-// sets. It is what a SpecChange carries, so an agent is asked "here is what
-// changed" and never "here is the whole spec, guess what changed".
-//
-// The keyed lists of a spec (requirements by id, interfaces by name) have no
-// order: the CRD declares them as list maps. Diff therefore reports per key,
-// and Apply rebuilds the canonical order, so Apply(old, Diff(old, new)) equals
-// Canonicalize(new).
 package delta
 
 import (
@@ -17,8 +9,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 )
 
-// Diff is the spec -> code direction: what a spec edit asks the code to
-// become.
 func Diff(old, new spec.SystemContextSpec) spec.Delta {
 	out := spec.Delta{}
 	if old.Intent != new.Intent {
@@ -39,8 +29,6 @@ func Diff(old, new spec.SystemContextSpec) spec.Delta {
 	return out
 }
 
-// DiffObserved is the code -> spec direction: what the index reports that the
-// baseline facts did not.
 func DiffObserved(old, new spec.ObservedFacts) spec.Delta {
 	files := diffSet(old.Files, new.Files)
 	interfaces := diffObservedInterfaces(old.Interfaces, new.Interfaces)
@@ -58,7 +46,6 @@ func DiffObserved(old, new spec.ObservedFacts) spec.Delta {
 	}}
 }
 
-// Apply is the inverse of Diff.
 func Apply(base spec.SystemContextSpec, change spec.Delta) spec.SystemContextSpec {
 	out := base
 	if change.Intent != nil {
@@ -91,7 +78,6 @@ func Apply(base spec.SystemContextSpec, change spec.Delta) spec.SystemContextSpe
 	return spec.Canonicalize(out)
 }
 
-// ApplyObserved is the inverse of DiffObserved.
 func ApplyObserved(base spec.ObservedFacts, change spec.Delta) spec.ObservedFacts {
 	if change.Observed == nil {
 		return spec.CanonicalObserved(base)
@@ -109,9 +95,6 @@ func ApplyObserved(base spec.ObservedFacts, change spec.Delta) spec.ObservedFact
 	return spec.CanonicalObserved(out)
 }
 
-// Summary is the compact form a reader sees: how many entries were added,
-// removed and changed. An empty delta is a dash, because a spec rewritten to
-// say the same thing is not work.
 func Summary(change spec.Delta) string {
 	counts := change.Count()
 	parts := []string{}

@@ -88,9 +88,6 @@ func ValidateRepository(repository *Repository) Result {
 	return b.result()
 }
 
-// checkAgent gates the per repository agent selection. The value is the same
-// option string specd takes, so a typo is caught at apply time instead of
-// silently leaving every change Pending.
 func (b *builder) checkAgent(path string, agent *AgentSpec) {
 	switch {
 	case agent.Kind == "":
@@ -137,8 +134,6 @@ func ValidateSystemContext(context *SystemContext) Result {
 	if context.Status.RealizedSpecHash != "" && !specapi.IsHash(context.Status.RealizedSpecHash) {
 		b.add("status.realizedSpecHash", "%q is not a sha256 hex digest", context.Status.RealizedSpecHash)
 	}
-	// The snapshot is a whole spec, so it passes the same checks the live spec
-	// does. Its own status is empty, so this cannot recurse.
 	if context.Status.RealizedSpec != nil {
 		candidate := &SystemContext{
 			ObjectMeta: metav1.ObjectMeta{Name: context.Name},
@@ -183,10 +178,6 @@ func ValidateSpecChange(change *SpecChange) Result {
 			b.add("spec.fromSpecHash", "%q is not a sha256 hex digest", change.Spec.FromSpecHash)
 		}
 	case specapi.DirectionCodeToSpec:
-		// A working tree that is not a git repository has no commits, and the
-		// populate of such a tree still raises one code -> spec change per
-		// context, so a wholly empty pair is allowed. Half a pair is not: it
-		// names a drift nobody can place.
 		if (change.Spec.ToCommit == "") != (change.Spec.FromCommit == "") {
 			b.add("spec.fromCommit", "and spec.toCommit are both empty or both set")
 		}
@@ -314,9 +305,6 @@ func (b *builder) checkRefs(path string, refs []string) {
 	}
 }
 
-// checkArch gates what the arch.yaml importer writes. The node body is opaque
-// by design; the fields the importer derives from it are checked, because the
-// graph and the validator read those.
 func (b *builder) checkArch(arch *ArchSpec) {
 	if arch == nil {
 		return

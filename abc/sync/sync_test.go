@@ -62,9 +62,6 @@ func TestPartitionFactsKeepsExportedNonTestSymbols(t *testing.T) {
 	}
 }
 
-// sharedMethodFacts is a package whose two types each offer a method named
-// List, which is ordinary Go and which a surface keyed by bare name could not
-// describe.
 func sharedMethodFacts() Facts {
 	return Facts{
 		Files: []SourceFile{{Path: "store/store.go", Language: "go"}},
@@ -92,7 +89,6 @@ func TestObservedKeepsTwoTypesThatShareAMethodName(t *testing.T) {
 			t.Errorf("interface %q is not one of %v", name, want)
 		}
 	}
-	// A function keeps its bare name: only a method takes its receiver.
 	for _, entry := range observed.Interfaces {
 		if entry.Name == "NewStore" && entry.Kind != "function" {
 			t.Errorf("NewStore kind = %q", entry.Kind)
@@ -105,8 +101,6 @@ func TestObservedKeepsTwoTypesThatShareAMethodName(t *testing.T) {
 
 func TestMigrateDeclaredTakesTheReceiverWhenItIsUnambiguous(t *testing.T) {
 	observed := Observed(PartitionFacts(sharedMethodFacts(), "store")[0])
-	// Two types offer List, so its bare name resolves to nothing and is left
-	// exactly as it was.
 	collided := MigrateDeclared(spec.SystemContextSpec{
 		Interfaces:   []spec.Interface{{Name: "List"}},
 		Requirements: []spec.Requirement{{ID: "r.list", CodeRefs: []string{"function:List"}}},
@@ -137,9 +131,6 @@ func TestMigrateDeclaredTakesTheReceiverWhenItIsUnambiguous(t *testing.T) {
 	}
 }
 
-// A migration that has nothing to move must leave the spec exactly as it was.
-// Rebuilding an empty list as a non-nil one would read as an edit and raise a
-// change for a tree nobody touched.
 func TestMigrateDeclaredLeavesASpecWithNothingToMigrateAlone(t *testing.T) {
 	observed := Observed(PartitionFacts(sharedMethodFacts(), "store")[0])
 	declared := spec.SystemContextSpec{
@@ -203,9 +194,6 @@ func TestFingerprintIsOrderIndependentAndContentSensitive(t *testing.T) {
 	}
 }
 
-// TestObservedKeysInterfacesByName is the unknown codebase's finding: two
-// symbols may share a name, and every list the observed facts are written to is
-// keyed by name, so a duplicate makes the status the API server refuses.
 func TestObservedKeysInterfacesByName(t *testing.T) {
 	partition := Partition{
 		Name:  "archyaml",
@@ -299,7 +287,6 @@ func TestDecideDriftsAgainstTheSyncedFingerprint(t *testing.T) {
 	if !decideWith(observed, "some-old-fingerprint", declared).Drifted {
 		t.Error("a different synced fingerprint is drift")
 	}
-	// Before the first ingest there is no baseline, so nothing has drifted.
 	if decideWith(observed, "", declared).Drifted {
 		t.Error("an unset synced fingerprint is not drift")
 	}
@@ -396,8 +383,6 @@ func TestSpecChangeDue(t *testing.T) {
 			t.Error("an edit is due only against a realized baseline")
 		}
 	}
-	// A tool write is a spec update and a status update; between the two, the
-	// spec still hashes to what the tool wrote and is not a human edit.
 	if SpecEditDue("hash-a", "hash-b", "hash-a") {
 		t.Error("a spec that is still the tool's own write is not a pending edit")
 	}
@@ -422,8 +407,6 @@ func moduleFacts() Facts {
 	}
 }
 
-// moduleRoots is what the caller reads off the tree: greet/deno.json and
-// calc/go.mod, plus the repository root.
 func moduleRoots() []string {
 	return []string{".", "calc", "greet"}
 }
@@ -473,7 +456,6 @@ func TestIncludeAndExcludeGlobsFilterTheTree(t *testing.T) {
 	if len(partitions) != 1 || partitions[0].Name != "greet" {
 		t.Fatalf("partitions = %+v, want only greet", partitions)
 	}
-	// A pattern without a slash matches the base name anywhere in the tree.
 	if partitions := PartitionFactsWith(moduleFacts(), PartitionOptions{
 		Include:        []string{"*.ts"},
 		RepositoryName: "unseen",
@@ -516,10 +498,6 @@ func TestMatchGlob(t *testing.T) {
 	}
 }
 
-// TestSpecArtifactsAreNotCode: the context documents and the `.specs/*.yaml`
-// mirror are spec state the tool writes, so a partition and the observed facts
-// leave them out even when the index read one. Without this a mirror file would
-// become a context of its own and make the spec look like code that drifted.
 func TestLegacySpecMirrorPathsAreNotCode(t *testing.T) {
 	facts := Facts{
 		Files: []SourceFile{

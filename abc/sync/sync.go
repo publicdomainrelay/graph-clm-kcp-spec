@@ -26,11 +26,6 @@ type Symbol struct {
 
 	Name string
 
-	// Qualified is the index's qualified name of the symbol: `Type.Method` for
-	// a method, the bare name for a free function or a type. It is the list-map
-	// key of the observed surface, because two types may both offer a method
-	// named List and the declared surface, keyed by name, could hold only one
-	// of them.
 	Qualified string
 
 	Kind      string
@@ -40,10 +35,6 @@ type Symbol struct {
 	Exported  bool
 }
 
-// InterfaceKey is the key a symbol takes in the observed surface and in a
-// spec's declared interfaces: a method is keyed by its qualified name, so two
-// types that share a method name are two entries; everything else keeps its
-// bare name, so a function's key reads the way it is called.
 func InterfaceKey(symbol Symbol) string {
 	switch symbol.Kind {
 	case "method", "constructor":
@@ -101,10 +92,6 @@ func IsTestFile(file string) bool {
 	return false
 }
 
-// PartitionOptions is how a Repository asks for its tree to be split. Mode is
-// directory (one context per directory that holds a source file) or package
-// (one context per package or module root); include and exclude are globs over
-// the repository-relative path, applied before the split.
 type PartitionOptions struct {
 	Mode string
 
@@ -112,18 +99,11 @@ type PartitionOptions struct {
 
 	Exclude []string
 
-	// Roots are the package roots the package partition groups by. The caller
-	// reads them off the working tree, because a manifest file is not indexed
-	// and so is not in Facts.Files. "." is always a root; an empty list means
-	// only the repository root.
 	Roots []string
 
 	RepositoryName string
 }
 
-// PartitionFacts splits the facts into one partition per directory that holds
-// a source file. The name is the directory path with slashes turned into
-// dashes, which is a DNS-1123 label; root files take the repository name.
 func PartitionFacts(facts Facts, repositoryName string) []Partition {
 	return PartitionFactsWith(facts, PartitionOptions{RepositoryName: repositoryName})
 }
@@ -142,9 +122,6 @@ func PartitionFactsWith(facts Facts, options PartitionOptions) []Partition {
 	}
 }
 
-// partitionsByKey groups the files by directory, or by the longest package
-// root above them when roots are given. Both forms produce the same Partition
-// shape, so the rest of the pipeline never asks which mode produced it.
 func partitionsByKey(files []SourceFile, symbols []Symbol, repositoryName string, roots []string) []Partition {
 	byDirectory := map[string]*Partition{}
 	order := []string{}
@@ -180,9 +157,6 @@ func partitionsByKey(files []SourceFile, symbols []Symbol, repositoryName string
 	return partitions
 }
 
-// PackageManifests are the files that mark a directory as a package or module
-// root. A nested one starts its own context; files under no root belong to the
-// repository's own context.
 var PackageManifests = []string{
 	"go.mod", "go.work", "deno.json", "deno.jsonc", "package.json",
 	"Cargo.toml", "pyproject.toml", "setup.py", "pom.xml", "build.gradle",
@@ -201,8 +175,6 @@ func enclosingRoot(directory string, roots []string) string {
 	return best
 }
 
-// filterFiles applies the include and exclude globs. An empty include list
-// keeps every file; an exclude always wins.
 func filterFiles(files []SourceFile, include, exclude []string) []SourceFile {
 	includes := compileGlobs(include)
 	excludes := compileGlobs(exclude)
@@ -222,18 +194,10 @@ func filterFiles(files []SourceFile, include, exclude []string) []SourceFile {
 	return out
 }
 
-// IsLegacySpecMirrorPath reports whether a repository-relative path is spec state
-// rather than code: the context documents and the `.specs/*.yaml` mirror the
-// tool itself writes. They are left out of every partition and out of the
-// observed facts, even when the index happened to read one, because a spec the
-// tool wrote must never look like code that drifted.
 func IsLegacySpecMirrorPath(file string) bool {
 	return file == mirror.LegacyDir || strings.HasPrefix(file, mirror.LegacyDir+"/")
 }
 
-// MatchGlob matches one repository-relative path against one glob. `*` and `?`
-// stay inside a path segment, `**` crosses segments, and a pattern without a
-// slash also matches the base name, so `*_test.go` means every test file.
 func MatchGlob(pattern, name string) bool {
 	return matchAny(compileGlobs([]string{pattern}), name)
 }
@@ -377,24 +341,11 @@ func symbolsUnder(partition Partition, symbols []Symbol) []Symbol {
 	return out
 }
 
-// Observed turns a partition into the deterministic status.observed block.
-// The fingerprint covers the files and the interfaces, sorted, so two runs
-// over the same tree produce the same digest.
 func Observed(partition Partition) spec.ObservedFacts {
 	files := append([]string{}, partition.Files...)
 	sort.Strings(files)
 	files = dedupe(files)
 
-	// The observed interfaces are keyed by InterfaceKey everywhere they are
-	// written, read and diffed, so two symbols that share a key are one entry.
-	// A method's key is its qualified name, so two types that both offer a
-	// method named List are two describable entries; a free function and a type
-	// keep their bare name. Two symbols that still share a key — two files may
-	// each declare a `Section` — are one entry: a spec that carried both could
-	// not be stored at all, because the API server refuses a keyed list with a
-	// duplicate key. The symbols arrive sorted, so the entry kept is the first
-	// one in file and line order and two runs over the same tree produce the
-	// same facts.
 	interfaces := make([]spec.ObservedInterface, 0, len(partition.Symbols))
 	keyed := map[string]bool{}
 	for _, symbol := range partition.Symbols {
@@ -417,10 +368,6 @@ func Observed(partition Partition) spec.ObservedFacts {
 	return observed
 }
 
-// QualifiedRewrites maps a method's bare name to the qualified key the
-// observed facts now use, for the bare names they answer to exactly once. A
-// name two types share is left out: nothing may guess which receiver was meant,
-// and a spec that names it must be edited by a person.
 func QualifiedRewrites(observed spec.ObservedFacts) map[string]string {
 	exact := map[string]bool{}
 	for _, entry := range observed.Interfaces {
@@ -446,20 +393,11 @@ func QualifiedRewrites(observed spec.ObservedFacts) map[string]string {
 	return out
 }
 
-// MigrateDeclared moves a stored spec onto the qualified keys the observed
-// facts use: a declared interface that carries a method's bare name, and a
-// requirement code ref that names one, take the receiver with them when the
-// observed facts name exactly one candidate. A spec keyed before the receiver
-// was part of the key stays usable, which is what lets an ingest run over an
-// existing cluster without a rewrite of every object.
 func MigrateDeclared(declared spec.SystemContextSpec, observed spec.ObservedFacts) spec.SystemContextSpec {
 	rewrites := QualifiedRewrites(observed)
 	if len(rewrites) == 0 {
 		return declared
 	}
-	// A copy is taken only when something really moves, so a spec with nothing
-	// to migrate comes back untouched: an empty list rebuilt as a non-nil one
-	// would read as an edit and raise a change.
 	out := declared
 	interfaces := declared.Interfaces
 	copiedInterfaces := false
@@ -509,8 +447,6 @@ func MigrateDeclared(declared spec.SystemContextSpec, observed spec.ObservedFact
 	return out
 }
 
-// qualifiedRef is the qualified spelling of one code ref, or false when it is
-// not a bare method name the observed facts name exactly once.
 func qualifiedRef(ref string, rewrites map[string]string) (string, bool) {
 	if key, ok := rewrites[ref]; ok {
 		return key, true
@@ -583,8 +519,6 @@ type Decision struct {
 	Drifted bool
 }
 
-// Input is everything the deciders need about one context. It is a value, so a
-// caller can decide without a cluster.
 type Input struct {
 	Name string
 
@@ -597,10 +531,6 @@ type Input struct {
 	SyncedFingerprint string
 }
 
-// Decide is the whole SystemContext decision: the validator, the declared
-// surface against the observed one, the requirement code refs against the
-// observed facts, and the observed fingerprint against the one recorded when
-// the spec was last synced.
 func Decide(in Input) Decision {
 	decision := Decision{SpecValid: true}
 	candidate := spec.SystemContext{ObjectMeta: metav1.ObjectMeta{Name: in.Name}, Spec: in.Spec}
@@ -637,28 +567,10 @@ func Decide(in Input) Decision {
 	return decision
 }
 
-// CodeToSpecDue reports whether a CodeToSpec change is due: the context is
-// drifted and the commit pair from the synced baseline to the observed code is
-// usable.
-//
-// It deliberately does not ask whether Drifted just turned true. Ingest
-// computes the conditions and stores them in the same status write that stores
-// the new fingerprint, so the controller never sees the false-to-true edge.
-// The transition is therefore read as a state (drifted, with a commit pair) and
-// the caller raises one change per drift episode by refusing to create a second
-// change of the same direction while one is still unfinished, which is also
-// what makes a controller restart safe.
 func CodeToSpecDue(drifted bool, fromCommit, toCommit string) bool {
 	return drifted && fromCommit != "" && toCommit != "" && fromCommit != toCommit
 }
 
-// SpecEditDue reports whether a human spec edit waits for a realize. An empty
-// realized hash means the controller has no baseline yet, so nothing is due.
-//
-// originHash is the spec the tool itself last wrote, carried on the object.
-// A tool write is a spec update followed by a status update, and a reconcile
-// can run in between; when the spec still hashes to the tool's own write there
-// is no human edit to realize, only a status that has not landed yet.
 func SpecEditDue(specHash, realizedSpecHash, originHash string) bool {
 	if realizedSpecHash == "" || specHash == "" || specHash == realizedSpecHash {
 		return false
@@ -666,11 +578,6 @@ func SpecEditDue(specHash, realizedSpecHash, originHash string) bool {
 	return specHash != originHash
 }
 
-// RetryBackoff decides whether the next attempt at a drift episode may be
-// raised now, later, or never. attempts is how many records of the episode
-// already exist, lastAttempt is when the newest one was created (zero when that
-// is unknown, which allows the retry at once), base is the wait before the
-// second attempt, and maxAttempts caps the episode — zero means no cap.
 func RetryBackoff(attempts int, lastAttempt, now time.Time, base time.Duration, maxAttempts int) (time.Duration, bool) {
 	if maxAttempts > 0 && attempts >= maxAttempts {
 		return 0, false
@@ -690,9 +597,6 @@ func RetryBackoff(attempts int, lastAttempt, now time.Time, base time.Duration, 
 
 const maxRetryBackoff = 10 * time.Minute
 
-// RunningAdmitted reports whether a change may stay Running while the others of
-// its context also are. The lowest name wins, so exactly one change per
-// SystemContext runs and the loser is not a race between two workers.
 func RunningAdmitted(name string, running []string) bool {
 	for _, other := range running {
 		if other != name && other < name {
@@ -702,10 +606,6 @@ func RunningAdmitted(name string, running []string) bool {
 	return true
 }
 
-// ResolvableRefs is every spelling of a code reference the observed facts
-// answer to: a file ref, an interface's CodeGraph id, its bare name, and its
-// name under each code ref prefix. One definition, so ingest, the controller
-// and the model parser can never disagree about what resolves.
 func ResolvableRefs(observed spec.ObservedFacts) map[string]bool {
 	resolvable := map[string]bool{}
 	for _, file := range observed.Files {
@@ -723,8 +623,6 @@ func ResolvableRefs(observed spec.ObservedFacts) map[string]bool {
 	return resolvable
 }
 
-// UnresolvedCodeRefs returns the requirement code refs that name neither an
-// observed file nor an observed interface.
 func UnresolvedCodeRefs(requirements []spec.Requirement, observed spec.ObservedFacts) []string {
 	resolvable := ResolvableRefs(observed)
 
@@ -743,10 +641,6 @@ func UnresolvedCodeRefs(requirements []spec.Requirement, observed spec.ObservedF
 	return unresolved
 }
 
-// Conditions is the one place that turns a decision into the three conditions.
-// Ingest and the controller both call it, so the two never disagree and never
-// write over each other. The kcp-libs condition helpers keep the transition
-// time of a condition whose status did not change.
 func Conditions(in Input, previous []metav1.Condition) (Decision, []metav1.Condition) {
 	decision := Decide(in)
 	out := make([]metav1.Condition, 0, 3)

@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-// PopulateReport is what one Repository manifest reached: the phase specd
-// settled on, the context tally, and how long it took.
 type PopulateReport struct {
 	Fixture string `json:"fixture"`
 
@@ -22,18 +20,11 @@ type PopulateReport struct {
 
 	WallTimeSeconds float64 `json:"wallTimeSeconds"`
 
-	// Failures names the contexts that could not be summarized and why, so a
-	// codebase that only partly populated still says which part and for what
-	// reason.
 	Failures []string `json:"failures,omitempty"`
 
 	Error string `json:"error,omitempty"`
 }
 
-// CodeToSpecReport is one context after the code -> spec half ran: what the
-// index observed, what the spec declares, and whether the claims are anchored.
-// Empty marks the contexts that declare and observe nothing, which are left out
-// of the means and counted instead.
 type CodeToSpecReport struct {
 	Fixture string `json:"fixture"`
 
@@ -60,9 +51,6 @@ type CodeToSpecReport struct {
 	RequirementCountDelta int `json:"requirementCountDelta"`
 }
 
-// ScenarioReport is one scenario after the spec -> code half ran. Via names how
-// the spec edit was made: empty is a server side apply by the harness, and clm
-// is a model editing the context document, which the mod then applied.
 type ScenarioReport struct {
 	Fixture string `json:"fixture"`
 
@@ -76,13 +64,8 @@ type ScenarioReport struct {
 
 	Via string `json:"via,omitempty"`
 
-	// Request is the natural language ask of a CLM scenario, recorded so the
-	// report says what the model was asked for.
 	Request string `json:"request,omitempty"`
 
-	// Skipped marks a scenario this run could not measure, such as a CLM
-	// scenario under the scripted baseline. A skipped scenario is not a pass
-	// and not a failure; it is left out of the pass rate and counted.
 	Skipped bool `json:"skipped,omitempty"`
 
 	Pass bool `json:"pass"`
@@ -106,10 +89,6 @@ type ScenarioReport struct {
 	Error string `json:"error,omitempty"`
 }
 
-// SufficiencyReport is one context after the spec sufficiency test: the
-// implementation bodies were removed, the spec was left in place, an agent was
-// asked to make the code satisfy the spec, and the original tests ran against
-// what it wrote.
 type SufficiencyReport struct {
 	Fixture string `json:"fixture"`
 
@@ -134,9 +113,6 @@ type SufficiencyReport struct {
 	Skipped bool `json:"skipped,omitempty"`
 }
 
-// DriftReport is one drift scenario: a code change committed the way a human
-// commits one, the CodeToSpec change specd raised for it, and the spec that
-// change wrote.
 type DriftReport struct {
 	Fixture string `json:"fixture"`
 
@@ -169,8 +145,6 @@ type DriftReport struct {
 	Error string `json:"error,omitempty"`
 }
 
-// Report is one eval run: the fixtures it visited, the numbers it measured and
-// the agent that produced them.
 type Report struct {
 	Agent string `json:"agent"`
 
@@ -195,9 +169,6 @@ type Report struct {
 	Notes []string `json:"notes,omitempty"`
 }
 
-// PassRate is the share of measured scenarios whose verify command and hidden
-// acceptance tests both passed. A via of "" means every scenario; "clm" narrows
-// it to the scenarios driven by a model editing the context document.
 func (r Report) PassRate(via string) Measure {
 	samples, excluded := []float64{}, []string{}
 	for _, scenario := range r.Scenarios {
@@ -215,8 +186,6 @@ func (r Report) PassRate(via string) Measure {
 	return measure(samples, excluded)
 }
 
-// DeltaPrecisionRate is the share of measured scenarios whose change carried
-// exactly the entry count the scenario intended.
 func (r Report) DeltaPrecisionRate() Measure {
 	samples, excluded := []float64{}, []string{}
 	for _, scenario := range r.Scenarios {
@@ -230,16 +199,10 @@ func (r Report) DeltaPrecisionRate() Measure {
 	return measure(samples, excluded)
 }
 
-// FactsScore is the share of the expected behavioural facts the specs stated,
-// averaged over the contexts that expected any. It is the code -> spec measure
-// that does not hand the model its own answer.
 func (r Report) FactsScore() Measure {
 	samples, excluded := []float64{}, []string{}
 	for _, entry := range r.Facts {
 		name := entry.Fixture + "/" + entry.Context
-		// A context that expected no facts, and one whose judge failed, are both
-		// left out: the first has nothing to score and the second is the
-		// harness's fault, not the model's.
 		if entry.Expected == 0 || entry.Error != "" {
 			excluded = append(excluded, name)
 			continue
@@ -249,8 +212,6 @@ func (r Report) FactsScore() Measure {
 	return measure(samples, excluded)
 }
 
-// SufficiencyPassRate is the share of contexts whose original tests passed
-// against the code an agent rebuilt from the spec alone.
 func (r Report) SufficiencyPassRate() Measure {
 	samples, excluded := []float64{}, []string{}
 	for _, entry := range r.Sufficiency {
@@ -264,9 +225,6 @@ func (r Report) SufficiencyPassRate() Measure {
 	return measure(samples, excluded)
 }
 
-// DriftPassRate is the share of drift scenarios where the spec specd wrote
-// after a human code edit named the interfaces it should and stated the
-// behaviour the edit introduced.
 func (r Report) DriftPassRate() Measure {
 	samples := []float64{}
 	for _, entry := range r.Drift {
@@ -275,9 +233,6 @@ func (r Report) DriftPassRate() Measure {
 	return measure(samples, nil)
 }
 
-// MeanRecall, MeanPrecision and MeanF1 are the code -> spec interface numbers
-// averaged over the contexts that had a surface to measure. An empty context is
-// left out and counted: it would otherwise score 1 and drag the mean up.
 func (r Report) MeanRecall() Measure {
 	return r.meanScore(func(s Score) float64 { return s.Recall })
 }
@@ -355,7 +310,6 @@ func boolValue(value bool) float64 {
 	return 0
 }
 
-// JSON is the machine readable report, indented so a diff of two runs reads.
 func (r Report) JSON() ([]byte, error) {
 	encoded, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
@@ -364,8 +318,6 @@ func (r Report) JSON() ([]byte, error) {
 	return append(encoded, '\n'), nil
 }
 
-// ParseReport reads a report a previous run wrote, which is how a live run is
-// compared with the scripted baseline.
 func ParseReport(encoded []byte) (Report, error) {
 	report := Report{}
 	if err := json.Unmarshal(encoded, &report); err != nil {
@@ -374,9 +326,6 @@ func ParseReport(encoded []byte) (Report, error) {
 	return report, nil
 }
 
-// Markdown is the human readable report: a headline table of the measures the
-// plan names with the sample count behind each, then one table per half of the
-// loop.
 func (r Report) Markdown() string {
 	builder := &strings.Builder{}
 	fmt.Fprintf(builder, "# specctl eval report\n\n")

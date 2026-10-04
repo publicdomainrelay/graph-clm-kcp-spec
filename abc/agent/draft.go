@@ -39,12 +39,6 @@ type draftPayload struct {
 	Interfaces []draftInterface `json:"interfaces"`
 }
 
-// ParseDraft reads a model answer into a draft. It tolerates the fences a model
-// wraps around JSON and nothing else: an unknown level, a duplicate id, an
-// empty requirement or a missing intent is an error, because a spec that half
-// reads is worse than a failed attempt. Code refs the observed facts do not
-// answer to are dropped and reported, since a model may name a symbol the index
-// spells differently and the rest of the draft is still good.
 func ParseDraft(raw string, observed spec.ObservedFacts) (SpecDraft, error) {
 	payload := draftPayload{}
 	if err := json.Unmarshal([]byte(extractJSON(raw)), &payload); err != nil {
@@ -87,10 +81,6 @@ func ParseDraft(raw string, observed spec.ObservedFacts) (SpecDraft, error) {
 			if trimmed == "" {
 				continue
 			}
-			// A model names a symbol the way it reads: "Add", not
-			// "function:abc". The observed facts answer for both, and the
-			// canonical id is what the spec stores, so a requirement is
-			// anchored to the same vertex however the model spelled it.
 			resolved, ok := canonical[trimmed]
 			if !ok {
 				if !seenRefs[trimmed] {
@@ -117,10 +107,6 @@ func ParseDraft(raw string, observed spec.ObservedFacts) (SpecDraft, error) {
 		})
 	}
 
-	// A model names a method the way it reads it: `List`, not `Indexer.List`.
-	// When the observed facts answer to the bare name exactly once, the
-	// receiver is unambiguous and the spec stores the qualified key, which is
-	// what the observed surface is keyed by and what CodeSynced compares.
 	keys := observedInterfaceKeys(observed)
 	seenInterfaces := map[string]bool{}
 	for index, declared := range payload.Interfaces {
@@ -145,12 +131,6 @@ func ParseDraft(raw string, observed spec.ObservedFacts) (SpecDraft, error) {
 	return draft, nil
 }
 
-// observedInterfaceKeys maps every spelling of an interface name the observed
-// facts answer to onto the key the spec stores. The key itself always
-// resolves. A method's bare name resolves too when exactly one observed
-// interface carries it and no observed interface is named it outright: `List`
-// is the `Indexer.List` when that is the only List, and is nothing when two
-// receivers offer one.
 func observedInterfaceKeys(observed spec.ObservedFacts) map[string]string {
 	out := map[string]string{}
 	exact := map[string]bool{}
@@ -178,11 +158,6 @@ func observedInterfaceKeys(observed spec.ObservedFacts) map[string]string {
 	return out
 }
 
-// canonicalRefs maps every spelling of a reference the observed facts answer to
-// the one spelling the spec stores: the CodeGraph id of the interface, or its
-// kind and name when the index gave no id. It uses the same resolution rule as
-// the controller, so a draft and a human edit cannot disagree about what a ref
-// points at.
 func canonicalRefs(observed spec.ObservedFacts) map[string]string {
 	out := map[string]string{}
 	for _, file := range observed.Files {
@@ -231,8 +206,6 @@ func canonicalRefs(observed spec.ObservedFacts) map[string]string {
 	return out
 }
 
-// DraftSpec is the spec the draft asks the context to become: the human fields
-// of the base are kept, the three the model owns are replaced.
 func DraftSpec(base spec.SystemContextSpec, draft SpecDraft) spec.SystemContextSpec {
 	merged := base
 	merged.Intent = draft.Intent
@@ -241,8 +214,6 @@ func DraftSpec(base spec.SystemContextSpec, draft SpecDraft) spec.SystemContextS
 	return merged
 }
 
-// ValidateDraft is the last gate before a draft is written: the merged spec must
-// pass the same validator a human edit passes.
 func ValidateDraft(name string, base spec.SystemContextSpec, draft SpecDraft) (spec.SystemContextSpec, spec.Result) {
 	merged := DraftSpec(base, draft)
 	candidate := spec.SystemContext{}
@@ -251,9 +222,6 @@ func ValidateDraft(name string, base spec.SystemContextSpec, draft SpecDraft) (s
 	return merged, spec.ValidateSystemContext(&candidate)
 }
 
-// extractJSON finds the JSON object in a model answer. A fenced block is
-// unwrapped first, then the outermost braces are taken, so surrounding prose or
-// a trailing explanation does not hide the object.
 func extractJSON(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	if strings.HasPrefix(trimmed, "```") {

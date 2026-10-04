@@ -19,7 +19,6 @@ func observed(names ...string) spec.ObservedFacts {
 }
 
 func TestMatchSetsScoresRecallAndPrecisionApart(t *testing.T) {
-	// The declaration found both observed symbols and invented one.
 	score := eval.MatchSets([]string{"Add", "Multiply", "Ghost"}, []string{"Add", "Multiply"})
 	if score.Matched != 2 || score.Target != 2 || score.Declared != 3 {
 		t.Fatalf("score = %+v", score)
@@ -33,7 +32,6 @@ func TestMatchSetsScoresRecallAndPrecisionApart(t *testing.T) {
 	if len(score.Extra) != 1 || score.Extra[0] != "Ghost" {
 		t.Errorf("extra = %v", score.Extra)
 	}
-	// The declaration missed one observed symbol and invented nothing.
 	missed := eval.MatchSets([]string{"Add"}, []string{"Add", "Multiply"})
 	if missed.Recall != 0.5 || missed.Precision != 1 {
 		t.Errorf("missed = %+v", missed)
@@ -132,9 +130,6 @@ func TestFilesOutsideContextOwnsTheDirectoryNotOneFile(t *testing.T) {
 	if len(outside) != 1 || outside[0] != "cmd/calc/main.go" {
 		t.Fatalf("outside = %v, want only the other context's file", outside)
 	}
-	// The host inside the model renders the context document into the tree and
-	// the commit carries it. That is the CLM loop working, not the agent
-	// leaving the context it was given.
 	withDoc := eval.FilesOutsideContext([]string{".specs/context/calc.md", "calc/calc.go"}, facts)
 	if len(withDoc) != 0 {
 		t.Fatalf("outside = %v, want the spec artifact ignored", withDoc)
@@ -183,9 +178,6 @@ func TestReportRendersEveryMeasure(t *testing.T) {
 	}
 }
 
-// TestReportSaysNotMeasuredWhenNothingWasMeasured is the honest-reporting rule
-// phase 11 added: a measure with no samples has no value, and it is never
-// printed as 0% or as 100%.
 func TestReportSaysNotMeasuredWhenNothingWasMeasured(t *testing.T) {
 	empty := eval.Report{}
 	for name, measure := range map[string]eval.Measure{
@@ -213,9 +205,6 @@ func TestReportSaysNotMeasuredWhenNothingWasMeasured(t *testing.T) {
 	}
 }
 
-// TestMeansExcludeEmptyContexts is the other half of the rule: a context with
-// no declared and no observed surface scores a perfect 1 by definition, and
-// averaging those in is how a run of empty contexts reports 100%.
 func TestMeansExcludeEmptyContexts(t *testing.T) {
 	report := eval.Report{
 		CodeToSpec: []eval.CodeToSpecReport{
@@ -334,8 +323,6 @@ func TestCompareFlagsARunEqualToTheBaseline(t *testing.T) {
 		t.Fatalf("comparison = %+v, want no flag when the pass rate differs", differing)
 	}
 
-	// A measure only the live run could take, scored perfect, is still nothing
-	// that separates the two agents, and the note says so.
 	withClm := eval.Report{Agent: "claude-mod", Scenarios: []eval.ScenarioReport{
 		{Fixture: "f", Scenario: "s", Pass: true, Delta: eval.DeltaScore{Precise: true}},
 		{Fixture: "f", Scenario: "clm", Via: "clm", Pass: true, Delta: eval.DeltaScore{Precise: true}},
@@ -348,8 +335,6 @@ func TestCompareFlagsARunEqualToTheBaseline(t *testing.T) {
 		t.Errorf("note = %q", reaching.Note)
 	}
 
-	// A measure only the live run could take, scored below perfect, is the run
-	// separating something: the baseline could not be measured there at all.
 	withFailedSuffice := eval.Report{Agent: "claude-mod",
 		Scenarios: []eval.ScenarioReport{
 			{Fixture: "f", Scenario: "s", Pass: true, Delta: eval.DeltaScore{Precise: true}},

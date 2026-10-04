@@ -22,9 +22,6 @@ func TestEventNamesEveryTransition(t *testing.T) {
 	}
 }
 
-// A source is watched by handing it a Notify; the contract is that the
-// resource, the event and the namespaced key all arrive unchanged, so this
-// pins the shape every implementation has to deliver.
 func TestNotifyCarriesTheResourceTheEventAndTheKey(t *testing.T) {
 	resource := Resource{Kind: "SystemContext", GVR: schema.GroupVersionResource{
 		Group: "specs.publicdomainrelay.dev", Version: "v1alpha1", Resource: "systemcontexts",
@@ -51,8 +48,6 @@ func TestNotifyCarriesTheResourceTheEventAndTheKey(t *testing.T) {
 	}
 }
 
-// notifySource is the smallest possible Source: it delivers one event. It
-// exists so the contract above can be tested without a cluster.
 type notifySource struct {
 	resource Resource
 
@@ -64,8 +59,6 @@ func (s notifySource) Run(ctx context.Context, notify Notify) error {
 	return ctx.Err()
 }
 
-// A poll source lists through Cluster; an empty namespace must reach the API
-// server as "every namespace", which is why the read side is its own method.
 func TestClusterContractListsEveryNamespace(t *testing.T) {
 	var cluster Cluster = listCluster{}
 	listed, err := cluster.ListAll(context.Background(), schema.GroupVersionResource{Resource: "repositories"})
