@@ -77,11 +77,28 @@ func TestCommitMessageNamesTheContextAndTheDelta(t *testing.T) {
 			Op: spec.OpAdded, Name: "Subtract", To: &spec.Interface{Name: "Subtract"},
 		}},
 	}
-	if got := commitMessage("calc", "calc-s2c-1", "calc", "open-architecture/calc", change); got != "realize calc: +2\n\nSpec-Change: calc-s2c-1\nOpen-Architecture: open-architecture/calc\n" {
+	single := []Member{{Context: "calc", Change: "calc-s2c-1", Delta: change}}
+	if got := commitMessage(single, "open-architecture/calc"); got != "realize calc: +2\n\nSpec-Change: calc-s2c-1\nOpen-Architecture: open-architecture/calc\n" {
 		t.Errorf("message = %q", got)
 	}
-	if got := commitMessage("calc", "", "", "", spec.Delta{}); got != "realize calc: no delta\n\n" {
+	if got := commitMessage([]Member{{Context: "calc"}}, ""); got != "realize calc: no delta\n\n" {
 		t.Errorf("message = %q", got)
+	}
+}
+
+func TestCommitMessageCarriesOneTrailerPerBatchMember(t *testing.T) {
+	members := []Member{
+		{Context: "calc", Change: "calc-s2c-1", Delta: spec.Delta{Requirements: []spec.RequirementDelta{{
+			Op: spec.OpAdded, ID: "r.subtract", To: &spec.Requirement{ID: "r.subtract", Level: spec.LevelShould, Text: "Subtract."},
+		}}}},
+		{Context: "cmd-calc", Change: "cmd-calc-s2c-2", Delta: spec.Delta{Interfaces: []spec.InterfaceDelta{{
+			Op: spec.OpAdded, Name: "Main", To: &spec.Interface{Name: "Main"},
+		}}}},
+	}
+	message := commitMessage(members, "open-architecture/calc")
+	want := "realize calc: +2\n\nSpec-Change: calc-s2c-1\nSpec-Change: cmd-calc-s2c-2\nOpen-Architecture: open-architecture/calc\n"
+	if message != want {
+		t.Errorf("message = %q, want %q", message, want)
 	}
 }
 

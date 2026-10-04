@@ -44,6 +44,8 @@ const (
 
 	DefaultRetryBackoff = 5 * time.Second
 
+	DefaultBatchWindow = 5 * time.Second
+
 	DefaultAgentTimeout = claudecli.DefaultTimeout
 
 	DefaultCacheDir = ".kcp-specd/cache"
@@ -115,6 +117,8 @@ type Options struct {
 	MaxAttempts int
 
 	RetryBackoff time.Duration
+
+	BatchWindow time.Duration
 
 	Log *slog.Logger
 }
@@ -207,6 +211,9 @@ func New(opts Options) (*Controller, error) {
 	}
 	if opts.RetryBackoff <= 0 {
 		opts.RetryBackoff = DefaultRetryBackoff
+	}
+	if opts.BatchWindow <= 0 {
+		opts.BatchWindow = DefaultBatchWindow
 	}
 	if opts.PersistDelay <= 0 {
 		opts.PersistDelay = DefaultPersistDelay

@@ -52,6 +52,8 @@ type Options struct {
 
 	Adopt *spec.SystemContextSpec
 
+	AdoptAll map[string]*spec.SystemContextSpec
+
 	Writer graph.Writer
 
 	GraphNamespace string
@@ -145,7 +147,7 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 	}
 
 	for _, partition := range partitions {
-		contextResult, err := ingestPartition(ctx, cluster, repositoryName, namespace, commit, partition, options.Adopt)
+		contextResult, err := ingestPartition(ctx, cluster, repositoryName, namespace, commit, partition, options)
 		if err != nil {
 			return Result{}, err
 		}
@@ -217,8 +219,12 @@ func ingestPartition(
 	cluster Cluster,
 	repositoryName, namespace, commit string,
 	partition specsync.Partition,
-	adopt *spec.SystemContextSpec,
+	options Options,
 ) (ContextResult, error) {
+	adopt := options.Adopt
+	if specific, ok := options.AdoptAll[partition.Name]; ok {
+		adopt = specific
+	}
 	observed := specsync.Observed(partition)
 	result := ContextResult{Name: partition.Name, Fingerprint: observed.Fingerprint, Observed: observed}
 

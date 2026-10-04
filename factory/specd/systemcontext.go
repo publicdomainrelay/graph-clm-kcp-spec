@@ -215,7 +215,7 @@ func (c *Controller) attemptsTaken(ctx context.Context, namespace string, change
 	return spec.AttemptCount(taken, episodeBase(change))
 }
 
-func (c *Controller) changesFor(ctx context.Context, namespace, systemContext string) ([]spec.SpecChange, error) {
+func (c *Controller) allChanges(ctx context.Context, namespace string) ([]spec.SpecChange, error) {
 	listed, err := c.client.List(ctx, specapi.SpecChangeGVR, namespace)
 	if err != nil {
 		return nil, err
@@ -230,8 +230,20 @@ func (c *Controller) changesFor(ctx context.Context, namespace, systemContext st
 		if !ok {
 			continue
 		}
+		out = append(out, *change)
+	}
+	return out, nil
+}
+
+func (c *Controller) changesFor(ctx context.Context, namespace, systemContext string) ([]spec.SpecChange, error) {
+	changes, err := c.allChanges(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
+	out := []spec.SpecChange{}
+	for _, change := range changes {
 		if change.Spec.SystemContext == systemContext {
-			out = append(out, *change)
+			out = append(out, change)
 		}
 	}
 	return out, nil

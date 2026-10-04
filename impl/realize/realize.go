@@ -44,6 +44,14 @@ type Cluster interface {
 	PatchStatus(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, status map[string]any) (*unstructured.Unstructured, error)
 }
 
+type Member struct {
+	Context string
+
+	Change string
+
+	Delta spec.Delta
+}
+
 type Options struct {
 	Cluster Cluster
 
@@ -82,6 +90,15 @@ type Options struct {
 	VerifyTimeout time.Duration
 
 	WorktreeRoot string
+
+	Members []Member
+}
+
+func (o Options) batch() []Member {
+	if len(o.Members) > 0 {
+		return o.Members
+	}
+	return []Member{{Context: o.Context, Change: o.Change, Delta: o.Delta}}
 }
 
 type Result struct {
@@ -116,14 +133,27 @@ func (e *VerifyError) Error() string {
 	return fmt.Sprintf("realize: %s exited %d: %s", strings.Join(e.Command, " "), e.ExitCode, tail(e.Output))
 }
 
+type target struct {
+	member Member
+
+	toSpec spec.SystemContextSpec
+
+	fromSpec spec.SystemContextSpec
+
+	observed spec.ObservedFacts
+
+	contextDoc string
+}
+
 func Run(ctx context.Context, options Options) (Result, error) {
 	namespace := options.Namespace
 	if namespace == "" {
 		namespace = specapi.DefaultNamespace
 	}
-	result := Result{Context: options.Context, Branch: options.Branch}
+	members := options.batch()
+	result := Result{Context: members[0].Context, Branch: options.Branch}
 	if options.Repository == nil {
-		return result, fmt.Errorf("realize: no repository for %s", options.Context)
+		return result, fmt.Errorf("realize: no repository for %s", members[0].Context)
 	}
 	repoPath := options.Repository.WorkPath()
 	branch := options.Repository.Spec.Branch
@@ -131,37 +161,43 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		branch = "main"
 	}
 
-	systemContext, err := readContext(ctx, options.Cluster, namespace, options.Context)
-	if err != nil {
-		return result, err
+	targets := make([]target, 0, len(members))
+	for _, member := range members {
+		systemContext, err := readContext(ctx, options.Cluster, namespace, member.Context)
+		if err != nil {
+			return result, err
+		}
+		built, err := bundle.Build(ctx, bundle.Options{
+			Cluster:       options.Cluster,
+			Namespace:     namespace,
+			Context:       member.Context,
+			Repository:    options.Repository,
+			Writer:        options.Writer,
+			Codegraph:     options.Codegraph,
+			Budget:        options.Budget,
+			NodeLimit:     options.NodeLimit,
+			ManagedBudget: options.ManagedBudget,
+		})
+		if err != nil {
+			return result, err
+		}
+		fromSpec := systemContext.Spec
+		if systemContext.Status.RealizedSpec != nil {
+			fromSpec = *systemContext.Status.RealizedSpec
+		}
+		targets = append(targets, target{
+			member:     member,
+			toSpec:     systemContext.Spec,
+			fromSpec:   fromSpec,
+			observed:   built.Observed,
+			contextDoc: built.ContextDoc,
+		})
 	}
-	realizedHash, err := spec.HashSystemContextSpec(systemContext.Spec)
+	realizedHash, err := spec.HashSystemContextSpec(targets[0].toSpec)
 	if err != nil {
 		return result, err
 	}
 	result.SpecHash = realizedHash
-	realizedSpec := systemContext.Spec
-
-	built, err := bundle.Build(ctx, bundle.Options{
-		Cluster:       options.Cluster,
-		Namespace:     namespace,
-		Context:       options.Context,
-		Repository:    options.Repository,
-		Writer:        options.Writer,
-		Codegraph:     options.Codegraph,
-		Budget:        options.Budget,
-		NodeLimit:     options.NodeLimit,
-		ManagedBudget: options.ManagedBudget,
-	})
-	if err != nil {
-		return result, err
-	}
-	observed := built.Observed
-
-	fromSpec := systemContext.Spec
-	if systemContext.Status.RealizedSpec != nil {
-		fromSpec = *systemContext.Status.RealizedSpec
-	}
 
 	if err := gitrepo.WorktreeAdd(ctx, repoPath, options.Worktree, options.Branch, options.Base); err != nil {
 		return result, err
@@ -180,20 +216,32 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	}
 	defer func() { _ = removeWorktree() }()
 
-	agentResult, err := options.Agent.Realize(ctx, agent.RealizeRequest{
-		Context:     options.Context,
-		Change:      options.Change,
+	request := agent.RealizeRequest{
+		Context:     members[0].Context,
+		Change:      members[0].Change,
 		Repository:  options.Repository.Name,
 		Dir:         options.Worktree,
-		Delta:       options.Delta,
-		FromSpec:    fromSpec,
-		ToSpec:      systemContext.Spec,
-		Observed:    observed,
-		ContextDoc:  built.ContextDoc,
+		Delta:       members[0].Delta,
+		FromSpec:    targets[0].fromSpec,
+		ToSpec:      targets[0].toSpec,
+		Observed:    targets[0].observed,
+		ContextDoc:  targets[0].contextDoc,
 		Verify:      options.Repository.Spec.Verify,
 		Instruction: options.Instruction,
 		Budget:      options.Budget,
-	})
+	}
+	for _, entry := range targets {
+		request.Members = append(request.Members, agent.RealizeMember{
+			Context:    entry.member.Context,
+			Change:     entry.member.Change,
+			Delta:      entry.member.Delta,
+			FromSpec:   entry.fromSpec,
+			ToSpec:     entry.toSpec,
+			Observed:   entry.observed,
+			ContextDoc: entry.contextDoc,
+		})
+	}
+	agentResult, err := options.Agent.Realize(ctx, request)
 	result.Agent = agentResult
 	if err != nil {
 		return result, err
@@ -207,7 +255,8 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		return result, &VerifyError{Command: verifyCommand, ExitCode: exitCode, Output: output}
 	}
 
-	commit, err := gitrepo.CommitAll(ctx, options.Worktree, commitMessage(options.Context, options.Change, options.Repository.Name, oabranch.BranchFor(options.Repository.Name, branch, oagit.Store{Repo: repoPath}.DefaultBranch(ctx)), options.Delta))
+	message := commitMessage(members, oabranch.BranchFor(options.Repository.Name, branch, oagit.Store{Repo: repoPath}.DefaultBranch(ctx)))
+	commit, err := gitrepo.CommitAll(ctx, options.Worktree, message)
 	if err != nil {
 		return result, err
 	}
@@ -245,10 +294,19 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		result.Landed = true
 	}
 
-	if err := settle(ctx, options, namespace, &realizedSpec); err != nil {
+	if err := settle(ctx, options, namespace, adopts(targets)); err != nil {
 		return result, err
 	}
 	return result, nil
+}
+
+func adopts(targets []target) map[string]*spec.SystemContextSpec {
+	out := make(map[string]*spec.SystemContextSpec, len(targets))
+	for index := range targets {
+		snapshot := targets[index].toSpec
+		out[targets[index].member.Context] = &snapshot
+	}
+	return out
 }
 
 func Settle(ctx context.Context, options Options) error {
@@ -261,10 +319,10 @@ func Settle(ctx context.Context, options Options) error {
 		return err
 	}
 	adopted := current.Spec
-	return settle(ctx, options, namespace, &adopted)
+	return settle(ctx, options, namespace, map[string]*spec.SystemContextSpec{options.Context: &adopted})
 }
 
-func settle(ctx context.Context, options Options, namespace string, adopted *spec.SystemContextSpec) error {
+func settle(ctx context.Context, options Options, namespace string, adopted map[string]*spec.SystemContextSpec) error {
 	repoPath := options.Repository.WorkPath()
 	head, err := gitrepo.Head(ctx, repoPath)
 	if err != nil {
@@ -277,7 +335,7 @@ func settle(ctx context.Context, options Options, namespace string, adopted *spe
 		SpecPath:       repoPath,
 		Tool:           options.Tool,
 		Commit:         head,
-		Adopt:          adopted,
+		AdoptAll:       adopted,
 		Writer:         options.Writer,
 	})
 	return err
@@ -321,15 +379,26 @@ func verify(ctx context.Context, command []string, dir string, timeout time.Dura
 	return -1, tail(string(output) + "\n" + err.Error())
 }
 
-func commitMessage(context, change, repository, archBranch string, delta spec.Delta) string {
-	message := fmt.Sprintf("realize %s: %s\n\n", context, deltaSummary(delta))
-	if change != "" {
-		message += oabranch.SpecChangeTrailer + ": " + change + "\n"
+func commitMessage(members []Member, archBranch string) string {
+	message := fmt.Sprintf("realize %s: %s\n\n", members[0].Context, deltaSummary(batchDelta(members)))
+	for _, member := range members {
+		if member.Change != "" {
+			message += oabranch.SpecChangeTrailer + ": " + member.Change + "\n"
+		}
 	}
 	if archBranch != "" {
 		message += oabranch.OpenArchitectureTrailer + ": " + archBranch + "\n"
 	}
 	return message
+}
+
+func batchDelta(members []Member) spec.Delta {
+	combined := spec.Delta{}
+	for _, member := range members {
+		combined.Requirements = append(combined.Requirements, member.Delta.Requirements...)
+		combined.Interfaces = append(combined.Interfaces, member.Delta.Interfaces...)
+	}
+	return combined
 }
 
 func deltaSummary(change spec.Delta) string {

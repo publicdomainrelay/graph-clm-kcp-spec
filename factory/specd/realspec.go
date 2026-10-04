@@ -18,7 +18,15 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/realize"
 )
 
-func (c *Controller) reconcileSpecToCode(ctx context.Context, namespace, name string, change *spec.SpecChange) (time.Duration, error) {
+type batchPlan struct {
+	members []*spec.SpecChange
+
+	wait time.Duration
+
+	deferred bool
+}
+
+func (c *Controller) reconcileSpecToCode(ctx context.Context, namespace string, change *spec.SpecChange) (time.Duration, error) {
 	repository, ready, err := c.realizeTarget(ctx, namespace, change)
 	if err != nil {
 		return 0, err
@@ -27,98 +35,365 @@ func (c *Controller) reconcileSpecToCode(ctx context.Context, namespace, name st
 		return 0, nil
 	}
 
-	running, err := c.runningChanges(ctx, namespace, change.Spec.SystemContext)
+	plan, err := c.planBatch(ctx, namespace, change, repository)
 	if err != nil {
 		return 0, err
 	}
-	if !specsync.RunningAdmitted(change.Name, running) {
-		c.failChange(ctx, namespace, change, "admission: another change of "+change.Spec.SystemContext+" is already running")
-		return 0, nil
-	}
-	if c.attemptsTaken(ctx, namespace, change) > c.opts.MaxAttempts && c.opts.MaxAttempts > 0 {
-		c.failChange(ctx, namespace, change, fmt.Sprintf("attempt cap: %s already has %d attempts", episodeBase(change), c.opts.MaxAttempts))
-		return 0, nil
-	}
-
-	options, err := c.realizeOptions(ctx, namespace, change, repository)
-	if err != nil {
-		return 0, err
-	}
-
-	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, name, map[string]any{
-		"phase":   specapi.PhaseRunning,
-		"message": "the agent is realizing " + change.Spec.SystemContext,
-	}); err != nil {
-		return 0, err
-	}
-
-	if options.Delta.Empty() {
-		if err := realize.Settle(ctx, options); err != nil {
-			c.failChange(ctx, namespace, change, err.Error())
-			return 0, nil
+	if len(plan.members) == 0 {
+		switch {
+		case plan.wait > 0:
+			return plan.wait, nil
+		case plan.deferred:
+			return c.opts.Resync, nil
 		}
-		if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, name, map[string]any{
-			"phase":   specapi.PhaseSucceeded,
-			"message": "the spec already says this; the baseline moved",
+		return 0, nil
+	}
+	return c.runBatch(ctx, namespace, repository, plan)
+}
+
+func (c *Controller) planBatch(ctx context.Context, namespace string, change *spec.SpecChange, repository *spec.Repository) (batchPlan, error) {
+	changes, err := c.allChanges(ctx, namespace)
+	if err != nil {
+		return batchPlan{}, err
+	}
+	refs, err := c.changeRefs(ctx, namespace, changes)
+	if err != nil {
+		return batchPlan{}, err
+	}
+	pending := specsync.PendingForRepository(refs, repository.Name)
+	leader, ok := specsync.BatchLeader(pending)
+	if !ok {
+		return batchPlan{}, nil
+	}
+	if leader.Name != change.Name || specsync.RepositoryBusy(refs, repository.Name) {
+		return batchPlan{deferred: true}, nil
+	}
+	if wait := specsync.BatchGatherWait(leader, time.Now(), c.opts.BatchWindow); wait > 0 {
+		return batchPlan{wait: wait}, nil
+	}
+	byName := make(map[string]*spec.SpecChange, len(changes))
+	for index := range changes {
+		byName[changes[index].Name] = &changes[index]
+	}
+	members := make([]*spec.SpecChange, 0, len(pending))
+	for _, ref := range pending {
+		if member, found := byName[ref.Name]; found {
+			members = append(members, member)
+		}
+	}
+	return batchPlan{members: members}, nil
+}
+
+func (c *Controller) changeRefs(ctx context.Context, namespace string, changes []spec.SpecChange) ([]specsync.ChangeRef, error) {
+	owners, err := c.contextRepositories(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]specsync.ChangeRef, 0, len(changes))
+	for _, change := range changes {
+		refs = append(refs, specsync.ChangeRef{
+			Name:          change.Name,
+			SystemContext: change.Spec.SystemContext,
+			Repository:    owners[change.Spec.SystemContext],
+			Direction:     change.Spec.Direction,
+			Phase:         change.Status.Phase,
+			Commit:        change.Status.Commit,
+			CreatedAt:     change.GetCreationTimestamp().Time,
+		})
+	}
+	return refs, nil
+}
+
+func (c *Controller) contextRepositories(ctx context.Context, namespace string) (map[string]string, error) {
+	listed, err := c.client.List(ctx, specapi.SystemContextGVR, namespace)
+	if err != nil {
+		return nil, err
+	}
+	owners := make(map[string]string, len(listed.Items))
+	for index := range listed.Items {
+		typed, err := kcpclient.Typed(&listed.Items[index])
+		if err != nil {
+			return nil, err
+		}
+		systemContext, ok := typed.(*spec.SystemContext)
+		if !ok {
+			continue
+		}
+		owners[systemContext.Name] = systemContext.Spec.Repository
+	}
+	return owners, nil
+}
+
+func (c *Controller) runBatch(ctx context.Context, namespace string, repository *spec.Repository, plan batchPlan) (time.Duration, error) {
+	members := c.underTheAttemptCap(ctx, namespace, plan.members)
+	if len(members) == 0 {
+		return 0, nil
+	}
+
+	for _, member := range members {
+		if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, member.Name, map[string]any{
+			"phase":   specapi.PhaseRunning,
+			"message": batchRunningMessage(member, members),
 		}); err != nil {
 			return 0, err
 		}
-		return 0, nil
 	}
 
-	result, err := realize.Run(ctx, options)
+	work, idle, err := c.splitByDelta(ctx, namespace, members)
 	if err != nil {
-		c.recordRealizeFailure(ctx, namespace, change, result, err)
+		c.recordBatchFailure(ctx, namespace, members, realize.Result{}, err)
 		return 0, nil
 	}
 
-	message := fmt.Sprintf("realized %s on %s: %d file(s) touched, verify exit %d",
-		change.Spec.SystemContext, result.Branch, len(result.FilesTouched), result.VerifyExitCode)
-	if !result.Landed {
-		message = "the agent changed nothing; the baseline moved"
+	result := realize.Result{Context: members[0].Spec.SystemContext, Branch: batchBranch(work, idle, members)}
+	if len(work) > 0 {
+		var failure error
+		result, failure = c.realizeWork(ctx, namespace, repository, work)
+		if failure != nil {
+			c.recordBatchFailure(ctx, namespace, members, result, failure)
+			return 0, nil
+		}
 	}
-	status := map[string]any{
-		"phase":          specapi.PhaseSucceeded,
-		"branch":         result.Branch,
-		"verifyExitCode": result.VerifyExitCode,
-		"message":        message,
-		"agentLog":       tailMessage(result.Agent.Log + "\n" + result.VerifyOutput),
+
+	for _, member := range idle {
+		options, err := c.settleOptions(ctx, namespace, repository, member)
+		if err == nil {
+			err = realize.Settle(ctx, options)
+		}
+		if err != nil {
+			c.recordBatchFailure(ctx, namespace, members, result, err)
+			return 0, nil
+		}
 	}
-	if result.Commit != "" {
-		status["commit"] = result.Commit
-	}
-	if len(result.FilesTouched) > 0 {
-		status["filesTouched"] = result.FilesTouched
-	}
-	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, name, status); err != nil {
-		return 0, err
-	}
-	c.log.Info("spec to code done",
-		"change", name, "systemcontext", change.Spec.SystemContext,
-		"branch", result.Branch, "commit", result.Commit, "files", len(result.FilesTouched))
+
+	c.recordBatchSuccess(ctx, namespace, repository, members, result)
 	return 0, nil
 }
 
-func (c *Controller) recordRealizeFailure(ctx context.Context, namespace string, change *spec.SpecChange, result realize.Result, failure error) {
+func (c *Controller) underTheAttemptCap(ctx context.Context, namespace string, members []*spec.SpecChange) []*spec.SpecChange {
+	if c.opts.MaxAttempts <= 0 {
+		return members
+	}
+	kept := make([]*spec.SpecChange, 0, len(members))
+	for _, member := range members {
+		if c.attemptsTaken(ctx, namespace, member) > c.opts.MaxAttempts {
+			c.failChange(ctx, namespace, member, fmt.Sprintf("attempt cap: %s already has %d attempts", episodeBase(member), c.opts.MaxAttempts))
+			continue
+		}
+		kept = append(kept, member)
+	}
+	return kept
+}
+
+func (c *Controller) splitByDelta(ctx context.Context, namespace string, members []*spec.SpecChange) ([]*spec.SpecChange, []*spec.SpecChange, error) {
+	work := []*spec.SpecChange{}
+	idle := []*spec.SpecChange{}
+	for _, member := range members {
+		changeDelta, err := c.deltaForChange(ctx, namespace, member)
+		if err != nil {
+			return nil, nil, err
+		}
+		if changeDelta.Empty() {
+			idle = append(idle, member)
+			continue
+		}
+		work = append(work, member)
+	}
+	return work, idle, nil
+}
+
+func (c *Controller) realizeWork(ctx context.Context, namespace string, repository *spec.Repository, members []*spec.SpecChange) (realize.Result, error) {
+	result := realize.Result{Context: members[0].Spec.SystemContext}
+	var failure error
+	for attempt := 0; attempt < 2; attempt++ {
+		options, err := c.batchOptions(ctx, namespace, repository, members)
+		if err != nil {
+			return result, err
+		}
+		result, failure = realize.Run(ctx, options)
+		if failure == nil {
+			return result, nil
+		}
+		moved, sibling := c.movedSinceBase(ctx, namespace, repository, options.Base, changeNames(members))
+		if attempt == 0 && moved {
+			kind := "the branch moved"
+			if sibling {
+				kind = "a sibling change landed"
+			}
+			c.log.Info("retrying once on the new base",
+				"repository", repository.Name, "reason", kind, "base", options.Base, "changes", len(members))
+			continue
+		}
+		return result, failure
+	}
+	return result, failure
+}
+
+func (c *Controller) movedSinceBase(ctx context.Context, namespace string, repository *spec.Repository, base string, members []string) (bool, bool) {
+	repoPath, err := filepath.Abs(repository.WorkPath())
+	if err != nil {
+		return false, false
+	}
+	head, err := gitrepo.Head(ctx, repoPath)
+	if err != nil || head == "" || head == base {
+		return false, false
+	}
+	changes, err := c.allChanges(ctx, namespace)
+	if err != nil {
+		return true, false
+	}
+	refs, err := c.changeRefs(ctx, namespace, changes)
+	if err != nil {
+		return true, false
+	}
+	return true, specsync.SiblingLanded(refs, repository.Name, base, head, members)
+}
+
+func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, repository *spec.Repository, members []*spec.SpecChange, result realize.Result) {
+	for _, member := range members {
+		status := map[string]any{
+			"phase":          specapi.PhaseSucceeded,
+			"branch":         result.Branch,
+			"verifyExitCode": result.VerifyExitCode,
+			"message":        batchSuccessMessage(member, members, result),
+			"agentLog":       tailMessage(result.Agent.Log + "\n" + result.VerifyOutput),
+		}
+		if result.Commit != "" {
+			status["commit"] = result.Commit
+		}
+		if len(result.FilesTouched) > 0 {
+			status["filesTouched"] = result.FilesTouched
+		}
+		if record, ok := batchProgress(members, result); ok {
+			member.Status.AppendProgress(record)
+			status["progress"] = member.Status.Progress
+		}
+		if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, member.Name, status); err != nil {
+			c.log.Error("could not record the realized change", "change", member.Name, "err", err)
+		}
+	}
+	c.log.Info("spec to code done",
+		"repository", repository.Name, "changes", len(members),
+		"branch", result.Branch, "commit", result.Commit, "files", len(result.FilesTouched))
+}
+
+func (c *Controller) recordBatchFailure(ctx context.Context, namespace string, members []*spec.SpecChange, result realize.Result, failure error) {
 	message := failure.Error()
-	log := result.Agent.Log
-	log = log + "\n" + result.VerifyOutput
+	log := result.Agent.Log + "\n" + result.VerifyOutput
 	if verifyErr, ok := errors.AsType[*realize.VerifyError](failure); ok {
 		message = fmt.Sprintf("verify exited %d: %s", verifyErr.ExitCode, tailMessage(verifyErr.Output))
 	}
-	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, change.Name, map[string]any{
-		"phase":          specapi.PhaseFailed,
-		"branch":         result.Branch,
-		"verifyExitCode": result.VerifyExitCode,
-		"message":        tailMessage(message),
-		"agentLog":       tailMessage(log),
-	}); err != nil {
-		c.log.Error("could not record the failed change", "change", change.Name, "err", err)
-		return
+	for _, member := range members {
+		status := map[string]any{
+			"phase":          specapi.PhaseFailed,
+			"branch":         result.Branch,
+			"verifyExitCode": result.VerifyExitCode,
+			"message":        tailMessage(message),
+			"agentLog":       tailMessage(log),
+		}
+		if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, member.Name, status); err != nil {
+			c.log.Error("could not record the failed change", "change", member.Name, "err", err)
+			continue
+		}
+		c.enqueueContext(ctx, namespace, member.Spec.SystemContext)
 	}
 	c.log.Warn("spec to code failed",
-		"change", change.Name, "systemcontext", change.Spec.SystemContext, "err", message)
-	c.enqueueContext(ctx, namespace, change.Spec.SystemContext)
+		"context", members[0].Spec.SystemContext, "changes", len(members), "err", message)
+}
+
+func (c *Controller) batchOptions(ctx context.Context, namespace string, repository *spec.Repository, members []*spec.SpecChange) (realize.Options, error) {
+	repoPath, err := filepath.Abs(repository.WorkPath())
+	if err != nil {
+		return realize.Options{}, err
+	}
+	if !gitrepo.IsRepo(ctx, repoPath) {
+		return realize.Options{}, fmt.Errorf("specd: %s is not a git working tree", repoPath)
+	}
+	base, err := gitrepo.Head(ctx, repoPath)
+	if err != nil {
+		return realize.Options{}, err
+	}
+	worktreeRoot, worktree, err := gitrepo.SiblingView(repoPath)
+	if err != nil {
+		return realize.Options{}, err
+	}
+	scoped := *repository
+	scoped.Spec.Path = repoPath
+	scoped.Status.ResolvedPath = repoPath
+	built, err := c.agents.Agent(&scoped, worktree)
+	if err != nil {
+		return realize.Options{}, err
+	}
+
+	leader := members[0]
+	options := realize.Options{
+		Cluster:       c.client,
+		Namespace:     namespace,
+		Context:       leader.Spec.SystemContext,
+		Change:        leader.Name,
+		Repository:    &scoped,
+		Agent:         built,
+		WorktreeRoot:  worktreeRoot,
+		Codegraph:     codegraphcli.Runner{Tool: c.opts.Tool, Dir: repoPath},
+		Writer:        c.opts.Graph,
+		Budget:        c.opts.Budget,
+		NodeLimit:     c.opts.NodeLimit,
+		ManagedBudget: c.opts.ManagedBudget,
+		Worktree:      worktree,
+		Branch:        realizeBranch(leader.Spec.SystemContext, leader.Spec.ToSpecHash),
+		Base:          base,
+		Instruction:   c.retryInstruction(ctx, namespace, leader),
+		Tool:          c.opts.Tool,
+	}
+	for _, member := range members {
+		changeDelta, err := c.deltaForChange(ctx, namespace, member)
+		if err != nil {
+			return realize.Options{}, err
+		}
+		options.Members = append(options.Members, realize.Member{
+			Context: member.Spec.SystemContext,
+			Change:  member.Name,
+			Delta:   changeDelta,
+		})
+	}
+	return options, nil
+}
+
+func (c *Controller) settleOptions(ctx context.Context, namespace string, repository *spec.Repository, member *spec.SpecChange) (realize.Options, error) {
+	repoPath, err := filepath.Abs(repository.WorkPath())
+	if err != nil {
+		return realize.Options{}, err
+	}
+	if !gitrepo.IsRepo(ctx, repoPath) {
+		return realize.Options{}, fmt.Errorf("specd: %s is not a git working tree", repoPath)
+	}
+	scoped := *repository
+	scoped.Spec.Path = repoPath
+	scoped.Status.ResolvedPath = repoPath
+	return realize.Options{
+		Cluster:       c.client,
+		Namespace:     namespace,
+		Context:       member.Spec.SystemContext,
+		Change:        member.Name,
+		Repository:    &scoped,
+		Codegraph:     codegraphcli.Runner{Tool: c.opts.Tool, Dir: repoPath},
+		Writer:        c.opts.Graph,
+		Budget:        c.opts.Budget,
+		NodeLimit:     c.opts.NodeLimit,
+		ManagedBudget: c.opts.ManagedBudget,
+		Tool:          c.opts.Tool,
+	}, nil
+}
+
+func (c *Controller) deltaForChange(ctx context.Context, namespace string, change *spec.SpecChange) (spec.Delta, error) {
+	if change.Spec.Delta != nil {
+		return *change.Spec.Delta, nil
+	}
+	systemContext, err := c.readContext(ctx, namespace, change.Spec.SystemContext)
+	if err != nil {
+		return spec.Delta{}, err
+	}
+	return delta.Diff(realizedSpecOf(systemContext), systemContext.Spec), nil
 }
 
 func (c *Controller) realizeTarget(ctx context.Context, namespace string, change *spec.SpecChange) (*spec.Repository, bool, error) {
@@ -157,63 +432,6 @@ func (c *Controller) realizeTarget(ctx context.Context, namespace string, change
 		return repository, false, nil
 	}
 	return repository, true, nil
-}
-
-func (c *Controller) realizeOptions(ctx context.Context, namespace string, change *spec.SpecChange, repository *spec.Repository) (realize.Options, error) {
-	systemContext, err := c.readContext(ctx, namespace, change.Spec.SystemContext)
-	if err != nil {
-		return realize.Options{}, err
-	}
-	repoPath, err := filepath.Abs(repository.WorkPath())
-	if err != nil {
-		return realize.Options{}, err
-	}
-	if !gitrepo.IsRepo(ctx, repoPath) {
-		return realize.Options{}, fmt.Errorf("specd: %s is not a git working tree", repoPath)
-	}
-	base, err := gitrepo.Head(ctx, repoPath)
-	if err != nil {
-		return realize.Options{}, err
-	}
-	worktreeRoot, worktree, err := gitrepo.SiblingView(repoPath)
-	if err != nil {
-		return realize.Options{}, err
-	}
-	scoped := *repository
-	scoped.Spec.Path = repoPath
-	scoped.Status.ResolvedPath = repoPath
-	built, err := c.agents.Agent(&scoped, worktree)
-	if err != nil {
-		return realize.Options{}, err
-	}
-
-	changeDelta := spec.Delta{}
-	if change.Spec.Delta != nil {
-		changeDelta = *change.Spec.Delta
-	} else {
-		changeDelta = delta.Diff(realizedSpecOf(systemContext), systemContext.Spec)
-	}
-
-	return realize.Options{
-		Cluster:       c.client,
-		Namespace:     namespace,
-		Context:       systemContext.Name,
-		Change:        change.Name,
-		Repository:    &scoped,
-		Agent:         built,
-		Delta:         changeDelta,
-		WorktreeRoot:  worktreeRoot,
-		Codegraph:     codegraphcli.Runner{Tool: c.opts.Tool, Dir: repoPath},
-		Writer:        c.opts.Graph,
-		Budget:        c.opts.Budget,
-		NodeLimit:     c.opts.NodeLimit,
-		ManagedBudget: c.opts.ManagedBudget,
-		Worktree:      worktree,
-		Branch:        realizeBranch(systemContext.Name, change.Spec.ToSpecHash),
-		Base:          base,
-		Instruction:   c.retryInstruction(ctx, namespace, change),
-		Tool:          c.opts.Tool,
-	}, nil
 }
 
 func (c *Controller) retryInstruction(ctx context.Context, namespace string, change *spec.SpecChange) string {
@@ -290,4 +508,57 @@ func shortenHash(hash string) string {
 		return hash
 	}
 	return hash[:8]
+}
+
+func changeNames(members []*spec.SpecChange) []string {
+	out := make([]string, 0, len(members))
+	for _, member := range members {
+		out = append(out, member.Name)
+	}
+	return out
+}
+
+func batchRunningMessage(member *spec.SpecChange, members []*spec.SpecChange) string {
+	if len(members) == 1 {
+		return "the agent is realizing " + member.Spec.SystemContext
+	}
+	return fmt.Sprintf("the agent is realizing %s in a batch of %d led by %s",
+		member.Spec.SystemContext, len(members), members[0].Spec.SystemContext)
+}
+
+func batchSuccessMessage(member *spec.SpecChange, members []*spec.SpecChange, result realize.Result) string {
+	who := "realized " + member.Spec.SystemContext
+	if len(members) > 1 {
+		who = fmt.Sprintf("realized %s in a batch of %d led by %s",
+			member.Spec.SystemContext, len(members), members[0].Spec.SystemContext)
+	}
+	if !result.Landed {
+		return who + "; the agent changed nothing, the baseline moved"
+	}
+	return fmt.Sprintf("%s on %s: %d file(s) touched, verify exit %d",
+		who, result.Branch, len(result.FilesTouched), result.VerifyExitCode)
+}
+
+func batchBranch(work, idle, members []*spec.SpecChange) string {
+	if len(work) > 0 {
+		return realizeBranch(work[0].Spec.SystemContext, work[0].Spec.ToSpecHash)
+	}
+	if len(idle) > 0 {
+		return realizeBranch(idle[0].Spec.SystemContext, idle[0].Spec.ToSpecHash)
+	}
+	return realizeBranch(members[0].Spec.SystemContext, members[0].Spec.ToSpecHash)
+}
+
+func batchProgress(members []*spec.SpecChange, result realize.Result) (spec.ProgressRecord, bool) {
+	if len(members) < 2 {
+		return spec.ProgressRecord{}, false
+	}
+	return spec.ProgressRecord{
+		Turn:  1,
+		Tool:  "realize",
+		Files: result.FilesTouched,
+		Note: fmt.Sprintf("batch of %d led by %s, commit %s",
+			len(members), members[0].Spec.SystemContext, shortenHash(result.Commit)),
+		At: time.Now().UTC().Format(time.RFC3339),
+	}, true
 }

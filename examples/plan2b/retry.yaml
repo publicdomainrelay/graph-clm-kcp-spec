@@ -1,0 +1,19 @@
+# The deterministic agent of the moved branch example. It writes only the
+# test that calls calc.Subtract; the function itself is not part of the
+# change. The repository's verify command lands Subtract on the branch while
+# the first attempt runs, so the attempt fails on a base that is already
+# stale and the controller retries once on the new base.
+realize:
+  calc:
+    - write:
+        path: calc/subtract_test.go
+        contents: |
+          package calc
+
+          import "testing"
+
+          func TestSubtract(t *testing.T) {
+          	if got := Subtract(5, 3); got != 2 {
+          		t.Fatalf("Subtract(5, 3) = %d, want 2", got)
+          	}
+          }

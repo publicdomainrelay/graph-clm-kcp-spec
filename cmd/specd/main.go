@@ -95,6 +95,8 @@ type config struct {
 	maxAttempts int
 
 	retryBackoff time.Duration
+
+	batchWindow time.Duration
 }
 
 func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, error) {
@@ -137,6 +139,7 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	fs.StringVar(&config.persistRemote, "persist-remote", envOrPath("SPECD_PERSIST_REMOTE", ""), "git remote the open-architecture branches are pushed to after each commit; empty pushes nothing")
 	fs.IntVar(&config.maxAttempts, "max-attempts", specd.DefaultMaxAttempts, "how many attempts one drift episode gets")
 	fs.DurationVar(&config.retryBackoff, "retry-backoff", specd.DefaultRetryBackoff, "wait before the second attempt at an episode")
+	fs.DurationVar(&config.batchWindow, "batch-window", specd.DefaultBatchWindow, "how long the oldest pending spec to code change of a repository waits for siblings before its batch starts")
 	bolt := boltflags.Add(fs)
 	if err := fs.Parse(args); err != nil {
 		return config, bolt, err
@@ -233,6 +236,7 @@ func (c config) options(writer graph.Writer, bolt *boltflags.Options, log *slog.
 		PersistRemote:          c.persistRemote,
 		MaxAttempts:            c.maxAttempts,
 		RetryBackoff:           c.retryBackoff,
+		BatchWindow:            c.batchWindow,
 		Log:                    log,
 	}, nil
 }

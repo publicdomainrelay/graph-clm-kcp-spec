@@ -113,6 +113,38 @@ depending on files the first creates, lands as one commit on the first
 attempt, and a live DeepSeek rerun of the deno-kcp request: one batch, first
 attempt.
 
+**Shipped** (branch `plan2-b`).
+
+- *Serialize per repository.* SpecToCode admission is keyed by Repository: the
+  oldest pending change of it leads, and no other realization of it starts while
+  one is `Running`. CodeToSpec keeps its per-context rule. The deciders —
+  `PendingForRepository`, `BatchMembers`, `BatchLeader`, `BatchGatherWait`,
+  `RepositoryBusy`, `SiblingLanded` — are pure and live in `abc/sync/batch.go`
+  with unit tests.
+- *Batch what is pending.* The leader waits `--batch-window` (specd flag,
+  default 5s) measured from its own creation, then every pending SpecToCode
+  change of the repository joins it. `RealizeRequest` grew `Members`;
+  `impl/claudecli` groups the deltas and the target specs by context in creation
+  order, and `impl/scriptedagent` applies each member's steps in the same order.
+  One worktree, one agent run, one verify, one commit with one `Spec-Change:`
+  trailer per member. Every member lands `Succeeded` or `Failed` together with
+  the same commit, `filesTouched` and verify exit code. Progress: a batch of two
+  or more records one entry naming the batch and its leader on *every* member
+  (chosen over a leader-only record so a member's own status is self-contained).
+  `ingest.Options` grew `AdoptAll`, so one settle pass writes every member's
+  realized hash.
+- *A sibling failure is not the change's fault.* When verify fails and the
+  managed branch has moved since the attempt's base, the attempt is retried once
+  in the same reconcile on the new base; because no new change object is
+  created, the retry does not count against `--max-attempts`.
+- *Tests.* `abc/sync/batch_test.go`, `factory/specd/batch_test.go`, and
+  `test/e2e/batch_live_test.go`: the two-context edit as one commit on the first
+  attempt, two independent edits realized one after the other, and a verify
+  failure whose branch moved retrying once under `--max-attempts=1`. All live
+  tests pass with `SPECD_REQUIRE_LIVE=1`, and `make test-live-model` still
+  passes. The live DeepSeek rerun of the deno-kcp request itself is part C's
+  acceptance run.
+
 ## C. "Running" is proven live, not only offline
 
 **Today.** The deno-kcp change was gated by `go test ./...`, which decodes
