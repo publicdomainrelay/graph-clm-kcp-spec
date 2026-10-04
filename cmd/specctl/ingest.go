@@ -25,7 +25,7 @@ func runIngest(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	repo := fs.String("repo", "", "path to the working tree to ingest")
 	repoName := fs.String("repo-name", "", "Repository name; defaults to the directory name")
-	partition := fs.String("partition", spec.PartitionDirectory, "partition mode: directory or package")
+	partition := fs.String("partition", "", "partition mode: directory or package; default is package for a deno workspace")
 	summarizeNow := fs.Bool("summarize", false, "send the agent over every context whose intent is empty")
 	agentKind := fs.String("agent", "", "agent to summarize with: scripted:<file> or claude")
 	agentCommand := fs.String("agent-command", "", "model command to run (default deepseek-claude)")
@@ -126,6 +126,9 @@ func buildRepository(
 		return nil, err
 	}
 	repository.Spec.Source = &spec.RepositorySource{Path: path}
+	if partition == "" {
+		partition = ingest.DetectPartition(path)
+	}
 	populateSpec := &spec.RepositoryPopulate{
 		Partition: partition,
 		Include:   include,

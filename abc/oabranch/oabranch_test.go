@@ -10,6 +10,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/clm"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/mirror"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
@@ -512,6 +513,113 @@ func TestCoalesceProgressDefersAProgressOnlyRewrite(t *testing.T) {
 	plan, deferred = CoalesceProgress(plan, map[string][]byte{path: before})
 	if plan.Empty() || len(deferred) != 0 {
 		t.Fatalf("a phase transition was deferred: %+v %v", plan, deferred)
+	}
+}
+
+func TestCoalesceNoiseDefersACommitOnlyStatusRewrite(t *testing.T) {
+	context := calcSnapshot().Contexts[0]
+	common := commonCommitsDoc{ObservedCommit: "aaaa", SyncedCommit: "aaaa"}
+	before := context.Status
+	before.ObservedCommit = "aaaa"
+	before.SyncedCommit = "aaaa"
+	after := before
+	after.ObservedCommit = "bbbb"
+	after.SyncedCommit = "bbbb"
+	oldDoc, err := yaml.Marshal(statusDocOf(before, common))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newDoc, err := yaml.Marshal(statusDocOf(after, common))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := StatusPath(context.Name)
+	plan := Plan{Write: map[string][]byte{path: newDoc}, Modified: []string{path}}
+	plan, dropped := CoalesceNoise(plan, map[string][]byte{path: oldDoc})
+	if !plan.Empty() || len(dropped) != 1 || dropped[0] != path {
+		t.Fatalf("a commit-id-only status rewrite was planned: %+v %v", plan, dropped)
+	}
+
+	after.Conditions[0].Status = metav1.ConditionFalse
+	realDoc, err := yaml.Marshal(statusDocOf(after, common))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan = Plan{Write: map[string][]byte{path: realDoc}, Modified: []string{path}}
+	plan, dropped = CoalesceNoise(plan, map[string][]byte{path: oldDoc})
+	if plan.Empty() || len(dropped) != 0 {
+		t.Fatalf("a condition change was deferred: %+v %v", plan, dropped)
+	}
+}
+
+func TestCoalesceNoiseDefersADerivedOnlySpecRewrite(t *testing.T) {
+	context := calcSnapshot().Contexts[0]
+	old, err := mirror.RenderWithRefs(context.Name, context.Namespace, context.Spec, []string{"function:abc Add@calc/calc.go:3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := mirror.RenderWithRefs(context.Name, context.Namespace, context.Spec, []string{"function:abc Add@calc/calc.go:9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := SpecPath(context.Name)
+	plan := Plan{Write: map[string][]byte{path: next}, Modified: []string{path}}
+	plan, dropped := CoalesceNoise(plan, map[string][]byte{path: old})
+	if !plan.Empty() || len(dropped) != 1 || dropped[0] != path {
+		t.Fatalf("a derived-only spec rewrite was planned: %+v %v", plan, dropped)
+	}
+
+	edited := context.Spec
+	edited.Intent = "Integer arithmetic, edited."
+	real, err := mirror.RenderWithRefs(context.Name, context.Namespace, edited, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan = Plan{Write: map[string][]byte{path: real}, Modified: []string{path}}
+	plan, dropped = CoalesceNoise(plan, map[string][]byte{path: old})
+	if plan.Empty() || len(dropped) != 0 {
+		t.Fatalf("a declared spec edit was deferred: %+v %v", plan, dropped)
+	}
+}
+
+func TestChangesDocumentListsUnimplementedRequirements(t *testing.T) {
+	snapshot := calcSnapshot()
+	snapshot.Branch = "open-architecture/calc--spec-bob"
+	snapshot.Baseline = &Baseline{}
+	snapshot.Changes[0].Status.RequirementCoverage = []spec.RequirementVerdict{
+		{ID: "r.add", Implemented: true, Evidence: "func Add"},
+		{ID: "r.sub", Implemented: false, Evidence: "no Subtract in the diff"},
+	}
+	document := changesDocument(snapshot)
+	for _, want := range []string{
+		"| coverage |",
+		"1 of 2 missing",
+		"## Unimplemented requirements",
+		"### calc-s2c-12345678",
+		"`r.sub`",
+		"no Subtract in the diff",
+	} {
+		if !strings.Contains(document, want) {
+			t.Errorf("CHANGES.md lacks %q:\n%s", want, document)
+		}
+	}
+	_, section, _ := strings.Cut(document, "## Unimplemented requirements")
+	if strings.Contains(section, "`r.add`") {
+		t.Errorf("an implemented requirement is listed as unimplemented:\n%s", section)
+	}
+}
+
+func TestChangesDocumentOmitsTheSectionWhenEveryRequirementIsImplemented(t *testing.T) {
+	snapshot := calcSnapshot()
+	snapshot.Branch = "open-architecture/calc--spec-bob"
+	snapshot.Baseline = &Baseline{}
+	snapshot.Changes[0].Status.RequirementCoverage = []spec.RequirementVerdict{{ID: "r.add", Implemented: true}}
+	document := changesDocument(snapshot)
+	if strings.Contains(document, "## Unimplemented requirements") {
+		t.Errorf("an all-implemented change lists a section:\n%s", document)
+	}
+	if !strings.Contains(document, "1 implemented") {
+		t.Errorf("the coverage column is missing:\n%s", document)
 	}
 }
 

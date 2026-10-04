@@ -221,7 +221,13 @@ func (db *DB) Imports(ctx context.Context) ([]specsync.Import, error) {
 		JOIN nodes n ON n.id = e.source
 		JOIN nodes target ON target.id = e.target
 		WHERE e.kind = 'imports' AND n.kind = 'file'
-		ORDER BY n.file_path, target.name`)
+		UNION
+		SELECT n.file_path, target.name
+		FROM edges e
+		JOIN nodes n ON n.id = e.source
+		JOIN nodes target ON target.id = e.target
+		WHERE e.kind = 'contains' AND n.kind = 'file' AND target.kind = 'import'
+		ORDER BY 1, 2`)
 	if err != nil {
 		return nil, fmt.Errorf("codegraphsqlite: read imports: %w", err)
 	}

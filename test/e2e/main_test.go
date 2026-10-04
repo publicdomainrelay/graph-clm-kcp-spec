@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +82,9 @@ func TestMain(m *testing.M) {
 		os.Setenv("SPECD_WORKSPACE", e2eWorkspace)
 	}
 	mark(os.Getenv("SPECD_LIVE_LOCK_MARK"), "begin")
+	if want, err := strconv.Atoi(os.Getenv("SPECD_LIVE_LOCK_BARRIER")); err == nil && want > 1 {
+		barrier(os.Getenv("SPECD_LIVE_LOCK_MARK"), want)
+	}
 	code := m.Run()
 	mark(os.Getenv("SPECD_LIVE_LOCK_MARK"), "end")
 	stopClusterForTests(lock)
@@ -203,6 +207,43 @@ func mark(path, event string) {
 	}
 	defer file.Close()
 	fmt.Fprintf(file, "%s %d %d\n", event, os.Getpid(), time.Now().UnixNano())
+}
+
+// barrier holds a run at its "begin" mark until `want` distinct runs have
+// written one, so two runs that must overlap do so by construction and not by
+// timing. A run that never arrives releases the others on the deadline.
+func barrier(path string, want int) {
+	if path == "" {
+		return
+	}
+	deadline := time.Now().Add(3 * time.Minute)
+	for time.Now().Before(deadline) {
+		if begunRuns(path) >= want {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	fmt.Fprintf(os.Stderr, "e2e: the barrier at %s saw %d of %d runs\n", path, begunRuns(path), want)
+}
+
+func begunRuns(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	pids := map[int]bool{}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != "begin" {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[1])
+		if err != nil {
+			continue
+		}
+		pids[pid] = true
+	}
+	return len(pids)
 }
 
 func ensureCluster(t *testing.T) {

@@ -247,7 +247,7 @@ func applyRepository(ctx context.Context, client *kcpclient.Client, record sessi
 	repository.Spec.Branch = branch
 	repository.Spec.Verify = detectVerify(record.Repo)
 	repository.Spec.Populate = &spec.RepositoryPopulate{
-		Partition: spec.PartitionDirectory,
+		Partition: ingest.DetectPartition(record.Repo),
 		Summarize: summarize,
 		Root:      true,
 	}

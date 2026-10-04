@@ -358,6 +358,35 @@ spec:
               type: string
             commit:
               type: string
+            conditions:
+              description: RequirementsUnimplemented is True when the realized diff
+                does not implement every added or changed requirement
+              items:
+                properties:
+                  lastTransitionTime:
+                    format: date-time
+                    type: string
+                  message:
+                    type: string
+                  observedGeneration:
+                    format: int64
+                    type: integer
+                  reason:
+                    type: string
+                  status:
+                    type: string
+                  type:
+                    type: string
+                required:
+                - type
+                - status
+                - reason
+                - lastTransitionTime
+                type: object
+              type: array
+              x-kubernetes-list-map-keys:
+              - type
+              x-kubernetes-list-type: map
             filesTouched:
               items:
                 type: string
@@ -391,6 +420,25 @@ spec:
                     type: integer
                 type: object
               type: array
+            requirementCoverage:
+              description: the requirement-coverage judgment of the realized diff,
+                one entry per added or changed requirement
+              items:
+                properties:
+                  evidence:
+                    type: string
+                  id:
+                    type: string
+                  implemented:
+                    type: boolean
+                required:
+                - id
+                - implemented
+                type: object
+              type: array
+              x-kubernetes-list-map-keys:
+              - id
+              x-kubernetes-list-type: map
             verifyExitCode:
               type: integer
           type: object

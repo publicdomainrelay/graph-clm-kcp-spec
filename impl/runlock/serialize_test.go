@@ -71,7 +71,7 @@ func TestTwoLiveSuitesRunInParallel(t *testing.T) {
 	root := repoRoot(t)
 	marks := filepath.Join(t.TempDir(), "marks")
 
-	runPair(t, root, marks)
+	runPair(t, root, marks, "SPECD_LIVE_LOCK_BARRIER=2")
 
 	events := readMarks(t, marks)
 	if len(events) != 4 {

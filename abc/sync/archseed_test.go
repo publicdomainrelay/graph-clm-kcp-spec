@@ -208,7 +208,7 @@ func TestPartitionDependenciesFollowImportsAndTheRoot(t *testing.T) {
 		{From: "calc/calc.go", Path: "example.com/calc/calc"},
 		{From: "store/store.go", Path: "k8s.io/apimachinery/pkg/api/meta"},
 	}
-	dependencies := PartitionDependencies(partitions, imports, "example.com/calc")
+	dependencies := PartitionDependencies(partitions, imports, ModuleResolver{ModulePath: "example.com/calc"})
 	want := map[string][]string{
 		"cmd-calc":  {"calc", "calc-calc"},
 		"calc-calc": {"calc"},
@@ -219,5 +219,57 @@ func TestPartitionDependenciesFollowImportsAndTheRoot(t *testing.T) {
 	}
 	if refs := DependencyRefs(dependencies["cmd-calc"]); !reflect.DeepEqual(refs, []string{"sc.calc", "sc.calc-calc"}) {
 		t.Fatalf("refs = %v", refs)
+	}
+}
+
+func TestPartitionDependenciesResolveDenoImports(t *testing.T) {
+	partitions := []Partition{
+		{Name: "atproto-market", Directory: ".", TreeFiles: []string{"deno.json"}},
+		{Name: "lib-marker", Directory: "lib/market-bidder", Files: []string{"lib/market-bidder/mod.ts"}},
+		{Name: "lib-market-lexicons", Directory: "lib/common/market-lexicons", Files: []string{"lib/common/market-lexicons/mod.ts"}},
+		{Name: "lib-market-common", Directory: "lib/common/market-common", Files: []string{"lib/common/market-common/constants.ts"}},
+	}
+	imports := []Import{
+		{From: "lib/market-bidder/mod.ts", Path: "@publicdomainrelay/market-lexicons"},
+		{From: "lib/market-bidder/mod.ts", Path: "@publicdomainrelay/market-lexicons/com/atproto.ts"},
+		{From: "lib/market-bidder/mod.ts", Path: "../common/market-common/constants.ts"},
+		{From: "lib/common/market-common/constants.ts", Path: "../market-lexicons/com/atproto.ts"},
+		{From: "lib/market-bidder/mod.ts", Path: "@publicdomainrelay/elsewhere"},
+		{From: "lib/market-bidder/mod.ts", Path: "npm:@atproto/api"},
+	}
+	resolver := ModuleResolver{ImportMap: map[string]string{
+		"@publicdomainrelay/market-lexicons": "./lib/common/market-lexicons/mod.ts",
+		"@publicdomainrelay/elsewhere":       "../elsewhere/mod.ts",
+	}}
+	dependencies := PartitionDependencies(partitions, imports, resolver)
+	want := map[string][]string{
+		"lib-marker":          {"atproto-market", "lib-market-common", "lib-market-lexicons"},
+		"lib-market-common":   {"atproto-market", "lib-market-lexicons"},
+		"lib-market-lexicons": {"atproto-market"},
+	}
+	if !reflect.DeepEqual(dependencies, want) {
+		t.Fatalf("dependencies = %v, want %v", dependencies, want)
+	}
+}
+
+func TestPartitionFactsFoldGeneratedDirectories(t *testing.T) {
+	facts := Facts{
+		Files: []SourceFile{
+			{Path: "lib/common/market-lexicons/mod.ts"},
+			{Path: "lib/common/market-lexicons/com/atproto/repo.ts"},
+			{Path: "lib/common/market-lexicons/com/atproto.ts"},
+		},
+	}
+	partitions := PartitionFactsWith(facts, PartitionOptions{
+		Mode:           spec.PartitionPackage,
+		RepositoryName: "market",
+		Roots:          []string{".", "lib/common/market-lexicons"},
+		Generated:      map[string]bool{"lib/common/market-lexicons/com": true, "lib/common/market-lexicons/com/atproto": true},
+	})
+	if len(partitions) != 1 || partitions[0].Name != "lib-common-market-lexicons" {
+		t.Fatalf("partitions = %+v, want the generated tree folded into its package", partitions)
+	}
+	if len(partitions[0].Files) != 3 {
+		t.Fatalf("files = %v", partitions[0].Files)
 	}
 }

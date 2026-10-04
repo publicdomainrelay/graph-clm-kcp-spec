@@ -13,9 +13,11 @@ import (
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphcli"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/coverage"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/gitrepo"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/realize"
+	"github.com/publicdomainrelay/kcp-libs/common/condition"
 )
 
 type batchPlan struct {
@@ -268,6 +270,21 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 		if len(result.Acceptance) > 0 {
 			status["acceptance"] = result.Acceptance
 		}
+		if verdicts, found := result.Coverage[member.Name]; found && len(verdicts) > 0 {
+			status["requirementCoverage"] = verdicts
+			conditions := condition.Copy(member.Status.Conditions)
+			missing := coverage.Missing(verdicts)
+			if len(missing) > 0 {
+				condition.SetTrue(&conditions, member.GetGeneration(), specapi.ConditionRequirementsUnimplemented,
+					specapi.ReasonRequirementsMissing, "unimplemented: "+strings.Join(verdictIDs(missing), ", "))
+				status["message"] = batchSuccessMessage(member, members, result) +
+					"; requirements unimplemented: " + strings.Join(verdictIDs(missing), ", ")
+			} else {
+				condition.SetFalse(&conditions, member.GetGeneration(), specapi.ConditionRequirementsUnimplemented,
+					specapi.ReasonRequirementsImplemented, "every added or changed requirement is implemented")
+			}
+			status["conditions"] = conditions
+		}
 		if record, ok := batchProgress(members, result); ok {
 			member.Status.AppendProgress(record)
 			status["progress"] = member.Status.Progress
@@ -276,9 +293,20 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 			c.log.Error("could not record the realized change", "change", member.Name, "err", err)
 		}
 	}
-	c.log.Info("spec to code done",
-		"repository", repository.Name, "changes", len(members),
-		"branch", result.Branch, "commit", result.Commit, "files", len(result.FilesTouched))
+	logged := []any{"repository", repository.Name, "changes", len(members),
+		"branch", result.Branch, "commit", result.Commit, "files", len(result.FilesTouched)}
+	if result.CoverageError != "" {
+		logged = append(logged, "coverageError", result.CoverageError)
+	}
+	c.log.Info("spec to code done", logged...)
+}
+
+func verdictIDs(verdicts []coverage.Verdict) []string {
+	out := make([]string, 0, len(verdicts))
+	for _, verdict := range verdicts {
+		out = append(out, verdict.ID)
+	}
+	return out
 }
 
 func (c *Controller) recordBatchFailure(ctx context.Context, namespace string, members []*spec.SpecChange, result realize.Result, failure error, verifyConfigured bool) {
@@ -355,6 +383,7 @@ func (c *Controller) batchOptions(ctx context.Context, namespace string, reposit
 		Base:          base,
 		Instruction:   c.retryInstruction(ctx, namespace, leader),
 		Tool:          c.opts.Tool,
+		Coverage:      c.coverageJudge(repository, repoPath),
 	}
 	for _, member := range members {
 		changeDelta, err := c.deltaForChange(ctx, namespace, member)
@@ -368,6 +397,22 @@ func (c *Controller) batchOptions(ctx context.Context, namespace string, reposit
 		})
 	}
 	return options, nil
+}
+
+// coverageJudge asks the same model the summarize path uses, one call per
+// change, whether the realized diff implements each added or changed
+// requirement. It is nil for an agent this controller cannot question that way,
+// so coverage is off when no model is configured.
+func (c *Controller) coverageJudge(repository *spec.Repository, dir string) *coverage.Judge {
+	if !c.agents.ModelCoverageFor(repository) {
+		return nil
+	}
+	return coverage.New(coverage.Options{
+		Command: c.opts.AgentCommand,
+		Args:    c.opts.AgentArgs,
+		Dir:     dir,
+		Timeout: c.opts.AgentTimeout,
+	})
 }
 
 func (c *Controller) settleOptions(ctx context.Context, namespace string, repository *spec.Repository, member *spec.SpecChange) (realize.Options, error) {

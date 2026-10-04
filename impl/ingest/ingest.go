@@ -132,13 +132,16 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 	if err != nil {
 		treeFiles = nil
 	}
+	resolver := specsync.ModuleResolver{ModulePath: GoModulePath(repoPath), ImportMap: DenoImportMap(repoPath)}
 	partitionOptions := specsync.PartitionOptions{
 		Mode:           options.Partition,
 		Include:        options.Include,
 		Exclude:        options.Exclude,
 		RepositoryName: repositoryName,
 		TreeFiles:      treeFiles,
-		ModulePath:     GoModulePath(repoPath),
+		ModulePath:     resolver.ModulePath,
+		ImportMap:      resolver.ImportMap,
+		Generated:      GeneratedDirectories(repoPath, facts.Files),
 		RootContext:    options.RootContext,
 	}
 	if options.Partition == spec.PartitionPackage {
@@ -146,10 +149,10 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 		if err != nil {
 			return Result{}, err
 		}
-		partitionOptions.Roots = roots
+		partitionOptions.Roots = withoutGenerated(roots, partitionOptions.Generated)
 	}
 	partitions := specsync.PartitionFactsWith(facts, partitionOptions)
-	dependencies := specsync.PartitionDependencies(partitions, facts.Imports, partitionOptions.ModulePath)
+	dependencies := specsync.PartitionDependencies(partitions, facts.Imports, resolver)
 	for index := range partitions {
 		partitions[index].DependsOn = dependencies[partitions[index].Name]
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -11,7 +12,10 @@ import (
 	"testing"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/coverage"
 )
 
 func TestVerifyPassesAnEmptyCommand(t *testing.T) {
@@ -99,10 +103,84 @@ func TestCommitMessageCarriesOneTrailerPerBatchMember(t *testing.T) {
 		}}}},
 	}
 	message := commitMessage(members, "open-architecture/calc", nil, nil)
-	want := "realize calc: +2\n\nSpec-Change: calc-s2c-1\nSpec-Change: cmd-calc-s2c-2\nOpen-Architecture: open-architecture/calc\n"
+	want := "realize calc, cmd-calc: +2\n\nSpec-Change: calc-s2c-1\nSpec-Change: cmd-calc-s2c-2\nOpen-Architecture: open-architecture/calc\n"
 	if message != want {
 		t.Errorf("message = %q, want %q", message, want)
 	}
+}
+
+func TestCommitMessageNamesEveryContextOfTheBatch(t *testing.T) {
+	members := []Member{
+		{Context: "lib-did-key-ingress-proxy", Change: "a-s2c-1"},
+		{Context: "lib-common-cloud-init-common", Change: "b-s2c-2"},
+		{Context: "request-vm-ssh", Change: "c-s2c-3"},
+		{Context: "lib-common-cloud-init-common", Change: "d-s2c-4"},
+	}
+	subject := strings.SplitN(commitMessage(members, "", nil, nil), "\n", 2)[0]
+	if subject != "realize lib-did-key-ingress-proxy, lib-common-cloud-init-common, request-vm-ssh: no delta" {
+		t.Errorf("subject = %q", subject)
+	}
+	for _, member := range members {
+		if !strings.Contains(subject, member.Context) {
+			t.Errorf("subject %q does not name %s", subject, member.Context)
+		}
+	}
+}
+
+func TestCoverBatchFeedsTheDiffToTheJudge(t *testing.T) {
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-q", "-b", "main", ".")
+	if err := os.WriteFile(filepath.Join(dir, "calc.go"), []byte("package calc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "add", ".")
+	gitRun(t, dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base")
+	base := gitRun(t, dir, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(dir, "calc.go"), []byte("package calc\n\nfunc Subtract(a, b int) int { return a - b }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "add", ".")
+	gitRun(t, dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "subtract")
+	commit := gitRun(t, dir, "rev-parse", "HEAD")
+
+	script := filepath.Join(dir, "judge.sh")
+	if err := os.WriteFile(script, []byte(`#!/usr/bin/env bash
+prompt=$(cat)
+if grep -q "r.sub" <<<"$prompt" && grep -q "+func Subtract" <<<"$prompt"; then
+  printf '{"verdicts":[{"id":"r.sub","implemented":true,"evidence":"func Subtract"}]}\n'
+else
+  printf '{"verdicts":[{"id":"r.sub","implemented":false,"evidence":"the diff was not shown"}],"extra":"x"}\n'
+fi
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	judge := coverage.New(coverage.Options{Command: "bash", Args: []string{script}, Dir: dir, Timeout: 30 * time.Second})
+	targets := []target{{member: Member{
+		Context: "calc",
+		Change:  "calc-s2c-1",
+		Delta: spec.Delta{Requirements: []spec.RequirementDelta{{
+			Op: spec.OpAdded, ID: "r.sub", To: &spec.Requirement{ID: "r.sub", Level: spec.LevelMust, Text: "Subtract returns the difference."},
+		}}},
+	}}}
+	repository := &spec.Repository{ObjectMeta: metav1.ObjectMeta{Name: "calc"}}
+	repository.Status.ResolvedPath = dir
+	verdicts, failure := coverBatch(context.Background(), Options{Coverage: judge, Repository: repository}, targets, base, commit)
+	if failure != "" {
+		t.Fatalf("coverBatch: %s", failure)
+	}
+	got := verdicts["calc-s2c-1"]
+	if len(got) != 1 || !got[0].Implemented || got[0].ID != "r.sub" {
+		t.Fatalf("verdicts = %+v, want r.sub implemented from the diff", got)
+	}
+}
+
+func gitRun(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func TestRunAcceptanceRecordsEachStep(t *testing.T) {

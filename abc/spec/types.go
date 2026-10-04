@@ -295,6 +295,21 @@ type SpecChangeStatus struct {
 	Acceptance []AcceptanceResult `json:"acceptance,omitempty"`
 
 	Progress []ProgressRecord `json:"progress,omitempty"`
+
+	RequirementCoverage []RequirementVerdict `json:"requirementCoverage,omitempty"`
+
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// RequirementVerdict is what the coverage judgment found for one requirement
+// the change added or changed: whether the realized diff implements it, and the
+// evidence the model named.
+type RequirementVerdict struct {
+	ID string `json:"id"`
+
+	Implemented bool `json:"implemented"`
+
+	Evidence string `json:"evidence,omitempty"`
 }
 
 type SpecChange struct {

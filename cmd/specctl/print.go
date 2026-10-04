@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -67,7 +68,7 @@ func printTable(out io.Writer, items []unstructured.Unstructured) error {
 	case specapi.RepositoryKind:
 		fmt.Fprintln(table, "NAME\tSOURCE\tPHASE\tCONTEXTS\tHEADCOMMIT")
 	case specapi.SpecChangeKind:
-		fmt.Fprintln(table, "NAME\tCONTEXT\tDIRECTION\tPHASE\tDELTA\tCOMMIT")
+		fmt.Fprintln(table, "NAME\tCONTEXT\tDIRECTION\tPHASE\tDELTA\tCOMMIT\tCOVERAGE")
 	}
 	for _, item := range items {
 		row, err := tableRow(item)
@@ -116,9 +117,35 @@ func tableRow(item unstructured.Unstructured) ([]string, error) {
 			nestedString(item, "status", "phase"),
 			deltaSummary(item),
 			truncate(nestedString(item, "status", "commit"), 12),
+			coverageSummary(item),
 		}, nil
 	}
 	return nil, fmt.Errorf("no table columns for kind %q", item.GetKind())
+}
+
+func coverageSummary(item unstructured.Unstructured) string {
+	entries, found, err := unstructured.NestedSlice(item.Object, "status", "requirementCoverage")
+	if err != nil || !found || len(entries) == 0 {
+		return "-"
+	}
+	missing := []string{}
+	for _, entry := range entries {
+		verdict, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if implemented, _ := verdict["implemented"].(bool); implemented {
+			continue
+		}
+		if id, _ := verdict["id"].(string); id != "" {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) == 0 {
+		return fmt.Sprintf("%d implemented", len(entries))
+	}
+	sort.Strings(missing)
+	return "missing: " + strings.Join(missing, ",")
 }
 
 func deltaSummary(item unstructured.Unstructured) string {

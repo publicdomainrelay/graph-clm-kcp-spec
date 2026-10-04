@@ -353,3 +353,44 @@ func (s Store) CurrentBranch(ctx context.Context) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// UpstreamBranch is the local name of the branch HEAD tracks, without its
+// remote, so a feature branch can name the code branch it was cut from.
+func (s Store) UpstreamBranch(ctx context.Context) string {
+	out, _, err := s.git(ctx, nil, nil, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	if err != nil {
+		return ""
+	}
+	name := strings.TrimSpace(string(out))
+	if _, rest, ok := strings.Cut(name, "/"); ok {
+		return rest
+	}
+	return name
+}
+
+// History lists the commits of a ref, oldest first, following the first parent.
+func (s Store) History(ctx context.Context, ref string) ([]string, error) {
+	out, _, err := s.git(ctx, nil, nil, "rev-list", "--first-parent", "--reverse", ref)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(string(out)), nil
+}
+
+// Paths lists the file paths a commit holds.
+func (s Store) Paths(ctx context.Context, commit string) ([]string, error) {
+	if commit == "" {
+		return nil, nil
+	}
+	out, _, err := s.git(ctx, nil, nil, "ls-tree", "-r", "-z", "--name-only", commit)
+	if err != nil {
+		return nil, err
+	}
+	paths := []string{}
+	for _, entry := range bytes.Split(out, []byte{0}) {
+		if len(entry) > 0 {
+			paths = append(paths, string(entry))
+		}
+	}
+	return paths, nil
+}

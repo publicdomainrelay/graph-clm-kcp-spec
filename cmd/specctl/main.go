@@ -183,6 +183,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runEval(rest, stdout, stderr)
 	case "kcp":
 		return runKcp(rest, stdout, stderr)
+	case "version":
+		return runVersion(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return exitOK
@@ -407,6 +409,9 @@ usage:
   specctl down [--repo .] [--keep-kcp]
       stop the current branch's specd and kcp
   specctl status [--repo .]
+  specctl version [--json]
+      the commit these binaries were built from; an example run compares it
+      with HEAD and refuses a stale or dirty build
   specctl ls [-o table|json]
       every instance on this machine: repository, path, branch, kcp url,
       ready, specd running

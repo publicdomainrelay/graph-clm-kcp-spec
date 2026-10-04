@@ -137,9 +137,18 @@ type Snapshot struct {
 }
 
 type Baseline struct {
+	Branch string
+
 	Contexts []spec.SystemContext
 
 	Changes []spec.SpecChange
+}
+
+func (b *Baseline) branch(repository string) string {
+	if b != nil && b.Branch != "" {
+		return b.Branch
+	}
+	return Branch(repository)
 }
 
 func (s Snapshot) branch() string {
@@ -246,6 +255,8 @@ type changeStatusDoc struct {
 
 	Acceptance []spec.AcceptanceResult `json:"acceptance,omitempty"`
 
+	RequirementCoverage []spec.RequirementVerdict `json:"requirementCoverage,omitempty"`
+
 	Progress *changeProgressDoc `json:"progress,omitempty"`
 }
 
@@ -271,28 +282,30 @@ type changeToolCount struct {
 
 func changeStatusDocOf(status spec.SpecChangeStatus) changeStatusDoc {
 	return changeStatusDoc{
-		Phase:          status.Phase,
-		Branch:         status.Branch,
-		Commit:         status.Commit,
-		VerifyExitCode: status.VerifyExitCode,
-		FilesTouched:   status.FilesTouched,
-		AgentLog:       status.AgentLog,
-		Message:        status.Message,
-		Acceptance:     status.Acceptance,
-		Progress:       progressSummary(status.Progress),
+		Phase:               status.Phase,
+		Branch:              status.Branch,
+		Commit:              status.Commit,
+		VerifyExitCode:      status.VerifyExitCode,
+		FilesTouched:        status.FilesTouched,
+		AgentLog:            status.AgentLog,
+		Message:             status.Message,
+		Acceptance:          status.Acceptance,
+		RequirementCoverage: status.RequirementCoverage,
+		Progress:            progressSummary(status.Progress),
 	}
 }
 
 func (s changeStatusDoc) specChangeStatus() spec.SpecChangeStatus {
 	return spec.SpecChangeStatus{
-		Phase:          s.Phase,
-		Branch:         s.Branch,
-		Commit:         s.Commit,
-		VerifyExitCode: s.VerifyExitCode,
-		FilesTouched:   s.FilesTouched,
-		AgentLog:       s.AgentLog,
-		Message:        s.Message,
-		Acceptance:     s.Acceptance,
+		Phase:               s.Phase,
+		Branch:              s.Branch,
+		Commit:              s.Commit,
+		VerifyExitCode:      s.VerifyExitCode,
+		FilesTouched:        s.FilesTouched,
+		AgentLog:            s.AgentLog,
+		Message:             s.Message,
+		Acceptance:          s.Acceptance,
+		RequirementCoverage: s.RequirementCoverage,
 	}
 }
 
@@ -1073,6 +1086,14 @@ func TouchedObjects(plan Plan, snapshot Snapshot, origin func(kind, name string)
 func IsChangePath(path string) bool {
 	name, ok := strings.CutPrefix(path, ChangesDir+"/")
 	return ok && name != "" && !strings.Contains(name, "/") && strings.HasSuffix(name, ".yaml")
+}
+
+// IsSpecToCodeChangePath names a change the spec-to-code direction raised: a
+// spec edit a person or a model made, which is where a feature branch's own
+// declared delta begins.
+func IsSpecToCodeChangePath(path string) bool {
+	name, ok := strings.CutPrefix(path, ChangesDir+"/")
+	return ok && IsChangePath(path) && strings.Contains(name, "-s2c-")
 }
 
 // ChangePaths lists the change records a branch tree holds, from a path to blob

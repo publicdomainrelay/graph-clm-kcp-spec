@@ -8,6 +8,12 @@ SPECS_KUBECONFIG ?= $(CURDIR)/.kcp-specd/admin.kubeconfig
 WORKSPACE_KUBECONFIG := $(CURDIR)/.kcp-specd/specs.kubeconfig
 export SPECD_KUBECONFIG ?= $(SPECS_KUBECONFIG)
 
+# The commit the binaries were built from, stamped in so an example run can
+# refuse a binary that does not match HEAD.
+BUILD_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+BUILD_DIRTY := $(if $(shell git status --porcelain 2>/dev/null),dirty,)
+LDFLAGS := -X main.buildCommit=$(BUILD_COMMIT) -X main.buildDirty=$(BUILD_DIRTY)
+
 # The graph backend every target defaults to. ArcadeDB is the default; the Go
 # flag and environment defaults follow this variable, so
 # `make test-live SPECD_BOLT_BACKEND=hydradb` switches every command to HydraDB
@@ -16,20 +22,31 @@ export SPECD_BOLT_BACKEND ?= arcadedb
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet generate-schemas test test-live test-live-model kcp-up kcp-down install-specs install-specs-provider example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 example-phase9 example-phase13 demo demo-phases clean
+.PHONY: build check fmt vet generate-schemas test test-live test-live-model kcp-up kcp-down install-specs install-specs-provider example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 example-phase9 example-phase13 demo demo-phases clean FORCE
+
+FORCE:
 
 ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
 ARCH_REPOSITORY ?= deno-kcp
 
 build: $(SPECCTL) $(SPECD) $(BIN)/hydradb-bins
 
-$(SPECCTL): $(shell find cmd/specctl abc common impl -name '*.go') go.mod
+# A commit change has to rebuild the stamped binaries even when no source file
+# moved, so the example script's stale-build check never points at a no-op
+# make build.
+$(BIN)/.commit: FORCE
 	@mkdir -p $(BIN)
-	go build -o $@ ./cmd/specctl
+	@printf '%s %s\n' '$(BUILD_COMMIT)' '$(BUILD_DIRTY)' > $@.tmp
+	@cmp -s $@.tmp $@ || mv $@.tmp $@
+	@rm -f $@.tmp
 
-$(SPECD): $(shell find cmd/specd factory abc common impl -name '*.go') go.mod
+$(SPECCTL): $(shell find cmd/specctl abc common impl -name '*.go') go.mod $(BIN)/.commit
 	@mkdir -p $(BIN)
-	go build -o $@ ./cmd/specd
+	go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/specctl
+
+$(SPECD): $(shell find cmd/specd factory abc common impl -name '*.go') go.mod $(BIN)/.commit
+	@mkdir -p $(BIN)
+	go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/specd
 
 $(BIN)/hydradb-bins: $(shell find cmd/hydradb-bins -name '*.go') go.mod
 	@mkdir -p $(BIN)
