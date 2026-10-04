@@ -250,7 +250,6 @@ func applyRepository(ctx context.Context, client *kcpclient.Client, record sessi
 		Partition: spec.PartitionDirectory,
 		Summarize: summarize,
 		Root:      true,
-		Arch:      spec.DefaultArchPath,
 	}
 	object, err := kcpclient.Unstructured(&repository)
 	if err != nil {

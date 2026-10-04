@@ -204,10 +204,7 @@ func seedFromArch(
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if explicit && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("ingest: read %s: %w", path, err)
-		}
-		if explicit {
+		if explicit || !os.IsNotExist(err) {
 			return nil, fmt.Errorf("ingest: read %s: %w", path, err)
 		}
 		return nil, nil
