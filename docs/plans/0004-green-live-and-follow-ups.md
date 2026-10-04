@@ -25,10 +25,11 @@ and the live acceptance (`gate: true` once it can pass). Done when
 `specctl accept` is green on the PR branch twice in a row, the commits are
 pushed, and PR #1 states the dependency on kcp-libs#1 and shows the green table.
 
-**Status: not done -- the acceptance passes 15 of its 16 checks and the last one
-is outside deno-kcp.** Four fixes landed across two repositories and a fifth
-requirement amendment corrected one of the acceptance's own checks. The full run,
-the tables and the evidence are in `docs/examples/deno-kcp-pr.md` (Plan 0004 D).
+**Status: done -- 16 of 16, twice in a row on one machine, gate `true`.** The
+branch carries seven requirement changes across two repositories (six in
+deno-kcp, one in kcp-libs), two of which are amendments that corrected the
+acceptance's own checks. The run, the tables, the cause of the last red check and
+the follow-ups it leaves are in `docs/examples/deno-kcp-pr.md` (Plan 0004 D).
 
 - **Items 1 and 2 are one defect, and it is fixed.** The provider's wildcard
   informer store keys objects by namespace and name with no workspace, so the
@@ -55,20 +56,41 @@ the tables and the evidence are in `docs/examples/deno-kcp-pr.md` (Plan 0004 D).
   amended so the bidder's host check is `http://`: the bidder must not take TLS
   flags (`hono-bidder` rejects them), so it consumes only the trust bundle and
   serves plain HTTP. Realized as `e33a558`.
-- **The one check left** is the verifier's `relaySawCommit`: the `subscribeRepos`
-  WebSocket receives frames now (`relayFrames 3`), but none carries the
-  verifier's own commit inside the watch's 90 s window. That is the PDS
-  announcing its write to the relay (`hono-pds` -> `hono-atproto-relay`), a
-  sibling-repository path, and it wants those two services' logs from a live run.
+- **The last check was the announce never leaving the PDS.** The verifier's
+  `relayFrames 3` were the bidder's own repository on fedproxy, not alice's: the
+  live relay's `listHosts` named exactly that one host. Alice's PDS held no relay
+  in `KCP_DNS_TABLE` and no token for its workspace in `KCP_TOKENS`, and the
+  run's own shim, given that live environment, answers the announce fetch with
+  `kcpdns: relay.default.relay.svc.kcp.local is not in the table and could not be
+  discovered` inside a `catch` that swallows it. The table is written once when a
+  pod starts, and alice's PDS is applied before the relay -- which it has to be,
+  because the relay's WebSocket to the PDS is synchronous and cannot fall back to
+  discovery. Told by hand to crawl alice's PDS, the same relay carried the
+  verifier's commit (`relaySawCommit yes, relayFrames 6`). The fix names the
+  relay by its listener address in `PDS_CRAWLERS` (`r.pds-pod`, `r.bob-pds-pod`),
+  realized as `caa2838`.
+- **The acceptance stops its own workloads.** `r.live-acceptance-script` amended
+  in the same realize: the EXIT trap deletes every DenoPod through kcp and waits,
+  bounded, before it stops the provider that owns their processes, so a run
+  leaves ports 2583-2587 free and a second run starts clean.
 - Environment facts: the acceptance needs siblings that carry the TLS support
-  (the clones handed to the run predate it; `ORG_ROOT` is now on the step); its
-  scratch must not be on the 24 GB `/tmp` tmpfs (`TMPDIR` is now on the step); and
-  a finished run leaves its workloads holding the example's fixed host ports
-  (2583-2587), so it is not repeatable on one machine without killing them first.
-  Making it so needs the workloads stopped explicitly, which is not in this
-  branch.
-- The gate is back to `gate: true` while red. All five changes had to land with
-  it relaxed to `gate: false` by hand; part C's stated escape
+  (`ORG_ROOT` is on the step); its scratch must not be on the 24 GB `/tmp` tmpfs,
+  and the `TMPDIR` the step names must exist, because `mktemp -d` fails on a
+  missing directory under `set -euo pipefail`.
+- The provider's first start reconciled nothing in both final runs
+  (`apply.sh` exits 0 on `attempts=1 0`); `accept.sh`'s restart recovered it
+  before any workload existed. Detected, not cured -- curing means bounding the
+  provider's initial list, a larger change in `internal/provider`.
+- Two findings are left open in sibling repositories, with their evidence in
+  `docs/examples/deno-kcp-pr.md`: the kcpdns shim's discovery fallback cannot
+  succeed as written (`servicenames.Resolver.Tokens` keys `KCP_TOKENS` by cluster
+  id, the shim looks it up by the logical cluster derived from the DNS name, and
+  the token set only covers the workspaces a pod's start-time table names), and
+  `hono-pds` never retries a crawler that answers non-2xx. Neither blocks the
+  acceptance.
+- The gate is `gate: true` and green. Every one of the seven changes had to land
+  with it relaxed to `gate: false` by hand, because the acceptance could not pass
+  while the defects it found were being fixed; part C's stated escape
   (`specctl accept --override`) still does not exist.
 
 ## E - hydradb follow-ups

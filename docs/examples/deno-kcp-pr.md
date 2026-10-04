@@ -575,14 +575,16 @@ come up yet.
   bash deploy/examples/atproto/market/accept.sh   # ~5 minutes; exit 1 today, on the three defects above
   ```
 
-## Plan 0004 D: the same acceptance, five fixes in, and the one check left
+## Plan 0004 D: the same acceptance, seven fixes in, and all 16 checks green
 
-Part D of plan 0004 worked the four red items of the table above through the
-same flow: a cause with evidence, a `MUST` requirement, specd's realize agent,
-`go test ./...` and this acceptance as the gates. Four fixes landed across two
-repositories and a fifth requirement amendment corrected one of the acceptance's
-own checks. The acceptance now passes 15 of its 16 checks; the last one is in a
-sibling service, not in deno-kcp.
+Part D of plan 0004 worked every red item of the table above through the same
+flow: a cause with evidence, a `MUST` requirement, specd's realize agent,
+`go test ./...` and this acceptance as the gates. Seven requirements or
+amendments landed across two repositories (deno-kcp and kcp-libs), two of them
+amendments that corrected the acceptance's own checks. The acceptance now passes
+**all 16 checks, twice in a row on one machine**, and the last one to go green
+was not in deno-kcp's manifests but in what the example asked of the virtual DNS
+table.
 
 | requirement | repository | what it fixed | commit |
 | --- | --- | --- | --- |
@@ -591,6 +593,8 @@ sibling service, not in deno-kcp.
 | `r.acceptance-survives-a-stalled-provider` | deno-kcp | `accept.sh` detects a provider that reconciles nothing, restarts it while no workload exists, and re-runs `apply.sh`, up to three attempts | `89cee50` |
 | `r.dnsshim-fetch-preserves-the-request`, `r.dnsshim-fetch-preserves-the-request-test` | kcp-libs#1 | the kcpdns shim dropped a `Request` input and turned its `POST` into a `GET`, so the bidder's DID registration came back 404 | `f9e2ef3` |
 | `r.live-acceptance-script` (amended) | deno-kcp | the bidder's host check was `https`; the bidder must not take TLS flags, so it serves plain HTTP | `e33a558` |
+| `r.pds-pod`, `r.bob-pds-pod` (amended) | deno-kcp | `PDS_CRAWLERS` named the relay by its cluster-local name, which a PDS applied before the relay can never resolve; it is now the relay's listener address, so the announce leaves the PDS and the relay crawls it | `caa2838` |
+| `r.live-acceptance-script` (amended) | deno-kcp | the EXIT trap stops the provider first, which orphans the pods onto the example's fixed host ports; it now deletes every DenoPod through kcp and waits, bounded, before stopping the provider | `caa2838` |
 
 **Items 1 and 2 were one provider defect.** The provider watches every workspace
 through one wildcard informer (`/clusters/*`), and client-go's indexer keys its
@@ -657,7 +661,7 @@ accept market-live-acceptance: failed (exit 1, 417.9s)
 Every workload is up and reachable, every DNS name resolves, every listener
 answers, and all five long-running pods stay up ten seconds later.
 
-### The one check left
+### The one check that was left
 
 The verifier gets through the whole chain -- `createAccountStatus 200`,
 `gotAccessJwt yes`, `plcStatus 200`, `firstWriteStatus 200`,
@@ -668,6 +672,120 @@ frames carries the verifier's own commit inside the watch's 90 s window. That is
 the PDS announcing its write to the relay (`hono-pds` -> `hono-atproto-relay`),
 a sibling-repository path, and it wants those two services' own logs from a live
 run.
+
+The next two sections are what that live run then showed. The reading above was
+right about the path and wrong about where it broke: the relay path was fine,
+and the announce never left the PDS.
+
+### The last check: the PDS could not reach the relay, so the relay never crawled it
+
+The verifier's `relayFrames 3` was the clue that was read wrong twice. Those three
+frames were not alice's: they were the bidder's own repository, published through
+`did-key-....xrpc.fedproxy.com`. The live relay says so itself -- `GET
+https://127.0.0.1:2584/xrpc/com.atproto.sync.listHosts` against a running market
+listed exactly that one host, at `cursor 3`, and no other -- while the verifier's
+own repository was being written to alice's PDS on the same machine. The
+`subscribeRepos` WebSocket was working; the relay had simply never been told
+about alice's PDS.
+
+The announce is `hono-pds`: on its first write, `wiredRepo.applyWrites` fetches
+`<PDS_CRAWLERS>/xrpc/com.atproto.sync.requestCrawl` with its public hostname and
+does not await it, so a rejection disappears into a `.catch` that only clears the
+once-per-crawler marker. The PDS's own environment, read from the live process
+(`/proc/<pid>/environ`), shows why that fetch never lands:
+
+```
+KCP_DNS_TABLE  {"pds.default.alice.svc.kcp.local":"127.0.0.1:2583",
+                "plc.default.global.svc.kcp.local":"127.0.0.1:2587"}      # no relay
+KCP_TOKENS     two workspaces (global, alice)                             # no relay
+```
+
+The shim can fall back to discovery for a fetch, but `addressFor` throws when the
+name is not in the table and the per-workspace token the discovery needs is not
+in `KCP_TOKENS`. Running the run's own shim with the PDS's own environment is
+decisive:
+
+```
+$ deno run -A --preload runs/.kcpdns/shim.ts probe.ts   # probe POSTs the relay URL
+ERROR kcpdns: relay.default.relay.svc.kcp.local is not in the table and could not be discovered
+```
+
+The name can never be in that table: it is written once, when the pod starts
+(`factory/servicenames.Resolver.Table` reads the pods the provider knows at that
+moment), and alice's PDS is applied before the relay. The relay has to be applied
+after the PDS, because its `WebSocket` to the PDS is constructed synchronously
+and the shim cannot fall back to discovery for WebSocket at all. The example had
+worked around one direction of that ordering and not the other.
+
+That the announce was the only missing piece was shown on the live market before
+any code changed: told by hand to crawl alice's PDS
+(`POST /xrpc/com.atproto.sync.requestCrawl {"hostname":"pds.default.alice.svc.kcp.local"}`
+answers `{}`, and `listHosts` then shows it at `cursor 2`), the verifier's own
+flow -- create account, first write, subscribe, second write -- returned
+
+```
+relaySawCommit yes, relayFrames 6
+```
+
+with the frames carrying the repository of that run. So the fix names the relay
+with something the PDS can reach without the table: `PDS_CRAWLERS` is
+`https://127.0.0.1:2584`, the relay's own listener, which the shim passes through
+untouched and whose leaf covers `127.0.0.1`. The relay still reaches the PDS by
+the cluster-local name in `PDS_PUBLIC_HOSTNAME`, which its later start puts in
+the relay's table. Requirements `r.pds-pod` and `r.bob-pds-pod` carry it,
+realized as `caa2838` through the example's own flow.
+
+### The acceptance now stops its own workloads, so a second run starts clean
+
+The leak was the other half of repeatability: `accept.sh` killed the provider,
+which orphans the pods, and the orphans hold the example's fixed host ports
+2583-2587, so the next run's pods cannot bind. The EXIT trap now deletes every
+DenoPod in every workspace through kcp first, waits bounded for the objects to
+disappear -- the provider's `denopod.deno.computer/run` finalizer is what stops
+each process, and it only runs while the provider is up -- and only then stops
+the provider, OpenBao and kcp. `r.live-acceptance-script` carries it, in the same
+realize.
+
+### The green run, twice
+
+`specctl accept --repo .` on the PR branch, with the step's `gate: true`:
+
+```
+accept market-live-acceptance: passed (exit 0, 327.8s)
+  results:
+    check                                result evidence
+    apply.sh                             PASS exit=0 attempts=1 0
+    denopod root:global/plc              PASS phase=Running ready=true
+    denopod root:relay/relay             PASS phase=Running ready=true
+    denopod root:alice/pds               PASS phase=Running ready=true
+    denopod root:bob/pds                 PASS phase=Running ready=true
+    denopod root:bob/bidder              PASS phase=Running ready=true
+    denopod root:alice/verifier          PASS phase=Succeeded
+    bob pds on its name                  PASS ready=true probe=kcpdns pds.default.bob.svc.kcp.local /xrpc/_health
+    bob pds on the host                  PASS GET https://127.0.0.1:2585/xrpc/_health -> 200
+    bidder on its name                   PASS ready=true probe=kcpdns bidder.default.bob.svc.kcp.local /oauth-client-metadata.json
+    bidder on the host                   PASS GET http://127.0.0.1:2586/oauth-client-metadata.json -> 200
+    still up root:global/plc             PASS phase=Running ready=true after 10s
+    still up root:relay/relay            PASS phase=Running ready=true after 10s
+    still up root:alice/pds              PASS phase=Running ready=true after 10s
+    still up root:bob/pds                PASS phase=Running ready=true after 10s
+    still up root:bob/bidder             PASS phase=Running ready=true after 10s
+  accept: pass
+```
+
+The verifier's own outputs say the same thing from inside the cluster:
+`createAccountStatus 200`, `gotAccessJwt yes`, `plcStatus 200`,
+`firstWriteStatus 200`, `secondWriteStatus 200`, **`relaySawCommit yes`**,
+`verdict pass`. A second `specctl accept --repo .` started immediately after the
+first on the same machine passes the same way, which is the teardown's doing:
+`ss -ltn` shows 2583-2587 free between the two runs and no pod process survives
+the first.
+
+`apply.sh` needed two attempts in both runs (`attempts=1 0`): the provider's
+first start reconciled nothing -- the intermittent defect item 4 of this plan
+detects rather than cures -- and `accept.sh` restarted it before any workload
+existed. That is the retry working, not a new defect, and it is why the two runs
+take about five and a half minutes each rather than four.
 
 ### Environment facts the runs found
 
@@ -682,16 +800,31 @@ run.
   per restart, so an `ACCEPT_ROOT` on the 24 GB `/tmp` tmpfs fills in minutes and
   every later write fails with `disk quota exceeded`. The step carries `TMPDIR`
   for that reason.
-- A finished run leaves its workloads behind (`accept.sh` kills the provider; the
-  pods are its children), and they hold the example's fixed host ports
-  2583-2587, so the next run's pods cannot bind and crash-loop. Every run above
-  had to kill the orphans first. Making the acceptance repeatable on one machine
-  without that needs the workloads stopped explicitly, which is not in this
-  branch.
+- A finished run used to leave its workloads behind (`accept.sh` kills the
+  provider; the pods are its children), and they hold the example's fixed host
+  ports 2583-2587, so the next run's pods could not bind and crash-looped. Every
+  run above had to kill the orphans first. That is fixed on this branch: the
+  EXIT trap deletes every DenoPod through kcp and waits, bounded, before it stops
+  the provider (`r.live-acceptance-script`, `caa2838`), and the two consecutive
+  green runs are the evidence.
+- The `TMPDIR` the acceptance step names has to exist: `accept.sh` makes its
+  state directory with `mktemp -d`, which fails on a directory that is not there,
+  and `set -euo pipefail` turns that into an immediate exit. Creating it once is
+  part of running the step.
 - `accept.sh` removes `ACCEPT_ROOT` even when it is set; the earlier note that
   setting it keeps the state directory is wrong.
 
-The gate is `gate: true` and the acceptance is red on that one check, which is
-still the honest state; the five changes above had to land with it relaxed to
-`gate: false` by hand, because part C's `specctl accept --override` escape does
-not exist yet.
+The gate is `gate: true` and the acceptance is green, so every `SpecToCode`
+realization for this repository is gated on the whole market coming up. Each of
+the seven changes above had to land with the step relaxed to `gate: false` by
+hand, because the acceptance could not pass while the defects it found were
+being fixed; part C's `specctl accept --override` escape still does not exist.
+
+Two findings are left as follow-ups, both in sibling repositories and both with
+their evidence above: the shim's discovery fallback cannot succeed as written
+(`servicenames.Resolver.Tokens` keys `KCP_TOKENS` by the kcp cluster id while the
+shim looks it up by the logical cluster it derives from the DNS name, and the
+token set only covers the workspaces a pod's start-time table already names), and
+`hono-pds` never retries a crawler that answers non-2xx, because the announce is
+fire-and-forget and only a rejected promise clears the once-per-crawler marker.
+Neither blocks this acceptance today.

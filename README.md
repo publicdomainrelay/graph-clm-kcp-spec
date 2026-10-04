@@ -343,13 +343,24 @@ DID registration arrived as a resolve and came back 404 -- reproduced in the
 cluster, fixed through kcp-libs's own spec flow as `f9e2ef3` on
 [kcp-libs#1](https://github.com/publicdomainrelay/kcp-libs/pull/1). A last
 amendment (`e33a558`) corrected the acceptance's own host check for the bidder,
-which serves plain HTTP because it must not take TLS flags. `apply.sh` exits 0 on
-its first attempt, every workload is up and reachable, every DNS name resolves
-and all five long-running pods stay up. The one check left is the verifier's
-`relaySawCommit`: the `subscribeRepos` WebSocket now receives frames, but none
-carries the verifier's commit inside the watch window, which is the
-PDS-announces-to-relay path in `hono-pds` / `hono-atproto-relay` and not
-deno-kcp. The full table, each requirement's commit and that open check: [`docs/examples/deno-kcp-pr.md`](docs/examples/deno-kcp-pr.md#plan-0004-d-the-same-acceptance-five-fixes-in-and-the-one-check-left).
+which serves plain HTTP because it must not take TLS flags. The last check was
+not a failure of the PDS-announces-to-relay path but of the announce never
+leaving the PDS: alice's PDS is applied before the relay, its virtual DNS table is
+written once when it starts and so never names the relay, and the shim's fetch
+fallback cannot discover a name whose workspace token the pod does not hold --
+the run's own shim, given the live PDS environment, answers the announce with
+`kcpdns: relay.default.relay.svc.kcp.local is not in the table and could not be
+discovered` inside a `catch` that swallows it, and the verifier's three frames
+were the bidder's own repository on fedproxy, not alice's. Naming the relay by
+its listener address in `PDS_CRAWLERS` (`r.pds-pod`, `r.bob-pds-pod`) and having
+the acceptance's EXIT trap delete its DenoPods through kcp before it stops the
+provider that owns them (`r.live-acceptance-script`) landed as `caa2838`. The
+acceptance now ends `accept: pass`: `apply.sh` exits 0, every workload is up and
+reachable, every DNS name resolves, the verifier reaches `Succeeded`, and a second
+run on the same machine passes the same way because the first leaves the example's
+fixed ports free. The full green table, the cause with its decisive commands and
+what is left as follow-ups in kcp-libs and `hono-pds`:
+[`docs/examples/deno-kcp-pr.md`](docs/examples/deno-kcp-pr.md#plan-0004-d-the-same-acceptance-seven-fixes-in-and-all-16-checks-green).
 
 ### atproto-market: the guest SSH transport moves to iroh / dumbpipe
 
