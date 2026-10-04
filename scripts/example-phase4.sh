@@ -35,8 +35,8 @@ forget() {
     done
     K delete systemcontext "$name" >/dev/null 2>&1 || true
   done
-  # The calc Repository of example-phase2 points at the plain fixtures/calc
-  # directory. Left in place it would manage the same context names from a
+  # The calc Repository of example-phase2 points at its own copy of the
+  # fixture. Left in place it would manage the same context names from a
   # different tree. make example-phase2 puts it back.
   K delete repository phase4-example >/dev/null 2>&1 || true
   K delete repository calc >/dev/null 2>&1 || true

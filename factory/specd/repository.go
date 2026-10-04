@@ -35,6 +35,10 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 		return 0, fmt.Errorf("specd: %s is not a Repository", name)
 	}
 
+	if source := repository.Source(); source.Path == "" && source.Git == nil {
+		return 0, nil
+	}
+
 	if result := spec.ValidateRepository(repository); !result.OK() {
 		return c.opts.Resync, c.setRepositoryCondition(ctx, repository, namespace,
 			metav1.ConditionFalse, specapi.ReasonSourceInvalid, result.Err().Error())

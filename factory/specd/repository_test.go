@@ -1,8 +1,11 @@
 package specd
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
@@ -72,5 +75,25 @@ func TestCacheDirForStaysInsideTheCache(t *testing.T) {
 	}
 	if dir != absolute {
 		t.Errorf("dir = %q, want %q", dir, absolute)
+	}
+}
+
+func TestASpecOnlyRepositoryIsNotIndexed(t *testing.T) {
+	cluster := newFakeCluster()
+	repository := &spec.Repository{}
+	repository.Name = "deno-kcp"
+	repository.Namespace = specapi.DefaultNamespace
+	apply(t, cluster, repository)
+	controller := agentController(t, cluster, calcScenario)
+	requeue, err := controller.reconcileRepository(context.Background(), specapi.DefaultNamespace, "deno-kcp")
+	if err != nil || requeue != 0 {
+		t.Fatalf("requeue %s, err %v", requeue, err)
+	}
+	object, err := cluster.Get(context.Background(), specapi.RepositoryGVR, specapi.DefaultNamespace, "deno-kcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if phase, _, _ := unstructured.NestedString(object.Object, "status", "phase"); phase != "" {
+		t.Fatalf("a repository with no source was indexed: phase %q", phase)
 	}
 }

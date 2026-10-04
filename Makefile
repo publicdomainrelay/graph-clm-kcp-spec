@@ -55,8 +55,11 @@ test:
 test-live:
 	SPECD_REQUIRE_LIVE=1 go test ./... -count=1
 
+LIVE_MODEL_LOG ?= .kcp-specd/live-model-tests.log
+
 test-live-model:
-	SPECD_REQUIRE_LIVE=1 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -count=1 -v -run 'LiveModel|PiHost|ScopeGuard' 2>&1 | tee docs/eval/live-model-tests.log | grep -E '^(=== RUN|--- (PASS|FAIL|SKIP)|PASS|FAIL|ok)'
+	mkdir -p $(dir $(LIVE_MODEL_LOG))
+	SPECD_REQUIRE_LIVE=1 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -count=1 -v -run 'LiveModel|PiHost|ScopeGuard' 2>&1 | tee $(LIVE_MODEL_LOG) | grep -E '^(=== RUN|--- (PASS|FAIL|SKIP)|PASS|FAIL|ok)'
 
 # Every live test package starts its own kcp on kernel-assigned ports (state in
 # a temporary root), so two of these run at once and neither touches the

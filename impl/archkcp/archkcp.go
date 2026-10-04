@@ -313,10 +313,7 @@ func fileRefs(paths []string) []string {
 }
 
 func repositoryPath(options ImportOptions) string {
-	if options.RepositoryPath != "" {
-		return options.RepositoryPath
-	}
-	return "."
+	return options.RepositoryPath
 }
 
 func documentName(document *archyaml.Document) string {

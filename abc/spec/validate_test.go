@@ -142,8 +142,8 @@ func TestValidateRepository(t *testing.T) {
 		t.Fatalf("problems = %v", result.Err())
 	}
 	repository.Spec.Path = ""
-	if ValidateRepository(repository).OK() {
-		t.Fatal("a path is required")
+	if result := ValidateRepository(repository); !result.OK() {
+		t.Fatalf("a spec-only repository (no source) is refused: %v", result.Err())
 	}
 }
 
@@ -167,10 +167,6 @@ func TestValidateRepositorySourceAndPopulate(t *testing.T) {
 	}
 
 	cases := map[string]*Repository{
-		"no source": {
-			ObjectMeta: metav1.ObjectMeta{Name: "none"},
-			Spec:       RepositorySpec{},
-		},
 		"both sources": {
 			ObjectMeta: metav1.ObjectMeta{Name: "both"},
 			Spec: RepositorySpec{

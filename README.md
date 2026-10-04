@@ -501,14 +501,18 @@ use for the scope guard and the report hooks to run.
 make kcp-up          # kcp and kine on kernel-assigned ports, state in .kcp-specd/
 make generate-schemas # rewrite deploy/apiresourceschemas/ after a CRD change
 make example-phase1  # apply examples/calc/specs.yaml and read it back
-make example-phase2  # ingest fixtures/calc, fill status.observed, write the graph
+make example-phase2  # ingest a copy of fixtures/calc, fill status.observed, write the graph
 make example-phase3  # import testdata/open-architecture/arch.yaml and export it back
 make example-phase4  # run specd, commit a change, watch drift and the SpecChange
 make example-phase5  # run specd with an agent, watch the spec fill itself in
 make example-phase6  # edit the spec, watch the agent land the code and the tests pass
 make example-phase7  # one manifest populates a codebase kcp has never seen
 make example-phase8  # the mod path: render, apply, fold, report
-make demo            # every phase, in order, against one cluster
+make example-phase9  # two tenants, one export, the orphan branch, a branch edit and a conflict
+make example-phase13 # clone and go twice through one remote, two kcp instances on kernel ports
+make demo            # the whole loop once, then the eval table and one CLM scenario
+make demo-phases     # every phase example, in order, against one cluster
+make test-live-model # the six DeepSeek tests (real model calls)
 make kcp-down        # stop the cluster this repo started
 ```
 
@@ -1403,7 +1407,10 @@ the state directory of that mode.
 
 The plan is complete. What the eval reports as still weak is the honest place
 to start: the measures that fall short of 100% on the live runs in
-`docs/eval/`, the TypeScript half of the observed surface (class members are
-public by default and the index reports them unexported, the same gap Go
-methods had), and the graph's share of the context bundle when the budget is
-tight. Everything else is a matter of more fixtures and more scenarios.
+`docs/eval/` (drift and removals are the weakest), and the graph's share of the
+context bundle when the budget is tight. Two limits are accepted on purpose:
+the realize agent's Bash scope guard is best effort (a real sandbox such as
+bubblewrap would close it), and kcp cannot bind port 0, so its port comes from
+the kernel and a lost race is retried. SpecChanges are not garbage collected
+when their SystemContext is deleted. Everything else is a matter of more
+fixtures and more scenarios.

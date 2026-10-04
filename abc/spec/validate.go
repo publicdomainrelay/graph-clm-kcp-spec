@@ -64,8 +64,6 @@ func ValidateRepository(repository *Repository) Result {
 
 	source := repository.Source()
 	switch {
-	case source.Path == "" && source.Git == nil:
-		b.add("spec.source", "needs a path or a git url")
 	case source.Path != "" && source.Git != nil:
 		b.add("spec.source", "is a path or a git url, not both")
 	case source.Git != nil && source.Git.URL == "":
