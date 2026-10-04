@@ -30,14 +30,8 @@ const (
 
 	WatchPoll = "poll"
 
-	// ModeWorkspace is the plain mode: the controller watches the one logical
-	// cluster named by Options.Workspace and writes back to it.
 	ModeWorkspace = "workspace"
 
-	// ModeExport is the multi workspace mode: the controller watches every
-	// workspace that bound the APIExport, through the export's virtual
-	// workspace, and writes each object back to the logical cluster it came
-	// from. Specs stay per workspace; the API is shared.
 	ModeExport = "export"
 
 	DefaultResync = 5 * time.Second
@@ -46,23 +40,14 @@ const (
 
 	DefaultWorkers = 4
 
-	// DefaultMaxAttempts caps one episode of drift: after this many failed
-	// attempts the controller stops raising new ones, so a broken agent cannot
-	// fill the workspace with retries.
 	DefaultMaxAttempts = 3
 
-	// DefaultRetryBackoff is the wait before the second attempt at an episode.
-	// Each further attempt doubles it.
 	DefaultRetryBackoff = 5 * time.Second
 
 	DefaultAgentTimeout = claudecli.DefaultTimeout
 
-	// DefaultCacheDir is where a Repository with a git source is cloned. It
-	// lives under the state directory this repository already keeps.
 	DefaultCacheDir = ".kcp-specd/cache"
 
-	// DefaultMaxConcurrentSummaries is how many contexts of one populate may be
-	// summarized at the same time across the namespace.
 	DefaultMaxConcurrentSummaries = 2
 )
 
@@ -81,12 +66,8 @@ type Options struct {
 
 	Watch string
 
-	// Mode selects the workspace mode or the export mode. Empty is the
-	// workspace mode.
 	Mode string
 
-	// ProviderWorkspace and ExportName name the APIExport the export mode
-	// watches every binding of.
 	ProviderWorkspace string
 
 	ExportName string
@@ -99,11 +80,8 @@ type Options struct {
 
 	Tool string
 
-	// CacheDir is where a git source is cloned.
 	CacheDir string
 
-	// MaxConcurrentSummaries limits how many CodeToSpec changes one populate
-	// lets run at once. Zero means the default.
 	MaxConcurrentSummaries int
 
 	Graph graph.Writer
@@ -116,16 +94,10 @@ type Options struct {
 
 	AgentTimeout time.Duration
 
-	// ClmMod is the cc-clm-mod plugin folder the claude-mod kind loads. When it
-	// is set and no agent was named, the controller realizes changes with the
-	// mod loaded, so the agent reports into kcp while it works.
 	ClmMod string
 
-	// PiExtension is the pi-hydradb-clm folder the pi agent kind loads.
 	PiExtension string
 
-	// AgentEnv is set over the process environment of every model call: the
-	// workspace kubeconfig and the state bridge a host inside the model needs.
 	AgentEnv map[string]string
 
 	Budget int
@@ -150,8 +122,6 @@ type Options struct {
 type key struct {
 	Kind string
 
-	// Cluster is the logical cluster the object lives in, empty in the
-	// workspace mode and the object's own cluster in the export mode.
 	Cluster string
 
 	Namespace string
@@ -159,8 +129,6 @@ type key struct {
 	Name string
 }
 
-// Cluster is the part of a kcp workspace the reconcilers use. It is an
-// interface so a test can reconcile against an in-memory workspace.
 type Cluster interface {
 	Get(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
 
@@ -189,8 +157,6 @@ type Controller struct {
 	log *slog.Logger
 }
 
-// Resources is the set of objects the controller watches. It is exported so a
-// test can watch the same set with its own source.
 func Resources() []watch.Resource {
 	return []watch.Resource{
 		{Kind: specapi.RepositoryKind, GVR: specapi.RepositoryGVR},
@@ -297,10 +263,6 @@ func mode(opts Options) string {
 	return opts.Mode
 }
 
-// agentKind is the controller's own agent selection. A controller handed a mod
-// folder and no agent of its own realizes changes with the mod loaded: a host
-// inside the model is the point of phase 8, and the folder being named is the
-// caller saying so. An explicitly named agent always wins.
 func agentKind(opts Options) string {
 	if opts.Agent == "" && opts.ClmMod != "" {
 		return agentfactory.ClaudeMod
@@ -355,8 +317,6 @@ func (c *Controller) QueueDepth() int {
 	return c.queue.Len()
 }
 
-// Enqueue asks for a reconcile of one object. A watch calls it; so does a test
-// that drives the controller without a watch.
 func (c *Controller) Enqueue(resource watch.Resource, object watch.Key) {
 	namespace := object.Namespace
 	if namespace == "" {
@@ -443,9 +403,6 @@ func (c *Controller) reconcile(ctx context.Context, item key) (time.Duration, er
 	if namespace == "" {
 		namespace = c.opts.Namespace
 	}
-	// Every read and write of this reconcile goes to the object's own logical
-	// cluster: empty in the workspace mode, the bound workspace in the export
-	// mode.
 	ctx = watch.WithCluster(ctx, item.Cluster)
 	var requeue time.Duration
 	var err error

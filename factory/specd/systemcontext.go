@@ -15,10 +15,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 )
 
-// reconcileSystemContext never indexes code. Ingest owns the observed facts;
-// this reconcile only turns them into the three conditions, records the
-// generation the status describes, and raises the spec changes the two
-// directions need.
 func (c *Controller) reconcileSystemContext(ctx context.Context, namespace, name string) (time.Duration, error) {
 	object, err := c.client.Get(ctx, specapi.SystemContextGVR, namespace, name)
 	if err != nil {
@@ -58,12 +54,6 @@ func (c *Controller) reconcileSystemContext(ctx context.Context, namespace, name
 	return c.reconcileChanges(ctx, namespace, systemContext, decision)
 }
 
-// reconcileChanges turns the decision into at most one change per direction.
-// A change is only raised when nothing of that direction is still unfinished,
-// so a code base that stays drifted does not queue work on every reconcile. An
-// episode that keeps failing is capped and backed off: after MaxAttempts
-// records the controller stops asking and the drift stays visible in the
-// Drifted condition for a human to read.
 func (c *Controller) reconcileChanges(
 	ctx context.Context,
 	namespace string,
@@ -80,7 +70,6 @@ func (c *Controller) reconcileChanges(
 	}
 	editDue := specsync.SpecEditDue(specHash, systemContext.Status.RealizedSpecHash,
 		systemContext.Annotations[specapi.OriginHashAnnotation])
-	// A quiet context is the common case, and it costs no list to find out.
 	if !driftDue && !editDue {
 		return 0, nil
 	}
@@ -104,8 +93,6 @@ func (c *Controller) reconcileChanges(
 		base := spec.ChangeNameCodeToSpec(systemContext.Name, fromCommit, toCommit)
 		wait, ready := c.retryDelay(changes, taken, base)
 		if ready && episodeSucceeded(changes, base) {
-			// The episode is over: the change that worked it off succeeded and
-			// the status that says so may not have landed yet.
 			ready = false
 		}
 		switch {
@@ -170,9 +157,6 @@ func (c *Controller) reconcileChanges(
 	return requeue, nil
 }
 
-// retryDelay asks the pure policy whether another attempt at one episode may be
-// raised now. A context that has never failed has no attempt recorded, so the
-// first attempt is always immediate.
 func (c *Controller) retryDelay(changes []spec.SpecChange, taken []string, base string) (time.Duration, bool) {
 	attempts := spec.AttemptCount(taken, base)
 	if attempts == 0 {
@@ -181,10 +165,6 @@ func (c *Controller) retryDelay(changes []spec.SpecChange, taken []string, base 
 	return specsync.RetryBackoff(attempts, newestFailure(changes, base), time.Now(), c.opts.RetryBackoff, c.opts.MaxAttempts)
 }
 
-// episodeSucceeded reports whether one episode already has a change that
-// finished. An episode is keyed by the commit pair or the spec hash, so a
-// success ends it: the work is done and only the status that records it may
-// still be in flight.
 func episodeSucceeded(changes []spec.SpecChange, base string) bool {
 	for _, change := range changes {
 		if change.Status.Phase != specapi.PhaseSucceeded {
@@ -213,9 +193,6 @@ func newestFailure(changes []spec.SpecChange, base string) time.Time {
 	return newest
 }
 
-// episodeBase is the name one drift episode is keyed by, without an attempt
-// suffix. It is recomputed from the change, so a retry knows which records it
-// is another try at.
 func episodeBase(change *spec.SpecChange) string {
 	switch change.Spec.Direction {
 	case specapi.DirectionCodeToSpec:
@@ -226,7 +203,6 @@ func episodeBase(change *spec.SpecChange) string {
 	return change.Name
 }
 
-// attemptsTaken counts the records of the episode a change belongs to.
 func (c *Controller) attemptsTaken(ctx context.Context, namespace string, change *spec.SpecChange) int {
 	changes, err := c.changesFor(ctx, namespace, change.Spec.SystemContext)
 	if err != nil {

@@ -19,14 +19,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/realize"
 )
 
-// reconcileSpecToCode is the spec -> code half of the loop: build the delta and
-// the bundle, let the agent edit a worktree, gate the result with the
-// repository's verify command, land the commit and re-ingest. The delta is what
-// makes the ask small: the agent is told what changed, not what the spec is.
 func (c *Controller) reconcileSpecToCode(ctx context.Context, namespace, name string, change *spec.SpecChange) (time.Duration, error) {
-	// Readiness comes first: a controller with no agent, and a repository that
-	// names none, leaves the change Pending for a human instead of failing it,
-	// and that decision costs one read, not a worktree.
 	repository, ready, err := c.realizeTarget(ctx, namespace, change)
 	if err != nil {
 		return 0, err
@@ -107,9 +100,6 @@ func (c *Controller) reconcileSpecToCode(ctx context.Context, namespace, name st
 	return 0, nil
 }
 
-// recordRealizeFailure leaves the change Failed with what went wrong. A failed
-// verify carries its output, because the next attempt is handed exactly that
-// text as its instruction.
 func (c *Controller) recordRealizeFailure(ctx context.Context, namespace string, change *spec.SpecChange, result realize.Result, failure error) {
 	message := failure.Error()
 	log := result.Agent.Log
@@ -132,16 +122,10 @@ func (c *Controller) recordRealizeFailure(ctx context.Context, namespace string,
 	c.enqueueContext(ctx, namespace, change.Spec.SystemContext)
 }
 
-// realizeTarget reads the context and the repository of one change and reports
-// whether this controller can work it off at all. ready is false when neither
-// the repository nor the controller names an agent; the caller then leaves the
-// change Pending for a human.
 func (c *Controller) realizeTarget(ctx context.Context, namespace string, change *spec.SpecChange) (*spec.Repository, bool, error) {
 	systemContext, err := c.readContext(ctx, namespace, change.Spec.SystemContext)
 	if err != nil {
 		if kcpclient.IsNotFound(err) {
-			// The context is gone. The change is left where it is rather than
-			// failed, because a failure would only ask for it again.
 			c.log.Warn("a spec to code change names a context that does not exist",
 				"change", change.Name, "systemcontext", change.Spec.SystemContext)
 			return nil, false, nil
@@ -171,9 +155,6 @@ func (c *Controller) realizeTarget(ctx context.Context, namespace string, change
 	return repository, true, nil
 }
 
-// realizeOptions builds everything one realize needs: the resolved working
-// tree, the worktree directory, the agent of that repository, and the delta
-// the change carries (recomputed when a change was created before phase 6).
 func (c *Controller) realizeOptions(ctx context.Context, namespace string, change *spec.SpecChange, repository *spec.Repository) (realize.Options, error) {
 	systemContext, err := c.readContext(ctx, namespace, change.Spec.SystemContext)
 	if err != nil {
@@ -230,8 +211,6 @@ func (c *Controller) realizeOptions(ctx context.Context, namespace string, chang
 	}, nil
 }
 
-// retryInstruction feeds a failed attempt back into the next one: the agent is
-// told the verify output that rejected what it wrote last time.
 func (c *Controller) retryInstruction(ctx context.Context, namespace string, change *spec.SpecChange) string {
 	changes, err := c.changesFor(ctx, namespace, change.Spec.SystemContext)
 	if err != nil {
@@ -297,8 +276,6 @@ func realizedSpecOf(systemContext *spec.SystemContext) spec.SystemContextSpec {
 	return spec.SystemContextSpec{Repository: systemContext.Spec.Repository, Upstream: systemContext.Spec.Upstream}
 }
 
-// realizeBranch is the branch one change works on. It carries the hash of the
-// spec it realizes, so two edits of the same context never share a branch.
 func realizeBranch(context, specHash string) string {
 	return gitrepo.BranchPrefix + context + "/" + shortenHash(specHash)
 }
@@ -310,8 +287,6 @@ func shortenHash(hash string) string {
 	return hash[:8]
 }
 
-// worktreeDir is outside the managed tree on purpose: a worktree inside it
-// would show up as untracked in the tree the tool commits to.
 func worktreeDir(changeName string) (string, error) {
 	root, err := os.MkdirTemp("", "specd-worktree-")
 	if err != nil {

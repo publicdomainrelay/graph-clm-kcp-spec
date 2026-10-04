@@ -17,10 +17,6 @@ import (
 
 const messageLimit = 2000
 
-// reconcileCodeToSpec is the code -> spec half of the loop: take one drift
-// episode from Pending to Running, ask the agent what the code is, write the
-// answer as the spec, and move the baseline so the episode ends without raising
-// the opposite direction.
 func (c *Controller) reconcileCodeToSpec(ctx context.Context, namespace, name string, change *spec.SpecChange) (time.Duration, error) {
 	running, err := c.runningChanges(ctx, namespace, change.Spec.SystemContext)
 	if err != nil {
@@ -31,8 +27,6 @@ func (c *Controller) reconcileCodeToSpec(ctx context.Context, namespace, name st
 		return 0, nil
 	}
 
-	// A change created by hand can name an attempt the controller has already
-	// given up on; the cap has to hold here too, not only in the creator.
 	if c.attemptsTaken(ctx, namespace, change) > c.opts.MaxAttempts && c.opts.MaxAttempts > 0 {
 		c.failChange(ctx, namespace, change, fmt.Sprintf("attempt cap: %s already has %d attempts", episodeBase(change), c.opts.MaxAttempts))
 		return 0, nil
@@ -120,9 +114,6 @@ func (c *Controller) summarize(ctx context.Context, namespace string, change *sp
 	})
 }
 
-// failChange records a failed attempt and asks for the context again, so the
-// retry policy — the backoff and the cap — is decided by the creator and not by
-// the change that just failed.
 func (c *Controller) failChange(ctx context.Context, namespace string, change *spec.SpecChange, message string) {
 	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, change.Name, map[string]any{
 		"phase":    specapi.PhaseFailed,

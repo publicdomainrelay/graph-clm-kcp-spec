@@ -13,15 +13,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 )
 
-// clusterRouter is the client the reconcilers use in the export mode: the
-// object they are handed came from a watch that spans every bound workspace, so
-// every read and write has to go back to the logical cluster that object lives
-// in. The cluster travels in the context (abc/watch), which the worker sets from
-// the watch key, and the router builds one client per cluster against the
-// APIExport virtual workspace.
-//
-// With no cluster in the context it is the plain workspace client, so the single
-// workspace mode and every unit test are unaffected.
 type clusterRouter struct {
 	base Cluster
 
@@ -58,8 +49,6 @@ func newClusterRouter(base Cluster, kubeconfig, configContext, namespace string,
 	}
 }
 
-// SetEndpoint points the router at the APIExport virtual workspace the export
-// mode discovered. Until it is set every call goes to the base client.
 func (r *clusterRouter) SetEndpoint(endpoint string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

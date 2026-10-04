@@ -12,10 +12,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 )
 
-// reconcileSpecChange keeps a change Pending and enforces the admission rule:
-// at most one change may run per SystemContext. A CodeToSpec change is the one
-// an agent works off; a SpecToCode change waits for phase 6. A controller with
-// no agent configured runs neither, so the change stays Pending for a human.
 func (c *Controller) reconcileSpecChange(ctx context.Context, namespace, name string) (time.Duration, error) {
 	object, err := c.client.Get(ctx, specapi.SpecChangeGVR, namespace, name)
 	if err != nil {
@@ -39,8 +35,6 @@ func (c *Controller) reconcileSpecChange(ctx context.Context, namespace, name st
 		return c.reconcileCodeToSpec(ctx, namespace, name, change)
 	case change.Spec.Direction == specapi.DirectionSpecToCode &&
 		change.Status.Phase == specapi.PhasePending:
-		// This reconciler decides for itself whether an agent can be built for
-		// the repository; a change it cannot work off stays Pending.
 		return c.reconcileSpecToCode(ctx, namespace, name, change)
 	}
 
@@ -67,11 +61,6 @@ func (c *Controller) reconcileSpecChange(ctx context.Context, namespace, name st
 	return 0, nil
 }
 
-// codeToSpecAgent reports whether an agent can work one code -> spec change
-// off. It resolves the context's repository, so a Repository that names an
-// agent in spec.populate.agent makes a controller started with no --agent work
-// a populate's changes off. A lookup that fails answers no: the change stays
-// Pending for a human rather than failing for a reason nobody asked for.
 func (c *Controller) codeToSpecAgent(ctx context.Context, namespace string, change *spec.SpecChange) bool {
 	object, err := c.client.Get(ctx, specapi.SystemContextGVR, namespace, change.Spec.SystemContext)
 	if err != nil {
@@ -107,8 +96,6 @@ func (c *Controller) runningChanges(ctx context.Context, namespace, systemContex
 	return running, nil
 }
 
-// createChange creates the one named object, so two reconciles of the same
-// drift land on the same SpecChange instead of a second one.
 func (c *Controller) createChange(ctx context.Context, change *spec.SpecChange) error {
 	change.SetDefaults()
 	if result := spec.ValidateSpecChange(change); !result.OK() {
@@ -124,10 +111,6 @@ func (c *Controller) createChange(ctx context.Context, change *spec.SpecChange) 
 		}
 		return err
 	}
-	// The status subresource drops status on a create, so the new change has no
-	// phase until this write. Doing it here means no reader ever sees a
-	// SpecChange without one, and the SpecChange reconcile only has to enforce
-	// admission.
 	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, change.Namespace, change.Name,
 		map[string]any{"phase": change.Status.Phase}); err != nil {
 		return err

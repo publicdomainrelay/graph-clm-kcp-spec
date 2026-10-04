@@ -64,8 +64,6 @@ func agentController(t *testing.T, cluster Cluster, scenario string) *Controller
 	return controller
 }
 
-// driftedCalc is a context whose code moved one commit past the spec: the
-// observed facts are f2 at c2, the synced baseline is f1 at c1.
 func driftedCalc(t *testing.T, cluster *fakeCluster) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -207,7 +205,6 @@ func TestCodeToSpecDoesNotRaiseTheOppositeDirection(t *testing.T) {
 	if _, err := controller.reconcileSpecChange(context.Background(), specapi.DefaultNamespace, "calc-c2s-c1-c2"); err != nil {
 		t.Fatal(err)
 	}
-	// The controller would see the write as an event and reconcile the context.
 	for round := range 3 {
 		if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
 			t.Fatal(err)
@@ -244,7 +241,6 @@ func TestCodeToSpecFailsWithoutAnAgentAndAsksForAnotherAttempt(t *testing.T) {
 	if !strings.Contains(change.Status.Message, "no draft for calc") {
 		t.Errorf("message = %q", change.Status.Message)
 	}
-	// The spec is untouched: a failed attempt must not half write one.
 	updated := readContext(t, cluster)
 	if updated.Spec.Intent != "" {
 		t.Errorf("intent = %q, want the spec left alone", updated.Spec.Intent)
@@ -282,8 +278,6 @@ func TestCodeToSpecStopsAtTheAttemptCap(t *testing.T) {
 	}
 }
 
-// A failure that just happened must not be retried at once: the episode stays
-// with its one record and the context asks for another reconcile later.
 func TestCodeToSpecWaitsForTheBackoff(t *testing.T) {
 	cluster := newFakeCluster()
 	driftedCalc(t, cluster)
@@ -310,7 +304,6 @@ func TestCodeToSpecWaitsForTheBackoff(t *testing.T) {
 		t.Errorf("requeue = %s, want the rest of the backoff", requeue)
 	}
 
-	// Once the wait has passed, the retry is raised.
 	setCreated(t, cluster, specapi.SpecChangeGVR, "calc-c2s-c1-c2", time.Now().Add(-2*time.Hour))
 	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
 		t.Fatal(err)

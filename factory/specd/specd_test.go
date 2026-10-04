@@ -100,9 +100,6 @@ func (f *fakeCluster) PatchStatus(_ context.Context, gvr schema.GroupVersionReso
 	if !ok {
 		return nil, apierrors.NewInternalError(errors.New("status is not an object"))
 	}
-	// The real client sends a merge patch, so a key the caller did not name
-	// keeps its value. The fake has to merge too, or a reconcile would look
-	// like it dropped the observed facts the previous ingest wrote.
 	current, _, err := unstructured.NestedMap(updated.Object, "status")
 	if err != nil {
 		return nil, err
@@ -484,7 +481,6 @@ func TestSystemContextReconcileRetriesAFailedChange(t *testing.T) {
 		systemContext.Status.SyncedFingerprint = "f1"
 		systemContext.Status.SyncedCommit = "c1"
 	}))
-	// The first attempt exists and failed, so the drift is still work.
 	apply(t, cluster, &spec.SpecChange{
 		ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-c1-c2", Namespace: specapi.DefaultNamespace},
 		Spec: spec.SpecChangeSpec{
@@ -509,7 +505,6 @@ func TestSystemContextReconcileRetriesAFailedChange(t *testing.T) {
 	if phase, _, _ := unstructured.NestedString(attempt.Object, "status", "phase"); phase != specapi.PhasePending {
 		t.Errorf("the retry is %q, want Pending", phase)
 	}
-	// The failed attempt keeps its record.
 	failed, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, "calc-c2s-c1-c2")
 	if err != nil {
 		t.Fatal(err)
@@ -560,7 +555,6 @@ func TestSystemContextReconcileLeavesACleanIndexedRepositoryAlone(t *testing.T) 
 		t.Errorf("an already true condition was rewritten: %s -> %s", before, after.GetResourceVersion())
 	}
 
-	// The same call has to bring a condition left False back to True.
 	stale := *repository
 	stale.ObjectMeta = *repository.ObjectMeta.DeepCopy()
 	stale.Status.Conditions = []metav1.Condition{{
@@ -598,9 +592,6 @@ func repositoryConditionStatus(t *testing.T, object *unstructured.Unstructured, 
 	return ""
 }
 
-// TestSpecToCodeChangeCarriesTheDelta is the phase 6 contract for the spec ->
-// code direction: the change carries what changed, computed against the spec
-// that was last realized, never the whole spec.
 func TestSpecToCodeChangeCarriesTheDelta(t *testing.T) {
 	cluster := newFakeCluster()
 	realized := spec.SystemContextSpec{
@@ -666,8 +657,6 @@ func TestSpecToCodeChangeCarriesTheDelta(t *testing.T) {
 	}
 }
 
-// TestCodeToSpecChangeCarriesTheObservedDelta is the other direction: the
-// change says which facts the code gained since the synced baseline.
 func TestCodeToSpecChangeCarriesTheObservedDelta(t *testing.T) {
 	cluster := newFakeCluster()
 	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
@@ -800,12 +789,6 @@ func TestSpecToCodeIsLeftForAHumanWithoutAnAgent(t *testing.T) {
 	}
 }
 
-// An origin: clm spec edit is a real edit, so it raises a SpecToCode change —
-// exactly like a human's. The exception is the one phase 8 needs: while the
-// context's own change is Running, a model refining the spec it is realizing
-// must not spawn a second change for itself. The controller already folds it
-// (the unfinished rule below), and the change's status.progress carries the
-// record; this pins the rule so the fold cannot regress.
 func TestACLMSpecEditWhileAChangeRunsRaisesNoSecondChange(t *testing.T) {
 	edit := func() *spec.SystemContext {
 		return systemContext("calc", func(systemContext *spec.SystemContext) {
@@ -865,9 +848,6 @@ func TestACLMSpecEditWhileAChangeRunsRaisesNoSecondChange(t *testing.T) {
 	}
 }
 
-// A mod folder with no other agent makes the mod the realize agent: that is
-// what "specd launches the subagent with the mod loaded" means for a caller
-// that only knows where the folder is. An agent named explicitly still wins.
 func TestAModFolderMakesTheModTheAgent(t *testing.T) {
 	if got := agentKind(Options{ClmMod: "/repo/cc-clm-mod"}); got != agentfactory.ClaudeMod {
 		t.Errorf("kind = %q, want %q", got, agentfactory.ClaudeMod)

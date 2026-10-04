@@ -12,8 +12,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
 
-// TestModeDefaultsToTheWorkspaceMode: a caller that says nothing gets the
-// single workspace behaviour it had before the export mode existed.
 func TestModeDefaultsToTheWorkspaceMode(t *testing.T) {
 	if got := mode(Options{}); got != ModeWorkspace {
 		t.Fatalf("mode = %q, want %q", got, ModeWorkspace)
@@ -23,9 +21,6 @@ func TestModeDefaultsToTheWorkspaceMode(t *testing.T) {
 	}
 }
 
-// TestClusterRouterFallsBackWithoutACluster is the guarantee the plain mode and
-// every unit test rely on: with no logical cluster in the context, the router is
-// the client it was given.
 func TestClusterRouterFallsBackWithoutACluster(t *testing.T) {
 	base := newFakeCluster()
 	router := newClusterRouter(base, testKubeconfig(t), "", specapi.DefaultNamespace, 0, 0)
@@ -41,8 +36,6 @@ func TestClusterRouterFallsBackWithoutACluster(t *testing.T) {
 	}
 }
 
-// TestClusterRouterIsTheBaseBeforeTheEndpointIsKnown: the endpoint arrives only
-// once the export's slice is published, and until then nothing may be built.
 func TestClusterRouterIsTheBaseBeforeTheEndpointIsKnown(t *testing.T) {
 	base := newFakeCluster()
 	router := newClusterRouter(base, "", "", specapi.DefaultNamespace, 0, 0)
@@ -55,9 +48,6 @@ func TestClusterRouterIsTheBaseBeforeTheEndpointIsKnown(t *testing.T) {
 	}
 }
 
-// TestClusterRouterBuildsOneClientPerCluster checks the export mode's write
-// path: a request for a logical cluster becomes a client of its own, cached, so
-// the second reconcile of the same tenant does not rebuild it.
 func TestClusterRouterBuildsOneClientPerCluster(t *testing.T) {
 	base := newFakeCluster()
 	router := newClusterRouter(base, testKubeconfig(t), "", specapi.DefaultNamespace, 50, 100)
@@ -79,8 +69,6 @@ func TestClusterRouterBuildsOneClientPerCluster(t *testing.T) {
 	if first != second {
 		t.Fatal("the router built a second client for the same cluster")
 	}
-	// A different cluster gets a different client: the tenants must not share
-	// one, or a write would land in the wrong workspace.
 	other, err := router.target(watch.WithCluster(context.Background(), "cluster-b"))
 	if err != nil {
 		t.Fatal(err)
@@ -90,10 +78,6 @@ func TestClusterRouterBuildsOneClientPerCluster(t *testing.T) {
 	}
 }
 
-// TestClusterRouterDelegatesListsAndWrites proves the Cluster interface is
-// satisfied by delegation rather than by a second implementation.
-// testKubeconfig writes the smallest kubeconfig a client can be built from.
-// The cluster is never contacted: the ids are only compared.
 func testKubeconfig(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "kubeconfig")
