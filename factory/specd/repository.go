@@ -3,6 +3,7 @@ package specd
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -92,7 +93,11 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 				"repository", name, "systemcontext", contextResult.Name, "reason", contextResult.Reason)
 		}
 	}
-	c.log.Info("repository populated",
+	level := slog.LevelDebug
+	if repository.Status.Phase != result.Phase || repository.Status.IndexedCommit != commit || result.Raised > 0 {
+		level = slog.LevelInfo
+	}
+	c.log.Log(ctx, level, "repository populated",
 		"repository", name, "path", path, "commit", commit, "phase", result.Phase,
 		"contexts", result.Total, "summarized", result.Summarized, "raised", result.Raised)
 	return c.opts.Resync, nil

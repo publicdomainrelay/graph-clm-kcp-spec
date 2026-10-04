@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/session"
+
 	"context"
 	"errors"
 	"flag"
@@ -93,7 +95,7 @@ func runRestore(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("specctl restore", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repo := fs.String("repo", ".", "git working tree to restore the architecture of")
-	repository := fs.String("repository", "", "Repository name; default is the directory name of --repo")
+	repository := fs.String("repository", "", "Repository name; default is the origin remote's name, else the directory name of --repo")
 	remote := fs.String("remote", "origin", "git remote to fetch open-architecture/<repository> from when the clone lacks it; empty fetches nothing")
 	options := addGlobals(fs)
 	if err := fs.Parse(args); err != nil {
@@ -106,7 +108,11 @@ func runRestore(args []string, stdout, stderr io.Writer) int {
 	}
 	name := *repository
 	if name == "" {
-		name = ingest.SanitizeName(filepath.Base(dir))
+		if top, err := session.TopLevel(dir); err == nil {
+			name = repositoryNameFor(top)
+		} else {
+			name = ingest.SanitizeName(filepath.Base(dir))
+		}
 	}
 	client, err := options.client()
 	if err != nil {

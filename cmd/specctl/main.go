@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/session"
+
 	"context"
 	"flag"
 	"fmt"
@@ -102,6 +104,23 @@ func defaultKubeconfig() string {
 	return ".kcp-specd/admin.kubeconfig"
 }
 
+func (g *globals) adoptSession() {
+	if os.Getenv("SPECD_KUBECONFIG") != "" || g.kubeconfig != ".kcp-specd/admin.kubeconfig" {
+		return
+	}
+	if _, err := os.Stat(g.kubeconfig); err == nil {
+		return
+	}
+	record, ok := session.ForDir(".")
+	if !ok {
+		return
+	}
+	g.kubeconfig = record.AdminKubeconfig
+	if g.workspace == "root:specs" {
+		g.workspace = record.Workspace
+	}
+}
+
 func flagSet(fs *flag.FlagSet, name string) bool {
 	set := false
 	fs.Visit(func(parsed *flag.Flag) {
@@ -113,6 +132,7 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 }
 
 func (g *globals) client() (*kcpclient.Client, error) {
+	g.adoptSession()
 	return kcpclient.New(kcpclient.Options{
 		Kubeconfig: g.kubeconfig,
 		Context:    g.context,
@@ -152,6 +172,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runSync(rest, stdout, stderr)
 	case "restore":
 		return runRestore(rest, stdout, stderr)
+	case "up":
+		return runUp(rest, stdout, stderr)
+	case "down":
+		return runDown(rest, stdout, stderr)
+	case "status":
+		return runStatus(rest, stdout, stderr)
+	case "env":
+		return runEnv(rest, stdout, stderr)
+	case "arch":
+		return runArch(rest, stdout, stderr)
 	case "eval":
 		return runEval(rest, stdout, stderr)
 	case "help", "-h", "--help":
@@ -358,6 +388,15 @@ usage:
   specctl sync|persist [--repo <path>] [--repository <name>] [--remote <git remote>]
       writes kcp to the orphan branch open-architecture/<repository> and merges
       a reviewed edit on that branch back into kcp; never touches the tree
+  specctl up [--repo .] [--repository <name>] [--summarize=true] [--agent <kind>] [--remote origin] [--push]
+      in a cloned repository: start the user's kcp (state outside the tree),
+      restore the architecture from open-architecture/<repository> when the
+      clone or its remote has it, else index the code and build the specs,
+      then run specd; every later specctl call in the repo finds this session
+  specctl arch outline [--repository <name>] [-o text|json]
+  specctl down [--repo .] [--kcp]
+  specctl status [--repo .]
+  specctl env [--repo .] [-o sh|json|server]
   specctl restore [--repo <path>] [--repository <name>] [--remote origin]
       rebuilds kcp from open-architecture/<repository>, fetching it if needed
   specctl eval [--fixtures fixtures] [--agent claude|claude-mod|pi]

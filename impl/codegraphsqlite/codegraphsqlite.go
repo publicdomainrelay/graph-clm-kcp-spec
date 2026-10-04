@@ -86,7 +86,44 @@ func Ensure(ctx context.Context, repoPath, tool string) (string, error) {
 	if _, err := os.Stat(dbPath); err != nil {
 		return "", fmt.Errorf("codegraphsqlite: %s did not create %s: %w", action, dbPath, err)
 	}
+	if err := excludeLocally(ctx, repoPath, Directory+"/"); err != nil {
+		return "", err
+	}
 	return dbPath, nil
+}
+
+func excludeLocally(ctx context.Context, repoPath, pattern string) error {
+	out, err := exec.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "--git-path", "info/exclude").Output()
+	if err != nil {
+		return nil
+	}
+	exclude := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(exclude) {
+		exclude = filepath.Join(repoPath, exclude)
+	}
+	existing, err := os.ReadFile(exclude)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("codegraphsqlite: read %s: %w", exclude, err)
+	}
+	for _, line := range strings.Split(string(existing), "\n") {
+		if strings.TrimSpace(line) == pattern {
+			return nil
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(exclude), 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(exclude, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("codegraphsqlite: open %s: %w", exclude, err)
+	}
+	defer file.Close()
+	prefix := ""
+	if len(existing) > 0 && existing[len(existing)-1] != '\n' {
+		prefix = "\n"
+	}
+	_, err = file.WriteString(prefix + pattern + "\n")
+	return err
 }
 
 // OpenRepo opens the index of a repository that has already been indexed. It
