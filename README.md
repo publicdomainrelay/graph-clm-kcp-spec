@@ -297,17 +297,26 @@ live acceptance, `deploy/examples/atproto/market/accept.sh`, written as one
 `MUST` requirement and realized through the same flow on the PR branch, and the
 `deno-kcp` Repository's `spec.acceptance` runs it as a gating step; `specctl
 accept` brings the whole market up on its own kcp, kine and OpenBao and reads
-every workload back. It is **red**, and not because of anything in deno-kcp: no
-workload is ever applied, because `apply.sh` stops at its OpenBao gate. kcp-libs
-reads OpenBao's HTTP 400 `no default issuer currently configured` on a fresh
-`pki` mount as a failure instead of as "no authority yet", so no namespace is
-ever provisioned an intermediate and no DenoPod is issued a certificate.
-deno-kcp's own live test `TestOpenBaoAuthorityIssuesTheCertificateADenoPodServesWith`
-fails with the same message against the OpenBao pinned in `third_party/openbao`,
-and the commit that moved the client into kcp-libs is on `main`, so the defect
-predates the pull request and belongs to that repository. It is exactly the
-failure the offline gate could not see, which is what part C was for. Details,
-the pass/fail table and the root cause:
+every workload back. Its first run was **red**, and not because of anything in
+deno-kcp: no workload was ever applied, because `apply.sh` stopped at its OpenBao
+gate. kcp-libs read OpenBao's HTTP 400 `no default issuer currently configured`
+on a fresh `pki` mount as a failure instead of as "no authority yet", so no
+namespace was provisioned an intermediate and no DenoPod was issued a
+certificate; deno-kcp's own live test
+`TestOpenBaoAuthorityIssuesTheCertificateADenoPodServesWith` failed with the same
+message against the OpenBao pinned in `third_party/openbao`, on `main`. It was
+exactly the failure the offline gate could not see, which is what part C was for.
+The finding then went back through kcp-libs's **own** spec flow: a fresh clone,
+`specctl up` (44 contexts, 44 summarized), a `MUST` requirement
+(`r.no-default-issuer-is-no-authority`) and its test requirement written into the
+`impl-openbaoclient` context with `specctl clm apply`, and a realize agent that
+made `ResponseError.Is` read that 400 as `pki.ErrNoAuthority` with `go test
+./...` as the gate ([publicdomainrelay/kcp-libs#1](https://github.com/publicdomainrelay/kcp-libs/pull/1)).
+deno-kcp's own live test now passes in 25.52 s, and the acceptance gets past
+OpenBao: `apply.sh` exits 0, all four OpenBao authorities report ready with
+distinct serials, `plc`, `relay` and bob's PDS run and answer. It is red further
+in, on three defects that are in the example or the provider and not in kcp-libs.
+Details, both pass/fail tables and the root cause:
 [`docs/examples/deno-kcp-pr.md`](docs/examples/deno-kcp-pr.md#live-acceptance).
 
 ## Status

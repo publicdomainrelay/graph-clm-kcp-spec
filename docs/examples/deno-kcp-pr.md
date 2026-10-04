@@ -376,26 +376,201 @@ The repository's own live test fails identically, against the OpenBao pinned in
 moved the client into kcp-libs (`a24f43b`) is on `main`. The fix is one
 condition in kcp-libs: read that 400 as `pki.ErrNoAuthority`.
 
+### The fix, produced by kcp-libs's own spec flow
+
+The finding did not become a hand-written patch. kcp-libs was cloned into a
+fresh temporary directory, `git switch -c fix/openbao-no-default-issuer`, and
+`specctl up` indexed the tree and had DeepSeek summarize it into **44
+SystemContexts, 44 of 44 summarized** (about two minutes). The
+`impl-openbaoclient` context then changed through its own CLM bridge, exactly as
+a model host would change it:
+
+```bash
+specctl clm render --context impl-openbaoclient > ctx.md
+# edit ctx.md: one new MUST requirement, one new test requirement, and the
+# amendment of r.sentinel-error-matching that keeps the spec self-consistent
+specctl clm apply --context impl-openbaoclient < ctx.md
+# specctl clm apply: impl-openbaoclient applied (+2 ~1)
+```
+
+Two `MUST` requirements went in, stating the behaviour and nothing about how to
+write it:
+
+- `r.no-default-issuer-is-no-authority` -- an HTTP 400 whose body reports that
+  no default issuer is currently configured means the `pki` mount holds no
+  authority yet, exactly like an HTTP 404, so `errors.Is(err, pki.ErrNoAuthority)`
+  is true for `CASerial` and for `CAChain` when the mount exists and has no
+  issuer; every other HTTP 400 stays an error that is neither
+  `pki.ErrNoAuthority` nor `ErrNotFound`, and its `ResponseError` still records
+  the method, the path, the status and the body.
+- `r.no-default-issuer-tests` -- tests against the in-process OpenBao-shaped
+  server cover both halves.
+
+`r.sentinel-error-matching` was amended in the same edit, because the old text
+said `ResponseError.Is` returns false for every status other than 404 and 403,
+and a spec that contradicts the requirement beside it is a spec a model cannot
+follow.
+
+specd raised `impl-openbaoclient-s2c-024f19fa6e14`, a realize agent (DeepSeek
+with `cc-clm-mod`, contained to its worktree) wrote the change, and `go test
+./...` gated it. One commit landed, `17c6ff5 realize impl-openbaoclient: +2 ~1`
+(`impl/openbaoclient/openbaoclient.go` +8 -1, `impl/openbaoclient/openbaoclient_test.go`
++37), carrying its `Spec-Change:` trailer. `gofmt -l .` is empty, `go vet ./...`
+is clean, and `go test ./...` is green in the clone. The change is
+**[publicdomainrelay/kcp-libs#1](https://github.com/publicdomainrelay/kcp-libs/pull/1)**,
+and the requirement is on the orphan branch
+`open-architecture/kcp-libs--fix/openbao-no-default-issuer` beside it.
+
+With that branch fetched and checked out as the sibling `../kcp-libs` that
+deno-kcp's `go.mod` replaces, deno-kcp's own live test -- the one that failed on
+`main` with the same message -- passes:
+
+```
+$ DENO_KCP_REQUIRE_LIVE=1 go test ./test/integration/ \
+    -run TestOpenBaoAuthorityIssuesTheCertificateADenoPodServesWith -count=1 -v
+    openbao_live_test.go:31: openbao.yaml: namespace=runtime.default serial=3D:5D:86:F8:... chain=2127 bytes
+    openbao_live_test.go:31: issued: subject=openbao-tls-probe.default.runtime.svc.kcp.local \
+        issuer=runtime.default.intermediate serial=519297048387779647041814718416601928470046519282
+--- PASS: TestOpenBaoAuthorityIssuesTheCertificateADenoPodServesWith (25.52s)
+ok  	github.com/johnandersen777/deno-kcp/test/integration	25.533s
+```
+
+So deno-kcp#1 depends on kcp-libs#1: without it, `apply.sh` never applies a
+workload, and neither the acceptance nor that test can pass.
+
+### After the fix: the acceptance gets past OpenBao and stops further in
+
+The same `specctl accept --repo .`, with the fixed `kcp-libs` beside the clone
+and `ORG_ROOT` pointing at the org root (the manifests name sibling repositories
+there, and `apply.sh` rewrites that path to whatever `ORG_ROOT` says; the
+siblings cloned beside this temp clone are stale, which is an environment fact
+and not a defect):
+
+```
+accept market-live-acceptance: failed (exit 1, 281.1s)
+  results:
+    check                                result evidence
+    apply.sh                             PASS exit=0
+    denopod root:global/plc              PASS phase=Running ready=true
+    denopod root:relay/relay             PASS phase=Running ready=true
+    denopod root:alice/pds               FAIL phase=Running ready=false
+    denopod root:bob/pds                 PASS phase=Running ready=true
+    denopod root:bob/bidder              FAIL phase=Running ready=false
+    denopod root:alice/verifier          FAIL phase=Failed
+    bob pds on its name                  PASS ready=true probe=kcpdns pds.default.bob.svc.kcp.local /xrpc/_health
+    bob pds on the host                  FAIL GET http://127.0.0.1:2585/xrpc/_health -> 000000
+    bidder on its name                   FAIL ready=false probe=kcpdns bidder.default.bob.svc.kcp.local /oauth-client-metadata.json
+    bidder on the host                   FAIL GET http://127.0.0.1:2586/oauth-client-metadata.json -> 000000
+    still up root:global/plc             PASS phase=Running ready=true after 10s
+    still up root:relay/relay            PASS phase=Running ready=true after 10s
+    still up root:alice/pds              FAIL phase=Running ready=false after 10s
+    still up root:bob/pds                PASS phase=Running ready=true after 10s
+    still up root:bob/bidder             FAIL phase=Running ready=false after 10s
+  accept: fail
+```
+
+The OpenBao line is gone. All four workspaces have an authority with its own
+intermediate (`openbao.true.<serial>` in each of `global`, `relay`, `alice`,
+`bob`), `apply.sh` exits 0, the PLC and the relay run and answer, and bob's PDS
+serves TLS and answers its own cluster-local name. What is left is four
+different defects, none of them in kcp-libs:
+
+- **`alice`'s PDS never reports `ready`.** The pod is `Running`, its process is
+  alive, and `https://127.0.0.1:2583/xrpc/_health` answers `200
+  {"version":"0.0.0"}` from the host; its leaf has the same shape and SANs as
+  bob's (`DNS:pds.default.alice.svc.kcp.local, IP:127.0.0.1, IP:::1`, chained to
+  `alice.default.intermediate` and the market root), and bob's PDS -- built from
+  the same manifest with another port and another workspace -- reports
+  `ready=true` for the whole run. The provider's readiness probe for that one pod
+  never passes, and the provider writes nothing about it at its default log
+  level, so the cause is not visible from outside the provider.
+- **The verifier fails 12 seconds in**, before the services it names are up:
+
+  ```
+  outputs: {error: "kcpdns: pds.default.alice.svc.kcp.local is not in the table
+            and could not be discovered", verdict: "fail"}
+  ```
+
+  `apply.sh` knows the peer has to exist and waits a fixed `sleep 10` before it
+  creates the verifier ("a pod created in the same second as its peers can start
+  with an empty one"), which is not a wait for anything: a cold cluster spends
+  minutes installing a service's dependencies. The verifier's `restartPolicy` is
+  `Never`, so one early failure is final. The deeper half of the same line is
+  that a pod's address table and its fallback discovery both miss
+  `pds.default.alice.svc.kcp.local`, which is the same workspace whose PDS does
+  not report ready.
+- **The bidder crash-loops** on its PLC registration, 129 restarts in one run:
+  `error: Uncaught (in promise) PlcNotFoundError: DID not found:
+  did:plc:wrpacy3svybmug6pnjcpjxad`.
+- **Two host checks asked for `http://` on ports whose pods set
+  `SERVICE_TLS: "true"`.** That check could only ever pass while OpenBao was
+  broken and no pod served TLS. It went back through the flow as an amendment to
+  `r.live-acceptance-script` (the host checks use `https`, and `http_code`
+  prints `000` once instead of appending a second fallback) and landed as
+  `6c1bbe4 realize deploy-examples-atproto-market: ~1`. Two further runs also
+  showed that the example's host ports are fixed (2583 to 2587) and that a
+  previous acceptance leaks its whole workload set when its `EXIT` trap runs:
+  the pods are children of the provider, killing the provider orphans them, and
+  the next run's pods cannot bind those ports at all -- its verifier failed
+  immediately and every service restarted in a loop until the orphans were
+  killed by hand.
+
+Two further runs, started after the `https` amendment landed, never reached the
+checks at all. The provider came up, logged its one startup line, and reconciled
+nothing: all four `OpenBao` objects were applied by `apply.sh` and stayed without
+a `status`, the provider's process sat in `futex_do_wait` with `0:00:00` CPU
+after two minutes, and `apply.sh` waited out its per-workspace deadline. That is
+the symptom the provider's own `cmd/deno-kcp-provider/main.go` describes --
+"kcp's APIExport virtual workspace does not send the bookmark a streaming list
+needs, so an informer's initial list never completes and the provider sits with
+no cache and reconciles nothing. The symptom is a provider that looks healthy and
+a workload that never gets a status" -- and it is intermittent: the run in the
+table above is the same binary and the same tree, five minutes earlier. It is not
+caused by the kcp-libs fix or by the `https` amendment. So the `https` amendment
+is landed but not yet seen in a green-or-red table of its own; what it fixes is
+visible by inspection instead (the pods serve TLS, the host fetch of that
+listener over `http://` cannot answer, and the same fetch over `https://` returns
+200 with `curl -k`).
+
+The gate stays `gate: true`, which is the honest state: the example does not
+come up yet.
+
 ### Reading this
 
 - **The flow worked.** A requirement, realized by an agent, verified by the
   repository's own tests, gated by a live run of the thing itself -- and the
   live run found what the offline gate structurally could not.
-- **The flow did not "fix" anything here, because there was nothing in deno-kcp
-  to fix.** Two spec edits, both landed first try. The failure is in a
-  dependency, and the acceptance is what produced the evidence for it in five
-  minutes instead of an argument.
-- **A gating step that cannot pass stops the line.** With `gate: true`, every
-  `SpecToCode` realization for deno-kcp now ends `Failed` until kcp-libs is
-  fixed. That is the honest state -- it is what "the example does not come up"
-  should mean -- and it is also why the cosmetic `000000` in the two host checks
-  (`curl` writes `000` and the fallback appends another) is left in place: fixing
-  it would need the gate relaxed first.
-- **Reproduce in one command,** from a clone with the siblings beside it:
+- **The failure was outside deno-kcp, and the flow fixed it there.** The
+  acceptance found a defect in a dependency in five minutes, and the same flow
+  then produced the fix in that dependency's own repository: a requirement, an
+  agent, that repository's tests as the gate, and a pull request
+  ([kcp-libs#1](https://github.com/publicdomainrelay/kcp-libs/pull/1)). The
+  evidence that it worked is not the argument, it is deno-kcp's own live test
+  going from `--- FAIL ... (139.35s)` to `--- PASS ... (25.52s)`, and an
+  acceptance run whose OpenBao line is gone.
+- **A gating step that cannot pass stops the line, and there is no stated way
+  around it.** With `gate: true`, every `SpecToCode` realization for deno-kcp ends
+  `Failed` while the example does not come up. That is the honest state -- it is
+  what "the example does not come up" should mean -- but the one spec edit that
+  had to land while the gate was red, the `https` host checks, needed a manual
+  `kubectl patch` to `gate: false` first and another to put it back. Part C of
+  plan 0002 asks for a stated escape (`specctl accept --override` recording a
+  reason on the change); there is still none.
+- **The acceptance is only as good as its isolation.** Two things the runs
+  showed: the example's host ports are fixed (2583 to 2587), and a run that ends
+  leaves its workloads alive (the pods are children of the provider, and the
+  `EXIT` trap kills the provider). The next run then cannot bind a single one of
+  those ports, and its verifier -- `restartPolicy: Never` -- fails at once. The
+  leaked stack was real and had to be killed by hand; a runner that puts each
+  step in its own process group and signals the group would have reaped it.
+- **Reproduce in one command,** from a clone with current siblings beside it
+  (`ORG_ROOT` names them; the temp clone in this run had stale ones, so the run
+  passed `ORG_ROOT=/home/johnandersen777/src/publicdomainrelay-kcp`):
 
   ```bash
   for r in kcp-libs atproto-market atproto-relay hono-pds typescript-helpers policy-engine; do
     git clone -q https://github.com/publicdomainrelay/$r ../$r
   done
-  bash deploy/examples/atproto/market/accept.sh   # ~5 minutes; exit 1 today
+  git -C ../kcp-libs switch fix/openbao-no-default-issuer   # until kcp-libs#1 lands
+  bash deploy/examples/atproto/market/accept.sh   # ~5 minutes; exit 1 today, on the three defects above
   ```
