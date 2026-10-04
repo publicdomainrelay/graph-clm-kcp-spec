@@ -277,3 +277,23 @@ func (s Store) git(ctx context.Context, stdin *bytes.Buffer, env []string, args 
 	}
 	return stdout.Bytes(), stderr.Bytes(), nil
 }
+
+func (s Store) IsTopLevel(ctx context.Context) (bool, error) {
+	out, _, err := s.git(ctx, nil, nil, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return false, err
+	}
+	top, err := filepath.EvalSymlinks(strings.TrimSpace(string(out)))
+	if err != nil {
+		return false, err
+	}
+	here, err := filepath.Abs(s.Repo)
+	if err != nil {
+		return false, err
+	}
+	here, err = filepath.EvalSymlinks(here)
+	if err != nil {
+		return false, err
+	}
+	return top == here, nil
+}

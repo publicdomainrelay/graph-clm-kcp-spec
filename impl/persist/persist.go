@@ -90,6 +90,13 @@ func Persist(ctx context.Context, options Options) (Result, error) {
 	store := oagit.Store{Repo: current.repoPath}
 	ref := oabranch.Ref(options.Repository)
 	result := Result{Branch: oabranch.Branch(options.Repository), Conflicts: map[string][]string{}}
+	top, err := store.IsTopLevel(ctx)
+	if err != nil {
+		return result, err
+	}
+	if !top {
+		return result, fmt.Errorf("%w: %s", ErrNotTopLevel, current.repoPath)
+	}
 
 	tip, err := store.Tip(ctx, ref)
 	if err != nil {
@@ -364,6 +371,8 @@ func read(ctx context.Context, options Options) (state, error) {
 }
 
 var ErrNoBranch = errors.New("persist: the repository has no open-architecture branch")
+
+var ErrNotTopLevel = errors.New("persist: the repository path is not the top of its own git repository")
 
 type RestoreOptions struct {
 	Cluster Cluster

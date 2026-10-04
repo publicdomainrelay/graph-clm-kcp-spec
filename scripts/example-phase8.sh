@@ -7,7 +7,7 @@
 # three verbs the way the mod does and shows what kcp and the graph see:
 #
 #   render  prints the context document (prose intent + a fenced spec block +
-#           the resolved refs) -- what the mod writes to .specs/context/calc.md
+#           the resolved refs) -- what the mod writes to $SPECD_CLM_DOC_DIR/<repository>/calc.md, outside the tree
 #   apply   the model's spec edit becomes a delta computed in Go, written with
 #           origin: clm, and the controller raises ONE SpecToCode change
 #   fold    a model that refines the spec while its change is Running does not
@@ -33,6 +33,7 @@ RESYNC=${RESYNC:-500ms}
 WAIT_SECONDS=${WAIT_SECONDS:-60}
 LIVE_MODEL=${LIVE_MODEL:-0}
 WORK=${WORK:-$(mktemp -d "${TMPDIR:-/tmp}/specd-phase8.XXXXXX")}
+export SPECD_CLM_DOC_DIR="${SPECD_CLM_DOC_DIR:-$WORK/clm-docs}"
 
 export KUBECONFIG="$KUBECONFIG_PATH"
 
@@ -141,7 +142,7 @@ specd_pid=$!
 wait_for "the first ingest" \
   '[ -n "$(K get systemcontext calc -o jsonpath="{.status.realizedSpecHash}" 2>/dev/null)" ]'
 
-echo "--- render: the document the mod writes to .specs/context/calc.md ---"
+echo "--- render: the document the mod writes to the state dir, outside the project tree ---"
 S clm render --context calc > "$WORK/model-zone.md"
 head -n 12 "$WORK/model-zone.md"
 echo "  ... $(wc -l < "$WORK/model-zone.md") line(s) in all"

@@ -115,7 +115,7 @@ example-phase7: $(SPECCTL) $(SPECD) kcp-up
 example-phase8: $(SPECCTL) $(SPECD) kcp-up
 	./scripts/example-phase8.sh
 
-# Two tenants, one APIExport, one specd in export mode, and the .specs mirror
+# Two tenants, one APIExport, one specd in export mode, and the orphan open-architecture branch
 # with its conflict rule.
 example-phase9: $(SPECCTL) $(SPECD) kcp-up
 	./scripts/example-phase9.sh

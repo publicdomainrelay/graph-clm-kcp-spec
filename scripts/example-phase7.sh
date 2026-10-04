@@ -24,6 +24,7 @@ WAIT_SECONDS=${WAIT_SECONDS:-120}
 MANIFEST=${MANIFEST:-$REPO/examples/populate/repository.yaml}
 SOURCE=${SOURCE:-unseen}
 WORK=${WORK:-$REPO/.kcp-specd/example-phase7}
+export SPECD_CLM_DOC_DIR="${SPECD_CLM_DOC_DIR:-$WORK/clm-docs}"
 
 export KUBECONFIG="$KUBECONFIG_PATH"
 
@@ -111,7 +112,8 @@ K get systemcontext greet -o jsonpath='{range .spec.requirements[*]}  {.level} {
 echo "  origin: $(K get systemcontext greet -o jsonpath="{.metadata.annotations.specs\.publicdomainrelay\.dev/origin}")"
 
 echo "--- the context document the summarize left in the clone ---"
-sed -n '1,8p' "$WORK/cache/unseen/.specs/context/greet.md"
+sed -n '1,8p' "$SPECD_CLM_DOC_DIR"/*/greet.md
+echo "  .specs in the clone: $([ -e "$WORK/cache/unseen/.specs" ] && echo YES || echo no)"
 
 echo "--- no command but the apply was needed: $(K get specchanges -o jsonpath='{.items[*].metadata.name}' | wc -w) SpecChange(s), all Succeeded ---"
 K get specchanges -o jsonpath='{range .items[*]}  {.metadata.name} {.status.phase}{"\n"}{end}'

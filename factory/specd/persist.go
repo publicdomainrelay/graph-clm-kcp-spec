@@ -2,6 +2,7 @@ package specd
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
@@ -95,6 +96,10 @@ func (c *Controller) reconcilePersist(ctx context.Context, namespace, repository
 		ManagedBudget: c.opts.ManagedBudget,
 		Adopt:         true,
 	})
+	if errors.Is(err, persist.ErrNotTopLevel) {
+		c.log.Debug("open-architecture persist skipped", "repository", repository, "reason", err.Error())
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}

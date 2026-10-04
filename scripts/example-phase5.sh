@@ -23,6 +23,7 @@ RESYNC=${RESYNC:-500ms}
 WAIT_SECONDS=${WAIT_SECONDS:-60}
 SCENARIO=${SCENARIO:-$REPO/examples/phase5/scenario.yaml}
 WORK=${WORK:-$(mktemp -d "${TMPDIR:-/tmp}/specd-phase5.XXXXXX")}
+export SPECD_CLM_DOC_DIR="${SPECD_CLM_DOC_DIR:-$WORK/clm-docs}"
 
 export KUBECONFIG="$KUBECONFIG_PATH"
 
@@ -127,7 +128,8 @@ echo "  Drifted: $(K get systemcontext calc -o jsonpath='{.status.conditions[?(@
 echo "  SpecToCode changes: $(K get specchanges -o jsonpath="{.items[?(@.spec.direction==\"SpecToCode\")].metadata.name}" | wc -w)"
 
 echo "--- the context document in the managed tree ---"
-sed -n '1,12p' "$WORK/.specs/context/calc.md"
+sed -n '1,12p' "$SPECD_CLM_DOC_DIR"/*/calc.md
+echo "  .specs in the project tree: $([ -e "$WORK/.specs" ] && echo YES || echo no)"
 
 echo "--- the same summarize, from the CLI, over contexts with an empty intent ---"
 for name in $CONTEXTS; do

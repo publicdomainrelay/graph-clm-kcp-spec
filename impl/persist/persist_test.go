@@ -2,6 +2,7 @@ package persist
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -337,5 +338,22 @@ func TestRestoreWithoutABranchSaysSo(t *testing.T) {
 	_, err := Restore(context.Background(), RestoreOptions{Cluster: newFakeCluster(), Repository: "calc", RepoPath: repo, Remote: "origin"})
 	if err == nil {
 		t.Fatal("restore of a repository with no branch succeeded")
+	}
+}
+
+func TestPersistRefusesASubdirectoryOfAnotherRepository(t *testing.T) {
+	repo := clone(t)
+	sub := filepath.Join(repo, "nested")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cluster := newFakeCluster()
+	seed(t, cluster, sub)
+	_, err := Persist(context.Background(), Options{Cluster: cluster, Repository: "calc"})
+	if !errors.Is(err, ErrNotTopLevel) {
+		t.Fatalf("err = %v, want ErrNotTopLevel", err)
+	}
+	if out, _ := exec.Command("git", "-C", repo, "branch", "--list", "open-architecture/*").CombinedOutput(); strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("a branch was written into the enclosing repository: %s", out)
 	}
 }

@@ -8,9 +8,10 @@
 # the APIExport virtual workspace, writing each status back to the logical
 # cluster the object came from. Drift in one tenant leaves the other alone.
 #
-# Then `specctl sync --repo <tree>` mirrors one tenant's specs into
-# `<tree>/.specs/*.yaml`, and refuses when kcp and the file both moved since the
-# last sync.
+# Every change of a tenant's kcp state lands on the orphan branch
+# open-architecture/<repository> of its tree, never in the tree itself. A
+# reviewed edit on that branch flows back into kcp with `specctl sync`, and an
+# edit of the same key on both sides is reported, not overwritten.
 #
 set -euo pipefail
 
@@ -133,34 +134,48 @@ A get specchanges -o jsonpath='  A change {.items[0].metadata.name} {.items[0].s
 echo "  B fingerprint unchanged: $([ "$(B get systemcontext phase9-b-repo -o jsonpath='{.status.observed.fingerprint}')" = "$B_FINGERPRINT" ] && echo yes || echo NO)"
 echo "  B changes: $(B get specchanges -o jsonpath='{.items[*].metadata.name}') (none expected)"
 
-echo "--- the spec mirror: specctl sync --repo ---"
-"$SPECCTL" sync --repo "$WORK/calc" --direction pull --workspace "root:${TENANT_A}"
-echo "  .specs/ now holds:"
-ls "$WORK/calc/.specs" | sed 's/^/    /'
-sed -n '1,12p' "$WORK/calc/.specs/calc.yaml" | sed 's/^/    /'
+BRANCH=open-architecture/phase9-a-repo
+echo "--- the orphan branch: tenant A's kcp state, one commit per change, never in the tree ---"
+wait_for "the $BRANCH branch" 'git -C "$WORK/calc" rev-parse --verify -q "refs/heads/$BRANCH" >/dev/null'
+git -C "$WORK/calc" log --oneline "$BRANCH" | head -5 | sed 's/^/  /'
+git -C "$WORK/calc" ls-tree -r --name-only "$BRANCH" | sed 's/^/    /'
+echo "  shares history with main: $(git -C "$WORK/calc" merge-base main "$BRANCH" >/dev/null 2>&1 && echo YES || echo no)"
+echo "  .specs in the project tree: $([ -e "$WORK/calc/.specs" ] && echo YES || echo no)"
 
-echo "--- both sides moved: the sync refuses ---"
-A patch systemcontext calc --type merge -p '{"spec":{"intent":"changed in kcp"}}' >/dev/null
-if grep -q '^  intent:' "$WORK/calc/.specs/calc.yaml"; then
-  sed -i 's/^  intent: .*/  intent: changed in the file/' "$WORK/calc/.specs/calc.yaml"
-else
-  sed -i '/^spec:$/a\  intent: changed in the file' "$WORK/calc/.specs/calc.yaml"
-fi
-if "$SPECCTL" sync --repo "$WORK/calc" --direction both --workspace "root:${TENANT_A}" 2>"$WORK/conflict.txt"; then
-  echo "  the sync did not refuse; that is a bug" >&2
-  exit 1
-fi
-sed 's/^/  /' "$WORK/conflict.txt"
-
-echo "--- --prefer git takes the file ---"
-"$SPECCTL" sync --repo "$WORK/calc" --direction both --prefer git --workspace "root:${TENANT_A}"
-A get systemcontext calc -o jsonpath='  kcp intent: {.spec.intent}{"\n"}'
+edit_branch() {
+  local edit="$WORK/oa-edit"
+  rm -rf "$edit"
+  git -C "$WORK/calc" worktree add -q "$edit" "$BRANCH"
+  if grep -q '^  intent:' "$edit/specs/calc.yaml"; then
+    sed -i "s/^  intent: .*/  intent: $1/" "$edit/specs/calc.yaml"
+  else
+    sed -i "/^spec:$/a\\  intent: $1" "$edit/specs/calc.yaml"
+  fi
+  git -C "$edit" -c user.email=reviewer@example.com -c user.name=reviewer commit -qam "$1"
+  git -C "$WORK/calc" worktree remove --force "$edit"
+}
 
 echo "--- specd stops on SIGTERM, the tenants stay bound ---"
 kill "$specd_pid"
 wait "$specd_pid" 2>/dev/null || true
 specd_pid=""
 echo "  stopped"
+
+echo "--- a reviewed edit on the branch flows into kcp: specctl sync ---"
+edit_branch "reviewed on the branch"
+"$SPECCTL" sync --repo "$WORK/calc" --repository phase9-a-repo --workspace "root:${TENANT_A}"
+A get systemcontext calc -o jsonpath='  kcp intent: {.spec.intent}, origin {.metadata.annotations.specs\.publicdomainrelay\.dev/origin}{"\n"}'
+
+echo "--- both sides moved the same key: the sync reports the conflict and keeps kcp ---"
+A patch systemcontext calc --type merge -p '{"spec":{"intent":"changed in kcp"}}' >/dev/null
+edit_branch "changed on the branch"
+if "$SPECCTL" sync --repo "$WORK/calc" --repository phase9-a-repo --workspace "root:${TENANT_A}" >"$WORK/conflict.txt" 2>&1; then
+  echo "  the sync did not report the conflict; that is a bug" >&2
+  exit 1
+fi
+sed 's/^/  /' "$WORK/conflict.txt"
+A get systemcontext calc -o jsonpath='  kcp intent kept: {.spec.intent}{"\n"}'
+A get repository phase9-a-repo -o jsonpath='  status.openArchitecture.conflicts: {.status.openArchitecture.conflicts}{"\n"}'
 if [ "${KEEP:-0}" != "1" ]; then
   for tenant in "$TENANT_A" "$TENANT_B"; do
     "$KUBECTL" delete workspace "$tenant" --wait=false >/dev/null 2>&1 || true
