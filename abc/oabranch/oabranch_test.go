@@ -133,6 +133,51 @@ func TestFilesAreDeterministicWithManyRefs(t *testing.T) {
 	}
 }
 
+func TestFilesAreDeterministicWithMapFields(t *testing.T) {
+	snapshot := calcSnapshot()
+	snapshot.Repository.Labels = map[string]string{
+		"app.kubernetes.io/part-of":  "calc",
+		"app.kubernetes.io/name":     "calc",
+		"helm.sh/chart":              "calc-0.1.0",
+		"app.kubernetes.io/instance": "calc-7f3a",
+	}
+	snapshot.Repository.Spec.Acceptance = []spec.AcceptanceStep{{
+		Name:    "unit",
+		Command: []string{"go", "test", "./..."},
+		Env: map[string]string{
+			"HOME": "/root", "PATH": "/usr/bin:/bin", "BOB_WORKSPACE": "bob",
+			"GOCACHE": "/tmp/cache", "OPERATOR_NAMESPACE": "default",
+		},
+	}}
+	node := map[string]any{}
+	document := map[string]any{}
+	for index := 0; index < 20; index++ {
+		node[fmt.Sprintf("k:%08x", index*2654435761)] = index
+		document[fmt.Sprintf("doc:%02x", index*7)] = fmt.Sprintf("value-%d", index)
+	}
+	snapshot.Contexts[0].Spec.Arch = &spec.ArchSpec{
+		ID:       "deploy.calc",
+		Kind:     spec.ArchKindNode,
+		Node:     node,
+		Document: document,
+	}
+	first, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < 20; attempt++ {
+		next, err := Files(snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for path, data := range first {
+			if string(next[path]) != string(data) {
+				t.Fatalf("%s differs between two renders of the same state:\n%s\n---\n%s", path, data, next[path])
+			}
+		}
+	}
+}
+
 func TestBlobIDMatchesGit(t *testing.T) {
 	git, err := exec.LookPath("git")
 	if err != nil {

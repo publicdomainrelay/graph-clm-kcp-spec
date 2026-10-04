@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"sigs.k8s.io/yaml"
+	yaml "sigs.k8s.io/yaml"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/clm"
@@ -16,6 +16,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/mirror"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/yamlx"
 )
 
 const (
@@ -283,14 +284,14 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 	files[ReadmePath] = []byte(readme(name))
 
 	contexts := sortedContexts(snapshot.Contexts)
-	repository, err := yaml.Marshal(repositoryDocOf(snapshot.Repository, contexts))
+	repository, err := yamlx.Marshal(repositoryDocOf(snapshot.Repository, contexts))
 	if err != nil {
 		return nil, fmt.Errorf("oabranch: render %s: %w", RepositoryPath, err)
 	}
 	files[RepositoryPath] = repository
 
 	refs := graph.CodeRefMap(contexts)
-	arch, err := yaml.Marshal(archDocOf(snapshot.Repository, contexts, snapshot.branch(), refs))
+	arch, err := yamlx.Marshal(archDocOf(snapshot.Repository, contexts, snapshot.branch(), refs))
 	if err != nil {
 		return nil, fmt.Errorf("oabranch: render %s: %w", ArchPath, err)
 	}
@@ -303,7 +304,7 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 		}
 		files[SpecPath(context.Name)] = specFile
 
-		status, err := yaml.Marshal(statusDocOf(context.Status, commonCommits(contexts)))
+		status, err := yamlx.Marshal(statusDocOf(context.Status, commonCommits(contexts)))
 		if err != nil {
 			return nil, fmt.Errorf("oabranch: render status of %s: %w", context.Name, err)
 		}
@@ -322,7 +323,7 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 
 	for _, episode := range episodes(snapshot.Changes) {
 		surviving := episode[0]
-		data, err := yaml.Marshal(changeDoc{
+		data, err := yamlx.Marshal(changeDoc{
 			APIVersion: specapi.Group + "/" + specapi.Version,
 			Kind:       specapi.SpecChangeKind,
 			Metadata:   objectMeta{Name: surviving.Name, Namespace: surviving.Namespace},
