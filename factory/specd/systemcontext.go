@@ -83,7 +83,8 @@ func (c *Controller) reconcileChanges(
 	for _, change := range changes {
 		taken = append(taken, change.Name)
 		switch change.Status.Phase {
-		case specapi.PhasePending, specapi.PhaseRunning:
+		case specapi.PhaseSucceeded, specapi.PhaseFailed:
+		default:
 			unfinished[change.Spec.Direction] = true
 		}
 	}

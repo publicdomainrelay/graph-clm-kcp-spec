@@ -409,6 +409,38 @@ func TestSystemContextReconcileWaitsForAnUnfinishedChange(t *testing.T) {
 	}
 }
 
+func TestSystemContextReconcileWaitsForAChangeWhoseStatusHasNotLanded(t *testing.T) {
+	cluster := newFakeCluster()
+	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
+		systemContext.Status.Observed = observedFacts("f2")
+		systemContext.Status.ObservedCommit = "c2"
+		systemContext.Status.SyncedFingerprint = "f1"
+		systemContext.Status.SyncedCommit = "c1"
+	}))
+	seeded, err := kcpclient.Unstructured(&spec.SpecChange{
+		TypeMeta:   metav1.TypeMeta{APIVersion: specapi.APIVersion, Kind: specapi.SpecChangeKind},
+		ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-c1-c2", Namespace: specapi.DefaultNamespace},
+		Spec: spec.SpecChangeSpec{
+			SystemContext: "calc", Direction: specapi.DirectionCodeToSpec, FromCommit: "c1", ToCommit: "c2",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cluster.Apply(context.Background(), seeded); err != nil {
+		t.Fatal(err)
+	}
+	controller := testController(cluster)
+
+	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+	names := cluster.names(specapi.SpecChangeGVR)
+	if len(names) != 1 || names[0] != "calc-c2s-c1-c2" {
+		t.Fatalf("spec changes = %v, want the one attempt only", names)
+	}
+}
+
 func TestSpecChangeReconcileMovesAnEmptyPhaseToPending(t *testing.T) {
 	cluster := newFakeCluster()
 	apply(t, cluster, &spec.SpecChange{
