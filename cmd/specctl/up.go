@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpproc"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,19 +28,12 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/statedir"
 )
 
-const (
-	DefaultUpKcpPort = 6449
-
-	DefaultUpKinePort = 23799
-)
-
 func runUp(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("specctl up", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repo := fs.String("repo", ".", "the cloned repository to work on; its git top level is the repository root")
 	repository := fs.String("repository", "", "Repository name and kcp workspace; default is the directory name")
-	kcpPort := fs.Int("kcp-port", envInt("SPECD_UP_KCP_PORT", DefaultUpKcpPort), "port of the user's kcp")
-	kinePort := fs.Int("kine-port", envInt("SPECD_UP_KINE_PORT", DefaultUpKinePort), "port of the kine behind it")
+	out := fs.String("out", "", "write the session (kcp url and port, kine port, kubeconfig, workspace, pids) as JSON to this file")
 	summarize := fs.Bool("summarize", true, "summarize every context into a spec with the model after indexing")
 	agent := fs.String("agent", os.Getenv("SPECD_AGENT"), "agent kind specd runs (claude, claude-mod, pi, scripted:<file>); empty is specd's default")
 	remote := fs.String("remote", "origin", "git remote an existing open-architecture branch is fetched from; empty fetches nothing")
@@ -70,21 +65,20 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 		Repository:          name,
 		Workspace:           "root:" + name,
 		Namespace:           options.namespace,
-		KcpRoot:             session.KcpRoot(),
-		KcpPort:             *kcpPort,
-		KinePort:            *kinePort,
+		KcpRoot:             session.KcpRoot(top),
 		ClmMod:              *clmMod,
 		ClmDocDir:           statedir.ClmDocDir(),
-		AdminKubeconfig:     filepath.Join(session.KcpRoot(), "admin.kubeconfig"),
-		WorkspaceKubeconfig: filepath.Join(session.KcpRoot(), name+".kubeconfig"),
+		AdminKubeconfig:     filepath.Join(session.KcpRoot(top), "admin.kubeconfig"),
+		WorkspaceKubeconfig: filepath.Join(session.KcpRoot(top), name+".kubeconfig"),
 	}
-	if previous, ok, _ := session.Load(top); ok && session.Alive(previous.SpecdPid, "specd") {
+	previous, hadPrevious, _ := session.Load(top)
+	if hadPrevious && session.Alive(previous.SpecdPid, "specd") {
 		record.SpecdPid = previous.SpecdPid
 		record.SpecdLog = previous.SpecdLog
 	}
 
 	fmt.Fprintf(stdout, "repository %s at %s\n", name, top)
-	if err := startKcp(ctx, record, stdout, stderr); err != nil {
+	if err := startKcp(ctx, &record, previous, hadPrevious, stdout); err != nil {
 		fmt.Fprintf(stderr, "specctl up: %v\n", err)
 		return exitError
 	}
@@ -148,37 +142,79 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl up: %v\n", err)
 		return exitError
 	}
+	if err := writeOut(*out, record); err != nil {
+		fmt.Fprintf(stderr, "specctl up: write %s: %v\n", *out, err)
+		return exitError
+	}
 	printNextSteps(stdout, record)
 	return exitOK
 }
 
-func startKcp(ctx context.Context, record session.Record, stdout, stderr io.Writer) error {
+func startKcp(ctx context.Context, record *session.Record, previous session.Record, hadPrevious bool, stdout io.Writer) error {
+	instance := kcpproc.Instance{}
+	if hadPrevious {
+		instance = instanceOf(previous)
+	}
+	reused := hadPrevious && kcpproc.Ready(instance)
+	if !reused {
+		started, err := kcpproc.Start(ctx, kcpproc.Options{Root: record.KcpRoot})
+		if err != nil {
+			return err
+		}
+		instance = started
+	}
+	record.KcpPort, record.KcpURL, record.KcpPid = instance.KcpPort, instance.KcpURL, instance.KcpPid
+	record.KinePort, record.KineURL, record.KinePid = instance.KinePort, instance.KineURL, instance.KinePid
+	record.AdminKubeconfig = instance.AdminKubeconfig
+
 	deployDir, err := session.ExtractDeploy()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(record.KcpRoot, 0o755); err != nil {
-		return err
-	}
-	env := append(os.Environ(),
+	command := exec.CommandContext(ctx, "bash", filepath.Join(deployDir, "install-specs.sh"))
+	command.Env = append(os.Environ(),
 		"ROOT="+record.KcpRoot,
-		"KCP_SECURE_PORT="+strconv.Itoa(record.KcpPort),
-		"KINE_ENDPOINT=http://127.0.0.1:"+strconv.Itoa(record.KinePort),
-		"SPECS_INSTALL=0",
+		"KUBECONFIG_PATH="+record.AdminKubeconfig,
 		"SPECS_WORKSPACE="+record.Repository,
 		"SPECS_NAMESPACE="+record.Namespace,
 		"WORKSPACE_KUBECONFIG="+record.WorkspaceKubeconfig,
 	)
-	for _, script := range []string{"start-kcp.sh", "install-specs.sh"} {
-		command := exec.CommandContext(ctx, "bash", filepath.Join(deployDir, script))
-		command.Env = env
-		output, err := command.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("%s: %w\n%s", script, err, strings.TrimSpace(string(output)))
-		}
+	if output, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("install-specs.sh: %w\n%s", err, strings.TrimSpace(string(output)))
 	}
-	fmt.Fprintf(stdout, "kcp on 127.0.0.1:%d (state %s), workspace %s\n", record.KcpPort, record.KcpRoot, record.Workspace)
+	state := "started"
+	if reused {
+		state = "already running"
+	}
+	fmt.Fprintf(stdout, "kcp %s at %s (kernel-assigned port %d, kine port %d, state %s), workspace %s\n", state, record.KcpURL, record.KcpPort, record.KinePort, record.KcpRoot, record.Workspace)
 	return nil
+}
+
+func instanceOf(record session.Record) kcpproc.Instance {
+	return kcpproc.Instance{
+		Root:            record.KcpRoot,
+		KcpPort:         record.KcpPort,
+		KcpPid:          record.KcpPid,
+		KcpURL:          record.KcpURL,
+		KinePort:        record.KinePort,
+		KinePid:         record.KinePid,
+		KineURL:         record.KineURL,
+		AdminKubeconfig: record.AdminKubeconfig,
+	}
+}
+
+func writeOut(path string, record session.Record) error {
+	if path == "" {
+		return nil
+	}
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o600)
 }
 
 func applyRepository(ctx context.Context, client *kcpclient.Client, record session.Record, summarize bool) error {
@@ -286,14 +322,15 @@ func printNextSteps(stdout io.Writer, record session.Record) {
 		fmt.Fprintf(stdout, "  claude --plugin-dir %s           # the agent inspects and edits the arch through kcp\n", record.ClmMod)
 	}
 	fmt.Fprintf(stdout, "  git log --oneline %s   # every change of kcp, outside the project tree\n", oabranch.Branch(record.Repository))
-	fmt.Fprintf(stdout, "  specctl down                        # stop specd (add --kcp to stop kcp too)\n")
+	fmt.Fprintf(stdout, "  specctl env -o json                 # this instance's kcp url, ports, kubeconfig, workspace\n")
+	fmt.Fprintf(stdout, "  specctl down                        # stop specd and this repository's kcp\n")
 }
 
 func runDown(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("specctl down", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repo := fs.String("repo", ".", "the repository specctl up was run in")
-	stopKcp := fs.Bool("kcp", false, "also stop the user's kcp and kine (every repository's session uses them)")
+	keepKcp := fs.Bool("keep-kcp", false, "leave this repository's kcp and kine running")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -328,20 +365,9 @@ func runDown(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stdout, "specd %d stopped\n", record.SpecdPid)
 	}
-	if *stopKcp {
-		deployDir, err := session.ExtractDeploy()
-		if err != nil {
-			fmt.Fprintf(stderr, "specctl down: %v\n", err)
-			return exitError
-		}
-		command := exec.Command("bash", filepath.Join(deployDir, "stop-kcp.sh"))
-		command.Env = append(os.Environ(), "ROOT="+record.KcpRoot)
-		output, err := command.CombinedOutput()
-		fmt.Fprint(stdout, string(output))
-		if err != nil {
-			fmt.Fprintf(stderr, "specctl down: stop kcp: %v\n", err)
-			return exitError
-		}
+	if !*keepKcp {
+		kcpproc.Stop(instanceOf(record))
+		fmt.Fprintf(stdout, "kcp %s and kine stopped\n", record.KcpURL)
 	}
 	if err := session.Remove(top); err != nil {
 		fmt.Fprintf(stderr, "specctl down: %v\n", err)
@@ -371,7 +397,11 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	if session.Alive(record.SpecdPid, "specd") {
 		specdState = fmt.Sprintf("running, pid %d, log %s", record.SpecdPid, record.SpecdLog)
 	}
-	fmt.Fprintf(stdout, "repository  %s at %s\nworkspace   %s on 127.0.0.1:%d\nspecd       %s\n", record.Repository, record.Repo, record.Workspace, record.KcpPort, specdState)
+	kcpState := "stopped"
+	if kcpproc.Ready(instanceOf(record)) {
+		kcpState = "ready"
+	}
+	fmt.Fprintf(stdout, "repository  %s at %s\nkcp         %s %s (kine %s), workspace %s\nspecd       %s\n", record.Repository, record.Repo, record.KcpURL, kcpState, record.KineURL, record.Workspace, specdState)
 	object, err := client.Get(ctx, specapi.RepositoryGVR, record.Namespace, record.Repository)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl status: %v\n", err)
@@ -487,13 +517,6 @@ func valueOr(value, fallback string) string {
 		return fallback
 	}
 	return value
-}
-
-func envInt(name string, fallback int) int {
-	if value, err := strconv.Atoi(os.Getenv(name)); err == nil && value > 0 {
-		return value
-	}
-	return fallback
 }
 
 func defaultSibling(env, name string) string {

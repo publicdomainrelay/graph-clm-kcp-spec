@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,9 +12,7 @@ import (
 )
 
 type phase13Machine struct {
-	state    string
-	kcpPort  string
-	kinePort string
+	state string
 }
 
 func (m phase13Machine) run(t *testing.T, binary, dir string, args ...string) string {
@@ -24,8 +23,6 @@ func (m phase13Machine) run(t *testing.T, binary, dir string, args ...string) st
 		"SPECD_STATE_DIR="+m.state,
 		"SPECD_KUBECONFIG=",
 		"SPECD_CLM_DOC_DIR=",
-		"SPECD_UP_KCP_PORT="+m.kcpPort,
-		"SPECD_UP_KINE_PORT="+m.kinePort,
 	)
 	var output bytes.Buffer
 	command.Stdout = &output
@@ -34,6 +31,26 @@ func (m phase13Machine) run(t *testing.T, binary, dir string, args ...string) st
 		t.Fatalf("%s %v: %v\n%s", filepath.Base(binary), args, err, output.String())
 	}
 	return output.String()
+}
+
+type phase13Record struct {
+	KcpURL   string `json:"kcpURL"`
+	KcpPort  int    `json:"kcpPort"`
+	KinePort int    `json:"kinePort"`
+	KcpRoot  string `json:"kcpRoot"`
+}
+
+func phase13Session(t *testing.T, path string) phase13Record {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := phase13Record{}
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	return record
 }
 
 func phase13Git(t *testing.T, dir string, args ...string) string {
@@ -86,8 +103,8 @@ func TestPhase13CloneUpPersistsAndASecondCloneRestores(t *testing.T) {
 		t.Fatalf("bare clone: %v\n%s", err, out)
 	}
 
-	machineA := phase13Machine{state: filepath.Join(work, "state-a"), kcpPort: "6453", kinePort: "23803"}
-	machineB := phase13Machine{state: filepath.Join(work, "state-b"), kcpPort: "6455", kinePort: "23805"}
+	machineA := phase13Machine{state: filepath.Join(work, "state")}
+	machineB := machineA
 	cloneA := filepath.Join(work, "a", "calc")
 	cloneB := filepath.Join(work, "b", "somewhere-else")
 	for _, clone := range []string{cloneA, cloneB} {
@@ -100,14 +117,15 @@ func TestPhase13CloneUpPersistsAndASecondCloneRestores(t *testing.T) {
 			machine phase13Machine
 			clone   string
 		}{{machineA, cloneA}, {machineB, cloneB}} {
-			command := exec.Command(specctl, "down", "--kcp")
+			command := exec.Command(specctl, "down")
 			command.Dir = pair.clone
 			command.Env = append(os.Environ(), "SPECD_STATE_DIR="+pair.machine.state)
 			_ = command.Run()
 		}
 	})
 
-	upA := machineA.run(t, specctl, cloneA, "up", "--summarize=false", "--push", "--specd", filepath.Join(bin, "specd"), "--clm-mod", "")
+	outA := filepath.Join(work, "a.json")
+	upA := machineA.run(t, specctl, cloneA, "up", "--summarize=false", "--push", "--specd", filepath.Join(bin, "specd"), "--clm-mod", "", "--out", outA)
 	if !strings.Contains(upA, "no open-architecture/calc yet") {
 		t.Fatalf("clone A did not index from scratch:\n%s", upA)
 	}
@@ -122,7 +140,7 @@ func TestPhase13CloneUpPersistsAndASecondCloneRestores(t *testing.T) {
 	}
 
 	server := strings.TrimSpace(machineA.run(t, specctl, cloneA, "env", "-o", "server"))
-	patch := exec.Command("kubectl", "--kubeconfig", filepath.Join(machineA.state, "kcp", "admin.kubeconfig"), "--server", server,
+	patch := exec.Command("kubectl", "--kubeconfig", filepath.Join(phase13Session(t, outA).KcpRoot, "admin.kubeconfig"), "--server", server,
 		"patch", "systemcontext", "calc", "--type", "merge", "-p", `{"spec":{"intent":"Integer arithmetic, decided in clone A."}}`)
 	if out, err := patch.CombinedOutput(); err != nil {
 		t.Fatalf("patch: %v\n%s", err, out)
@@ -132,7 +150,12 @@ func TestPhase13CloneUpPersistsAndASecondCloneRestores(t *testing.T) {
 		return err == nil && strings.Contains(string(out), "decided in clone A")
 	})
 
-	upB := machineB.run(t, specctl, cloneB, "up", "--summarize=false", "--specd", filepath.Join(bin, "specd"), "--clm-mod", "")
+	outB := filepath.Join(work, "b.json")
+	upB := machineB.run(t, specctl, cloneB, "up", "--summarize=false", "--specd", filepath.Join(bin, "specd"), "--clm-mod", "", "--out", outB)
+	sessionA, sessionB := phase13Session(t, outA), phase13Session(t, outB)
+	if sessionA.KcpPort == 0 || sessionA.KcpPort == sessionB.KcpPort || sessionA.KinePort == sessionB.KinePort || sessionA.KcpRoot == sessionB.KcpRoot {
+		t.Fatalf("the two clones do not run their own kcp: %+v %+v", sessionA, sessionB)
+	}
 	if !strings.Contains(upB, "restored") || !strings.Contains(upB, "the branch on origin") {
 		t.Fatalf("clone B did not restore from the remote branch:\n%s", upB)
 	}

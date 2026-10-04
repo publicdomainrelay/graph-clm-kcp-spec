@@ -33,7 +33,15 @@ type Record struct {
 
 	KcpPort int `json:"kcpPort"`
 
+	KcpURL string `json:"kcpURL"`
+
+	KcpPid int `json:"kcpPid"`
+
 	KinePort int `json:"kinePort"`
+
+	KineURL string `json:"kineURL"`
+
+	KinePid int `json:"kinePid"`
 
 	SpecdPid int `json:"specdPid,omitempty"`
 
@@ -48,8 +56,13 @@ func Dir() string {
 	return filepath.Join(statedir.Dir(), "sessions")
 }
 
-func KcpRoot() string {
-	return filepath.Join(statedir.Dir(), "kcp")
+func RepoDir(repo string) string {
+	sum := sha256.Sum256([]byte(repo))
+	return filepath.Join(statedir.Dir(), "repos", filepath.Base(repo)+"-"+hex.EncodeToString(sum[:])[:8])
+}
+
+func KcpRoot(repo string) string {
+	return filepath.Join(RepoDir(repo), "kcp")
 }
 
 func DeployDir() string {

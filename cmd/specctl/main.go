@@ -389,12 +389,14 @@ usage:
       writes kcp to the orphan branch open-architecture/<repository> and merges
       a reviewed edit on that branch back into kcp; never touches the tree
   specctl up [--repo .] [--repository <name>] [--summarize=true] [--agent <kind>] [--remote origin] [--push]
-      in a cloned repository: start the user's kcp (state outside the tree),
+      in a cloned repository: start this repository's own kcp and kine on
+      kernel-assigned ports (state outside the tree; many repositories run
+      side by side; --out <file> writes the bound ports and urls as JSON),
       restore the architecture from open-architecture/<repository> when the
       clone or its remote has it, else index the code and build the specs,
       then run specd; every later specctl call in the repo finds this session
   specctl arch outline [--repository <name>] [-o text|json]
-  specctl down [--repo .] [--kcp]
+  specctl down [--repo .] [--keep-kcp]
   specctl status [--repo .]
   specctl env [--repo .] [-o sh|json|server]
   specctl restore [--repo <path>] [--repository <name>] [--remote origin]
