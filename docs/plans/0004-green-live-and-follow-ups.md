@@ -25,9 +25,10 @@ and the live acceptance (`gate: true` once it can pass). Done when
 `specctl accept` is green on the PR branch twice in a row, the commits are
 pushed, and PR #1 states the dependency on kcp-libs#1 and shows the green table.
 
-**Status: not done -- two of the four red items are fixed and landed, two are
-outside deno-kcp.** The full run, the tables and the evidence are in
-`docs/examples/deno-kcp-pr.md` (Plan 0004 D).
+**Status: not done -- the acceptance passes 15 of its 16 checks and the last one
+is outside deno-kcp.** Four fixes landed across two repositories and a fifth
+requirement amendment corrected one of the acceptance's own checks. The full run,
+the tables and the evidence are in `docs/examples/deno-kcp-pr.md` (Plan 0004 D).
 
 - **Items 1 and 2 are one defect, and it is fixed.** The provider's wildcard
   informer store keys objects by namespace and name with no workspace, so the
@@ -44,19 +45,30 @@ outside deno-kcp.** The full run, the tables and the evidence are in
   (accept.sh detects a provider that reconciled nothing, restarts it while no
   workload exists, and re-runs apply.sh, up to three attempts) in
   `deploy-examples-atproto-market`; both realized as `89cee50`.
-- **The acceptance is red on two checks, both outside deno-kcp.** The bidder
-  crash-loops on a 404 from its PLC genesis `POST`; the client, `hono-plc` and
-  the kcpdns shim all succeed standalone and through the shim, so the 404 exists
-  only in the cluster topology and needs the PLC's request log. The verifier now
-  creates the account, resolves the DID and makes both writes (all 200) and
-  fails only on `relayFrames: 0` / `relaySawCommit: timeout` -- the
-  PDS-to-relay `subscribeRepos` path.
+- **Item 3 was a kcpdns bug in kcp-libs.** The shim dropped a `Request` input
+  and sent its `POST` as a bare `GET`, so the bidder's DID registration arrived
+  as a resolve and came back 404; the bidder crash-looped on `PlcNotFoundError`
+  forever. Requirements `r.dnsshim-fetch-preserves-the-request` and its test in
+  `impl-assets`, through kcp-libs's own flow; realized as `f9e2ef3` on
+  [kcp-libs#1](https://github.com/publicdomainrelay/kcp-libs/pull/1).
+- **A fifth change corrected the acceptance itself.** `r.live-acceptance-script`
+  amended so the bidder's host check is `http://`: the bidder must not take TLS
+  flags (`hono-bidder` rejects them), so it consumes only the trust bundle and
+  serves plain HTTP. Realized as `e33a558`.
+- **The one check left** is the verifier's `relaySawCommit`: the `subscribeRepos`
+  WebSocket receives frames now (`relayFrames 3`), but none carries the
+  verifier's own commit inside the watch's 90 s window. That is the PDS
+  announcing its write to the relay (`hono-pds` -> `hono-atproto-relay`), a
+  sibling-repository path, and it wants those two services' logs from a live run.
 - Environment facts: the acceptance needs siblings that carry the TLS support
-  (the clones handed to the run predate it; `ORG_ROOT` is now on the step), and
-  its scratch must not be on the 24 GB `/tmp` tmpfs (`TMPDIR` is now on the
-  step), because a crash-looping pod writes ~14 MB per restart.
-- The gate is back to `gate: true` while red. The two fixes above had to land
-  with it relaxed to `gate: false` by hand; part C's stated escape
+  (the clones handed to the run predate it; `ORG_ROOT` is now on the step); its
+  scratch must not be on the 24 GB `/tmp` tmpfs (`TMPDIR` is now on the step); and
+  a finished run leaves its workloads holding the example's fixed host ports
+  (2583-2587), so it is not repeatable on one machine without killing them first.
+  Making it so needs the workloads stopped explicitly, which is not in this
+  branch.
+- The gate is back to `gate: true` while red. All five changes had to land with
+  it relaxed to `gate: false` by hand; part C's stated escape
   (`specctl accept --override`) still does not exist.
 
 ## E - hydradb follow-ups
