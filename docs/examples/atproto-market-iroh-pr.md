@@ -307,6 +307,7 @@ specctl down
 | step | value |
 | --- | --- |
 | clone + sibling clones | 15 s |
+| hydradb commit | not recorded at the time; review 0002 found `d427ec1`, four commits behind HEAD, so `fba6e7b` was missing (plan 0006 F1 makes the script record and check it) |
 | `specctl up` to `Populated` (81 contexts summarized) | 15 min 15 s |
 | harness: research + spec edit (9 contexts, 10 changes) | 5 min 11 s |
 | first realize round (all failed: wrong sibling revisions) | 23 min, 9 contexts x 3 attempts |
