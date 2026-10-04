@@ -418,6 +418,10 @@ func runDown(args []string, stdout, stderr io.Writer) int {
 	}
 	if !*keepKcp {
 		kcpproc.Stop(instanceOf(record))
+		if live := kcpproc.Running(record.KcpRoot); len(live) > 0 {
+			fmt.Fprintf(stderr, "specctl down: kcp %s still has process(es) %v alive under %s; the session is kept\n", record.KcpURL, live, record.KcpRoot)
+			return exitError
+		}
 		fmt.Fprintf(stdout, "kcp %s and kine stopped\n", record.KcpURL)
 	}
 	if err := session.Remove(record.Repo, record.Branch); err != nil {

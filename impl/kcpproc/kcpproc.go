@@ -184,6 +184,7 @@ func Probe(root string) (Instance, bool) {
 	if err != nil {
 		instance = Instance{Root: root, AdminKubeconfig: filepath.Join(root, "admin.kubeconfig")}
 	}
+	instance = fillPids(root, instance)
 	if Ready(instance) {
 		return refreshKine(instance), true
 	}
@@ -193,9 +194,86 @@ func Probe(root string) (Instance, bool) {
 	}
 	instance.KcpPort = port
 	instance.KcpURL = "https://127.0.0.1:" + strconv.Itoa(port)
-	instance.KcpPid = pidFromFile(filepath.Join(root, "kcp.pid"))
-	instance.KinePid = pidFromFile(filepath.Join(root, "kine.pid"))
+	instance = fillPids(root, instance)
 	return refreshKine(instance), true
+}
+
+func fillPids(root string, instance Instance) Instance {
+	if owns(instance.KcpPid, root) && owns(instance.KinePid, root) {
+		return instance
+	}
+	scannedKcp, scannedKine := ScanPids(root)
+	if !owns(instance.KcpPid, root) {
+		instance.KcpPid = scannedKcp
+	}
+	if !owns(instance.KinePid, root) {
+		instance.KinePid = scannedKine
+	}
+	return instance
+}
+
+// ScanPids finds the kcp and kine processes whose command line names this
+// instance root, so an adopted instance carries pids even when it was started
+// by another specctl invocation that left no endpoint or pid files.
+func ScanPids(root string) (int, int) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 0, 0
+	}
+	cleaned := filepath.Clean(root)
+	self := os.Getpid()
+	kcpPid, kinePid := 0, 0
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid == self || !alive(pid) {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
+		if err != nil {
+			continue
+		}
+		fields := strings.Fields(strings.ReplaceAll(string(data), "\x00", " "))
+		if len(fields) == 0 {
+			continue
+		}
+		switch filepath.Base(fields[0]) {
+		case "kcp":
+			if value, found := flagValue(fields, "--root-directory"); found && filepath.Clean(value) == cleaned {
+				kcpPid = pid
+			}
+		case "kine":
+			if value, found := flagValue(fields, "--endpoint"); found && filepath.Clean(strings.TrimPrefix(value, "sqlite://")) == filepath.Join(cleaned, "kine.db") {
+				kinePid = pid
+			}
+		}
+	}
+	return kcpPid, kinePid
+}
+
+// Running reports the pids of the kcp and kine processes still alive for this
+// instance root; a caller that just stopped an instance uses it to prove the
+// processes are gone.
+func Running(root string) []int {
+	kcpPid, kinePid := ScanPids(root)
+	pids := []int{}
+	for _, pid := range []int{kcpPid, kinePid} {
+		if pid > 0 {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+func flagValue(fields []string, name string) (string, bool) {
+	for index, field := range fields {
+		if value, found := strings.CutPrefix(field, name+"="); found {
+			return value, true
+		}
+		if field == name && index+1 < len(fields) {
+			return fields[index+1], true
+		}
+	}
+	return "", false
 }
 
 func refreshKine(instance Instance) Instance {
@@ -233,18 +311,6 @@ func kineAddressFromProc(pid int) string {
 	return ""
 }
 
-func pidFromFile(path string) int {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0
-	}
-	return pid
-}
-
 func Ready(instance Instance) bool {
 	if instance.KcpPort == 0 || !owns(instance.KcpPid, instance.Root) || !owns(instance.KinePid, instance.Root) {
 		return false
@@ -253,8 +319,18 @@ func Ready(instance Instance) bool {
 }
 
 func Stop(instance Instance) {
-	terminate(instance.KcpPid, instance.Root)
-	terminate(instance.KinePid, instance.Root)
+	kcpPid, kinePid := instance.KcpPid, instance.KinePid
+	if !owns(kcpPid, instance.Root) || !owns(kinePid, instance.Root) {
+		scannedKcp, scannedKine := ScanPids(instance.Root)
+		if !owns(kcpPid, instance.Root) {
+			kcpPid = scannedKcp
+		}
+		if !owns(kinePid, instance.Root) {
+			kinePid = scannedKine
+		}
+	}
+	terminate(kcpPid, instance.Root)
+	terminate(kinePid, instance.Root)
 }
 
 func Terminate(pid int, root string) {
@@ -399,13 +475,21 @@ func terminate(pid int, root string) {
 		return
 	}
 	_ = syscall.Kill(pid, syscall.SIGTERM)
+	if waitGone(pid) {
+		return
+	}
+	_ = syscall.Kill(pid, syscall.SIGKILL)
+	waitGone(pid)
+}
+
+func waitGone(pid int) bool {
 	for range 50 {
 		if !alive(pid) {
-			return
+			return true
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	_ = syscall.Kill(pid, syscall.SIGKILL)
+	return !alive(pid)
 }
 
 func lastLine(text string) string {

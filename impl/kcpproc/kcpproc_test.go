@@ -63,6 +63,43 @@ func TestFixedPortsAndEndpointRoundTrip(t *testing.T) {
 	}
 }
 
+func TestProbeAdoptsTheRealPidsAndStopWaitsForThem(t *testing.T) {
+	requireKcp(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	root := t.TempDir()
+	instance, err := Start(ctx, Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { Stop(instance) })
+
+	probed, ok := Probe(root)
+	if !ok {
+		t.Fatalf("Probe did not adopt the running instance at %s", root)
+	}
+	if probed.KcpPid != instance.KcpPid || probed.KinePid != instance.KinePid {
+		t.Fatalf("Probe adopted pids %d/%d, want the real %d/%d",
+			probed.KcpPid, probed.KinePid, instance.KcpPid, instance.KinePid)
+	}
+	if !owns(probed.KcpPid, root) || !owns(probed.KinePid, root) {
+		t.Fatalf("Probe adopted pids that do not name %s: %+v", root, probed)
+	}
+	if got := Running(root); len(got) != 2 {
+		t.Fatalf("Running = %v, want the kcp and kine pids", got)
+	}
+
+	Stop(probed)
+	if alive(instance.KcpPid) || alive(instance.KinePid) {
+		t.Fatalf("Stop left a process alive: kcp %d alive=%v, kine %d alive=%v",
+			instance.KcpPid, alive(instance.KcpPid), instance.KinePid, alive(instance.KinePid))
+	}
+	if got := Running(root); len(got) != 0 {
+		t.Fatalf("Running after Stop = %v, want none", got)
+	}
+}
+
 func freePort(t *testing.T) int {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

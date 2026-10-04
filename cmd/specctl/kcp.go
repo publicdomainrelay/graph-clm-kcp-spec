@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpproc"
 )
@@ -129,28 +128,24 @@ func runKcpStop(args []string, stdout, stderr io.Writer) int {
 	}
 	*root = absolute
 
+	running := kcpproc.Running(*root)
 	if instance, err := kcpproc.LoadEndpoint(*root); err == nil {
 		kcpproc.Stop(instance)
-		removeQuietly(kcpproc.EndpointPath(*root), filepath.Join(*root, "kcp.pid"), filepath.Join(*root, "kine.pid"))
-		fmt.Fprintf(stdout, "kcp and kine stopped for %s\n", *root)
-		return exitOK
+	} else {
+		for _, pid := range running {
+			kcpproc.Terminate(pid, *root)
+		}
 	}
-
-	pids, err := pidsForRoot(*root)
-	if err != nil {
-		fmt.Fprintf(stderr, "specctl kcp stop: %v\n", err)
+	if live := kcpproc.Running(*root); len(live) > 0 {
+		fmt.Fprintf(stderr, "specctl kcp stop: %s still has process(es) %v alive\n", *root, live)
 		return exitError
 	}
-	if len(pids) == 0 {
+	if len(running) == 0 {
 		fmt.Fprintf(stdout, "nothing running for %s\n", *root)
-		removeQuietly(filepath.Join(*root, "kcp.pid"), filepath.Join(*root, "kine.pid"))
-		return exitOK
+	} else {
+		fmt.Fprintf(stdout, "kcp and kine stopped for %s\n", *root)
 	}
-	for _, pid := range pids {
-		kcpproc.Terminate(pid, *root)
-	}
-	removeQuietly(filepath.Join(*root, "kcp.pid"), filepath.Join(*root, "kine.pid"))
-	fmt.Fprintf(stdout, "kcp and kine stopped for %s\n", *root)
+	removeQuietly(kcpproc.EndpointPath(*root), filepath.Join(*root, "kcp.pid"), filepath.Join(*root, "kine.pid"))
 	return exitOK
 }
 
@@ -211,36 +206,4 @@ func removeQuietly(paths ...string) {
 	for _, path := range paths {
 		_ = os.Remove(path)
 	}
-}
-
-func pidsForRoot(root string) ([]int, error) {
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return nil, err
-	}
-	self := os.Getpid()
-	pids := []int{}
-	for _, entry := range entries {
-		pid, err := strconv.Atoi(entry.Name())
-		if err != nil || pid == self {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
-		if err != nil {
-			continue
-		}
-		cmdline := strings.ReplaceAll(string(data), "\x00", " ")
-		if !strings.Contains(cmdline, root) {
-			continue
-		}
-		fields := strings.Fields(cmdline)
-		if len(fields) == 0 {
-			continue
-		}
-		switch filepath.Base(fields[0]) {
-		case "kcp", "kine":
-			pids = append(pids, pid)
-		}
-	}
-	return pids, nil
 }
