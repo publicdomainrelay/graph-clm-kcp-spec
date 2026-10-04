@@ -1,7 +1,6 @@
 package mirror
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
@@ -65,83 +64,5 @@ func TestRenderAndParseRoundTrip(t *testing.T) {
 func TestParseRejectsAnotherKind(t *testing.T) {
 	if _, err := Parse("calc", []byte("kind: Repository\nmetadata:\n  name: calc\n")); err == nil {
 		t.Fatal("a Repository document was accepted")
-	}
-}
-
-func TestApplyKeepsWhatTheToolOwns(t *testing.T) {
-	live := spec.SystemContextSpec{Repository: "calc", Intent: "old", CodeRefs: []string{"file:calc/calc.go"}}
-	file := spec.SystemContextSpec{Intent: "new", Interfaces: []spec.Interface{{Name: "Add"}}}
-	merged, err := Apply(live, file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if merged.Intent != "new" || len(merged.Interfaces) != 1 {
-		t.Errorf("the file's declared state did not win: %+v", merged)
-	}
-	if merged.Repository != "calc" || len(merged.CodeRefs) != 1 {
-		t.Errorf("the tool-owned fields did not survive: %+v", merged)
-	}
-	if _, err := Apply(live, spec.SystemContextSpec{Repository: "greet"}); err == nil {
-		t.Fatal("a file that moves the context to another repository was accepted")
-	}
-}
-
-func TestResolveConflictRule(t *testing.T) {
-	const last = "aaaaaaaaaaaaaaaa"
-	cases := []struct {
-		name      string
-		direction Direction
-		prefer    Prefer
-		state     State
-		pull      bool
-		push      bool
-		conflict  bool
-	}{
-		{name: "a missing file is a pull, whatever the direction", direction: Both, state: State{Kcp: "k1"}, pull: true},
-		{name: "push alone does nothing without a file", direction: Push, state: State{Kcp: "k1"}},
-		{name: "the file moved, so push applies it and the pull waits for the re-read", direction: Both, state: State{HasFile: true, Last: last, Kcp: last, File: "f1"}, push: true},
-		{name: "a pull-only run writes the file kcp holds", direction: Pull, state: State{HasFile: true, Last: last, Kcp: last, File: "f1"}, pull: true},
-		{name: "kcp moved, so pull writes the file and push leaves kcp alone", direction: Both, state: State{HasFile: true, Last: last, Kcp: "k2", File: last}, pull: true},
-		{name: "both moved is a conflict", direction: Both, state: State{HasFile: true, Last: last, Kcp: "k2", File: "f2"}, conflict: true},
-		{name: "both moved, kcp wins", direction: Both, prefer: PreferKCP, state: State{HasFile: true, Last: last, Kcp: "k2", File: "f2"}, pull: true},
-		{name: "both moved, the file wins", direction: Both, prefer: PreferGit, state: State{HasFile: true, Last: last, Kcp: "k2", File: "f2"}, push: true},
-		{name: "both sides agree and the baseline was behind", direction: Both, state: State{HasFile: true, Last: last, Kcp: "k2", File: "k2"}},
-		{name: "a first pull adopts kcp as the baseline", direction: Pull, state: State{HasFile: true, Kcp: "k1", File: "f1"}, pull: true},
-		{name: "a pull alone never clobbers a file that moved with kcp quiet", direction: Pull, state: State{HasFile: true, Last: last, Kcp: last, File: "f1"}, pull: true},
-	}
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			action, err := Resolve(testCase.direction, testCase.prefer, testCase.state)
-			if testCase.conflict {
-				if !errors.Is(err, ErrConflict) {
-					t.Fatalf("err = %v, want a conflict", err)
-				}
-				if !strings.Contains(err.Error(), "--prefer") {
-					t.Errorf("the conflict does not say how to resolve it: %v", err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if action.Pull != testCase.pull || action.Push != testCase.push {
-				t.Errorf("action = %+v, want pull=%v push=%v", action, testCase.pull, testCase.push)
-			}
-			if action.Note == "" {
-				t.Error("an action carries no note")
-			}
-		})
-	}
-}
-
-func TestParseDirectionAndPrefer(t *testing.T) {
-	if _, err := ParseDirection("sideways"); err == nil {
-		t.Fatal("an unknown direction was accepted")
-	}
-	if _, err := ParsePrefer("mine"); err == nil {
-		t.Fatal("an unknown preference was accepted")
-	}
-	if got, err := ParseDirection("both"); err != nil || got != Both {
-		t.Fatalf("both = %q, %v", got, err)
 	}
 }

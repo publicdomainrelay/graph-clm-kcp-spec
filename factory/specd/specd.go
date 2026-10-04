@@ -134,9 +134,11 @@ type Options struct {
 
 	ManagedBudget int
 
-	// SpecMirror writes each context's `.specs/<name>.yaml` into the realize
-	// worktree, so one commit carries the spec and the code together.
-	SpecMirror bool
+	Persist bool
+
+	PersistDelay time.Duration
+
+	PersistRemote string
 
 	MaxAttempts int
 
@@ -239,6 +241,9 @@ func New(opts Options) (*Controller, error) {
 	}
 	if opts.RetryBackoff <= 0 {
 		opts.RetryBackoff = DefaultRetryBackoff
+	}
+	if opts.PersistDelay <= 0 {
+		opts.PersistDelay = DefaultPersistDelay
 	}
 
 	opts.Agent = agentKind(opts)
@@ -442,13 +447,22 @@ func (c *Controller) reconcile(ctx context.Context, item key) (time.Duration, er
 	// cluster: empty in the workspace mode, the bound workspace in the export
 	// mode.
 	ctx = watch.WithCluster(ctx, item.Cluster)
+	var requeue time.Duration
+	var err error
 	switch item.Kind {
 	case specapi.RepositoryKind:
-		return c.reconcileRepository(ctx, namespace, item.Name)
+		requeue, err = c.reconcileRepository(ctx, namespace, item.Name)
 	case specapi.SystemContextKind:
-		return c.reconcileSystemContext(ctx, namespace, item.Name)
+		requeue, err = c.reconcileSystemContext(ctx, namespace, item.Name)
 	case specapi.SpecChangeKind:
-		return c.reconcileSpecChange(ctx, namespace, item.Name)
+		requeue, err = c.reconcileSpecChange(ctx, namespace, item.Name)
+	case PersistKind:
+		return c.reconcilePersist(ctx, namespace, item.Name)
+	default:
+		return 0, fmt.Errorf("specd: no reconciler for %q", item.Kind)
 	}
-	return 0, fmt.Errorf("specd: no reconciler for %q", item.Kind)
+	if err == nil {
+		c.schedulePersist(ctx, item)
+	}
+	return requeue, err
 }

@@ -261,11 +261,10 @@ func TestPhase7OneManifestPopulatesAnUnknownCodebase(t *testing.T) {
 		}
 	}
 
-	// The summarize left its document in the clone, the only tree there is.
-	document := filepath.Join(repository.Status.ResolvedPath, ".specs", "context", "greet.md")
-	if _, err := os.Stat(document); err != nil {
-		t.Errorf("the context document is missing from the clone: %v", err)
+	if _, err := os.Stat(contextDocPath(repository.Name, "greet")); err != nil {
+		t.Errorf("the context document is missing from the state dir: %v", err)
 	}
+	assertNoSpecArtefacts(t, repository.Status.ResolvedPath)
 
 	// Nothing moves once the manifest has been answered.
 	quiet := phase4Snapshot(t, ctx, client, phase7Contexts)

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"maps"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -189,7 +188,7 @@ func TestRunWritesTheSpecEndsTheDriftAndLeavesADocument(t *testing.T) {
 		t.Errorf("realizedSpecHash = %q, want %q", typed.Status.RealizedSpecHash, result.SpecHash)
 	}
 
-	document := filepath.Join(repository.Spec.Path, ".specs", "context", "calc.md")
+	document := contextDocPath("calc", "calc")
 	contents, err := os.ReadFile(document)
 	if err != nil {
 		t.Fatalf("context document: %v", err)
@@ -248,7 +247,7 @@ func TestSummarizingTwiceLeavesTheDocumentByteIdentical(t *testing.T) {
 	if _, err := Run(context.Background(), options); err != nil {
 		t.Fatal(err)
 	}
-	document := filepath.Join(repository.Spec.Path, ".specs", "context", "calc.md")
+	document := contextDocPath("calc", "calc")
 	first, err := os.ReadFile(document)
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +278,7 @@ func TestTheWrittenDocumentParsesAsACLMModelZone(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	contents, err := os.ReadFile(filepath.Join(repository.Spec.Path, ".specs", "context", "calc.md"))
+	contents, err := os.ReadFile(contextDocPath("calc", "calc"))
 	if err != nil {
 		t.Fatal(err)
 	}

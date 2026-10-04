@@ -176,9 +176,9 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 	})
 	applyTyped(t, ctx, client, phase6Baseline())
 
-	// No --agent: the Repository names the scripted agent, which is the review
-	// gap phase 5 left. --specs-mirror is on, so the commit carries the
-	// context's `.specs/<name>.yaml` beside the code.
+	// No --agent: the Repository names the scripted agent. Persistence is on,
+	// so every change of kcp lands on the orphan open-architecture/calc branch
+	// and none of it on the code branch.
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   filepath.Join(root, ".kcp-specd", "admin.kubeconfig"),
 		Workspace:    "root:specs",
@@ -188,7 +188,8 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 		Resync:       500 * time.Millisecond,
 		MaxAttempts:  3,
 		RetryBackoff: time.Second,
-		SpecMirror:   true,
+		Persist:      true,
+		PersistDelay: 200 * time.Millisecond,
 		Log:          logging.Discard(),
 	})
 	if err != nil {
@@ -284,14 +285,14 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 	if succeeded.Status.VerifyExitCode != 0 {
 		t.Errorf("verifyExitCode = %d, want 0", succeeded.Status.VerifyExitCode)
 	}
-	// The spec mirror is part of the commit, so one commit carries the spec and
-	// the code: `.specs/calc.yaml` sorts first, and it holds the realized spec.
-	if strings.Join(succeeded.Status.FilesTouched, ",") != ".specs/calc.yaml,calc/calc.go,calc/subtract_test.go" {
-		t.Errorf("filesTouched = %v", succeeded.Status.FilesTouched)
+	if strings.Join(succeeded.Status.FilesTouched, ",") != "calc/calc.go,calc/subtract_test.go" {
+		t.Errorf("filesTouched = %v, want the code only", succeeded.Status.FilesTouched)
 	}
-	if !strings.Contains(gitOutput(t, repoPath, "show", succeeded.Status.Commit+":.specs/calc.yaml"), "name: calc") {
-		t.Error("the commit does not carry the context's spec mirror")
+	if message := gitOutput(t, repoPath, "log", "-1", "--format=%B", succeeded.Status.Commit); !strings.Contains(message, "Spec-Change: "+succeeded.Name) || !strings.Contains(message, "Open-Architecture: open-architecture/calc") {
+		t.Errorf("the code commit lacks its trailers:\n%s", message)
 	}
+	assertNoSpecArtefacts(t, repoPath)
+	waitForOrphanSpec(t, repoPath, "calc", "Subtract", succeeded.Status.Commit)
 
 	// The commit is on the managed branch, signed by the tool, and the tree
 	// really has the code with its tests passing.
@@ -576,5 +577,25 @@ func runGoTest(t *testing.T, dir string) {
 	command.Dir = dir
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("go test ./... in %s: %v\n%s", dir, err, output)
+	}
+}
+
+func waitForOrphanSpec(t *testing.T, repoPath, context, want, codeCommit string) {
+	t.Helper()
+	branch := "open-architecture/" + context
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		spec, specErr := exec.Command("git", "-C", repoPath, "show", branch+":specs/"+context+".yaml").CombinedOutput()
+		log, logErr := exec.Command("git", "-C", repoPath, "log", "--format=%B", branch).CombinedOutput()
+		if specErr == nil && logErr == nil && strings.Contains(string(spec), want) && strings.Contains(string(log), "Code-Commit: "+codeCommit) {
+			if out, err := exec.Command("git", "-C", repoPath, "merge-base", "HEAD", branch).CombinedOutput(); err == nil {
+				t.Fatalf("%s shares history with the code: %s", branch, out)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s never carried %q and Code-Commit %s:\n%s\n%s", branch, want, codeCommit, spec, log)
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
 }

@@ -11,8 +11,8 @@ import (
 // ReadContextDoc returns the model zone of a context document. A missing
 // document is not an error: the first summarize of a context starts from an
 // empty model zone.
-func ReadContextDoc(repoPath, context string) (string, error) {
-	path := agent.ContextDocPath(repoPath, context)
+func ReadContextDoc(docDir, repository, context string) (string, error) {
+	path := agent.ContextDocPath(docDir, repository, context)
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -27,15 +27,15 @@ func ReadContextDoc(repoPath, context string) (string, error) {
 // WriteContextDoc puts the model zone above a managed zone regenerated from the
 // observed facts. An empty model zone keeps what the document already holds, so
 // a summarize that produced no prose does not erase the last summary.
-func WriteContextDoc(repoPath, context, modelZone string, refs []agent.ResolvedRef, managedBudget int) (string, error) {
+func WriteContextDoc(docDir, repository, context, modelZone string, refs []agent.ResolvedRef, managedBudget int) (string, error) {
 	if modelZone == "" {
-		existing, err := ReadContextDoc(repoPath, context)
+		existing, err := ReadContextDoc(docDir, repository, context)
 		if err != nil {
 			return "", err
 		}
 		modelZone = existing
 	}
-	path := agent.ContextDocPath(repoPath, context)
+	path := agent.ContextDocPath(docDir, repository, context)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("bundle: create %s: %w", filepath.Dir(path), err)
 	}

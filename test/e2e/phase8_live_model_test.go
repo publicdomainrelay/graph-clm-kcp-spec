@@ -198,13 +198,11 @@ func TestPhase8LiveModelRealizesWithTheMod(t *testing.T) {
 		t.Errorf("verifyExitCode = %d, want 0 (%s)", succeeded.Status.VerifyExitCode, succeeded.Status.Message)
 	}
 
-	// The context document the mod rendered is in the commit: the file the
-	// model reads and the file the controller maintains are the same one, and
-	// it travelled with the code.
-	document := filepath.Join(repoPath, ".specs", "context", "calc.md")
+	document := contextDocPath("calc", "calc")
 	if _, err := os.Stat(document); err != nil {
 		t.Errorf("the mod did not render %s: %v", document, err)
 	}
+	assertNoSpecArtefacts(t, repoPath)
 	if shown := gitOutput(t, repoPath, "show", "--stat", "--format=", "-1"); !strings.Contains(shown, "calc/calc.go") {
 		t.Errorf("the commit does not touch the code:\n%s", shown)
 	}

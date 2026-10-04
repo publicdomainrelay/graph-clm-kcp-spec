@@ -18,13 +18,13 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/oabranch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/bundle"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/gitrepo"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/specsync"
 )
 
 const (
@@ -90,11 +90,6 @@ type Options struct {
 	Tool string
 
 	VerifyTimeout time.Duration
-
-	// SpecMirror writes this context's `.specs/<name>.yaml` into the worktree
-	// before the commit, so the spec and the code land in one commit and a pull
-	// request carries both.
-	SpecMirror bool
 }
 
 // Result is what one realize attempt reports. VerifyExitCode is zero when the
@@ -225,13 +220,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		return result, &VerifyError{Command: verifyCommand, ExitCode: exitCode, Output: output}
 	}
 
-	if options.SpecMirror {
-		if _, _, err := specsync.WriteFile(options.Worktree, *systemContext); err != nil {
-			return result, err
-		}
-	}
-
-	commit, err := gitrepo.CommitAll(ctx, options.Worktree, commitMessage(options.Context, options.Delta))
+	commit, err := gitrepo.CommitAll(ctx, options.Worktree, commitMessage(options.Context, options.Change, options.Repository.Name, options.Delta))
 	if err != nil {
 		return result, err
 	}
@@ -341,8 +330,15 @@ func verify(ctx context.Context, command []string, dir string, timeout time.Dura
 	return -1, tail(string(output) + "\n" + err.Error())
 }
 
-func commitMessage(context string, change spec.Delta) string {
-	return fmt.Sprintf("realize %s: %s", context, deltaSummary(change))
+func commitMessage(context, change, repository string, delta spec.Delta) string {
+	message := fmt.Sprintf("realize %s: %s\n\n", context, deltaSummary(delta))
+	if change != "" {
+		message += oabranch.SpecChangeTrailer + ": " + change + "\n"
+	}
+	if repository != "" {
+		message += oabranch.OpenArchitectureTrailer + ": " + oabranch.Branch(repository) + "\n"
+	}
+	return message
 }
 
 func deltaSummary(change spec.Delta) string {

@@ -248,8 +248,8 @@ func TestPhase5CodeToSpecWithTheScriptedAgent(t *testing.T) {
 		t.Errorf("the ingest write raised a SpecToCode change: %+v", found)
 	}
 
-	// The context document is a real file in the managed tree.
-	document, err := os.ReadFile(filepath.Join(repoPath, ".specs", "context", "calc.md"))
+	assertNoSpecArtefacts(t, repoPath)
+	document, err := os.ReadFile(contextDocPath("calc", "calc"))
 	if err != nil {
 		t.Fatalf("the context document was not written: %v", err)
 	}

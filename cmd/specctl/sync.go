@@ -2,57 +2,38 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/mirror"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/oabranch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/specsync"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/persist"
 )
 
-// runSync mirrors one repository's specs to and from `<repo>/.specs/*.yaml`, so
-// a pull request carries the spec and the code together.
 func runSync(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("specctl sync", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	repo := fs.String("repo", "", "working tree of the repository to mirror")
+	repo := fs.String("repo", ".", "git working tree whose open-architecture branch to sync")
 	repository := fs.String("repository", "", "Repository name; default is the one whose resolved path is --repo")
-	direction := fs.String("direction", "both", "pull, push or both")
-	prefer := fs.String("prefer", "", "which side wins a conflict: kcp or git; empty refuses")
+	remote := fs.String("remote", "", "git remote to push the open-architecture branch to; empty pushes nothing")
 	options := addGlobals(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	if *repo == "" {
-		fmt.Fprintln(stderr, "specctl sync: --repo is required")
-		return exitUsage
-	}
-	parsedDirection, err := mirror.ParseDirection(*direction)
-	if err != nil {
-		fmt.Fprintf(stderr, "specctl sync: %v\n", err)
-		return exitUsage
-	}
-	parsedPrefer, err := mirror.ParsePrefer(*prefer)
-	if err != nil {
-		fmt.Fprintf(stderr, "specctl sync: %v\n", err)
-		return exitUsage
-	}
-	dir, err := filepath.Abs(*repo)
+	dir, err := repoDir(*repo)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl sync: %v\n", err)
 		return exitError
 	}
-	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		fmt.Fprintf(stderr, "specctl sync: %s is not a directory\n", dir)
-		return exitError
-	}
-
 	ctx := context.Background()
 	client, err := options.client()
 	if err != nil {
@@ -67,40 +48,115 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 			return exitError
 		}
 	}
-
-	result, err := specsync.Run(ctx, specsync.Options{
+	result, err := persist.Persist(ctx, persist.Options{
 		Cluster:    client,
 		Namespace:  options.namespace,
 		Repository: name,
-		Dir:        dir,
-		Direction:  parsedDirection,
-		Prefer:     parsedPrefer,
+		RepoPath:   dir,
+		Remote:     *remote,
+		Adopt:      true,
 	})
-	for _, record := range result.Records {
-		action := "skip"
-		if record.Conflict {
-			action = "conflict"
-		} else if record.Pull && record.Push {
-			action = "push+pull"
-		} else if record.Pull {
-			action = "pull"
-		} else if record.Push {
-			action = "push"
-		}
-		fmt.Fprintf(stdout, "%-12s %-10s %s\n", record.Context, action, record.Note)
+	for _, context := range result.Created {
+		fmt.Fprintf(stdout, "%-24s created from the branch\n", context)
+	}
+	for _, context := range result.Imported {
+		fmt.Fprintf(stdout, "%-24s merged from the branch into kcp\n", context)
+	}
+	conflicted := make([]string, 0, len(result.Conflicts))
+	for context := range result.Conflicts {
+		conflicted = append(conflicted, context)
+	}
+	sort.Strings(conflicted)
+	for _, context := range conflicted {
+		fmt.Fprintf(stdout, "%-24s conflict: %s (kcp kept; edit the branch or kcp so they agree)\n", context, strings.Join(result.Conflicts[context], ", "))
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl sync: %v\n", err)
 		return exitError
 	}
-	fmt.Fprintf(stdout, "%s: %d contexts, %d pulled, %d pushed, %d skipped\n",
-		name, result.Checked, result.Pulled, result.Pushed, result.Skipped)
+	state := "unchanged"
+	if result.Committed {
+		state = fmt.Sprintf("committed %d path(s)", len(result.Paths))
+	}
+	fmt.Fprintf(stdout, "%s: %s at %s, %s", name, result.Branch, short(result.Commit), state)
+	if result.Pushed {
+		fmt.Fprintf(stdout, ", pushed to %s", *remote)
+	}
+	fmt.Fprintln(stdout)
+	if len(conflicted) > 0 {
+		return exitError
+	}
 	return exitOK
 }
 
-// repositoryForPath is the Repository whose resolved tree is this directory. It
-// is how `specctl sync --repo <path>` finds the name the SystemContexts carry
-// without asking for it twice.
+func runRestore(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("specctl restore", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repo := fs.String("repo", ".", "git working tree to restore the architecture of")
+	repository := fs.String("repository", "", "Repository name; default is the directory name of --repo")
+	remote := fs.String("remote", "origin", "git remote to fetch open-architecture/<repository> from when the clone lacks it; empty fetches nothing")
+	options := addGlobals(fs)
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	dir, err := repoDir(*repo)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl restore: %v\n", err)
+		return exitError
+	}
+	name := *repository
+	if name == "" {
+		name = ingest.SanitizeName(filepath.Base(dir))
+	}
+	client, err := options.client()
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl restore: %v\n", err)
+		return exitError
+	}
+	result, err := persist.Restore(context.Background(), persist.RestoreOptions{
+		Cluster:    client,
+		Namespace:  options.namespace,
+		Repository: name,
+		RepoPath:   dir,
+		Remote:     *remote,
+	})
+	if errors.Is(err, persist.ErrNoBranch) {
+		fmt.Fprintf(stderr, "specctl restore: %s has no %s locally or on %q; index it instead\n", dir, oabranch.Branch(name), *remote)
+		return exitError
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl restore: %v\n", err)
+		return exitError
+	}
+	from := "local branch"
+	if result.Fetched {
+		from = "fetched from " + *remote
+	}
+	fmt.Fprintf(stdout, "%s: restored %d context(s) from %s at %s (%s)\n", name, len(result.Contexts), result.Branch, short(result.Commit), from)
+	return exitOK
+}
+
+func repoDir(path string) (string, error) {
+	dir, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return "", fmt.Errorf("%s is not a directory", dir)
+	}
+	return dir, nil
+}
+
+func short(commit string) string {
+	if len(commit) > 12 {
+		return commit[:12]
+	}
+	if commit == "" {
+		return "(none)"
+	}
+	return commit
+}
+
 func repositoryForPath(ctx context.Context, client *kcpclient.Client, namespace, dir string) (string, error) {
 	listed, err := client.List(ctx, specapi.RepositoryGVR, namespace)
 	if err != nil {

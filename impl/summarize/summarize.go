@@ -6,6 +6,8 @@
 package summarize
 
 import (
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/statedir"
+
 	"context"
 	"fmt"
 
@@ -50,6 +52,8 @@ type Options struct {
 	NodeLimit int
 
 	ManagedBudget int
+
+	DocDir string
 }
 
 type Result struct {
@@ -186,7 +190,11 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		if err != nil {
 			return result, err
 		}
-		path, err := bundle.WriteContextDoc(options.Repository.WorkPath(), options.Context, modelZone,
+		docDir := options.DocDir
+		if docDir == "" {
+			docDir = statedir.ClmDocDir()
+		}
+		path, err := bundle.WriteContextDoc(docDir, options.Repository.Name, options.Context, modelZone,
 			bundle.ResolvedRefs(observed), options.ManagedBudget)
 		if err != nil {
 			return result, err

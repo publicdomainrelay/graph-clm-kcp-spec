@@ -119,14 +119,14 @@ func systemContext() *spec.SystemContext {
 
 func TestBuildReadsTheContextTheFactsAndTheDocument(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := WriteContextDoc(dir, "calc", "# Calc\n\nMy notes.", nil, 100); err != nil {
+	if _, err := WriteContextDoc(dir, "calc", "calc", "# Calc\n\nMy notes.", nil, 100); err != nil {
 		t.Fatal(err)
 	}
 	cluster := newFakeCluster()
 	cluster.put(systemContext())
 	cluster.put(repository(t, dir))
 
-	built, err := Build(context.Background(), Options{Cluster: cluster, Context: "calc"})
+	built, err := Build(context.Background(), Options{Cluster: cluster, Context: "calc", DocDir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,11 +256,11 @@ func TestBuildFailsWhenTheContextIsMissing(t *testing.T) {
 func TestWriteContextDocKeepsTheModelZoneAndRegeneratesTheManagedOne(t *testing.T) {
 	dir := t.TempDir()
 	refs := ResolvedRefs(systemContext().Status.Observed)
-	path, err := WriteContextDoc(dir, "calc", "# Calc\n\nSummary.", refs, 100)
+	path, err := WriteContextDoc(dir, "calc", "calc", "# Calc\n\nSummary.", refs, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(dir, ".specs", "context", "calc.md"); path != want {
+	if want := filepath.Join(dir, "calc", "calc.md"); path != want {
 		t.Errorf("path = %q, want %q", path, want)
 	}
 	contents, err := os.ReadFile(path)
@@ -272,7 +272,7 @@ func TestWriteContextDocKeepsTheModelZoneAndRegeneratesTheManagedOne(t *testing.
 	}
 
 	// A later run with no prose keeps the last summary and rewrites the zone.
-	if _, err := WriteContextDoc(dir, "calc", "", nil, 100); err != nil {
+	if _, err := WriteContextDoc(dir, "calc", "calc", "", nil, 100); err != nil {
 		t.Fatal(err)
 	}
 	contents, err = os.ReadFile(path)
@@ -288,7 +288,7 @@ func TestWriteContextDocKeepsTheModelZoneAndRegeneratesTheManagedOne(t *testing.
 }
 
 func TestReadContextDocTreatsAMissingFileAsAnEmptyModelZone(t *testing.T) {
-	model, err := ReadContextDoc(t.TempDir(), "calc")
+	model, err := ReadContextDoc(t.TempDir(), "calc", "calc")
 	if err != nil {
 		t.Fatal(err)
 	}

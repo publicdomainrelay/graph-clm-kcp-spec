@@ -302,8 +302,8 @@ func TestComposeContextDocAlwaysLeavesSomewhereToWrite(t *testing.T) {
 	}
 }
 
-func TestContextDocPathIsUnderTheRepository(t *testing.T) {
-	if got := ContextDocPath("/tmp/calc", "calc"); got != "/tmp/calc/.specs/context/calc.md" {
+func TestContextDocPathIsOutsideTheProjectTree(t *testing.T) {
+	if got := ContextDocPath("/state/clm", "calc", "calc"); got != "/state/clm/calc/calc.md" {
 		t.Errorf("path = %q", got)
 	}
 }

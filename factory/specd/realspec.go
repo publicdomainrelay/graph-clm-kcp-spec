@@ -227,7 +227,6 @@ func (c *Controller) realizeOptions(ctx context.Context, namespace string, chang
 		Base:          base,
 		Instruction:   c.retryInstruction(ctx, namespace, change),
 		Tool:          c.opts.Tool,
-		SpecMirror:    c.opts.SpecMirror,
 	}, nil
 }
 

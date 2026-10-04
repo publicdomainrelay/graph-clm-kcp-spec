@@ -77,10 +77,10 @@ func TestCommitMessageNamesTheContextAndTheDelta(t *testing.T) {
 			Op: spec.OpAdded, Name: "Subtract", To: &spec.Interface{Name: "Subtract"},
 		}},
 	}
-	if got := commitMessage("calc", change); got != "realize calc: +2" {
+	if got := commitMessage("calc", "calc-s2c-1", "calc", change); got != "realize calc: +2\n\nSpec-Change: calc-s2c-1\nOpen-Architecture: open-architecture/calc\n" {
 		t.Errorf("message = %q", got)
 	}
-	if got := commitMessage("calc", spec.Delta{}); got != "realize calc: no delta" {
+	if got := commitMessage("calc", "", "", spec.Delta{}); got != "realize calc: no delta\n\n" {
 		t.Errorf("message = %q", got)
 	}
 }

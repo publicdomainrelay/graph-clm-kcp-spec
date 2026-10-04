@@ -18,8 +18,6 @@ const (
 
 	ManagedEnd = "<!-- SPECD_MANAGED_END -->"
 
-	ContextDir = ".specs/context"
-
 	DefaultManagedBudget = 1500
 )
 
@@ -52,8 +50,8 @@ func FileRef(codeRef string) (ResolvedRef, bool) {
 	}, true
 }
 
-func ContextDocPath(repoPath, context string) string {
-	return path.Join(repoPath, ContextDir, context+".md")
+func ContextDocPath(docDir, repository, context string) string {
+	return path.Join(docDir, repository, context+".md")
 }
 
 // SplitContextDoc separates the model zone from the managed zone. A document

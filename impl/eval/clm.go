@@ -1,6 +1,8 @@
 package evalrun
 
 import (
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/statedir"
+
 	"context"
 	"fmt"
 	"os"
@@ -83,7 +85,11 @@ func (h *harness) renderContextDoc(ctx context.Context, name string) (string, er
 	if err != nil {
 		return "", fmt.Errorf("eval: render the context document of %s: %w: %s", name, err, firstLine(string(output)))
 	}
-	path := agent.ContextDocPath(h.dir, name)
+	repositoryName := ""
+	if h.repository != nil {
+		repositoryName = h.repository.Name
+	}
+	path := agent.ContextDocPath(statedir.ClmDocDir(), repositoryName, name)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", err
 	}

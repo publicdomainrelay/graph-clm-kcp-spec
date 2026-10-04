@@ -230,9 +230,7 @@ func TestSyncValidatesItsArguments(t *testing.T) {
 		args []string
 		code int
 	}{
-		{name: "no repo", args: []string{"sync"}, code: exitUsage},
-		{name: "unknown direction", args: []string{"sync", "--repo", ".", "--direction", "sideways"}, code: exitUsage},
-		{name: "unknown preference", args: []string{"sync", "--repo", ".", "--prefer", "mine"}, code: exitUsage},
+		{name: "removed direction flag", args: []string{"sync", "--repo", ".", "--direction", "pull"}, code: exitUsage},
 		{name: "missing tree", args: []string{"sync", "--repo", "/definitely/not/here"}, code: exitError},
 	}
 	for _, testCase := range cases {

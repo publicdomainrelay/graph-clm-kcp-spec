@@ -4,6 +4,8 @@
 package bundle
 
 import (
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/statedir"
+
 	"context"
 	"fmt"
 	"os"
@@ -59,6 +61,15 @@ type Options struct {
 	NodeLimit int
 
 	ManagedBudget int
+
+	DocDir string
+}
+
+func (o Options) docDir() string {
+	if o.DocDir != "" {
+		return o.DocDir
+	}
+	return statedir.ClmDocDir()
 }
 
 // Build reads one context and everything one hop from it. The graph and
@@ -113,7 +124,7 @@ func Build(ctx context.Context, options Options) (agent.ContextBundle, error) {
 	}
 
 	if repoPath != "" {
-		document, err := ReadContextDoc(repoPath, options.Context)
+		document, err := ReadContextDoc(options.docDir(), repositoryName, options.Context)
 		if err != nil {
 			return agent.ContextBundle{}, err
 		}

@@ -147,6 +147,9 @@ func TestCodeToSpecWritesTheSpecAndEndsTheEpisode(t *testing.T) {
 	if _, err := controller.reconcileSpecChange(context.Background(), specapi.DefaultNamespace, "calc-c2s-c1-c2"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join(dir, ".specs")); err == nil {
+		t.Fatal("the summarize wrote a spec artefact into the project tree")
+	}
 
 	change := readChange(t, cluster, "calc-c2s-c1-c2")
 	if change.Status.Phase != specapi.PhaseSucceeded {
@@ -185,7 +188,7 @@ func TestCodeToSpecWritesTheSpecAndEndsTheEpisode(t *testing.T) {
 		t.Errorf("Drifted = %s, want False", drifted)
 	}
 
-	document := filepath.Join(dir, ".specs", "context", "calc.md")
+	document := contextDocPath("calc", "calc")
 	contents, err := os.ReadFile(document)
 	if err != nil {
 		t.Fatalf("the context document was not written: %v", err)
