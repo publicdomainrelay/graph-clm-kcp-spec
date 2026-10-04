@@ -39,6 +39,47 @@ kernel ports, feature's restored from main's architecture and persisting to
 stopped; switch back to main and `up` adopts main's instance unchanged. Plus
 two `git worktree`s on two branches running their specds at once.
 
+**Status: done.** What shipped, and the decisions behind it:
+
+- The instance is keyed by (checkout path, code branch). `impl/session` puts the
+  kcp, kine, logs and the session record under
+  `$SPECD_STATE_DIR/repos/<name>-<hash(path)>/<branch-slug>/`, the slug made the
+  way `oabranch.BranchFor` makes its suffix (`oabranch.Slug`, now exported, is
+  the one sanitizer). A record written before this change (per path, no branch)
+  is read once on the default branch, rewritten as that branch's record and the
+  old file removed; it keeps its own kcp root, because a running kcp cannot
+  move. On any other branch `up` starts that branch's own instance instead.
+- `specctl up` resolves the checkout's branch, starts or adopts that branch's
+  instance, restores with `persist.Restore` on that branch (falling back to the
+  default's architecture branch, already implemented in `BranchFor`/`Restore`),
+  and stops the specd of the branch the checkout left; that branch's kcp keeps
+  running unless `--stop-others`. `status | env | down | arch | retry | sync`
+  resolve the current branch's instance, and `specctl ls` lists every instance
+  with repository, path, branch, kcp url, ready and specd state.
+- specd refuses to work when the checkout's HEAD is not `Repository.spec.branch`:
+  `specsync.BranchCheck` decides (pure, unit tested), `Controller.branchStatus`
+  reads the checkout's branch, `reconcileRepository` sets `BranchMismatch=True`
+  on the Repository and returns before indexing or populating, and a matching
+  HEAD clears it to False. CodeToSpec, SpecToCode and persist check the same
+  condition and wait (the change stays Pending) rather than burn an attempt or
+  write to a branch the code does not have. A checkout whose branch cannot be
+  read at all (not a git tree) is not gated, so spec-only repositories are
+  unaffected.
+- Proven live by `TestPhase14OneInstancePerBranch` and
+  `TestPhase14TwoWorktreesRunAtTheSameTime`, each on private kcps with
+  kernel-assigned ports: one checkout, `up` on main, `git switch -c feature`,
+  `up` again, a spec edit on feature — two instances on two ports, feature
+  restored from main's architecture and persisted to
+  `open-architecture/calc--feature`, main's kcp and architecture untouched,
+  main's specd stopped, and switching back adopting main's instance unchanged;
+  plus two `git worktree`s on two branches whose specds run at the same time.
+  Unit tests cover `BranchCheck`, the session keying and the legacy adoption,
+  and the controller's mismatch/clear/persist behaviour.
+- Found while validating: `TestPhase13CloneUpPersistsAndASecondCloneRestores`
+  now waits for the restored clone to be `Populated` before asserting a clean
+  tree — the codegraph index directory is untracked until the indexer appends
+  `.git/info/exclude`, so a check that lands mid-index sees `?? .codegraph/`.
+
 ## B. A spec edit is realized as one change
 
 **Today.** One harness request edited two contexts. specd made two

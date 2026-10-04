@@ -98,13 +98,19 @@ go test ./... >/dev/null && echo "deno-kcp's own gate is green"
 specctl up --remote ""      # --remote "": index from scratch, even if origin has an architecture branch
 ```
 
-`specctl up` starts this clone's own kcp and kine on ports the kernel assigns
-(state under `~/.local/state/specd`, nothing in the tree), creates the workspace
-`root:deno-kcp`, applies a `Repository` for the clone, and starts specd, which
-indexes the code with CodeGraph and has DeepSeek write a spec for each
-directory. Leave out `--remote ""` and a clone whose origin already carries
-`open-architecture/deno-kcp` is restored from it instead, which is how a team
-shares one architecture.
+`specctl up` starts the instance of the branch that is checked out: its own kcp
+and kine on ports the kernel assigns, one state directory per (checkout,
+branch) under `~/.local/state/specd` and nothing in the tree. It creates the
+workspace `root:deno-kcp`, applies a `Repository` for the clone, and starts
+specd, which indexes the code with CodeGraph and has DeepSeek write a spec for
+each directory. On a branch other than the default it restores from that
+branch's architecture, `open-architecture/deno-kcp--<branch>`, falling back to
+`open-architecture/deno-kcp`, so this branch starts from what `main` already
+decided. Leave out `--remote ""` and a clone whose origin already carries the
+branch is restored from there instead, which is how a team shares one
+architecture. Only one specd runs per checkout: `up` on another branch stops
+the specd of the branch the checkout left and leaves its kcp running
+(`--stop-others` stops that too), and `specctl ls` lists every instance.
 
 ```bash
 until [[ "$(specctl status)" == *"Populated ("* ]]; do specctl status | grep '^phase'; sleep 10; done
