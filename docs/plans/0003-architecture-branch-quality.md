@@ -54,6 +54,66 @@ Validate: unit/golden tests on `abc/oabranch`; persist tests; a scripted e2e tha
 checks commit subjects, trailers, coalescing and `CHANGES.md`; then the deno-kcp
 run (`scripts/example-deno-kcp-pr.sh`, `PUSH=0`) with the measures below.
 
+**Status: done** (branch `plan3-a`). What shipped, and the decisions behind it:
+
+- *The branch it was written to.* `Snapshot` gained `Branch`, set by `persist` to
+  `oabranch.BranchFor(...)`, and `arch.yaml` records it in `metadata.branch`. On a
+  feature branch that is the feature branch, not the default's.
+- *Code refs in the graph.* `graph.CodeRef` gained `Line` and `Display()`
+  (`name@path:line`), `graph.CodeRefMap(contexts)` builds the map from every
+  context's observed interfaces (their codegraph ids) plus every `file:` ref a
+  spec names, and `oabranch.Files` passes it to `graph.Build`. The context and
+  requirement `REFERENCES` edges were already in `graph.EdgeSpecs`; they had no
+  map to resolve against, which is why the branch had none.
+- *Readable refs.* `specs/<context>.yaml` and `arch.yaml` carry a `codeRefIndex`
+  mapping each codegraph id to `name@path:line`; the graph's CodeRef vertex carries
+  the same string as `display`. It is generated, and both readers (`mirror.Parse`,
+  `ChangeFiles`) ignore it, so an existing branch still loads.
+- *Reviewable history.* `oabranch.Subjects` names what a commit changed —
+  `spec(<context>): +r.x -r.y ~r.z`, `status(<context>): CodeSynced=True observed
+  <commit>`, `change(<name>): Pending -> Succeeded` — from the tip content of the
+  paths the plan touches; the first line is the commit subject and the rest are
+  the body. `Message` adds a `Spec-Change:` trailer per realized change behind a
+  changed spec file. The subject comparison folds the spec the way `specs/` writes
+  it (`declaredForBranch`), so the derived top-level `codeRefs` are not reported
+  as an edit on every commit.
+- *Coalesced progress.* `oabranch.CoalesceProgress` keeps a change file out of a
+  commit when the only difference from the tip is `status.progress` (or
+  `status.acceptance`), so the record is written on a phase transition and at the
+  end. `persist` reads the tip content of the changed paths and of every `changes/`
+  file for this (`oagit.Store.ReadFilesAt`), and reports the deferred paths on the
+  log line.
+- *Attempt history.* `changes/` is the branch's history: `oabranch.PreserveChanges`
+  keeps a record the branch already carries that the kcp watching the branch does
+  not hold, and one record per attempt episode is written (`spec.EpisodeBase`,
+  moved out of `factory/specd`), the surviving attempt (succeeded, else newest)
+  carrying a `superseded:` summary of the others.
+- *Less duplication.* `context/<context>.md` is prose plus the managed reference
+  zone (`clm.ProseZone`); the spec lives in `specs/` alone. `observedCommit` and
+  `syncedCommit` are recorded once in `repository.yaml` when every context agrees
+  on them, and a `status/` file repeats one only where its context differs, so a
+  context that is genuinely out of step still says so.
+- *`arch.yaml` has its own kind.* It is `kind: GeneratedArchitecture`, not the
+  hand-written `OpenArchitecture`, because the generated document has no
+  `upstreams`, `orchestrators` or `types` and cannot satisfy `arch.schema.json`;
+  it does not borrow that schema's kind and then fail it. Its shape (metadata
+  name/source/branch, `system_contexts[]` with id, name, upstream, overlay,
+  orchestrator, depends_on, introduces, intent, requirements, interfaces, code,
+  codeRefIndex) is documented in the README under "Specs on an orphan branch".
+- *`CHANGES.md`.* A feature branch writes one: the requirement-level delta against
+  the default branch's architecture (intent changes and added/removed/changed
+  requirements by id with their text, `delta.Diff` against the baseline specs
+  `persist.readBaseline` reads from `open-architecture/<repository>`), then a table
+  of the changes this branch carries that the baseline does not, with direction,
+  phase, commit, verify exit code and acceptance results. The default branch
+  writes none.
+- *Tests.* `abc/oabranch/oabranch_test.go` covers the kind, the branch, the
+  codeRefIndex, the REFERENCES edges, the prose-only context, the shared-commit
+  status, the subjects, the progress coalescing, the episode summary, the preserved
+  records and CHANGES.md; `impl/persist/persist_test.go` covers the trailer, the
+  coalesced progress (no commit, the branch does not move), CHANGES.md on a feature
+  branch, and an inherited change record surviving a feature branch's first persist.
+
 ## 3b - the spec says more, and says it more truly
 
 7. `file:` refs resolve against the git tree, not only the code index (sh, md,
