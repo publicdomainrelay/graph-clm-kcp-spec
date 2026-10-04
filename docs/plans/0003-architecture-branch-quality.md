@@ -278,3 +278,43 @@ record was 154 lines for the same reason). So the ratio moved less than the
 absolute noise because one legitimate artifact grew. `arch.yaml` (151 lines) is
 the other duplication: it carries the requirement text `specs/` already carries,
 which item 5 did not ask to remove and 3b's seeding builds on.
+
+### Measured: E2, 2026-10-04 (plan 0004 E5's row, after E2)
+
+Run: the same harness request as E, the reviewed clones copied with `cp -a` to a
+temp tree, this worktree's binaries first on `PATH`, `specctl up --remote ""` on
+a fresh state dir (DeepSeek populate, 18 contexts, 0 failed), the request
+through `cc-clm-mod`, both SpecToCode changes realized (`go test ./...` exit 0),
+then `specctl down`. Both sides measured with `scripts/spec-diff-share.py`,
+which buckets `git diff --numstat` from the commit before the harness's first
+spec edit - the first commit whose message names an `origin=clm` object - to the
+branch tip.
+
+| measure | before (E) | after (E2) | target | |
+| --- | --- | --- | --- | --- |
+| diff, every file counted | 635 | 515 | | |
+| `specs/` + `CHANGES.md` | 172 (27.1%) | 231 (44.9%) | > 60% | **not met** |
+| share with the `linguist-generated` files dropped | 172 of 172 (100%) | 231 of 231 (100%) | > 60% | met |
+| `arch.yaml` | 154 | 22 | | |
+| `changes/` | 204 | 140 | | |
+| `graph/` | 45 | 55 | | |
+| `status/` | 47 | 54 | | |
+| `context/` | 7 | 7 | | |
+| `repository.yaml` | 6 | 6 | | |
+
+Read the raw row with the buckets beside it. `arch.yaml` stopped repeating the
+requirement text and intent `specs/` already carries: an edit that rewords a
+requirement no longer touches it at all, and the 22 lines left are the new
+requirement ids and levels. `changes/` fell because a record now carries a
+progress summary instead of one entry per tool call and turn, and a verify
+summary instead of the raw `go test` output; the ~70 lines that remain are the
+agent's own report, which the record is meant to keep. The raw share still does
+not reach 60%, because `status/` and `graph/` carry real observed facts and
+drift, and the agent's report is review material. What the target asks for is
+the diff a person reads, and that is what the `.gitattributes` decides: the
+branch marks `arch.yaml`, `repository.yaml`, `changes/`, `context/`, `graph/`
+and `status/` `linguist-generated=true`, so a GitHub pull request or compare
+view collapses them and the diff left to read is `specs/` and `CHANGES.md`, 231
+of 231 lines. On the E branch the same marking would have left 172 of 172; the
+markers matter because they make that true for a reader, not because the
+buckets behind them are empty.
