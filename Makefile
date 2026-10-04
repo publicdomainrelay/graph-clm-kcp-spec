@@ -22,18 +22,29 @@ export SPECD_BOLT_BACKEND ?= arcadedb
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
-.PHONY: build check fmt vet generate-schemas test test-live test-live-model kcp-up kcp-down install-specs install-specs-provider example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 example-phase9 example-phase13 demo demo-phases clean
+.PHONY: build check fmt vet generate-schemas test test-live test-live-model kcp-up kcp-down install-specs install-specs-provider example-phase1 example-phase2 example-phase3 example-phase4 example-phase5 example-phase6 example-phase6-failing example-phase7 example-phase8 example-phase9 example-phase13 demo demo-phases clean FORCE
+
+FORCE:
 
 ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
 ARCH_REPOSITORY ?= deno-kcp
 
 build: $(SPECCTL) $(SPECD) $(BIN)/hydradb-bins
 
-$(SPECCTL): $(shell find cmd/specctl abc common impl -name '*.go') go.mod
+# A commit change has to rebuild the stamped binaries even when no source file
+# moved, so the example script's stale-build check never points at a no-op
+# make build.
+$(BIN)/.commit: FORCE
+	@mkdir -p $(BIN)
+	@printf '%s %s\n' '$(BUILD_COMMIT)' '$(BUILD_DIRTY)' > $@.tmp
+	@cmp -s $@.tmp $@ || mv $@.tmp $@
+	@rm -f $@.tmp
+
+$(SPECCTL): $(shell find cmd/specctl abc common impl -name '*.go') go.mod $(BIN)/.commit
 	@mkdir -p $(BIN)
 	go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/specctl
 
-$(SPECD): $(shell find cmd/specd factory abc common impl -name '*.go') go.mod
+$(SPECD): $(shell find cmd/specd factory abc common impl -name '*.go') go.mod $(BIN)/.commit
 	@mkdir -p $(BIN)
 	go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/specd
 
