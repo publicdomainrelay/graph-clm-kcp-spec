@@ -68,6 +68,22 @@ type Agent interface {
 	Realize(ctx context.Context, request RealizeRequest) (RealizeResult, error)
 }
 
+type RealizeMember struct {
+	Context string
+
+	Change string
+
+	Delta spec.Delta
+
+	FromSpec spec.SystemContextSpec
+
+	ToSpec spec.SystemContextSpec
+
+	Observed spec.ObservedFacts
+
+	ContextDoc string
+}
+
 type RealizeRequest struct {
 	Context string
 
@@ -92,6 +108,23 @@ type RealizeRequest struct {
 	Instruction string
 
 	Budget int
+
+	Members []RealizeMember
+}
+
+func (r RealizeRequest) Batch() []RealizeMember {
+	if len(r.Members) > 0 {
+		return r.Members
+	}
+	return []RealizeMember{{
+		Context:    r.Context,
+		Change:     r.Change,
+		Delta:      r.Delta,
+		FromSpec:   r.FromSpec,
+		ToSpec:     r.ToSpec,
+		Observed:   r.Observed,
+		ContextDoc: r.ContextDoc,
+	}}
 }
 
 type RealizeResult struct {

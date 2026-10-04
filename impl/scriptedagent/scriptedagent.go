@@ -118,17 +118,24 @@ func (a *Agent) Realize(_ context.Context, request agent.RealizeRequest) (agent.
 	if a.scenario == nil {
 		return agent.RealizeResult{}, fmt.Errorf("scriptedagent: no scenario")
 	}
-	steps := a.scenario.Realize[request.Context]
-	if len(steps) == 0 {
-		return agent.RealizeResult{}, fmt.Errorf("scriptedagent: the scenario has no realize steps for %s", request.Context)
+	members := request.Batch()
+	contexts := make([]string, 0, len(members))
+	for _, member := range members {
+		contexts = append(contexts, member.Context)
 	}
-	result := agent.RealizeResult{Summary: fmt.Sprintf("applied %d step(s) for %s", len(steps), request.Context)}
-	for index, step := range steps {
-		files, err := apply(request.Dir, step)
-		if err != nil {
-			return result, fmt.Errorf("scriptedagent: step %d of %s: %w", index, request.Context, err)
+	result := agent.RealizeResult{Summary: fmt.Sprintf("applied the steps of %s", strings.Join(contexts, ", "))}
+	for _, member := range members {
+		steps := a.scenario.Realize[member.Context]
+		if len(steps) == 0 {
+			return result, fmt.Errorf("scriptedagent: the scenario has no realize steps for %s", member.Context)
 		}
-		result.Files = append(result.Files, files...)
+		for index, step := range steps {
+			files, err := apply(request.Dir, step)
+			if err != nil {
+				return result, fmt.Errorf("scriptedagent: step %d of %s: %w", index, member.Context, err)
+			}
+			result.Files = append(result.Files, files...)
+		}
 	}
 	return result, nil
 }

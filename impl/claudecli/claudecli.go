@@ -106,9 +106,10 @@ func (a *Agent) Summarize(ctx context.Context, bundle agent.ContextBundle) (agen
 
 func (a *Agent) Realize(ctx context.Context, request agent.RealizeRequest) (agent.RealizeResult, error) {
 	prompt := RealizePrompt(request)
-	env := docEnv(request.Repository, request.Context)
-	env[EnvContext] = request.Context
-	env[EnvChange] = request.Change
+	leader := request.Batch()[0]
+	env := docEnv(request.Repository, leader.Context)
+	env[EnvContext] = leader.Context
+	env[EnvChange] = leader.Change
 	env[EnvRoot] = a.options.Dir
 	stdout, stderr, err := a.run(ctx, prompt, env)
 	result := agent.RealizeResult{Summary: firstLine(stdout), Log: tail(stdout + "\n" + stderr)}
@@ -123,22 +124,36 @@ func (a *Agent) Run(ctx context.Context, prompt string, extra map[string]string)
 }
 
 func RealizePrompt(request agent.RealizeRequest) string {
+	members := request.Batch()
 	builder := strings.Builder{}
 	builder.WriteString("You change a working tree so the code matches its specification.\n\n")
 	builder.WriteString("Edit the files in place. Do not ask questions and do not print a plan.\n")
 	builder.WriteString("Edit files only: do not run git and do not commit. The tool commits for you.\n")
 	builder.WriteString("Do not rewrite the spec block of the context document; it is the specification you are implementing.\n\n")
+	if len(members) > 1 {
+		fmt.Fprintf(&builder, "This one working session carries %d specification changes at once; the tree must satisfy every one of them when you are done.\n\n", len(members))
+	}
 
 	builder.WriteString("## what changed in the specification\n\n")
-	builder.WriteString(agent.RenderDelta(request.Delta))
-	builder.WriteString("\n## the specification the code must reach\n\n")
-	target, _ := agent.RenderPromptWithSections(agent.ContextBundle{
-		Context:  request.Context,
-		Spec:     request.ToSpec,
-		Observed: request.Observed,
-		Budget:   request.Budget,
-	})
-	builder.WriteString(target)
+	for _, member := range members {
+		builder.WriteString(memberHeading(member.Context, member.Change))
+		builder.WriteString(agent.RenderDelta(member.Delta))
+		builder.WriteString("\n")
+	}
+	builder.WriteString("## the specification the code must reach\n\n")
+	for _, member := range members {
+		if len(members) > 1 {
+			fmt.Fprintf(&builder, "### %s\n\n", member.Context)
+		}
+		target, _ := agent.RenderPromptWithSections(agent.ContextBundle{
+			Context:  member.Context,
+			Spec:     member.ToSpec,
+			Observed: member.Observed,
+			Budget:   request.Budget,
+		})
+		builder.WriteString(target)
+		builder.WriteString("\n")
+	}
 
 	if len(request.Verify) > 0 {
 		builder.WriteString("\n## verify\n\n")
@@ -148,6 +163,13 @@ func RealizePrompt(request agent.RealizeRequest) string {
 		fmt.Fprintf(&builder, "\n## instruction\n\n%s\n", request.Instruction)
 	}
 	return builder.String()
+}
+
+func memberHeading(context, change string) string {
+	if change == "" {
+		return "### " + context + "\n\n"
+	}
+	return "### " + context + " (change " + change + ")\n\n"
 }
 
 func (a *Agent) run(ctx context.Context, prompt string, extra map[string]string) (string, string, error) {
