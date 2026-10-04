@@ -107,6 +107,19 @@ run (`scripts/example-deno-kcp-pr.sh`, `PUSH=0`) with the measures below.
   of the changes this branch carries that the baseline does not, with direction,
   phase, commit, verify exit code and acceptance results. The default branch
   writes none.
+- *Found while validating.* `sigs.k8s.io/yaml` renders a Go map in an order that
+  changes between runs, because the key sort it inherited from `yaml.v2` is not a
+  strict weak ordering for keys holding a colon and a hex digest. The code ref
+  index was first written as a map and reordered itself on every persist, so
+  `specs/<context>.yaml` changed on every commit and the run produced a flock of
+  "no declared change" subjects; the plan decides commits by blob equality, so an
+  unstable render is not cosmetic. It is now the sorted `[]string`
+  `graph.ContextRefLines` builds, and `TestFilesAreDeterministicWithManyRefs`
+  renders a 25-ref context ten times. The same hazard remains for the maps the
+  branch writes as-is (`metadata.labels`, `spec.acceptance[].env`,
+  `spec.arch.node`/`document`); none of them appears in the deno-kcp run, and a
+  follow-up should give the branch either sorted-slice forms or a deterministic
+  encoder.
 - *Tests.* `abc/oabranch/oabranch_test.go` covers the kind, the branch, the
   codeRefIndex, the REFERENCES edges, the prose-only context, the shared-commit
   status, the subjects, the progress coalescing, the episode summary, the preserved

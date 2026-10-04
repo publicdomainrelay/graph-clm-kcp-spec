@@ -473,6 +473,77 @@ func TestSpecFilesAndRepositoryFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestABranchWrittenBeforeThisChangeStillLoads(t *testing.T) {
+	old := map[string][]byte{
+		RepositoryPath: []byte(`apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: Repository
+metadata:
+  name: calc
+  namespace: default
+spec:
+  branch: main
+status:
+  headCommit: aaaa
+  phase: Populated
+`),
+		SpecPath("calc"): []byte(`apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: SystemContext
+metadata:
+  name: calc
+  namespace: default
+spec:
+  repository: calc
+  upstream: self
+  intent: Integer arithmetic.
+  requirements:
+  - id: r.add
+    level: MUST
+    text: Add returns the sum.
+`),
+		StatusPath("calc"): []byte(`observedCommit: aaaa
+syncedCommit: aaaa
+observed:
+  files:
+  - calc/calc.go
+`),
+		ChangePath("calc-c2s-aaaa-bbbb"): []byte(`apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: SpecChange
+metadata:
+  name: calc-c2s-aaaa-bbbb
+  namespace: default
+spec:
+  systemContext: calc
+  direction: CodeToSpec
+  fromCommit: aaaa
+  toCommit: bbbb
+status:
+  phase: Succeeded
+`),
+		ArchPath: []byte("apiVersion: open-architecture.dffml.github.io/v0alpha1\nkind: OpenArchitecture\nmetadata:\n  name: calc\n  branch: open-architecture/calc\n"),
+	}
+	specs, err := SpecFiles(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if specs["calc"].Spec.Intent != "Integer arithmetic." {
+		t.Fatalf("specs = %+v", specs)
+	}
+	repository, err := RepositoryFile(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repository.Name != "calc" || repository.Spec.Branch != "main" {
+		t.Fatalf("repository = %+v", repository)
+	}
+	changes, err := ChangeFiles(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].Status.Phase != specapi.PhaseSucceeded {
+		t.Fatalf("changes = %+v", changes)
+	}
+}
+
 func TestMergeTakesABranchEditWhenKcpDidNotMove(t *testing.T) {
 	base := calcSnapshot().Contexts[0].Spec
 	theirs := base
