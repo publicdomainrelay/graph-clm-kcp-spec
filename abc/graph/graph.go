@@ -309,6 +309,36 @@ func CodeRefDisplay(refs map[string]CodeRef, reference string) (string, bool) {
 	return ref.Display(), true
 }
 
+// ContextRefLines is the readable index of the code refs a context names, one
+// "<codegraph id> <name>@<path>:<line>" per line, sorted. It is a list rather
+// than a map because the branch files are marshalled by sigs.k8s.io/yaml, which
+// renders a Go map in an order that changes between runs.
+func ContextRefLines(context spec.SystemContext, refs map[string]CodeRef) []string {
+	seen := map[string]bool{}
+	lines := []string{}
+	record := func(reference string) {
+		if seen[reference] {
+			return
+		}
+		seen[reference] = true
+		display, ok := CodeRefDisplay(refs, reference)
+		if !ok {
+			return
+		}
+		lines = append(lines, reference+" "+display)
+	}
+	for _, reference := range context.Spec.CodeRefs {
+		record(reference)
+	}
+	for _, requirement := range context.Spec.Requirements {
+		for _, reference := range requirement.CodeRefs {
+			record(reference)
+		}
+	}
+	sort.Strings(lines)
+	return lines
+}
+
 type Snapshot struct {
 	Namespace string
 

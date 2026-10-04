@@ -29,14 +29,16 @@ type Document struct {
 
 	Spec spec.SystemContextSpec `json:"spec"`
 
-	CodeRefIndex map[string]string `json:"codeRefIndex,omitempty"`
+	// CodeRefIndex is the readable form of the code refs this spec names, one
+	// "<codegraph id> <name>@<path>:<line>" per entry, sorted. Parse ignores it.
+	CodeRefIndex []string `json:"codeRefIndex,omitempty"`
 }
 
 func Render(name, namespace string, contextSpec spec.SystemContextSpec) ([]byte, error) {
 	return RenderWithRefs(name, namespace, contextSpec, nil)
 }
 
-func RenderWithRefs(name, namespace string, contextSpec spec.SystemContextSpec, refs map[string]string) ([]byte, error) {
+func RenderWithRefs(name, namespace string, contextSpec spec.SystemContextSpec, refs []string) ([]byte, error) {
 	declared := spec.Canonicalize(contextSpec)
 	declared.CodeRefs = nil
 	document := Document{

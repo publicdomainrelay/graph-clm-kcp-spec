@@ -1,6 +1,7 @@
 package oabranch
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -104,6 +105,34 @@ func TestFilesAreDeterministic(t *testing.T) {
 	}
 }
 
+func TestFilesAreDeterministicWithManyRefs(t *testing.T) {
+	snapshot := calcSnapshot()
+	context := &snapshot.Contexts[0]
+	for index := 0; index < 24; index++ {
+		reference := fmt.Sprintf("struct:%02x%02x", index*7, index*13)
+		context.Spec.Requirements[0].CodeRefs = append(context.Spec.Requirements[0].CodeRefs, reference)
+		context.Status.Observed.Interfaces = append(context.Status.Observed.Interfaces, spec.ObservedInterface{
+			Name: fmt.Sprintf("Type%02d", index), Kind: "struct", File: "calc/calc.go",
+			Line: index + 1, CodegraphID: reference,
+		})
+	}
+	first, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < 10; attempt++ {
+		next, err := Files(snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for path, data := range first {
+			if string(next[path]) != string(data) {
+				t.Fatalf("%s differs between two renders of the same state:\n%s\n---\n%s", path, data, next[path])
+			}
+		}
+	}
+}
+
 func TestBlobIDMatchesGit(t *testing.T) {
 	git, err := exec.LookPath("git")
 	if err != nil {
@@ -178,7 +207,7 @@ func TestFilesCarryReadableRefs(t *testing.T) {
 		t.Fatal(err)
 	}
 	specFile := string(files[SpecPath("calc")])
-	if !strings.Contains(specFile, "codeRefIndex:") || !strings.Contains(specFile, "function:abc: Add@calc/calc.go:3") {
+	if !strings.Contains(specFile, "codeRefIndex:") || !strings.Contains(specFile, "function:abc Add@calc/calc.go:3") {
 		t.Errorf("the spec file does not index its refs:\n%s", specFile)
 	}
 	arch := string(files[ArchPath])

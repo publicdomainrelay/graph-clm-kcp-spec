@@ -253,7 +253,7 @@ type archContext struct {
 
 	Code []string `json:"code,omitempty"`
 
-	CodeRefIndex map[string]string `json:"codeRefIndex,omitempty"`
+	CodeRefIndex []string `json:"codeRefIndex,omitempty"`
 }
 
 type archMetadata struct {
@@ -358,28 +358,8 @@ func ContextDocument(context spec.SystemContext, budget int) (string, error) {
 	return clm.Document(prose, agent.ContextRefs(context.Spec, context.Status.Observed), budget), nil
 }
 
-func codeRefIndex(context spec.SystemContext, refs map[string]graph.CodeRef) map[string]string {
-	index := map[string]string{}
-	record := func(reference string) {
-		if _, seen := index[reference]; seen {
-			return
-		}
-		if display, ok := graph.CodeRefDisplay(refs, reference); ok {
-			index[reference] = display
-		}
-	}
-	for _, reference := range context.Spec.CodeRefs {
-		record(reference)
-	}
-	for _, requirement := range context.Spec.Requirements {
-		for _, reference := range requirement.CodeRefs {
-			record(reference)
-		}
-	}
-	if len(index) == 0 {
-		return nil
-	}
-	return index
+func codeRefIndex(context spec.SystemContext, refs map[string]graph.CodeRef) []string {
+	return graph.ContextRefLines(context, refs)
 }
 
 func readme(repository string) string {
