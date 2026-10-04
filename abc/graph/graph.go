@@ -230,6 +230,83 @@ type CodeRef struct {
 	Kind        string
 	Name        string
 	FilePath    string
+	Line        int
+}
+
+func (c CodeRef) Display() string {
+	if c.FilePath == "" {
+		return c.Name
+	}
+	at := c.FilePath
+	if c.Line > 0 {
+		at = fmt.Sprintf("%s:%d", at, c.Line)
+	}
+	if c.Name == "" {
+		return at
+	}
+	return c.Name + "@" + at
+}
+
+func CodeRefMap(contexts []spec.SystemContext) map[string]CodeRef {
+	refs := map[string]CodeRef{}
+	add := func(ref CodeRef) {
+		if ref.CodegraphID == "" {
+			return
+		}
+		if _, seen := refs[ref.CodegraphID]; seen {
+			return
+		}
+		refs[ref.CodegraphID] = ref
+	}
+	for _, context := range contexts {
+		for _, observed := range context.Status.Observed.Interfaces {
+			add(CodeRef{
+				CodegraphID: observed.CodegraphID,
+				Kind:        observed.Kind,
+				Name:        observed.Name,
+				FilePath:    observed.File,
+				Line:        observed.Line,
+			})
+		}
+	}
+	declared := make([]string, 0, len(contexts))
+	for _, context := range contexts {
+		declared = append(declared, context.Spec.CodeRefs...)
+		for _, requirement := range context.Spec.Requirements {
+			declared = append(declared, requirement.CodeRefs...)
+		}
+	}
+	sort.Strings(declared)
+	for _, reference := range declared {
+		if _, seen := refs[reference]; seen {
+			continue
+		}
+		if fileRef, ok := fileCodeRef(reference); ok {
+			add(fileRef)
+		}
+	}
+	return refs
+}
+
+func fileCodeRef(reference string) (CodeRef, bool) {
+	filePath, ok := strings.CutPrefix(reference, "file:")
+	if !ok || filePath == "" {
+		return CodeRef{}, false
+	}
+	return CodeRef{
+		CodegraphID: reference,
+		Kind:        "file",
+		Name:        pathpkg.Base(filePath),
+		FilePath:    filePath,
+	}, true
+}
+
+func CodeRefDisplay(refs map[string]CodeRef, reference string) (string, bool) {
+	ref, ok := refs[reference]
+	if !ok {
+		return "", false
+	}
+	return ref.Display(), true
 }
 
 type Snapshot struct {
@@ -274,7 +351,7 @@ var LabelProperties = map[string][]string{
 	LabelContext:     {"name", "repo", "intent", "specHash", ScopeProperty},
 	LabelRequirement: {"context", "reqId", "level", "text", ScopeProperty},
 	LabelInterface:   {"context", "name", "kind", "signature", ScopeProperty},
-	LabelCodeRef:     {"codegraphId", "kind", "name", "filePath", ScopeProperty},
+	LabelCodeRef:     {"codegraphId", "kind", "name", "filePath", "line", "display", ScopeProperty},
 	LabelChange:      {"name", "context", "direction", "phase", ScopeProperty},
 	LabelProgress:    {"change", "turn", "tool", "note", "at", ScopeProperty},
 	LabelPiMemory:    {"title", "body", "session"},
@@ -327,6 +404,8 @@ func Build(snapshot Snapshot) ([]VertexSet, []EdgeSet) {
 					"kind":        ref.Kind,
 					"name":        ref.Name,
 					"filePath":    ref.FilePath,
+					"line":        ref.Line,
+					"display":     ref.Display(),
 					ScopeProperty: namespace,
 				},
 			})

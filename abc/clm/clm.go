@@ -83,6 +83,24 @@ func RenderModelZone(context, repository string, in spec.SystemContextSpec) (str
 	return RenderModelZoneWithProse(context, repository, in.Intent, in)
 }
 
+// ProseZone renders the model zone without the spec block: the prose only. The
+// architecture branch keeps it beside the managed reference zone, so the spec
+// lives in specs/ alone.
+func ProseZone(context, repository, prose string) (string, error) {
+	builder := strings.Builder{}
+	builder.WriteString(HeaderLine + context + "\n\n")
+	if repository != "" {
+		fmt.Fprintf(&builder, "Repository: `%s`\n\n", repository)
+	}
+	intent := strings.TrimSpace(prose)
+	if intent == "" {
+		intent = EmptyIntent
+	}
+	builder.WriteString(intent + "\n\n")
+	builder.WriteString(ManagedNotice + "\n")
+	return builder.String(), nil
+}
+
 func RenderModelZoneWithProse(context, repository, prose string, in spec.SystemContextSpec) (string, error) {
 	builder := strings.Builder{}
 	builder.WriteString(HeaderLine + context + "\n\n")

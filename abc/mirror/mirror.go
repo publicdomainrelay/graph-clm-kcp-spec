@@ -28,16 +28,23 @@ type Document struct {
 	Metadata Metadata `json:"metadata"`
 
 	Spec spec.SystemContextSpec `json:"spec"`
+
+	CodeRefIndex map[string]string `json:"codeRefIndex,omitempty"`
 }
 
 func Render(name, namespace string, contextSpec spec.SystemContextSpec) ([]byte, error) {
+	return RenderWithRefs(name, namespace, contextSpec, nil)
+}
+
+func RenderWithRefs(name, namespace string, contextSpec spec.SystemContextSpec, refs map[string]string) ([]byte, error) {
 	declared := spec.Canonicalize(contextSpec)
 	declared.CodeRefs = nil
 	document := Document{
-		APIVersion: specapi.Group + "/" + specapi.Version,
-		Kind:       specapi.SystemContextKind,
-		Metadata:   Metadata{Name: name, Namespace: namespace},
-		Spec:       declared,
+		APIVersion:   specapi.Group + "/" + specapi.Version,
+		Kind:         specapi.SystemContextKind,
+		Metadata:     Metadata{Name: name, Namespace: namespace},
+		Spec:         declared,
+		CodeRefIndex: refs,
 	}
 	data, err := yaml.Marshal(document)
 	if err != nil {

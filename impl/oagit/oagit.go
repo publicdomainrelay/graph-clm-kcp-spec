@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -73,15 +74,34 @@ func (s Store) ReadFiles(ctx context.Context, commit string) (map[string][]byte,
 	if err != nil {
 		return nil, err
 	}
+	return s.ReadFilesAt(ctx, commit, sortedPaths(blobs))
+}
+
+// ReadFilesAt reads only the named paths of a commit. A path the commit does
+// not hold is absent from the result.
+func (s Store) ReadFilesAt(ctx context.Context, commit string, paths []string) (map[string][]byte, error) {
 	files := map[string][]byte{}
-	if len(blobs) == 0 {
+	if commit == "" || len(paths) == 0 {
+		return files, nil
+	}
+	blobs, err := s.Blobs(ctx, commit)
+	if err != nil {
+		return nil, err
+	}
+	wanted := map[string]string{}
+	for _, path := range paths {
+		if blob, ok := blobs[path]; ok {
+			wanted[path] = blob
+		}
+	}
+	if len(wanted) == 0 {
 		return files, nil
 	}
 	request := bytes.Buffer{}
-	ordered := make([]string, 0, len(blobs))
-	for _, blob := range blobs {
-		request.WriteString(blob + "\n")
-		ordered = append(ordered, blob)
+	ordered := make([]string, 0, len(wanted))
+	for _, path := range sortedPaths(wanted) {
+		request.WriteString(wanted[path] + "\n")
+		ordered = append(ordered, path)
 	}
 	out, _, err := s.git(ctx, &request, nil, "cat-file", "--batch")
 	if err != nil {
@@ -111,10 +131,23 @@ func (s Store) ReadFiles(ctx context.Context, commit string) (map[string][]byte,
 		}
 		byBlob[fields[0]] = data
 	}
-	for path, blob := range blobs {
-		files[path] = byBlob[blob]
+	for path, blob := range wanted {
+		data, ok := byBlob[blob]
+		if !ok {
+			return nil, fmt.Errorf("oagit: cat-file returned no blob for %s", path)
+		}
+		files[path] = data
 	}
 	return files, nil
+}
+
+func sortedPaths(blobs map[string]string) []string {
+	paths := make([]string, 0, len(blobs))
+	for path := range blobs {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func (s Store) Commit(ctx context.Context, ref, parent string, plan oabranch.Plan, message string) (string, error) {

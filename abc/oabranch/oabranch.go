@@ -35,6 +35,8 @@ const (
 
 	ChangesDir = "changes"
 
+	ChangesDocPath = "CHANGES.md"
+
 	GraphVerticesPath = "graph/vertices.jsonl"
 
 	GraphEdgesPath = "graph/edges.jsonl"
@@ -42,6 +44,8 @@ const (
 	ArchAPIVersion = "open-architecture.dffml.github.io/v0alpha1"
 
 	ArchKind = "OpenArchitecture"
+
+	GeneratedArchKind = "GeneratedArchitecture"
 
 	CodeCommitTrailer = "Code-Commit"
 
@@ -116,6 +120,32 @@ type Snapshot struct {
 	Changes []spec.SpecChange
 
 	ManagedBudget int
+
+	// Branch is the architecture branch these files are written to. Empty means
+	// the default branch, Branch(Repository.Name).
+	Branch string
+
+	// Baseline is the default branch's architecture, set when Branch is a
+	// feature branch. It is what CHANGES.md measures the requirement delta
+	// against and which changes it reports as this branch's outcome.
+	Baseline *Baseline
+}
+
+type Baseline struct {
+	Contexts []spec.SystemContext
+
+	Changes []spec.SpecChange
+}
+
+func (s Snapshot) branch() string {
+	if s.Branch != "" {
+		return s.Branch
+	}
+	return Branch(s.Repository.Name)
+}
+
+func (s Snapshot) feature() bool {
+	return s.branch() != Branch(s.Repository.Name)
 }
 
 type objectMeta struct {
@@ -130,6 +160,10 @@ type repositoryStatusDoc struct {
 	HeadCommit string `json:"headCommit,omitempty"`
 
 	IndexedCommit string `json:"indexedCommit,omitempty"`
+
+	ObservedCommit string `json:"observedCommit,omitempty"`
+
+	SyncedCommit string `json:"syncedCommit,omitempty"`
 
 	Phase string `json:"phase,omitempty"`
 
@@ -182,6 +216,18 @@ type changeDoc struct {
 	Spec spec.SpecChangeSpec `json:"spec"`
 
 	Status spec.SpecChangeStatus `json:"status"`
+
+	Superseded []supersededDoc `json:"superseded,omitempty"`
+}
+
+type supersededDoc struct {
+	Name string `json:"name"`
+
+	Phase string `json:"phase,omitempty"`
+
+	Commit string `json:"commit,omitempty"`
+
+	Message string `json:"message,omitempty"`
 }
 
 type archContext struct {
@@ -206,6 +252,8 @@ type archContext struct {
 	Interfaces []spec.Interface `json:"interfaces,omitempty"`
 
 	Code []string `json:"code,omitempty"`
+
+	CodeRefIndex map[string]string `json:"codeRefIndex,omitempty"`
 }
 
 type archMetadata struct {
@@ -234,27 +282,28 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 	}
 	files[ReadmePath] = []byte(readme(name))
 
-	repository, err := yaml.Marshal(repositoryDocOf(snapshot.Repository))
+	contexts := sortedContexts(snapshot.Contexts)
+	repository, err := yaml.Marshal(repositoryDocOf(snapshot.Repository, contexts))
 	if err != nil {
 		return nil, fmt.Errorf("oabranch: render %s: %w", RepositoryPath, err)
 	}
 	files[RepositoryPath] = repository
 
-	contexts := sortedContexts(snapshot.Contexts)
-	arch, err := yaml.Marshal(archDocOf(snapshot.Repository, contexts))
+	refs := graph.CodeRefMap(contexts)
+	arch, err := yaml.Marshal(archDocOf(snapshot.Repository, contexts, snapshot.branch(), refs))
 	if err != nil {
 		return nil, fmt.Errorf("oabranch: render %s: %w", ArchPath, err)
 	}
 	files[ArchPath] = arch
 
 	for _, context := range contexts {
-		specFile, err := mirror.Render(context.Name, context.Namespace, context.Spec)
+		specFile, err := mirror.RenderWithRefs(context.Name, context.Namespace, context.Spec, codeRefIndex(context, refs))
 		if err != nil {
 			return nil, err
 		}
 		files[SpecPath(context.Name)] = specFile
 
-		status, err := yaml.Marshal(statusDocOf(context.Status))
+		status, err := yaml.Marshal(statusDocOf(context.Status, commonCommits(contexts)))
 		if err != nil {
 			return nil, fmt.Errorf("oabranch: render status of %s: %w", context.Name, err)
 		}
@@ -267,21 +316,27 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 		files[ContextPath(context.Name)] = []byte(document)
 	}
 
-	for _, change := range snapshot.Changes {
+	if snapshot.feature() {
+		files[ChangesDocPath] = []byte(changesDocument(snapshot))
+	}
+
+	for _, episode := range episodes(snapshot.Changes) {
+		surviving := episode[0]
 		data, err := yaml.Marshal(changeDoc{
 			APIVersion: specapi.Group + "/" + specapi.Version,
 			Kind:       specapi.SpecChangeKind,
-			Metadata:   objectMeta{Name: change.Name, Namespace: change.Namespace},
-			Spec:       change.Spec,
-			Status:     change.Status,
+			Metadata:   objectMeta{Name: surviving.Name, Namespace: surviving.Namespace},
+			Spec:       surviving.Spec,
+			Status:     surviving.Status,
+			Superseded: superseded(episode),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("oabranch: render change %s: %w", change.Name, err)
+			return nil, fmt.Errorf("oabranch: render change %s: %w", surviving.Name, err)
 		}
-		files[ChangePath(change.Name)] = data
+		files[ChangePath(surviving.Name)] = data
 	}
 
-	vertices, edges := graph.Build(graph.Snapshot{Repository: portable(snapshot.Repository), Contexts: contexts})
+	vertices, edges := graph.Build(graph.Snapshot{Repository: portable(snapshot.Repository), Contexts: contexts, CodeRefs: refs})
 	vertexLines, err := vertexJSONL(vertices)
 	if err != nil {
 		return nil, err
@@ -296,11 +351,35 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 }
 
 func ContextDocument(context spec.SystemContext, budget int) (string, error) {
-	modelZone, err := clm.RenderModelZone(context.Name, context.Spec.Repository, context.Spec)
+	prose, err := clm.ProseZone(context.Name, context.Spec.Repository, context.Spec.Intent)
 	if err != nil {
 		return "", fmt.Errorf("oabranch: render context %s: %w", context.Name, err)
 	}
-	return clm.Document(modelZone, agent.ContextRefs(context.Spec, context.Status.Observed), budget), nil
+	return clm.Document(prose, agent.ContextRefs(context.Spec, context.Status.Observed), budget), nil
+}
+
+func codeRefIndex(context spec.SystemContext, refs map[string]graph.CodeRef) map[string]string {
+	index := map[string]string{}
+	record := func(reference string) {
+		if _, seen := index[reference]; seen {
+			return
+		}
+		if display, ok := graph.CodeRefDisplay(refs, reference); ok {
+			index[reference] = display
+		}
+	}
+	for _, reference := range context.Spec.CodeRefs {
+		record(reference)
+	}
+	for _, requirement := range context.Spec.Requirements {
+		for _, reference := range requirement.CodeRefs {
+			record(reference)
+		}
+	}
+	if len(index) == 0 {
+		return nil
+	}
+	return index
 }
 
 func readme(repository string) string {
@@ -311,32 +390,65 @@ func readme(repository string) string {
 		"on the code never mistakes the spec for the code.\n\n" +
 		"| path | holds |\n" +
 		"| --- | --- |\n" +
-		"| `arch.yaml` | the whole repository as open architecture system contexts |\n" +
-		"| `repository.yaml` | the Repository manifest and its populate state |\n" +
+		"| `arch.yaml` | the whole repository as generated system contexts (`kind: GeneratedArchitecture`) |\n" +
+		"| `repository.yaml` | the Repository manifest, its populate state, and the commits every context shares |\n" +
 		"| `specs/<context>.yaml` | each context's declared spec; edit here to change kcp |\n" +
 		"| `status/<context>.yaml` | observed code facts and conditions |\n" +
-		"| `context/<context>.md` | the CLM context document a model reads and edits |\n" +
+		"| `context/<context>.md` | the context's prose and resolved code references; the spec lives in `specs/` |\n" +
 		"| `changes/<name>.yaml` | each SpecChange: direction, delta, progress, outcome |\n" +
+		"| `CHANGES.md` | on a feature branch: the requirement delta against the default branch |\n" +
 		"| `graph/*.jsonl` | the context graph, one vertex or edge per line |\n"
 }
 
-func repositoryDocOf(repository spec.Repository) repositoryDoc {
+type commonCommitsDoc struct {
+	ObservedCommit string
+
+	SyncedCommit string
+}
+
+// commonCommits is the observed and synced commit every context shares, when
+// one value holds for all of them. repository.yaml carries it once, and a
+// status file repeats it only where its context differs.
+func commonCommits(contexts []spec.SystemContext) commonCommitsDoc {
+	common := commonCommitsDoc{}
+	if len(contexts) == 0 {
+		return common
+	}
+	common = commonCommitsDoc{
+		ObservedCommit: contexts[0].Status.ObservedCommit,
+		SyncedCommit:   contexts[0].Status.SyncedCommit,
+	}
+	for _, context := range contexts[1:] {
+		if context.Status.ObservedCommit != common.ObservedCommit {
+			common.ObservedCommit = ""
+		}
+		if context.Status.SyncedCommit != common.SyncedCommit {
+			common.SyncedCommit = ""
+		}
+	}
+	return common
+}
+
+func repositoryDocOf(repository spec.Repository, contexts []spec.SystemContext) repositoryDoc {
 	repository = portable(repository)
+	common := commonCommits(contexts)
 	return repositoryDoc{
 		APIVersion: specapi.Group + "/" + specapi.Version,
 		Kind:       specapi.RepositoryKind,
 		Metadata:   objectMeta{Name: repository.Name, Namespace: repository.Namespace, Labels: repository.Labels},
 		Spec:       repository.Spec,
 		Status: repositoryStatusDoc{
-			HeadCommit:    repository.Status.HeadCommit,
-			IndexedCommit: repository.Status.IndexedCommit,
-			Phase:         repository.Status.Phase,
-			Contexts:      repository.Status.Contexts,
+			HeadCommit:     repository.Status.HeadCommit,
+			IndexedCommit:  repository.Status.IndexedCommit,
+			ObservedCommit: common.ObservedCommit,
+			SyncedCommit:   common.SyncedCommit,
+			Phase:          repository.Status.Phase,
+			Contexts:       repository.Status.Contexts,
 		},
 	}
 }
 
-func statusDocOf(status spec.SystemContextStatus) statusDoc {
+func statusDocOf(status spec.SystemContextStatus, common commonCommitsDoc) statusDoc {
 	conditions := make([]conditionDoc, 0, len(status.Conditions))
 	for _, condition := range status.Conditions {
 		conditions = append(conditions, conditionDoc{
@@ -347,21 +459,26 @@ func statusDocOf(status spec.SystemContextStatus) statusDoc {
 		})
 	}
 	sort.Slice(conditions, func(left, right int) bool { return conditions[left].Type < conditions[right].Type })
-	return statusDoc{
-		ObservedCommit:    status.ObservedCommit,
-		SyncedCommit:      status.SyncedCommit,
+	doc := statusDoc{
 		SyncedFingerprint: status.SyncedFingerprint,
 		RealizedSpecHash:  status.RealizedSpecHash,
 		Conditions:        conditions,
 		Observed:          status.Observed,
 	}
+	if status.ObservedCommit != common.ObservedCommit {
+		doc.ObservedCommit = status.ObservedCommit
+	}
+	if status.SyncedCommit != common.SyncedCommit {
+		doc.SyncedCommit = status.SyncedCommit
+	}
+	return doc
 }
 
-func archDocOf(repository spec.Repository, contexts []spec.SystemContext) archDoc {
+func archDocOf(repository spec.Repository, contexts []spec.SystemContext, branch string, refs map[string]graph.CodeRef) archDoc {
 	doc := archDoc{
 		APIVersion: ArchAPIVersion,
-		Kind:       ArchKind,
-		Metadata:   archMetadata{Name: repository.Name, Source: sourceOf(repository), Branch: Branch(repository.Name)},
+		Kind:       GeneratedArchKind,
+		Metadata:   archMetadata{Name: repository.Name, Source: sourceOf(repository), Branch: branch},
 	}
 	for _, context := range contexts {
 		if context.Spec.Arch != nil && context.Spec.Arch.Kind == spec.ArchKindDocument {
@@ -384,6 +501,7 @@ func archDocOf(repository spec.Repository, contexts []spec.SystemContext) archDo
 			Requirements: declared.Requirements,
 			Interfaces:   declared.Interfaces,
 			Code:         context.Status.Observed.Files,
+			CodeRefIndex: codeRefIndex(context, refs),
 		})
 	}
 	if doc.SystemContexts == nil {
@@ -529,9 +647,16 @@ type ObjectRef struct {
 	Origin string
 }
 
-func Message(repository string, plan Plan, objects []ObjectRef, codeCommits []string, conflicts ...string) string {
+func Message(repository string, plan Plan, snapshot Snapshot, previous map[string][]byte, objects []ObjectRef, codeCommits []string, conflicts ...string) string {
 	builder := strings.Builder{}
-	fmt.Fprintf(&builder, "open-architecture: %s: %s\n\n", repository, summary(plan))
+	subjects := Subjects(plan, snapshot, previous)
+	if len(subjects) == 0 {
+		subjects = []string{fmt.Sprintf("architecture(%s): %s", repository, summary(plan))}
+	}
+	builder.WriteString(subjects[0] + "\n\n")
+	if len(subjects) > 1 {
+		builder.WriteString(strings.Join(subjects[1:], "\n") + "\n\n")
+	}
 	for _, path := range plan.Added {
 		fmt.Fprintf(&builder, "A %s\n", path)
 	}
@@ -558,17 +683,24 @@ func Message(repository string, plan Plan, objects []ObjectRef, codeCommits []st
 		}
 		builder.WriteString("\n")
 	}
+	specChanges := specChangeTrailers(plan, snapshot)
+	if len(specChanges) > 0 {
+		builder.WriteString("\n")
+	}
+	for _, name := range specChanges {
+		fmt.Fprintf(&builder, "%s: %s\n", SpecChangeTrailer, name)
+	}
 	commits := append([]string{}, codeCommits...)
 	sort.Strings(commits)
 	if len(commits) > 0 {
 		builder.WriteString("\n")
 	}
-	previous := ""
+	seen := ""
 	for _, commit := range commits {
-		if commit == "" || commit == previous {
+		if commit == "" || commit == seen {
 			continue
 		}
-		previous = commit
+		seen = commit
 		fmt.Fprintf(&builder, "%s: %s\n", CodeCommitTrailer, commit)
 	}
 	sortedConflicts := append([]string{}, conflicts...)
@@ -580,6 +712,33 @@ func Message(repository string, plan Plan, objects []ObjectRef, codeCommits []st
 		fmt.Fprintf(&builder, "%s: %s\n", ConflictTrailer, conflict)
 	}
 	return builder.String()
+}
+
+// specChangeTrailers names the realized changes behind the spec files this
+// commit carries, newest per context. A commit that touches no spec file gets
+// no Spec-Change trailer.
+func specChangeTrailers(plan Plan, snapshot Snapshot) []string {
+	newest := map[string]spec.SpecChange{}
+	touched := plan.touched()
+	for _, context := range snapshot.Contexts {
+		if !touched[SpecPath(context.Name)] {
+			continue
+		}
+		for _, change := range snapshot.Changes {
+			if change.Spec.SystemContext != context.Name || change.Status.Phase != specapi.PhaseSucceeded {
+				continue
+			}
+			if current, ok := newest[context.Name]; !ok || change.CreationTimestamp.After(current.CreationTimestamp.Time) {
+				newest[context.Name] = change
+			}
+		}
+	}
+	names := make([]string, 0, len(newest))
+	for _, change := range newest {
+		names = append(names, change.Name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func summary(plan Plan) string {
@@ -640,6 +799,52 @@ func TouchedObjects(plan Plan, snapshot Snapshot, origin func(kind, name string)
 		}
 	}
 	return refs, commits
+}
+
+// IsChangePath reports whether a branch path is a SpecChange record.
+func IsChangePath(path string) bool {
+	name, ok := strings.CutPrefix(path, ChangesDir+"/")
+	return ok && name != "" && !strings.Contains(name, "/") && strings.HasSuffix(name, ".yaml")
+}
+
+// ChangePaths lists the change records a branch tree holds, from a path to blob
+// map such as oagit.Store.Blobs returns.
+func ChangePaths(blobs map[string]string) []string {
+	paths := make([]string, 0, len(blobs))
+	for path := range blobs {
+		if IsChangePath(path) {
+			paths = append(paths, path)
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+// ChangeFiles parses the SpecChange records a branch tree holds.
+func ChangeFiles(files map[string][]byte) ([]spec.SpecChange, error) {
+	names := make([]string, 0, len(files))
+	for path := range files {
+		if IsChangePath(path) {
+			names = append(names, path)
+		}
+	}
+	sort.Strings(names)
+	out := make([]spec.SpecChange, 0, len(names))
+	for _, path := range names {
+		doc := changeDoc{}
+		if err := yaml.Unmarshal(files[path], &doc); err != nil {
+			return nil, fmt.Errorf("oabranch: parse %s: %w", path, err)
+		}
+		change := spec.SpecChange{}
+		change.APIVersion = doc.APIVersion
+		change.Kind = doc.Kind
+		change.Name = doc.Metadata.Name
+		change.Namespace = doc.Metadata.Namespace
+		change.Spec = doc.Spec
+		change.Status = doc.Status
+		out = append(out, change)
+	}
+	return out, nil
 }
 
 func SpecFiles(files map[string][]byte) (map[string]spec.SystemContext, error) {

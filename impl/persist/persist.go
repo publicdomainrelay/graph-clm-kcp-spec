@@ -64,6 +64,8 @@ type Result struct {
 	Created []string
 
 	Conflicts map[string][]string
+
+	Deferred []string
 }
 
 type state struct {
@@ -130,6 +132,15 @@ func Persist(ctx context.Context, options Options) (Result, error) {
 		}
 	}
 
+	current.snapshot.Branch = result.Branch
+	if current.snapshot.Branch != oabranch.Branch(options.Repository) {
+		baseline, err := readBaseline(ctx, store, options.Repository)
+		if err != nil {
+			return result, err
+		}
+		current.snapshot.Baseline = baseline
+	}
+
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		tip, err = store.Tip(ctx, ref)
 		if err != nil {
@@ -149,10 +160,23 @@ func Persist(ctx context.Context, options Options) (Result, error) {
 			result.Commit = tip
 			break
 		}
+		previous, err := store.ReadFilesAt(ctx, tip, append(plan.Paths(), oabranch.ChangePaths(blobs)...))
+		if err != nil {
+			return result, err
+		}
+		oabranch.PreserveChanges(files, previous)
+		plan = oabranch.PlanCommit(blobs, files)
+		plan, deferred := oabranch.CoalesceProgress(plan, previous)
+		result.Deferred = deferred
+		if plan.Empty() {
+			result.Commit = tip
+			break
+		}
 		objects, commits := oabranch.TouchedObjects(plan, current.snapshot, func(kind, name string) string {
 			return current.origins[kind+"/"+name]
 		})
-		commit, err := store.Commit(ctx, ref, tip, plan, oabranch.Message(options.Repository, plan, objects, commits, conflictLines(result.Conflicts, tip)...))
+		message := oabranch.Message(options.Repository, plan, current.snapshot, previous, objects, commits, conflictLines(result.Conflicts, tip)...)
+		commit, err := store.Commit(ctx, ref, tip, plan, message)
 		if errors.Is(err, oagit.ErrRaced) {
 			continue
 		}
@@ -393,6 +417,39 @@ func read(ctx context.Context, options Options) (state, error) {
 		return current.snapshot.Changes[left].Name < current.snapshot.Changes[right].Name
 	})
 	return current, nil
+}
+
+// readBaseline reads the default architecture branch: what a feature branch's
+// CHANGES.md measures its requirement delta against.
+func readBaseline(ctx context.Context, store oagit.Store, repository string) (*oabranch.Baseline, error) {
+	baseline := &oabranch.Baseline{}
+	defaultRef := "refs/heads/" + oabranch.Branch(repository)
+	tip, err := store.Tip(ctx, defaultRef)
+	if err != nil || tip == "" {
+		return baseline, err
+	}
+	files, err := store.ReadFiles(ctx, tip)
+	if err != nil {
+		return baseline, err
+	}
+	specs, err := oabranch.SpecFiles(files)
+	if err != nil {
+		return baseline, err
+	}
+	names := make([]string, 0, len(specs))
+	for name := range specs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		baseline.Contexts = append(baseline.Contexts, specs[name])
+	}
+	changes, err := oabranch.ChangeFiles(files)
+	if err != nil {
+		return baseline, err
+	}
+	baseline.Changes = changes
+	return baseline, nil
 }
 
 func branchOffDefault(ctx context.Context, store oagit.Store, repository, ref, defaultBranch string) error {

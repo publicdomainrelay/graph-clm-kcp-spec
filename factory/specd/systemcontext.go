@@ -194,13 +194,7 @@ func newestFailure(changes []spec.SpecChange, base string) time.Time {
 }
 
 func episodeBase(change *spec.SpecChange) string {
-	switch change.Spec.Direction {
-	case specapi.DirectionCodeToSpec:
-		return spec.ChangeNameCodeToSpec(change.Spec.SystemContext, change.Spec.FromCommit, change.Spec.ToCommit)
-	case specapi.DirectionSpecToCode:
-		return spec.ChangeNameSpecToCode(change.Spec.SystemContext, change.Spec.ToSpecHash)
-	}
-	return change.Name
+	return spec.EpisodeBase(*change)
 }
 
 func (c *Controller) attemptsTaken(ctx context.Context, namespace string, change *spec.SpecChange) int {

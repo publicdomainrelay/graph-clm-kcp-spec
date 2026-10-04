@@ -218,6 +218,123 @@ func TestPersistOnAFreshCloneMakesOneOrphanCommitAndNoTreeChange(t *testing.T) {
 	if !strings.Contains(message, "M specs/calc.yaml") || !strings.Contains(message, "origin=clm") {
 		t.Fatalf("message:\n%s", message)
 	}
+	if subject := strings.SplitN(message, "\n", 2)[0]; subject != "spec(calc): ~intent" {
+		t.Fatalf("subject = %q", subject)
+	}
+}
+
+func seedChange(t *testing.T, cluster *fakeCluster, name string, phase string) {
+	t.Helper()
+	change := spec.SpecChange{}
+	change.APIVersion = specapi.Group + "/" + specapi.Version
+	change.Kind = specapi.SpecChangeKind
+	change.Name = name
+	change.Namespace = "default"
+	change.Spec = spec.SpecChangeSpec{SystemContext: "calc", Direction: specapi.DirectionSpecToCode, ToSpecHash: strings.Repeat("a", 64)}
+	change.Status = spec.SpecChangeStatus{Phase: phase, Commit: "c0ffee"}
+	cluster.put(t, &change)
+}
+
+func TestSpecCommitCarriesItsSpecChangeTrailer(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	seedChange(t, cluster, "calc-s2c-aaaaaaaaaaaa", specapi.PhaseSucceeded)
+	if _, err := Persist(context.Background(), Options{Cluster: cluster, Repository: "calc"}); err != nil {
+		t.Fatal(err)
+	}
+	message := git(t, repo, "log", "-1", "--format=%B", oabranch.Branch("calc"))
+	if !strings.Contains(message, "Spec-Change: calc-s2c-aaaaaaaaaaaa") {
+		t.Fatalf("a spec commit carries no Spec-Change trailer:\n%s", message)
+	}
+}
+
+func TestProgressOnlyUpdatesDoNotCommit(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	seedChange(t, cluster, "calc-s2c-aaaaaaaaaaaa", specapi.PhaseSucceeded)
+	ctx := context.Background()
+	first, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, err := cluster.Get(ctx, specapi.SpecChangeGVR, "default", "calc-s2c-aaaaaaaaaaaa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change := typed.(*spec.SpecChange)
+	change.Status.Progress = append(change.Status.Progress, spec.ProgressRecord{Turn: 1, Tool: "edit", Note: "a turn", At: "2026-01-01T00:00:00Z"})
+	cluster.put(t, change)
+
+	second, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Committed {
+		t.Fatalf("a progress-only update made a commit: %+v", second)
+	}
+	if tip := git(t, repo, "rev-parse", oabranch.Branch("calc")); tip != first.Commit {
+		t.Fatal("the branch moved")
+	}
+	if len(second.Deferred) != 1 {
+		t.Fatalf("deferred = %v", second.Deferred)
+	}
+}
+
+func TestAFeatureBranchCarriesAChangesDocument(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	ctx := context.Background()
+	if _, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc"}); err != nil {
+		t.Fatal(err)
+	}
+	edited := readContext(t, cluster, "calc")
+	edited.Spec.Requirements = append(edited.Spec.Requirements,
+		spec.Requirement{ID: "r.sub", Level: spec.LevelMust, Text: "Subtract returns the difference."})
+	cluster.put(t, &edited)
+	if _, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc", CodeBranch: "spec/bob"}); err != nil {
+		t.Fatal(err)
+	}
+	document := git(t, repo, "show", "open-architecture/calc--spec-bob:CHANGES.md")
+	for _, want := range []string{
+		"# Changes on `open-architecture/calc--spec-bob`",
+		"added `r.sub` (MUST)",
+	} {
+		if !strings.Contains(document, want) {
+			t.Errorf("CHANGES.md lacks %q:\n%s", want, document)
+		}
+	}
+	if arch := git(t, repo, "show", "open-architecture/calc--spec-bob:arch.yaml"); !strings.Contains(arch, "branch: open-architecture/calc--spec-bob") || !strings.Contains(arch, "kind: GeneratedArchitecture") {
+		t.Errorf("arch.yaml does not name the branch it was written to:\n%s", arch)
+	}
+	if main := git(t, repo, "show", "open-architecture/calc:arch.yaml"); strings.Contains(main, "spec-bob") {
+		t.Errorf("the feature's branch name leaked into main's arch.yaml:\n%s", main)
+	}
+}
+
+func TestAFeatureBranchKeepsTheDefaultBranchesChangeRecords(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	seedChange(t, cluster, "calc-s2c-aaaaaaaaaaaa", specapi.PhaseSucceeded)
+	ctx := context.Background()
+	if _, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc"}); err != nil {
+		t.Fatal(err)
+	}
+	withoutChanges := newFakeCluster()
+	seed(t, withoutChanges, repo)
+	if _, err := Persist(ctx, Options{Cluster: withoutChanges, Repository: "calc", CodeBranch: "spec/bob"}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "show", "open-architecture/calc--spec-bob:changes/calc-s2c-aaaaaaaaaaaa.yaml").CombinedOutput(); err != nil {
+		t.Fatalf("the feature branch dropped an inherited change record: %v\n%s", err, out)
+	}
 }
 
 func commitOnBranch(t *testing.T, repo, path, content string) {
