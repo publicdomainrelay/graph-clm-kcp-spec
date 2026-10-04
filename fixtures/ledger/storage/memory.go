@@ -2,14 +2,12 @@ package storage
 
 import "example.com/ledger/domain"
 
-// Add appends one entry.
 func (s *Store) Add(entry domain.Entry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.entries = append(s.entries, entry)
 }
 
-// For returns a copy of the entries of one account, oldest first.
 func (s *Store) For(account string) []domain.Entry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -22,7 +20,6 @@ func (s *Store) For(account string) []domain.Entry {
 	return out
 }
 
-// All returns a copy of every entry.
 func (s *Store) All() []domain.Entry {
 	s.mu.Lock()
 	defer s.mu.Unlock()

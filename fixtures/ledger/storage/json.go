@@ -7,7 +7,6 @@ import (
 	"example.com/ledger/domain"
 )
 
-// Save writes the store's entries to a JSON file.
 func (s *Store) Save(path string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -18,7 +17,6 @@ func (s *Store) Save(path string) error {
 	return os.WriteFile(path, append(encoded, '\n'), 0o644)
 }
 
-// Load reads the entries a Save wrote.
 func Load(path string) (*Store, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
