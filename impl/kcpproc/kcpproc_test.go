@@ -5,6 +5,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -108,6 +110,59 @@ func freePort(t *testing.T) int {
 	}
 	defer listener.Close()
 	return listener.Addr().(*net.TCPAddr).Port
+}
+
+func TestStartStopStartResumesOnOneRoot(t *testing.T) {
+	requireKcp(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	root := t.TempDir()
+	first, err := Start(ctx, Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveEndpoint(first); err != nil {
+		t.Fatal(err)
+	}
+	store := filepath.Join(root, "kine.db")
+	before, err := os.Stat(store)
+	if err != nil || before.Size() == 0 {
+		t.Fatalf("the store after the first start: %v, %v", before, err)
+	}
+	Stop(first)
+	if live := Running(root); len(live) != 0 {
+		t.Fatalf("Stop left %v alive", live)
+	}
+
+	second, err := Start(ctx, Options{Root: root})
+	if err != nil {
+		t.Fatalf("a restart on a root this process used: %v", err)
+	}
+	t.Cleanup(func() { Stop(second) })
+	if !Ready(second) {
+		t.Fatalf("not ready after the restart: %+v", second)
+	}
+	if second.KcpPort != first.KcpPort {
+		t.Fatalf("the restart moved the kcp port: %+v, was %+v", second, first)
+	}
+	after, err := os.Stat(store)
+	if err != nil || !os.SameFile(before, after) {
+		t.Fatalf("the restart replaced the store: %v, %v", after, err)
+	}
+	if after.Size() < before.Size() {
+		t.Fatalf("the store shrank across the restart: %d, was %d", after.Size(), before.Size())
+	}
+	if err := SaveEndpoint(second); err != nil {
+		t.Fatal(err)
+	}
+	log, err := os.ReadFile(filepath.Join(root, "kcp.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(log), "empty token for the shard-admin user") {
+		t.Fatalf("the restart could not reuse the shard-admin token:\n%s", log)
+	}
 }
 
 func TestTwoInstancesRunSideBySideOnKernelPorts(t *testing.T) {

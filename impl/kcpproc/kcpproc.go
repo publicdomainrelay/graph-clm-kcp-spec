@@ -124,6 +124,12 @@ func Start(ctx context.Context, options Options) (Instance, error) {
 		return serving, fmt.Errorf("kcpproc: a kcp is already serving %s at %s; reuse it or stop it before starting another", options.Root, serving.KcpURL)
 	}
 	instance := Instance{Root: options.Root, AdminKubeconfig: filepath.Join(options.Root, "admin.kubeconfig")}
+	resuming := hasKineStore(options.Root)
+	if options.KcpPort == 0 && resuming {
+		if existing, ok := kubeconfigPort(instance.AdminKubeconfig); ok {
+			options.KcpPort = existing
+		}
+	}
 
 	kineLog := filepath.Join(options.Root, "kine.log")
 	kinePid, err := spawn(options.KineBin, kineLog,
@@ -148,7 +154,9 @@ func Start(ctx context.Context, options Options) (Instance, error) {
 			Stop(instance)
 			return instance, err
 		}
-		_ = os.Remove(instance.AdminKubeconfig)
+		if !resuming {
+			_ = os.Remove(instance.AdminKubeconfig)
+		}
 		kcpLog := filepath.Join(options.Root, "kcp.log")
 		kcpPid, err := spawn(options.KcpBin, kcpLog,
 			"start",
@@ -442,6 +450,11 @@ func readyz(port int) bool {
 	}
 	response.Body.Close()
 	return response.StatusCode == http.StatusOK
+}
+
+func hasKineStore(root string) bool {
+	info, err := os.Stat(filepath.Join(root, "kine.db"))
+	return err == nil && info.Size() > 0
 }
 
 func alive(pid int) bool {
