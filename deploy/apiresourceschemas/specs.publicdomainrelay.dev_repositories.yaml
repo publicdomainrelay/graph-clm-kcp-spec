@@ -1,7 +1,7 @@
 apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
-  name: v1alpha1-4.repositories.specs.publicdomainrelay.dev
+  name: v1alpha1-5.repositories.specs.publicdomainrelay.dev
 spec:
   group: specs.publicdomainrelay.dev
   names:
@@ -112,6 +112,11 @@ spec:
                     kind:
                       type: string
                   type: object
+                arch:
+                  description: Path of the in-repo architecture document whose facts
+                    seed the generated contexts; empty uses .tools/open-architecture/arch.yaml
+                    when it is there.
+                  type: string
                 exclude:
                   description: Globs of repository-relative paths to drop; an exclude
                     wins over an include.
@@ -133,6 +138,10 @@ spec:
                   - directory
                   - package
                   type: string
+                root:
+                  description: Add a context for the repository root (the files at
+                    the top level and docs/); the other contexts depend on it.
+                  type: boolean
                 summarize:
                   description: Send a model over every new context, one CodeToSpec
                     change per context.

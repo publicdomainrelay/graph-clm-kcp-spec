@@ -2,11 +2,27 @@ package ingest
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 )
+
+func GoModulePath(repoPath string) string {
+	data, err := os.ReadFile(filepath.Join(repoPath, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	for raw := range strings.SplitSeq(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if module, ok := strings.CutPrefix(line, "module "); ok {
+			return strings.TrimSpace(module)
+		}
+	}
+	return ""
+}
 
 var skippedDirectories = map[string]bool{
 	".git":         true,

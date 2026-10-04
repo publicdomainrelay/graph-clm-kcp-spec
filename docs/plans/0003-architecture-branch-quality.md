@@ -158,6 +158,79 @@ run (`scripts/example-deno-kcp-pr.sh`, `PUSH=0`) with the measures below.
 
 Validate: unit tests for each decider; a fixture-level e2e; then the deno-kcp run.
 
+**Status: 3b shipped** (branch `plan3-b`, plus the delivery branch it runs on).
+What shipped, and the decisions behind it:
+
+- *7. `file:` refs resolve against the git tree.* ingest reads the tracked
+  files (`gitrepo.TrackedFiles`, `git ls-files --cached --exclude-standard`) and
+  each context carries the ones the code index does not cover as
+  `status.observed.treeFiles` (`abc/sync.Partition.TreeFiles`). They do not
+  enter the fingerprint and they are not merged into `spec.codeRefs`, so no
+  context's digest churns because a README moved; they are resolvable refs
+  (`ResolvableRefs`), the draft parser accepts them (`canonicalRefs`) and the
+  prompt lists them, so a requirement may name `apply.sh` and be right.
+- *8. Cross-context relationships.* `PartitionDependencies` derives `dependsOn`
+  from the index's `imports` edges (`codegraphsqlite.Imports`, joined to the
+  source file and the imported path) against the `go.mod` module path, and every
+  non-root context also depends on the repository root. The root context — the
+  depth-0 tracked files plus `docs/` — is created when `spec.populate.root` is
+  set (what `specctl up` applies), because a fixture repository whose root files
+  are its build files would otherwise grow a context no scenario describes.
+  ingest fills `spec.dependsOn` only when the spec declares none, so a human
+  edit is never overwritten.
+- *9. Seed from the in-repo architecture document.* `archkcp.Seed` runs inside
+  ingest when `populate.arch` names a document (default
+  `.tools/open-architecture/arch.yaml` when it is there). `abc/sync.MatchArch`
+  scores every arch node against every partition by code path — a node's `code`
+  and its `source` (now both feed `archyaml.Node.Code`), counting the files it
+  names, how many of its paths are inside the partition and how many are
+  outside, then shallower first — and the root context takes the document's own
+  root node (`metadata.root`, or the node named after the repository). The
+  matched node's `upstream`, `overlay`, `orchestrator`, `depends_on`,
+  `introduces` and node body land on the context, merged only where the context
+  has nothing; the document's refs are resolved onto the generated context
+  names (`sc.kind.denopod` becomes `sc.internal-denopod`; `upstream` follows a
+  chain, so the root's `sc.kcp-local` becomes `up.kcp`), an overlay ref that no
+  generated context carries keeps the document's own spelling, and a
+  `depends_on` to a context that is not generated is dropped. The seed writes
+  the merged hash as both the origin hash and `status.realizedSpecHash`, so the
+  facts never read as a spec edit. `DraftSpec` keeps `upstream`, `overlay`,
+  `orchestrator`, `dependsOn` and `arch`, so the summary refines the seed.
+- *10. Generated symbols are not declared interfaces.*
+  `abc/sync.IsGeneratedSymbol` drops a symbol from a `zz_generated*` file, or
+  one whose name (bare or qualified) begins with `DeepCopy`, before anything is
+  observed.
+- *11. Model output held to a higher bar.* `abc/spec/quality.go` holds the pure
+  deciders: `AbsoluteMachinePath`, `CommandContext`, `DeclaresConfigSurface`,
+  `ArchDeclaresConfigSurface`, `NamedFlags`, `NamedEnvironments`,
+  `EnumeratesNames`. `ParseDraft` rejects a requirement naming a machine path,
+  drops a declared interface the facts do not name, and warns about a
+  requirement that is only a list of names; `ValidateDraft` requires a
+  configuration-surface requirement for a `cmd/` context whose arch node knows
+  flags (so a fixture command with no flags is not failed for having none); the
+  prompt states all four rules and renders the seeded arch node.
+- *Schema.* kcp prunes unknown fields, so `populate.arch`, `populate.root` and
+  `observed.treeFiles` needed the CRDs; `deploy/apiresourceschemas` is
+  regenerated at revision 5 and `deploy/specs-apiexport.yaml` names them.
+- *Found while validating.* Restarting a kcp on an existing root fails with
+  `cannot create the 'admin.kubeconfig' file with an empty token for the
+  shard-admin user` (`impl/kcpproc`), so each measurement run used a fresh state
+  dir; that restart is a bug for another change, not this one.
+
+Measured on the deno-kcp run (`specctl up --remote ""` on a fresh branch of a
+copy of the review's clone, DeepSeek summaries, `specctl down` at the end), my
+half's rows:
+
+| measure | before | after | target |
+| --- | --- | --- | --- |
+| contexts with a non-`self` upstream or `dependsOn` | 0 / 17 | 18 / 18 | most |
+| `api-v1alpha1` declared interfaces | 118 | 48 | ~48 |
+| `deploy-examples-atproto-market` CodeSynced | False (InterfacesMissing) | True (InterfacesObserved) | True |
+| `cmd-deno-kcp-provider` flags declared | 3 of the document's 19 named in requirement text | 19 / 19 | all 17 |
+| contexts `CodeSynced=False` | 4 / 17 | 0 / 18 | — |
+| contexts carrying an arch node | 0 | 16 / 18 | — |
+| requirement `file:` refs with no file in the code tree | 0 (the model could only name indexed files) | 0 (it may now name any tracked one) | — |
+
 ## Measures (deno-kcp run, before -> target)
 
 | measure | before | target |
@@ -169,6 +242,9 @@ Validate: unit tests for each decider; a fixture-level e2e; then the deno-kcp ru
 | `api-v1alpha1` declared interfaces | 118 | ~48 |
 | `deploy-examples-atproto-market` CodeSynced | False | True |
 | `cmd-deno-kcp-provider` flags declared | 0 | all 17 |
+
+Rows 3b owns are measured above (the 3b status section); this table keeps the
+targets the whole plan is judged by, and 3a's rows are measured with 3a.
 
 3a and 3b run in parallel in two worktrees; the coordinator merges, reruns the
 deno-kcp example, and an independent review compares the new branches with the

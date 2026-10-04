@@ -58,6 +58,8 @@ type Result struct {
 
 	Dropped []agent.DroppedRef
 
+	Warnings []string
+
 	SpecHash string
 
 	Applied bool
@@ -106,8 +108,9 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	}
 	result.Draft = draft
 	result.Dropped = draft.Dropped
+	result.Warnings = draft.Warnings
 
-	merged, validation := agent.ValidateDraft(options.Context, systemContext.Spec, draft)
+	merged, validation := agent.ValidateDraft(options.Context, systemContext.Spec, systemContext.Status.Observed, draft)
 	if !validation.OK() {
 		return result, fmt.Errorf("summarize: the draft of %s does not validate: %w", options.Context, validation.Err())
 	}

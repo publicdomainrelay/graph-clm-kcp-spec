@@ -70,7 +70,7 @@ func TestPhase8PiHostSummarizesCalc(t *testing.T) {
 		t.Fatalf("the pi host did not answer with a readable spec: %v", err)
 	}
 	base := spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf}
-	merged, result := agent.ValidateDraft("calc", base, draft)
+	merged, result := agent.ValidateDraft("calc", base, spec.ObservedFacts{}, draft)
 	if !result.OK() {
 		t.Fatalf("the pi host's draft does not validate: %v", result.Err())
 	}

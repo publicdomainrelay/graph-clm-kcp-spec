@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"testing"
 
@@ -84,7 +85,16 @@ func (c *fakeCluster) PatchStatus(_ context.Context, gvr schema.GroupVersionReso
 	if !ok {
 		return nil, apierrors.NewInternalError(errors.New("status is not an object"))
 	}
-	if err := unstructured.SetNestedMap(updated.Object, normalized, "status"); err != nil {
+	merged := map[string]any{}
+	if existing, ok := updated.Object["status"].(map[string]any); ok {
+		for field, value := range existing {
+			merged[field] = value
+		}
+	}
+	for field, value := range normalized {
+		merged[field] = value
+	}
+	if err := unstructured.SetNestedMap(updated.Object, merged, "status"); err != nil {
 		return nil, err
 	}
 	version, _ := strconv.Atoi(stored.GetResourceVersion())
@@ -536,4 +546,94 @@ func TestRunLeavesAContextOfAnotherRepositoryAlone(t *testing.T) {
 	if intent, _, _ := unstructured.NestedString(after.Object, "spec", "intent"); intent != "owned elsewhere" {
 		t.Errorf("spec.intent = %q, want the owner's value", intent)
 	}
+}
+
+const calcArch = `
+metadata: {name: calc, root: sc.calc}
+system_contexts:
+  - id: sc.calc
+    upstream: up.go
+    orchestrator: orch.demo
+  - id: sc.cmd
+    source: cmd/calc
+    upstream: sc.calc
+    depends_on: [sc.calc]
+`
+
+func TestRunGivesTheRepositoryARootContextAndSeedsTheArchDocument(t *testing.T) {
+	fixture.Require(t, "codegraph", "git")
+	repoPath := fixture.Copy(t, "calc")
+	archPath := filepath.Join(repoPath, filepath.FromSlash(spec.DefaultArchPath))
+	if err := os.MkdirAll(filepath.Dir(archPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(archPath, []byte(calcArch), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cluster := newFakeCluster()
+
+	result, err := Run(context.Background(), cluster, Options{
+		RepoPath:       repoPath,
+		RepositoryName: "calc",
+		Commit:         "cafebabe",
+		RootContext:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := []string{}
+	for _, context := range result.Contexts {
+		names = append(names, context.Name)
+	}
+	sort.Strings(names)
+	want := []string{"calc-root", "calc", "cmd-calc", "tools-open-architecture"}
+	sort.Strings(want)
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("contexts = %v, want %v", names, want)
+	}
+	if !reflect.DeepEqual(result.Seeded, []string{"calc-root", "cmd-calc"}) {
+		t.Errorf("seeded = %v", result.Seeded)
+	}
+
+	root := storedContext(t, cluster, "calc-root")
+	if root.Spec.Upstream != "up.go" || root.Spec.Orchestrator != "orch.demo" {
+		t.Errorf("root spec = %+v, want the arch document's upstream and orchestrator", root.Spec)
+	}
+	if len(root.Status.Observed.TreeFiles) == 0 {
+		t.Error("the root context carries no tracked files")
+	}
+	if contains(root.Spec.CodeRefs, "file:go.mod") {
+		t.Error("the root context's code refs must come from the index, not from every tracked file")
+	}
+
+	command := storedContext(t, cluster, "cmd-calc")
+	if command.Spec.Upstream != "sc.calc-root" {
+		t.Errorf("cmd-calc upstream = %q, want the generated root context", command.Spec.Upstream)
+	}
+	if !reflect.DeepEqual(command.Spec.DependsOn, []string{"sc.calc", "sc.calc-root"}) {
+		t.Errorf("cmd-calc dependsOn = %v, want the import edge and the root", command.Spec.DependsOn)
+	}
+	found := false
+	for _, ref := range command.Spec.CodeRefs {
+		if ref == "file:cmd/calc/main.go" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("cmd-calc code refs = %v, want the tracked file from the arch node", command.Spec.CodeRefs)
+	}
+
+	library := storedContext(t, cluster, "calc")
+	if !reflect.DeepEqual(library.Spec.DependsOn, []string{"sc.calc-root"}) {
+		t.Errorf("calc dependsOn = %v", library.Spec.DependsOn)
+	}
+}
+
+func contains(values []string, value string) bool {
+	for _, entry := range values {
+		if entry == value {
+			return true
+		}
+	}
+	return false
 }

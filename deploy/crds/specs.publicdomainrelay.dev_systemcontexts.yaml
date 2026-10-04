@@ -144,6 +144,12 @@ spec:
                       x-kubernetes-list-type: set
                       items:
                         type: string
+                    treeFiles:
+                      type: array
+                      x-kubernetes-list-type: set
+                      description: Tracked files under this context that the code index does not cover; a file code ref resolves against these too.
+                      items:
+                        type: string
                     interfaces:
                       type: array
                       x-kubernetes-list-type: map
@@ -173,6 +179,12 @@ spec:
                     files:
                       type: array
                       x-kubernetes-list-type: set
+                      items:
+                        type: string
+                    treeFiles:
+                      type: array
+                      x-kubernetes-list-type: set
+                      description: Tracked files under this context that the code index does not cover; a file code ref resolves against these too.
                       items:
                         type: string
                     interfaces:

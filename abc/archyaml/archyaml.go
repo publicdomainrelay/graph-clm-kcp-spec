@@ -244,7 +244,26 @@ func (w *walker) derive(node *Node, original map[string]any) {
 	node.Orchestrator = refOf(original["orchestrator"])
 	node.DependsOn = refsOf(original["depends_on"])
 	node.Introduces = refsOf(original["introduces"])
-	node.Code = codePaths(original["code"])
+	node.Code = mergeCodePaths(codePaths(original["code"]), codePaths(original["source"]))
+}
+
+func mergeCodePaths(groups ...[]string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, group := range groups {
+		for _, path := range group {
+			if seen[path] {
+				continue
+			}
+			seen[path] = true
+			out = append(out, path)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Strings(out)
+	return out
 }
 
 func joinSlot(slot, key string) string {

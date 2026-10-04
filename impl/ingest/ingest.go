@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"reflect"
@@ -18,6 +19,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/archkcp"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphsqlite"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/gitrepo"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
@@ -54,6 +56,10 @@ type Options struct {
 
 	AdoptAll map[string]*spec.SystemContextSpec
 
+	RootContext bool
+
+	ArchPath string
+
 	Writer graph.Writer
 
 	GraphNamespace string
@@ -79,6 +85,8 @@ type Result struct {
 	SpecPath string
 
 	Contexts []ContextResult
+
+	Seeded []string
 }
 
 func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) {
@@ -120,11 +128,18 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 	if err != nil {
 		return Result{}, err
 	}
+	treeFiles, err := gitrepo.TrackedFiles(ctx, repoPath)
+	if err != nil {
+		treeFiles = nil
+	}
 	partitionOptions := specsync.PartitionOptions{
 		Mode:           options.Partition,
 		Include:        options.Include,
 		Exclude:        options.Exclude,
 		RepositoryName: repositoryName,
+		TreeFiles:      treeFiles,
+		ModulePath:     GoModulePath(repoPath),
+		RootContext:    options.RootContext,
 	}
 	if options.Partition == spec.PartitionPackage {
 		roots, err := PackageRoots(repoPath)
@@ -134,6 +149,10 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 		partitionOptions.Roots = roots
 	}
 	partitions := specsync.PartitionFactsWith(facts, partitionOptions)
+	dependencies := specsync.PartitionDependencies(partitions, facts.Imports, partitionOptions.ModulePath)
+	for index := range partitions {
+		partitions[index].DependsOn = dependencies[partitions[index].Name]
+	}
 
 	result := Result{Repository: repositoryName, Commit: commit, SpecPath: specPath}
 
@@ -154,12 +173,53 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 		result.Contexts = append(result.Contexts, contextResult)
 	}
 
+	seeded, err := seedFromArch(ctx, cluster, repoPath, repositoryName, namespace, partitions, options)
+	if err != nil {
+		return Result{}, err
+	}
+	result.Seeded = seeded
+
 	if options.Writer != nil {
 		if err := RebuildGraph(ctx, cluster, options.Writer, options); err != nil {
 			return Result{}, err
 		}
 	}
 	return result, nil
+}
+
+func seedFromArch(
+	ctx context.Context,
+	cluster Cluster,
+	repoPath, repositoryName, namespace string,
+	partitions []specsync.Partition,
+	options Options,
+) ([]string, error) {
+	path := options.ArchPath
+	explicit := path != ""
+	if path == "" {
+		path = spec.DefaultArchPath
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(repoPath, filepath.FromSlash(path))
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if explicit || !os.IsNotExist(err) {
+			return nil, fmt.Errorf("ingest: read %s: %w", path, err)
+		}
+		return nil, nil
+	}
+	seeded, err := archkcp.Seed(ctx, cluster, archkcp.SeedOptions{
+		Namespace:   namespace,
+		Repository:  repositoryName,
+		Data:        data,
+		Partitions:  partitions,
+		RootContext: options.RootContext,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return seeded.Seeded, nil
 }
 
 func upsertRepository(ctx context.Context, cluster Cluster, repository *spec.Repository, commit string) error {
@@ -273,6 +333,9 @@ func ingestPartition(
 	}
 	if merged.Upstream == "" {
 		merged.Upstream = spec.RefSelf
+	}
+	if len(merged.DependsOn) == 0 {
+		merged.DependsOn = specsync.DependencyRefs(partition.DependsOn)
 	}
 	merged.CodeRefs = mergeCodeRefs(merged.CodeRefs, observed.Files)
 	merged = specsync.MigrateDeclared(merged, observed)

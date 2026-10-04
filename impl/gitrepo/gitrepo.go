@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -88,6 +89,19 @@ func checkout(ctx context.Context, dir, ref string) error {
 
 func Branch(ctx context.Context, path string) (string, error) {
 	return run(ctx, path, "rev-parse", "--abbrev-ref", "HEAD")
+}
+
+func TrackedFiles(ctx context.Context, path string) ([]string, error) {
+	output, err := run(ctx, path, "ls-files", "--cached", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	if output == "" {
+		return nil, nil
+	}
+	files := strings.Split(output, "\n")
+	sort.Strings(files)
+	return files, nil
 }
 
 func IsRepo(ctx context.Context, path string) bool {

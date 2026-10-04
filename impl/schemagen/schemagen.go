@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const Revision = 4
+const Revision = 5
 
 func Name(crd map[string]any) (string, error) {
 	version, err := firstVersion(crd)

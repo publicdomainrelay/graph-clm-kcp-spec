@@ -60,6 +60,8 @@ type SpecDraft struct {
 	Interfaces []spec.Interface
 
 	Dropped []DroppedRef
+
+	Warnings []string
 }
 
 type Agent interface {

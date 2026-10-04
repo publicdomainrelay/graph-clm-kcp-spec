@@ -214,6 +214,29 @@ func exportedMethod(node Node) bool {
 	return unicode.IsUpper(first)
 }
 
+func (db *DB) Imports(ctx context.Context) ([]specsync.Import, error) {
+	rows, err := db.sql.QueryContext(ctx, `
+		SELECT n.file_path, target.name
+		FROM edges e
+		JOIN nodes n ON n.id = e.source
+		JOIN nodes target ON target.id = e.target
+		WHERE e.kind = 'imports' AND n.kind = 'file'
+		ORDER BY n.file_path, target.name`)
+	if err != nil {
+		return nil, fmt.Errorf("codegraphsqlite: read imports: %w", err)
+	}
+	defer rows.Close()
+	out := []specsync.Import{}
+	for rows.Next() {
+		entry := specsync.Import{}
+		if err := rows.Scan(&entry.From, &entry.Path); err != nil {
+			return nil, fmt.Errorf("codegraphsqlite: scan import: %w", err)
+		}
+		out = append(out, entry)
+	}
+	return out, rows.Err()
+}
+
 func (db *DB) Edges(ctx context.Context) ([]Edge, error) {
 	rows, err := db.sql.QueryContext(ctx, `SELECT source, target, kind, COALESCE(line, 0) FROM edges ORDER BY source, target, kind`)
 	if err != nil {
@@ -240,7 +263,11 @@ func (db *DB) Facts(ctx context.Context, commit string) (specsync.Facts, error) 
 	if err != nil {
 		return specsync.Facts{}, err
 	}
-	facts := specsync.Facts{Commit: commit}
+	imports, err := db.Imports(ctx)
+	if err != nil {
+		return specsync.Facts{}, err
+	}
+	facts := specsync.Facts{Commit: commit, Imports: imports}
 	for _, file := range files {
 		facts.Files = append(facts.Files, specsync.SourceFile{Path: file.Path, Language: file.Language})
 	}

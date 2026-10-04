@@ -94,7 +94,7 @@ func TestParseDraftCanonicalizesABareNameToTheObservedID(t *testing.T) {
 	if len(draft.Dropped) != 0 {
 		t.Errorf("dropped = %+v, want none: every spelling names Add", draft.Dropped)
 	}
-	if _, result := ValidateDraft("calc", spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf}, draft); !result.OK() {
+	if _, result := ValidateDraft("calc", spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf}, spec.ObservedFacts{}, draft); !result.OK() {
 		t.Errorf("the canonicalized draft does not validate: %v", result.Err())
 	}
 }
@@ -193,7 +193,7 @@ func TestValidateDraftKeepsTheHumanFieldsAndChecksTheRest(t *testing.T) {
 		Requirements: []spec.Requirement{{ID: "r.add", Level: spec.LevelMust, Text: "t", CodeRefs: []string{"function:abc"}}},
 		Interfaces:   []spec.Interface{{Name: "Add", Kind: "function"}},
 	}
-	merged, result := ValidateDraft("calc", base, draft)
+	merged, result := ValidateDraft("calc", base, spec.ObservedFacts{}, draft)
 	if !result.OK() {
 		t.Fatalf("a valid draft did not validate: %v", result.Err())
 	}
@@ -202,7 +202,7 @@ func TestValidateDraftKeepsTheHumanFieldsAndChecksTheRest(t *testing.T) {
 	}
 
 	bad := SpecDraft{Intent: "x", Requirements: []spec.Requirement{{ID: "r", Level: "NOPE", Text: "t"}}}
-	if _, result := ValidateDraft("calc", base, bad); result.OK() {
+	if _, result := ValidateDraft("calc", base, spec.ObservedFacts{}, bad); result.OK() {
 		t.Error("an invalid level passed the validator")
 	}
 }
@@ -395,5 +395,94 @@ func TestEveryCanonicalRefTheParserBuildsIsAValidCodeRef(t *testing.T) {
 	}
 	if result := spec.ValidateSystemContext(candidate); !result.OK() {
 		t.Errorf("the spec the draft built does not validate: %v", result.Err())
+	}
+}
+
+func TestParseDraftRejectsAMachinePath(t *testing.T) {
+	raw := `{
+  "intent": "Arithmetic over two integers.",
+  "requirements": [
+    {"id": "r.add", "level": "MUST", "text": "Add reads /home/alice/src/calc/config.json before adding."}
+  ]
+}`
+	if _, err := ParseDraft(raw, observed()); err == nil {
+		t.Fatal("a machine path in requirement text passed the parser")
+	}
+}
+
+func TestParseDraftDropsInterfacesTheFactsDoNotCarry(t *testing.T) {
+	raw := `{
+  "intent": "Arithmetic over two integers.",
+  "requirements": [{"id": "r.add", "level": "MUST", "text": "Add adds two integers."}],
+  "interfaces": [
+    {"name": "Add", "kind": "function"},
+    {"name": "Subtract", "kind": "function"}
+  ]
+}`
+	draft, err := ParseDraft(raw, observed())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(draft.Interfaces) != 1 || draft.Interfaces[0].Name != "Add" {
+		t.Fatalf("interfaces = %+v, want only the observed Add", draft.Interfaces)
+	}
+	if len(draft.Warnings) == 0 || !strings.Contains(draft.Warnings[0], "Subtract") {
+		t.Fatalf("warnings = %v, want one naming Subtract", draft.Warnings)
+	}
+}
+
+func TestParseDraftWarnsAboutABareNameList(t *testing.T) {
+	raw := `{
+  "intent": "Arithmetic over two integers.",
+  "requirements": [
+    {"id": "r.add", "level": "MUST", "text": "Add, Multiply, Subtract, Divide"}
+  ]
+}`
+	draft, err := ParseDraft(raw, observed())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(draft.Warnings) != 1 || !strings.Contains(draft.Warnings[0], "r.add") {
+		t.Fatalf("warnings = %v, want one for r.add", draft.Warnings)
+	}
+}
+
+func TestValidateDraftMakesACommandDeclareItsConfigSurface(t *testing.T) {
+	observed := spec.ObservedFacts{
+		Files: []string{"cmd/calc/main.go"},
+		Interfaces: []spec.ObservedInterface{
+			{Name: "main", Kind: "function", File: "cmd/calc/main.go", Line: 10, CodegraphID: "function:main"},
+		},
+	}
+	base := spec.SystemContextSpec{
+		Repository: "calc",
+		Upstream:   spec.RefSelf,
+		Arch: &spec.ArchSpec{
+			ID:   "ov.calc-flags",
+			Kind: spec.ArchKindNode,
+			Node: map[string]any{"data": map[string]any{"flags": map[string]any{
+				"runs-dir": map[string]any{"env": "RUNS_DIR", "default": "runs"},
+			}}},
+		},
+	}
+	silent := SpecDraft{Intent: "The command line front end.", Requirements: []spec.Requirement{
+		{ID: "r.run", Level: spec.LevelMust, Text: "main builds the engine and runs it."},
+	}}
+	if _, result := ValidateDraft("cmd-calc", base, observed, silent); result.OK() {
+		t.Fatal("a command context with no config surface validated")
+	}
+	plain := spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf}
+	if _, result := ValidateDraft("cmd-calc", plain, observed, silent); !result.OK() {
+		t.Fatalf("a command whose architecture knows no flags needs no surface: %v", result.Err())
+	}
+	declared := SpecDraft{Intent: "The command line front end.", Requirements: []spec.Requirement{
+		{ID: "r.config", Level: spec.LevelMust, Text: "main reads --runs-dir (RUNS_DIR, default runs) and --verbose."},
+	}}
+	if _, result := ValidateDraft("cmd-calc", base, observed, declared); !result.OK() {
+		t.Fatalf("a declared config surface did not validate: %v", result.Err())
+	}
+	library := spec.ObservedFacts{Files: []string{"calc/calc.go"}}
+	if _, result := ValidateDraft("calc-calc", base, library, silent); !result.OK() {
+		t.Fatalf("a library context needs no config surface: %v", result.Err())
 	}
 }

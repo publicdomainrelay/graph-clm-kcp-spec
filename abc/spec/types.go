@@ -39,12 +39,16 @@ type RepositoryPopulate struct {
 	Include   []string   `json:"include,omitempty"`
 	Exclude   []string   `json:"exclude,omitempty"`
 	Summarize bool       `json:"summarize,omitempty"`
+	Arch      string     `json:"arch,omitempty"`
+	Root      bool       `json:"root,omitempty"`
 	Agent     *AgentSpec `json:"agent,omitempty"`
 }
 
 const (
 	PartitionDirectory = "directory"
 	PartitionPackage   = "package"
+
+	DefaultArchPath = ".tools/open-architecture/arch.yaml"
 )
 
 type AcceptanceStep struct {
@@ -125,6 +129,17 @@ func (r *Repository) Partition() string {
 
 func (r *Repository) Summarize() bool {
 	return r.Spec.Populate != nil && r.Spec.Populate.Summarize
+}
+
+func (r *Repository) RootContext() bool {
+	return r.Spec.Populate != nil && r.Spec.Populate.Root
+}
+
+func (r *Repository) ArchPath() string {
+	if r.Spec.Populate != nil {
+		return r.Spec.Populate.Arch
+	}
+	return ""
 }
 
 func (r *Repository) PopulateAgent() *AgentSpec {
@@ -213,9 +228,11 @@ type ObservedInterface struct {
 }
 
 type ObservedFacts struct {
-	Files       []string            `json:"files,omitempty"`
-	Interfaces  []ObservedInterface `json:"interfaces,omitempty"`
-	Fingerprint string              `json:"fingerprint,omitempty"`
+	Files      []string            `json:"files,omitempty"`
+	TreeFiles  []string            `json:"treeFiles,omitempty"`
+	Interfaces []ObservedInterface `json:"interfaces,omitempty"`
+
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 type SystemContextStatus struct {
