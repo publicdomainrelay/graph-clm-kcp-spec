@@ -28,7 +28,7 @@ import (
 // 2: the interface list's `name` descriptions say a method is keyed by its
 //
 //	receiver, which is what the wire format already meant.
-const Revision = 2
+const Revision = 3
 
 // Name is the APIResourceSchema name for a CustomResourceDefinition.
 func Name(crd map[string]any) (string, error) {

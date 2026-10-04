@@ -1,0 +1,483 @@
+package persist
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/oabranch"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/oagit"
+)
+
+const maxAttempts = 5
+
+type Cluster interface {
+	Get(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
+
+	List(ctx context.Context, gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error)
+
+	Apply(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error)
+
+	PatchStatus(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, status map[string]any) (*unstructured.Unstructured, error)
+}
+
+type Options struct {
+	Cluster Cluster
+
+	Namespace string
+
+	Repository string
+
+	RepoPath string
+
+	Remote string
+
+	ManagedBudget int
+
+	Adopt bool
+}
+
+type Result struct {
+	Branch string
+
+	Parent string
+
+	Commit string
+
+	Committed bool
+
+	Paths []string
+
+	Pushed bool
+
+	Imported []string
+
+	Created []string
+
+	Conflicts map[string][]string
+}
+
+type state struct {
+	snapshot oabranch.Snapshot
+
+	origins map[string]string
+
+	repoPath string
+}
+
+func (o Options) namespace() string {
+	if o.Namespace != "" {
+		return o.Namespace
+	}
+	return specapi.DefaultNamespace
+}
+
+func Persist(ctx context.Context, options Options) (Result, error) {
+	if options.Repository == "" {
+		return Result{}, fmt.Errorf("persist: a repository name is required")
+	}
+	current, err := read(ctx, options)
+	if err != nil {
+		return Result{}, err
+	}
+	store := oagit.Store{Repo: current.repoPath}
+	ref := oabranch.Ref(options.Repository)
+	result := Result{Branch: oabranch.Branch(options.Repository), Conflicts: map[string][]string{}}
+
+	tip, err := store.Tip(ctx, ref)
+	if err != nil {
+		return result, err
+	}
+	recorded := ""
+	if status := current.snapshot.Repository.Status.OpenArchitecture; status != nil {
+		recorded = status.Commit
+	}
+	if tip != "" && tip != recorded && (recorded != "" || options.Adopt) {
+		if err := adopt(ctx, options, store, current, recorded, tip, &result); err != nil {
+			return result, err
+		}
+		current, err = read(ctx, options)
+		if err != nil {
+			return result, err
+		}
+	}
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		tip, err = store.Tip(ctx, ref)
+		if err != nil {
+			return result, err
+		}
+		result.Parent = tip
+		files, err := oabranch.Files(current.snapshot)
+		if err != nil {
+			return result, err
+		}
+		blobs, err := store.Blobs(ctx, tip)
+		if err != nil {
+			return result, err
+		}
+		plan := oabranch.PlanCommit(blobs, files)
+		if plan.Empty() {
+			result.Commit = tip
+			break
+		}
+		objects, commits := oabranch.TouchedObjects(plan, current.snapshot, func(kind, name string) string {
+			return current.origins[kind+"/"+name]
+		})
+		commit, err := store.Commit(ctx, ref, tip, plan, oabranch.Message(options.Repository, plan, objects, commits))
+		if errors.Is(err, oagit.ErrRaced) {
+			continue
+		}
+		if err != nil {
+			return result, err
+		}
+		result.Commit = commit
+		result.Committed = true
+		result.Paths = plan.Paths()
+		break
+	}
+	if result.Commit == "" && tip != "" {
+		return result, fmt.Errorf("persist: %s kept moving for %d attempts", result.Branch, maxAttempts)
+	}
+
+	status := current.snapshot.Repository.Status.OpenArchitecture
+	pushed := ""
+	if status != nil {
+		pushed = status.Pushed
+	}
+	if options.Remote != "" && result.Commit != "" && result.Commit != pushed {
+		if err := store.Push(ctx, options.Remote, ref); err != nil {
+			return result, err
+		}
+		result.Pushed = true
+		pushed = result.Commit
+	}
+	if err := record(ctx, options, current.snapshot.Repository, result, pushed); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func adopt(ctx context.Context, options Options, store oagit.Store, current state, recorded, tip string, result *Result) error {
+	theirs, err := store.ReadFiles(ctx, tip)
+	if err != nil {
+		return err
+	}
+	theirSpecs, err := oabranch.SpecFiles(theirs)
+	if err != nil {
+		return err
+	}
+	baseSpecs := map[string]spec.SystemContext{}
+	if recorded != "" {
+		baseFiles, err := store.ReadFiles(ctx, recorded)
+		if err != nil {
+			return err
+		}
+		baseSpecs, err = oabranch.SpecFiles(baseFiles)
+		if err != nil {
+			return err
+		}
+	}
+	ours := map[string]spec.SystemContext{}
+	for _, context := range current.snapshot.Contexts {
+		ours[context.Name] = context
+	}
+	names := make([]string, 0, len(theirSpecs))
+	for name := range theirSpecs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		theirContext := theirSpecs[name]
+		ourContext, exists := ours[name]
+		if !exists {
+			created := spec.SystemContext{}
+			created.Name = name
+			created.Namespace = options.namespace()
+			created.Spec = theirContext.Spec
+			created.Spec.Repository = options.Repository
+			if err := applyContext(ctx, options, created); err != nil {
+				return err
+			}
+			result.Created = append(result.Created, name)
+			continue
+		}
+		base, inBase := baseSpecs[name]
+		baseSpec := ourContext.Spec
+		if inBase {
+			baseSpec = base.Spec
+		}
+		merged := oabranch.Merge(baseSpec, ourContext.Spec, theirContext.Spec)
+		if len(merged.Conflicts) > 0 {
+			result.Conflicts[name] = merged.Conflicts
+			continue
+		}
+		if !merged.Changed {
+			continue
+		}
+		updated := ourContext
+		updated.Spec = merged.Spec
+		if err := applyContext(ctx, options, updated); err != nil {
+			return err
+		}
+		result.Imported = append(result.Imported, name)
+	}
+	return nil
+}
+
+func applyContext(ctx context.Context, options Options, context spec.SystemContext) error {
+	context.APIVersion = specapi.Group + "/" + specapi.Version
+	context.Kind = specapi.SystemContextKind
+	context.ResourceVersion = ""
+	context.ManagedFields = nil
+	if context.Annotations == nil {
+		context.Annotations = map[string]string{}
+	}
+	context.Annotations[specapi.OriginAnnotation] = specapi.OriginGit
+	delete(context.Annotations, specapi.OriginHashAnnotation)
+	object, err := kcpclient.Unstructured(&context)
+	if err != nil {
+		return err
+	}
+	unstructured.RemoveNestedField(object.Object, "status")
+	if _, err := options.Cluster.Apply(ctx, object); err != nil {
+		return fmt.Errorf("persist: apply systemcontext %s: %w", context.Name, err)
+	}
+	return nil
+}
+
+func record(ctx context.Context, options Options, repository spec.Repository, result Result, pushed string) error {
+	conflicts := []string{}
+	for name, keys := range result.Conflicts {
+		for _, key := range keys {
+			conflicts = append(conflicts, name+": "+key)
+		}
+	}
+	sort.Strings(conflicts)
+	next := spec.OpenArchitectureStatus{Branch: result.Branch, Commit: result.Commit, Pushed: pushed, Conflicts: conflicts}
+	if previous := repository.Status.OpenArchitecture; previous != nil && equalStatus(*previous, next) {
+		return nil
+	}
+	value := map[string]any{"branch": next.Branch, "commit": next.Commit}
+	if next.Pushed != "" {
+		value["pushed"] = next.Pushed
+	}
+	if len(next.Conflicts) > 0 {
+		items := make([]any, 0, len(next.Conflicts))
+		for _, conflict := range next.Conflicts {
+			items = append(items, conflict)
+		}
+		value["conflicts"] = items
+	} else {
+		value["conflicts"] = nil
+	}
+	_, err := options.Cluster.PatchStatus(ctx, specapi.RepositoryGVR, options.namespace(), repository.Name, map[string]any{"openArchitecture": value})
+	if err != nil {
+		return fmt.Errorf("persist: record %s on repository %s: %w", result.Commit, repository.Name, err)
+	}
+	return nil
+}
+
+func equalStatus(left, right spec.OpenArchitectureStatus) bool {
+	if left.Branch != right.Branch || left.Commit != right.Commit || left.Pushed != right.Pushed || len(left.Conflicts) != len(right.Conflicts) {
+		return false
+	}
+	for index := range left.Conflicts {
+		if left.Conflicts[index] != right.Conflicts[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func read(ctx context.Context, options Options) (state, error) {
+	namespace := options.namespace()
+	object, err := options.Cluster.Get(ctx, specapi.RepositoryGVR, namespace, options.Repository)
+	if err != nil {
+		return state{}, fmt.Errorf("persist: read repository %s: %w", options.Repository, err)
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		return state{}, err
+	}
+	repository, ok := typed.(*spec.Repository)
+	if !ok {
+		return state{}, fmt.Errorf("persist: %s is not a Repository", options.Repository)
+	}
+	current := state{
+		snapshot: oabranch.Snapshot{Repository: *repository, ManagedBudget: options.ManagedBudget},
+		origins:  map[string]string{specapi.RepositoryKind + "/" + repository.Name: repository.Annotations[specapi.OriginAnnotation]},
+		repoPath: options.RepoPath,
+	}
+	if current.repoPath == "" {
+		current.repoPath = repository.WorkPath()
+	}
+	if current.repoPath == "" {
+		return state{}, fmt.Errorf("persist: repository %s has no working tree yet", options.Repository)
+	}
+
+	contexts, err := options.Cluster.List(ctx, specapi.SystemContextGVR, namespace)
+	if err != nil {
+		return state{}, fmt.Errorf("persist: list systemcontexts: %w", err)
+	}
+	names := map[string]bool{}
+	for index := range contexts.Items {
+		typed, err := kcpclient.Typed(&contexts.Items[index])
+		if err != nil {
+			return state{}, err
+		}
+		context, ok := typed.(*spec.SystemContext)
+		if !ok || context.Spec.Repository != options.Repository {
+			continue
+		}
+		names[context.Name] = true
+		current.snapshot.Contexts = append(current.snapshot.Contexts, *context)
+		current.origins[specapi.SystemContextKind+"/"+context.Name] = context.Annotations[specapi.OriginAnnotation]
+	}
+
+	changes, err := options.Cluster.List(ctx, specapi.SpecChangeGVR, namespace)
+	if err != nil {
+		return state{}, fmt.Errorf("persist: list specchanges: %w", err)
+	}
+	for index := range changes.Items {
+		typed, err := kcpclient.Typed(&changes.Items[index])
+		if err != nil {
+			return state{}, err
+		}
+		change, ok := typed.(*spec.SpecChange)
+		if !ok || !names[change.Spec.SystemContext] {
+			continue
+		}
+		current.snapshot.Changes = append(current.snapshot.Changes, *change)
+	}
+	sort.Slice(current.snapshot.Changes, func(left, right int) bool {
+		return current.snapshot.Changes[left].Name < current.snapshot.Changes[right].Name
+	})
+	return current, nil
+}
+
+var ErrNoBranch = errors.New("persist: the repository has no open-architecture branch")
+
+type RestoreOptions struct {
+	Cluster Cluster
+
+	Namespace string
+
+	Repository string
+
+	RepoPath string
+
+	Remote string
+}
+
+type RestoreResult struct {
+	Branch string
+
+	Commit string
+
+	Fetched bool
+
+	Repository string
+
+	Contexts []string
+}
+
+func Restore(ctx context.Context, options RestoreOptions) (RestoreResult, error) {
+	if options.Repository == "" || options.RepoPath == "" {
+		return RestoreResult{}, fmt.Errorf("persist: restore needs a repository name and a repo path")
+	}
+	namespace := options.Namespace
+	if namespace == "" {
+		namespace = specapi.DefaultNamespace
+	}
+	store := oagit.Store{Repo: options.RepoPath}
+	branch := oabranch.Branch(options.Repository)
+	ref := oabranch.Ref(options.Repository)
+	result := RestoreResult{Branch: branch}
+	tip, err := store.Tip(ctx, ref)
+	if err != nil {
+		return result, err
+	}
+	if tip == "" && options.Remote != "" {
+		fetched, err := store.Fetch(ctx, options.Remote, branch)
+		if err != nil {
+			return result, err
+		}
+		if fetched != "" {
+			if err := store.SetRef(ctx, ref, fetched, ""); err != nil {
+				return result, err
+			}
+			tip = fetched
+			result.Fetched = true
+		}
+	}
+	if tip == "" {
+		return result, ErrNoBranch
+	}
+	result.Commit = tip
+	files, err := store.ReadFiles(ctx, tip)
+	if err != nil {
+		return result, err
+	}
+	repository, err := oabranch.RepositoryFile(files)
+	if err != nil {
+		return result, err
+	}
+	repository.Name = options.Repository
+	repository.Namespace = namespace
+	repository.Spec.Path = ""
+	repository.Spec.Source = &spec.RepositorySource{Path: options.RepoPath}
+	repository.APIVersion = specapi.Group + "/" + specapi.Version
+	repository.Kind = specapi.RepositoryKind
+	if repository.Annotations == nil {
+		repository.Annotations = map[string]string{}
+	}
+	repository.Annotations[specapi.OriginAnnotation] = specapi.OriginGit
+	object, err := kcpclient.Unstructured(&repository)
+	if err != nil {
+		return result, err
+	}
+	unstructured.RemoveNestedField(object.Object, "status")
+	if _, err := options.Cluster.Apply(ctx, object); err != nil {
+		return result, fmt.Errorf("persist: apply repository %s: %w", repository.Name, err)
+	}
+	result.Repository = repository.Name
+
+	specs, err := oabranch.SpecFiles(files)
+	if err != nil {
+		return result, err
+	}
+	names := make([]string, 0, len(specs))
+	for name := range specs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	persistOptions := Options{Cluster: options.Cluster, Namespace: namespace, Repository: options.Repository, RepoPath: options.RepoPath}
+	for _, name := range names {
+		context := spec.SystemContext{}
+		context.Name = name
+		context.Namespace = namespace
+		context.Spec = specs[name].Spec
+		context.Spec.Repository = options.Repository
+		if existing, err := options.Cluster.Get(ctx, specapi.SystemContextGVR, namespace, name); err == nil {
+			context.Labels = existing.GetLabels()
+			context.Annotations = existing.GetAnnotations()
+		}
+		if err := applyContext(ctx, persistOptions, context); err != nil {
+			return result, err
+		}
+		result.Contexts = append(result.Contexts, name)
+	}
+	adopted := Result{Branch: branch, Commit: tip, Conflicts: map[string][]string{}}
+	if err := record(ctx, persistOptions, repository, adopted, ""); err != nil {
+		return result, err
+	}
+	return result, nil
+}

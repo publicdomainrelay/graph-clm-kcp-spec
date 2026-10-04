@@ -1,7 +1,7 @@
 apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
-  name: v1alpha1-2.repositories.specs.publicdomainrelay.dev
+  name: v1alpha1-3.repositories.specs.publicdomainrelay.dev
 spec:
   group: specs.publicdomainrelay.dev
   names:
@@ -173,6 +173,22 @@ spec:
             observedGeneration:
               format: int64
               type: integer
+            openArchitecture:
+              description: The orphan open-architecture branch this repository persists
+                to, the last commit specd wrote or adopted, the last commit pushed,
+                and the contexts a branch edit could not merge.
+              properties:
+                branch:
+                  type: string
+                commit:
+                  type: string
+                conflicts:
+                  items:
+                    type: string
+                  type: array
+                pushed:
+                  type: string
+              type: object
             phase:
               enum:
               - Cloning

@@ -95,8 +95,16 @@ type RepositoryStatus struct {
 	// PopulateRequest is the specs.publicdomainrelay.dev/populate-request
 	// annotation value this status answers, so a caller can ask for a re-index
 	// and wait for it to have happened.
-	PopulateRequest string             `json:"populateRequest,omitempty"`
-	Conditions      []metav1.Condition `json:"conditions,omitempty"`
+	PopulateRequest  string                  `json:"populateRequest,omitempty"`
+	OpenArchitecture *OpenArchitectureStatus `json:"openArchitecture,omitempty"`
+	Conditions       []metav1.Condition      `json:"conditions,omitempty"`
+}
+
+type OpenArchitectureStatus struct {
+	Branch    string   `json:"branch,omitempty"`
+	Commit    string   `json:"commit,omitempty"`
+	Pushed    string   `json:"pushed,omitempty"`
+	Conflicts []string `json:"conflicts,omitempty"`
 }
 
 // Source is the declared source, with the phase 1 path field read as a path

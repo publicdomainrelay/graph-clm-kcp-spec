@@ -132,6 +132,20 @@ spec:
                 populateRequest:
                   type: string
                   description: The specs.publicdomainrelay.dev/populate-request annotation value this status answers.
+                openArchitecture:
+                  type: object
+                  description: The orphan open-architecture branch this repository persists to, the last commit specd wrote or adopted, the last commit pushed, and the contexts a branch edit could not merge.
+                  properties:
+                    branch:
+                      type: string
+                    commit:
+                      type: string
+                    pushed:
+                      type: string
+                    conflicts:
+                      type: array
+                      items:
+                        type: string
                 phase:
                   type: string
                   enum: [Cloning, Indexing, Populating, Populated, Failed]

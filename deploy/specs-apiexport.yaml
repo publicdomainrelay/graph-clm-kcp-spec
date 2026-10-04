@@ -11,16 +11,16 @@ spec:
   resources:
     - group: specs.publicdomainrelay.dev
       name: repositories
-      schema: v1alpha1-2.repositories.specs.publicdomainrelay.dev
+      schema: v1alpha1-3.repositories.specs.publicdomainrelay.dev
       storage:
         crd: {}
     - group: specs.publicdomainrelay.dev
       name: systemcontexts
-      schema: v1alpha1-2.systemcontexts.specs.publicdomainrelay.dev
+      schema: v1alpha1-3.systemcontexts.specs.publicdomainrelay.dev
       storage:
         crd: {}
     - group: specs.publicdomainrelay.dev
       name: specchanges
-      schema: v1alpha1-2.specchanges.specs.publicdomainrelay.dev
+      schema: v1alpha1-3.specchanges.specs.publicdomainrelay.dev
       storage:
         crd: {}
