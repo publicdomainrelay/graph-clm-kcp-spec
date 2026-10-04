@@ -97,7 +97,6 @@ func TestARepositoryKindWinsOverTheController(t *testing.T) {
 	if err := os.WriteFile(path, []byte("contexts:\n  calc:\n    intent: from the scenario\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// The controller names no agent at all; the Repository does.
 	factory, err := New(Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -120,8 +119,6 @@ func TestARepositoryKindWinsOverTheController(t *testing.T) {
 		t.Fatalf("built a %T", built)
 	}
 
-	// A repository that names the model kind still gets the controller's
-	// command when it does not name one itself.
 	claudeRepo := &spec.Repository{
 		ObjectMeta: metav1.ObjectMeta{Name: "calc"},
 		Spec:       spec.RepositorySpec{Agent: &spec.AgentSpec{Kind: Claude}},
@@ -156,9 +153,6 @@ func TestARepositoryKindWinsOverTheController(t *testing.T) {
 	}
 }
 
-// pi discovers an extension from a settings file, so a controller that was
-// given a folder has to hand it to the command too; otherwise the CLM path
-// asks the model to edit a document nothing applies.
 func TestPiKindLoadsTheExtensionFolder(t *testing.T) {
 	got := piArgs([]string{"--yes", piagent.Package, "-p"}, "/tmp/pi-hydradb-clm")
 	want := []string{"--yes", piagent.Package, "-p", "--extension", "/tmp/pi-hydradb-clm"}
@@ -174,10 +168,6 @@ func TestPiKindLoadsTheExtensionFolder(t *testing.T) {
 	}
 }
 
-// TestPiKindNamesTheExtensionAbsolutely is the guard for a path the caller
-// typed where it stood: the model runs in the working tree, so a folder left
-// relative is looked for inside the tree and the run fails with "extension path
-// does not exist" instead of naming the caller's mistake.
 func TestPiKindNamesTheExtensionAbsolutely(t *testing.T) {
 	factory, err := New(Options{Kind: Pi, PiExtension: "pi-hydradb-clm"})
 	if err != nil {

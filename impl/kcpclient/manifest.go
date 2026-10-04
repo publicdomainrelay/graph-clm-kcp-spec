@@ -74,10 +74,6 @@ func decode(object *unstructured.Unstructured, factory func() any) (any, error) 
 	return out, nil
 }
 
-// fieldPath names the field a decode failed on. The unstructured converter
-// reports only the reason ("cannot restore slice from string"), so the object
-// goes through encoding/json as well, whose error names the path
-// (spec.requirements.codeRefs).
 func fieldPath(object *unstructured.Unstructured, factory func() any) string {
 	encoded, err := json.Marshal(object.Object)
 	if err != nil {

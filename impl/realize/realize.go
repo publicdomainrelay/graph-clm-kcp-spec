@@ -1,8 +1,3 @@
-// Package realize is one spec -> code unit of work: a worktree on the change's
-// own branch, the agent editing it, the repository's verify command gating it,
-// a commit signed by the tool, a fast-forward onto the managed branch, and the
-// re-ingest that makes the reconciled state visible again. The controller and
-// the CLI both call it, so a change worked off by either is the same change.
 package realize
 
 import (
@@ -30,15 +25,10 @@ import (
 const (
 	DefaultVerifyTimeout = 10 * time.Minute
 
-	// OutputTailBytes bounds what a failed verify leaves in the SpecChange.
 	OutputTailBytes = 4000
 
-	// ChangedFilesLimit bounds the diff stat the status carries.
 	ChangedFilesLimit = 100
 
-	// WaitDelay is the grace after the timeout or a cancel, before the output
-	// pipes of a killed verify are closed by force. A test runner that leaves a
-	// child behind would otherwise hold the pipes open past the timeout.
 	WaitDelay = 5 * time.Second
 )
 
@@ -59,8 +49,6 @@ type Options struct {
 
 	Context string
 
-	// Change is the SpecChange this realize works off. It is handed to the
-	// agent so a host inside the model can report against the same record.
 	Change string
 
 	Repository *spec.Repository
@@ -92,9 +80,6 @@ type Options struct {
 	VerifyTimeout time.Duration
 }
 
-// Result is what one realize attempt reports. VerifyExitCode is zero when the
-// command passed or the repository named none, and the commit is empty when
-// the agent changed nothing.
 type Result struct {
 	Context string
 
@@ -115,8 +100,6 @@ type Result struct {
 	SpecHash string
 }
 
-// VerifyError is a verify command that exited non-zero. It is what the
-// controller feeds back into the next attempt.
 type VerifyError struct {
 	Command []string
 
@@ -179,10 +162,6 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	if err := gitrepo.WorktreeAdd(ctx, repoPath, options.Worktree, options.Branch, options.Base); err != nil {
 		return result, err
 	}
-	// The worktree goes away before the branch is landed: a branch a worktree
-	// still holds cannot be deleted, and the commit lives in the repository's
-	// refs, not in the directory. The deferred call is the safety net for the
-	// paths that return early.
 	removed := false
 	removeWorktree := func() error {
 		if removed {
@@ -249,10 +228,6 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	return result, nil
 }
 
-// Settle moves the baseline onto the facts the tree reports without running an
-// agent. It is what a change with an empty delta needs: the spec already says
-// what the code says, so there is nothing to edit, but the episode still has to
-// end or it would be raised again.
 func Settle(ctx context.Context, options Options) error {
 	namespace := options.Namespace
 	if namespace == "" {
@@ -266,11 +241,6 @@ func Settle(ctx context.Context, options Options) error {
 	return settle(ctx, options, namespace, &adopted)
 }
 
-// settle re-ingests the tree the change landed in and hands ingest the hash of
-// the spec that was realized. Ingest then moves the synced baseline onto the
-// facts it just read and records the spec as realized in its one status write,
-// which is what ends the episode: no drift is reported for the tool's own work,
-// so the controller cannot raise the opposite change.
 func settle(ctx context.Context, options Options, namespace string, adopted *spec.SystemContextSpec) error {
 	repoPath := options.Repository.WorkPath()
 	head, err := gitrepo.Head(ctx, repoPath)
@@ -306,8 +276,6 @@ func readContext(ctx context.Context, cluster Cluster, namespace, name string) (
 	return systemContext, nil
 }
 
-// verify runs the repository's gate in the worktree. An empty command passes:
-// a repository that names none has not asked for a gate.
 func verify(ctx context.Context, command []string, dir string, timeout time.Duration) (int, string) {
 	if len(command) == 0 {
 		return 0, ""

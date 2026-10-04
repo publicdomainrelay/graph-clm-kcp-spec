@@ -1,9 +1,3 @@
-// Package clm is the state bridge between a context language model host and
-// kcp. A host has no kube client and no Bolt driver of its own, so it shells
-// out to `specctl clm render|apply|report`; this package is what those three
-// verbs run. kcp access, the delta authority and the graph writes therefore
-// have one implementation (Go) that every host and every language reaches the
-// same way.
 package clm
 
 import (
@@ -47,10 +41,6 @@ type Options struct {
 	Now func() time.Time
 }
 
-// Document is what one context renders to: the model zone built from the spec
-// kcp holds, above the managed zone built from the observed facts. It is the
-// same document the summarize path writes, so the file the model reads is the
-// file the controller maintains.
 type Document struct {
 	Context string
 
@@ -79,7 +69,6 @@ func (o Options) now() time.Time {
 	return time.Now()
 }
 
-// Render reads one SystemContext and composes its document.
 func Render(ctx context.Context, options Options) (Document, error) {
 	systemContext, err := readContext(ctx, options)
 	if err != nil {
@@ -101,8 +90,6 @@ func Render(ctx context.Context, options Options) (Document, error) {
 	}, nil
 }
 
-// ApplyResult is what one apply did: the delta it asked kcp for, whether the
-// write happened, and the running change the edit was folded into, if any.
 type ApplyResult struct {
 	Context string
 
@@ -112,17 +99,11 @@ type ApplyResult struct {
 
 	SpecHash string
 
-	// Folded names the running SpecToCode change the edit was recorded on. A
-	// model editing the spec while its own change runs must not spawn a second
-	// change for itself, so the edit is a progress record on the change instead.
 	Folded string
 
 	Message string
 }
 
-// Apply reads a model zone, diffs it against the spec kcp holds, and writes the
-// result with the `origin: clm` annotation. The delta is computed here, in Go,
-// and printed by the caller: the host never guesses what changed.
 func Apply(ctx context.Context, options Options, modelZone string) (ApplyResult, error) {
 	systemContext, err := readContext(ctx, options)
 	if err != nil {
@@ -140,12 +121,6 @@ func Apply(ctx context.Context, options Options, modelZone string) (ApplyResult,
 		return result, nil
 	}
 
-	// A context whose own change is Running is being realized right now, and the
-	// spec is the target that change is working to. A model that rewrites the
-	// spec block mid-realize would move the target while the code is being
-	// brought to it, so the edit is folded into the running change's record
-	// instead of written: the work is auditable, and the spec holds still until
-	// the change settles.
 	folded, err := foldIntoRunningChange(ctx, options, systemContext.Name, change)
 	if err != nil {
 		return result, err
@@ -175,9 +150,6 @@ func Apply(ctx context.Context, options Options, modelZone string) (ApplyResult,
 		candidate.Annotations = map[string]string{}
 	}
 	candidate.Annotations[specapi.OriginAnnotation] = specapi.OriginCLM
-	// origin-hash is deliberately left unset: it marks a write the tool made for
-	// itself, and a model's edit is a real edit that must raise a SpecToCode
-	// change, not be absorbed.
 	delete(candidate.Annotations, specapi.OriginHashAnnotation)
 
 	stamped, err := kcpclient.Unstructured(candidate)
@@ -192,11 +164,6 @@ func Apply(ctx context.Context, options Options, modelZone string) (ApplyResult,
 	return result, nil
 }
 
-// foldIntoRunningChange records a model's spec edit on the change that is
-// already running for the context. It is what keeps a realizing agent from
-// raising a change for itself: the controller would otherwise see a spec edit
-// and a Running change of the same direction, and it would move the target the
-// running change is working to.
 func foldIntoRunningChange(ctx context.Context, options Options, systemContext string, change spec.Delta) (string, error) {
 	running, err := runningChange(ctx, options, systemContext)
 	if err != nil {
@@ -244,9 +211,6 @@ func runningChange(ctx context.Context, options Options, systemContext string) (
 	return nil, nil
 }
 
-// Event is one thing a host observed. Turn and Tool are the agent loop's;
-// Files are the files the tool touched, relative to the managed tree; Note is
-// what the host wants a human to read.
 type Event struct {
 	Turn int `json:"turn,omitempty"`
 
@@ -275,9 +239,6 @@ type ReportResult struct {
 	Progress int
 }
 
-// Report appends one progress record to a SpecChange and writes the matching
-// graph edges. The status subresource is the durable record; the graph is the
-// derived index a reader queries while the change runs.
 func Report(ctx context.Context, options Options, request ReportOptions) (ReportResult, error) {
 	result := ReportResult{Change: request.Change}
 	if request.Change == "" {
@@ -298,8 +259,6 @@ func Report(ctx context.Context, options Options, request ReportOptions) (Report
 
 	at := request.Event.At
 	if at.IsZero() {
-		// The bridge stamps the record, not the host: a host that runs `report`
-		// through a shell has no clock it can trust and no need to pass one.
 		at = options.now()
 	}
 	record := spec.ProgressRecord{
@@ -327,10 +286,6 @@ func Report(ctx context.Context, options Options, request ReportOptions) (Report
 	return result, nil
 }
 
-// writeLive is the graph half of a report: the change, the files it touched,
-// and one progress vertex per record. The TOUCHED edges land on the same
-// CodeRef vertex an ingest writes for the file, so `specctl graph neighbors`
-// joins the work the agent did to the file the index saw.
 func writeLive(ctx context.Context, writer graph.Writer, change spec.SpecChange, record spec.ProgressRecord, index int) error {
 	vertices, edges := graph.LiveTable()
 	changeIndex, progressIndex := 0, 1
@@ -369,9 +324,6 @@ func writeLive(ctx context.Context, writer graph.Writer, change spec.SpecChange,
 	return nil
 }
 
-// resolvedRefs is what the managed zone lists: the interfaces the index
-// observed, and the context's own `file:` refs, which are already CodeGraph ids
-// and need no lookup.
 func resolvedRefs(systemContext *spec.SystemContext) []agent.ResolvedRef {
 	return agent.ContextRefs(systemContext.Spec, systemContext.Status.Observed)
 }

@@ -13,20 +13,10 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
 )
 
-// modelRunner is the raw prompt entry point of a host inside the model. The
-// Claude CLI agent and the pi agent both have it, so a run can ask the model to
-// do something the summarize and realize contracts do not describe: change the
-// specification by editing the context document.
 type modelRunner interface {
 	Run(ctx context.Context, prompt string, extra map[string]string) (string, string, error)
 }
 
-// driveClm is the CLM path driven, not simulated. The harness writes the
-// context document the way the host renders it, asks the model in natural
-// language to change the spec by editing that document, and lets the host
-// inside the model apply the delta with `specctl clm apply`. Nothing here edits
-// the specification: if the model does not change the document, no spec change
-// is raised and the scenario fails for that reason.
 func (h *harness) driveClm(ctx context.Context, scenario Scenario) error {
 	built, err := h.agent(h.realizeKind)
 	if err != nil {
@@ -48,16 +38,11 @@ func (h *harness) driveClm(ctx context.Context, scenario Scenario) error {
 	if err != nil {
 		return fmt.Errorf("eval: the model did not answer for %s: %w: %s", scenario.Context, err, firstLine(stderr))
 	}
-	// What the model said about the document it was asked to change. The
-	// scenario grades the delta the host applied, so a run that applied nothing
-	// has to say why, and the answer is the only evidence there is.
 	h.options.Log.Info("eval: the CLM ask was answered", "context", scenario.Context,
 		"document", document, "answer", firstLine(stdout))
 	return nil
 }
 
-// ClmPrompt is the ask of a CLM scenario: the natural language request a person
-// would make, and the document the model has to change to grant it.
 func ClmPrompt(contextName, document, request string) string {
 	builder := &strings.Builder{}
 	builder.WriteString("You change the specification of one context of a codebase.\n\n")
@@ -70,9 +55,6 @@ func ClmPrompt(contextName, document, request string) string {
 	return builder.String()
 }
 
-// renderContextDoc writes the context document the way the host renders it, so
-// the model always has something to edit and the document is the one the host
-// would have produced. specctl is the only renderer, so it is the one used.
 func (h *harness) renderContextDoc(ctx context.Context, name string) (string, error) {
 	args := []string{"clm", "render", "--context", name}
 	if h.options.Kubeconfig != "" {

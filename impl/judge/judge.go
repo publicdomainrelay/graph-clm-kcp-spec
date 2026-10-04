@@ -1,10 +1,3 @@
-// Package judge asks a model whether a specification states a list of
-// behavioural facts, and reads the answer strictly. It is the code -> spec
-// grade: the interface list is handed to the model, so the only measurement
-// worth taking is whether the spec says what the code does.
-//
-// The judge runs its own command without the mod or the extension loaded: the
-// grading call must not be able to change the state it is grading.
 package judge
 
 import (
@@ -30,8 +23,6 @@ const (
 	LogTailBytes = 2000
 )
 
-// Rubric is the fixed instruction every judge call gets. It is fixed on
-// purpose: a rubric that moved with the run would move the score with it.
 const Rubric = `You grade a specification against a list of behavioural facts.
 
 A fact counts as stated only when the specification's own words say it. A fact
@@ -74,8 +65,6 @@ func New(options Options) *Judge {
 	return &Judge{options: options}
 }
 
-// Judge asks the model for one verdict per fact and refuses an answer that does
-// not name every fact, because a missing verdict silently grades as a miss.
 func (j *Judge) Judge(ctx context.Context, request eval.JudgeRequest) (eval.JudgeResult, error) {
 	result := eval.JudgeResult{}
 	if len(request.Facts) == 0 {
@@ -94,9 +83,6 @@ func (j *Judge) Judge(ctx context.Context, request eval.JudgeRequest) (eval.Judg
 	return result, nil
 }
 
-// Prompt is the fixed ask: the rubric, the facts, then the specification's
-// prose. Only the prose is graded, so the interface list never reaches the
-// judge and cannot be echoed back as an answer.
 func Prompt(request eval.JudgeRequest) string {
 	builder := &strings.Builder{}
 	builder.WriteString(Rubric)
@@ -120,8 +106,6 @@ type answer struct {
 	} `json:"verdicts"`
 }
 
-// parseVerdicts reads the JSON object a judge answered with, tolerating the
-// prose and the fences a model wraps it in.
 func parseVerdicts(raw string) ([]eval.JudgeVerdict, error) {
 	start := strings.Index(raw, "{")
 	end := strings.LastIndex(raw, "}")

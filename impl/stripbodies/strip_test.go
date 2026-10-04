@@ -70,8 +70,6 @@ func (p Pair) Label() string {
 	}
 }
 
-// TestStripGoKeepsAnImportAKeptDeclarationUses is the other half of the import
-// pruning: a package a signature or a variable still names must survive.
 func TestStripGoKeepsAnImportAKeptDeclarationUses(t *testing.T) {
 	dir := t.TempDir()
 	path := write(t, dir, "pkg/err.go", `package pkg
@@ -148,11 +146,6 @@ export class Greeter {
 	}
 }
 
-// TestStripRealFixturesStillTypeCheck is the fixture-shaped check: the greet
-// module uses template literals and a regular expression, and the todo store is
-// Go with an import a removed body used. Both have to survive the strip and
-// still compile, or the sufficiency measure builds a tree that fails before the
-// agent starts.
 func TestStripRealFixturesStillTypeCheck(t *testing.T) {
 	root := repoRoot(t)
 	if _, err := os.Stat(filepath.Join(root, "fixtures")); err != nil {

@@ -8,9 +8,6 @@ import (
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 )
 
-// skippedDirectories are the trees a package partition never descends into: a
-// version control store, the index this repository writes, and the dependency
-// trees a package manifest may itself live in.
 var skippedDirectories = map[string]bool{
 	".git":         true,
 	".codegraph":   true,
@@ -21,10 +18,6 @@ var skippedDirectories = map[string]bool{
 	"build":        true,
 }
 
-// PackageRoots lists the directories of a working tree that hold a package
-// manifest, plus the tree root, as repository-relative slash paths. The package
-// partition groups by them; the manifest itself is never indexed, so this is
-// the only place that can see it.
 func PackageRoots(repoPath string) ([]string, error) {
 	roots := map[string]bool{".": true}
 	err := filepath.WalkDir(repoPath, func(path string, entry fs.DirEntry, err error) error {

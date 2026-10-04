@@ -1,9 +1,3 @@
-// Package runlock is the one lock a live suite takes while it runs. The live
-// tests and the eval both start kcp controllers against the same workspace and
-// write the same objects and working trees, so two of them at once do not
-// measure twice: they corrupt each other. The lock is an flock on a file, which
-// the kernel releases even when a run is killed, so a crashed run leaves no
-// stale lock behind.
 package runlock
 
 import (
@@ -15,16 +9,11 @@ import (
 	"syscall"
 )
 
-// DefaultName is the file the lock is taken on, relative to the repository
-// root. It lives beside kcp's own state, which is git-ignored.
 const DefaultPath = ".kcp-specd/live.lock"
 
 type Options struct {
-	// Name is what the waiting message calls this run.
 	Name string
 
-	// Wait receives the one line printed when the lock is held and this run
-	// has to wait. Nil means standard error.
 	Wait io.Writer
 }
 
@@ -33,7 +22,6 @@ type Lock struct {
 	path string
 }
 
-// Path is the file the lock was taken on.
 func (l *Lock) Path() string {
 	if l == nil {
 		return ""
@@ -41,10 +29,6 @@ func (l *Lock) Path() string {
 	return l.path
 }
 
-// Acquire takes the exclusive lock on path, creating the file and its
-// directory as needed. It does not return until the lock is held: when another
-// run holds it, one line naming the file goes to Options.Wait first, so a
-// person sees why the suite is quiet and that it will proceed.
 func Acquire(path string, options Options) (*Lock, error) {
 	if path == "" {
 		path = DefaultPath
@@ -78,8 +62,6 @@ func Acquire(path string, options Options) (*Lock, error) {
 	return &Lock{file: file, path: path}, nil
 }
 
-// Release drops the lock. The file is left in place: it is the meeting point,
-// not the state.
 func (l *Lock) Release() error {
 	if l == nil || l.file == nil {
 		return nil

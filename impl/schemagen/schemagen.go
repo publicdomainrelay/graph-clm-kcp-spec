@@ -1,11 +1,3 @@
-// Package schemagen turns the CustomResourceDefinitions under deploy/crds into
-// the APIResourceSchema objects a kcp APIExport publishes. The CRDs stay the one
-// source of truth for the group: the single workspace mode applies them
-// directly, and the multi workspace mode exports the schemas derived from them.
-//
-// A drift here would mean the API a tenant binds and the API the single
-// workspace serves had grown apart, so a test regenerates every schema and
-// fails when the checked-in copy differs.
 package schemagen
 
 import (
@@ -18,19 +10,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// Revision is the APIResourceSchema revision this generator writes. kcp names a
-// schema <version>-<revision>.<plural>.<group>, and an APIResourceSchema is
-// immutable, so a changed CRD that must not break a bound consumer gets the
-// next revision instead of an edit in place. deploy/specs-apiexport.yaml names
-// the revision it publishes, and a test holds the two together.
-//
-// 1: the first published API.
-// 2: the interface list's `name` descriptions say a method is keyed by its
-//
-//	receiver, which is what the wire format already meant.
 const Revision = 3
 
-// Name is the APIResourceSchema name for a CustomResourceDefinition.
 func Name(crd map[string]any) (string, error) {
 	version, err := firstVersion(crd)
 	if err != nil {
@@ -47,11 +28,6 @@ func Name(crd map[string]any) (string, error) {
 	return fmt.Sprintf("%s-%d.%s.%s", name, Revision, plural, group), nil
 }
 
-// FromCRD converts one CustomResourceDefinition into one APIResourceSchema.
-// Only the CRD spec crosses over: the version's openAPIV3Schema becomes the
-// schema of the APIResourceSchema version, and the subresources and printer
-// columns are carried so a tenant that binds the export sees the same API the
-// single workspace serves.
 func FromCRD(crd map[string]any) (map[string]any, error) {
 	spec := specOf(crd)
 	if len(spec) == 0 {
@@ -138,7 +114,6 @@ func firstVersion(crd map[string]any) (map[string]any, error) {
 	return version, nil
 }
 
-// Read loads one CRD or APIResourceSchema manifest.
 func Read(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -151,8 +126,6 @@ func Read(path string) (map[string]any, error) {
 	return out, nil
 }
 
-// Marshal writes a manifest the way the checked-in files are written: the JSON
-// key order sigs.k8s.io/yaml produces, which is stable across runs.
 func Marshal(object map[string]any) ([]byte, error) {
 	data, err := yaml.Marshal(object)
 	if err != nil {
@@ -161,12 +134,10 @@ func Marshal(object map[string]any) ([]byte, error) {
 	return data, nil
 }
 
-// FileName is the deploy/apiresourceschemas file name for a CRD file name.
 func FileName(crdFile string) string {
 	return strings.TrimSuffix(filepath.Base(crdFile), ".yaml") + ".yaml"
 }
 
-// CRDFiles lists the CRDs the schemas are generated from, in name order.
 func CRDFiles(dir string) ([]string, error) {
 	matches, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
 	if err != nil {

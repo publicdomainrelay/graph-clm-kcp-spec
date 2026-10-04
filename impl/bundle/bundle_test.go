@@ -271,7 +271,6 @@ func TestWriteContextDocKeepsTheModelZoneAndRegeneratesTheManagedOne(t *testing.
 		t.Fatalf("document = %q", contents)
 	}
 
-	// A later run with no prose keeps the last summary and rewrites the zone.
 	if _, err := WriteContextDoc(dir, "calc", "calc", "", nil, 100); err != nil {
 		t.Fatal(err)
 	}

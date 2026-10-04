@@ -289,10 +289,6 @@ func TestRunPreservesHumanSpecFields(t *testing.T) {
 	}
 }
 
-// TestRunMigratesABareMethodNameOntoItsReceiver proves a spec stored before a
-// method's receiver was part of the key keeps working: the ingest renames the
-// declared interface and the requirement ref onto the qualified key when the
-// observed facts name exactly one candidate.
 func TestRunMigratesABareMethodNameOntoItsReceiver(t *testing.T) {
 	fixture.Require(t, "codegraph", "git")
 	repoPath := fixture.Copy(t, "todo")
@@ -356,17 +352,12 @@ func TestRunMigratesABareMethodNameOntoItsReceiver(t *testing.T) {
 	if refs := context.Spec.Requirements[0].CodeRefs; len(refs) != 2 || refs[0] != "Store.Add" {
 		t.Errorf("requirement refs = %v, want the qualified name", refs)
 	}
-	// The migration is what keeps the context synced; without it the bare names
-	// would read as a missing and an undeclared interface at once.
 	synced := conditionOf(context.Status.Conditions, specapi.ConditionCodeSynced)
 	if synced == nil || synced.Status != metav1.ConditionTrue {
 		t.Errorf("CodeSynced = %+v, want True", synced)
 	}
 }
 
-// A context that has never been acknowledged gets its baseline from the first
-// ingest, and the object says which spec that was, so a reconcile running
-// before the status lands does not read the tool's own write as a human edit.
 func TestRunStampsTheOriginHashWhenItAbsorbsItsOwnWrite(t *testing.T) {
 	fixture.Require(t, "codegraph", "git")
 	repoPath := fixture.Copy(t, "calc")
@@ -389,10 +380,6 @@ func TestRunStampsTheOriginHashWhenItAbsorbsItsOwnWrite(t *testing.T) {
 	}
 }
 
-// The other half of the rule: an ingest that runs while a human edit is
-// pending absorbs nothing, so it must leave the origin hash off the object. A
-// stale stamp there would make the spec hash to the annotation and the
-// controller would never raise the SpecToCode change that realizes the edit.
 func TestRunKeepsAHumanEditVisibleAcrossALaterIngest(t *testing.T) {
 	fixture.Require(t, "codegraph", "git")
 	repoPath := fixture.Copy(t, "calc")
@@ -403,8 +390,6 @@ func TestRunKeepsAHumanEditVisibleAcrossALaterIngest(t *testing.T) {
 	}
 	acknowledged := storedContext(t, cluster, "calc").Status.RealizedSpecHash
 
-	// A human edits the spec the way kubectl apply does: the whole object, so
-	// the annotations the tool left are carried along.
 	edited := storedContext(t, cluster, "calc")
 	edited.Spec.Intent = "the human wrote this"
 	stamped, err := kcpclient.Unstructured(edited)
@@ -415,8 +400,6 @@ func TestRunKeepsAHumanEditVisibleAcrossALaterIngest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The tree gains a file, so the next ingest rewrites the spec's code refs
-	// while the human edit is still pending.
 	if err := os.WriteFile(filepath.Join(repoPath, "calc", "extra.go"), []byte("package calc\n\n// Double doubles an integer.\nfunc Double(a int) int { return a * 2 }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -500,8 +483,6 @@ func TestRunLeavesAContextOfAnotherRepositoryAlone(t *testing.T) {
 	repoPath := fixture.Copy(t, "calc")
 	cluster := newFakeCluster()
 
-	// The calc directory of this tree partitions to a context name that a
-	// different Repository already owns.
 	foreign := &spec.SystemContext{
 		ObjectMeta: metav1.ObjectMeta{Name: "calc", Namespace: specapi.DefaultNamespace},
 		Spec: spec.SystemContextSpec{

@@ -10,8 +10,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/judge"
 )
 
-// fake writes a command that answers every prompt with the given output, so the
-// judge's request and parsing are tested without a model.
 func fake(t *testing.T, output string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "fake-model.sh")

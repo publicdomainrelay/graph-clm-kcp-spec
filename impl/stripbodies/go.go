@@ -1,12 +1,3 @@
-// Package stripbodies removes the implementation body of every function and
-// method in a set of files, keeping the signatures. It is how the spec
-// sufficiency measure makes a tree: the spec is left in place, the bodies are
-// gone, and an agent has to rebuild the code from the spec alone.
-//
-// Go bodies are replaced with panic("unimplemented") through go/ast, because
-// panic is a terminating statement and the tree still compiles. TypeScript
-// bodies are replaced with a throw through a token scanner, because the tree
-// only has to type check.
 package stripbodies
 
 import (
@@ -22,8 +13,6 @@ import (
 	"strings"
 )
 
-// panicBody is the replacement body of a Go function: a terminating statement,
-// so a function that returns a value still compiles.
 func panicBody() *ast.BlockStmt {
 	return &ast.BlockStmt{List: []ast.Stmt{&ast.ExprStmt{X: &ast.CallExpr{
 		Fun:  ast.NewIdent("panic"),
@@ -31,7 +20,6 @@ func panicBody() *ast.BlockStmt {
 	}}}}
 }
 
-// stripGo rewrites one Go file in place and reports how many bodies it removed.
 func stripGo(path string) (int, error) {
 	source, err := os.ReadFile(path)
 	if err != nil {
@@ -68,10 +56,6 @@ func stripGo(path string) (int, error) {
 	return stripped, os.WriteFile(path, buffer.Bytes(), info.Mode())
 }
 
-// pruneImports drops the imports nothing refers to any more. A body that was
-// the only user of a package would otherwise leave the file uncompilable, and
-// the agent would be asked to rebuild code the compiler rejects before it
-// starts.
 func pruneImports(file *ast.File) {
 	used := map[string]bool{}
 	ast.Inspect(file, func(node ast.Node) bool {
@@ -116,9 +100,6 @@ func pruneImports(file *ast.File) {
 	file.Imports = kept
 }
 
-// importName is the identifier an import binds: its own name when it has one,
-// the blank or dot when it is a side effect or a star import, and the last
-// path element otherwise.
 func importName(spec *ast.ImportSpec) string {
 	if spec.Name != nil {
 		if spec.Name.Name == "_" || spec.Name.Name == "." {

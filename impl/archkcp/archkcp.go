@@ -1,7 +1,3 @@
-// Package archkcp binds an open architecture document to the spec API. Every
-// arch.yaml node becomes one SystemContext, and one more SystemContext carries
-// the document header and the section skeleton, so import and export are
-// inverse without leaning on anything outside kcp.
 package archkcp
 
 import (
@@ -246,9 +242,6 @@ func documentArch(document *archyaml.Document) *spec.ArchSpec {
 	}
 }
 
-// archLabels put the open architecture id and the kind on the object, so
-// kubectl and a future controller can select the imported nodes without
-// decoding spec.arch.
 func archLabels(id, kind string) map[string]string {
 	if id == "" {
 		return nil

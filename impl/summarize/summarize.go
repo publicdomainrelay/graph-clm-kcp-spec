@@ -1,8 +1,3 @@
-// Package summarize is one code -> spec unit of work: read the context, ask the
-// agent, validate the answer, write the spec and the context document, and move
-// the synced baseline so the drift is worked off. The controller and the CLI
-// both call it, so a spec written by `specctl ingest --summarize` and one
-// written by a CodeToSpec reconcile are the same write.
 package summarize
 
 import (
@@ -70,10 +65,6 @@ type Result struct {
 	ContextDoc string
 }
 
-// Run summarizes one context. The spec write carries the ingest origin
-// annotation and the realized hash of what it wrote, so the write is never read
-// as a human edit and never raises a SpecToCode change; the synced baseline
-// moves to the observed facts, so Drifted goes False and the episode ends.
 func Run(ctx context.Context, options Options) (Result, error) {
 	namespace := options.Namespace
 	if namespace == "" {
@@ -138,10 +129,6 @@ func Run(ctx context.Context, options Options) (Result, error) {
 			updated.Annotations = map[string]string{}
 		}
 		updated.Annotations[specapi.OriginAnnotation] = specapi.OriginIngest
-		// The status write below is a second call, so the object has to carry
-		// which spec the tool itself wrote, or the reconcile that runs in
-		// between reads the new spec against the old realized hash and calls it
-		// a human edit.
 		updated.Annotations[specapi.OriginHashAnnotation] = mergedHash
 		updated.SetDefaults()
 		stamped, err := kcpclient.Unstructured(updated)
@@ -156,8 +143,6 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		result.Applied = true
 	}
 
-	// The baseline moves to the facts the draft described, so the context is no
-	// longer drifted and the CodeToSpec episode is over.
 	observed := systemContext.Status.Observed
 	_, conditions := specsync.Conditions(specsync.Input{
 		Name:              options.Context,
@@ -183,9 +168,6 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	}
 
 	if options.Repository != nil && options.Repository.WorkPath() != "" {
-		// The document is the CLM one: the model's prose above a fenced spec
-		// block, so the file this direction writes and the file a host inside a
-		// model renders are one format and either parses the other.
 		modelZone, err := clm.RenderModelZoneWithProse(options.Context, options.Repository.Name, draft.Summary, merged)
 		if err != nil {
 			return result, err

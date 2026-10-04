@@ -15,8 +15,6 @@ var backendEnv = []string{
 	"SPECD_BOLT_DATABASE",
 }
 
-// unset removes the bolt environment for one test and restores it afterwards,
-// so a test never depends on what the Makefile or the caller exported.
 func unset(t *testing.T) {
 	t.Helper()
 	for _, name := range backendEnv {

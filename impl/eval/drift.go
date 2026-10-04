@@ -19,9 +19,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/scriptedagent"
 )
 
-// runDrift is goal 5, measured: a human commits a code change, the controller
-// raises the code -> spec change for the drift, and the spec the agent writes
-// is graded against what a correct spec of the new code would say.
 func (h *harness) runDrift(ctx context.Context, fixture Fixture, baselines map[string]baseline) []eval.DriftReport {
 	out := make([]eval.DriftReport, 0, len(fixture.Drift))
 	for _, scenario := range fixture.Drift {
@@ -45,9 +42,6 @@ func (h *harness) driftOne(ctx context.Context, fixture Fixture, scenario DriftS
 	deadline, cancel := context.WithTimeout(ctx, h.options.Timeout)
 	defer cancel()
 
-	// The code -> spec agent of this run answers the drift. The scripted
-	// baseline answers from a draft written beside the fixture, because the
-	// fixture's own draft describes the code before the human edit.
 	kind := h.summarizeKind
 	if isScripted(kind) {
 		draftFile, err := h.writeDriftDraft(fixture, scenario)
@@ -114,9 +108,6 @@ func (h *harness) driftOne(ctx context.Context, fixture Fixture, scenario DriftS
 		delta.Precise &&
 		report.ProseScore.Stated == report.ProseScore.Expected
 
-	// Put the tree and the spec back, so the next drift or scenario starts from
-	// the baseline and not from this one's result. The controller stays stopped
-	// across the reset.
 	h.stopController()
 	if err := h.reset(ctx, scenario.Context, "", start); err != nil {
 		report.Error = err.Error()
@@ -125,9 +116,6 @@ func (h *harness) driftOne(ctx context.Context, fixture Fixture, scenario DriftS
 	return report
 }
 
-// applyHumanChange writes the scenario's code change into the tree and commits
-// it the way a person commits one. Nothing about the commit is the tool's: the
-// controller sees a new HEAD and raises code -> spec for it.
 func (h *harness) applyHumanChange(ctx context.Context, scenario DriftScenario) error {
 	patcher := scriptedagent.New(&scriptedagent.Scenario{
 		Realize: map[string][]scriptedagent.Step{scenario.Context: scenario.Commit},
@@ -142,9 +130,6 @@ func (h *harness) applyHumanChange(ctx context.Context, scenario DriftScenario) 
 		"commit", "-qm", "human: "+scenario.Name)
 }
 
-// writeDriftDraft writes the scripted code -> spec answer for one drift
-// scenario, outside the working tree so the agent under test cannot read the
-// intended spec out of the tree it is reading.
 func (h *harness) writeDriftDraft(fixture Fixture, scenario DriftScenario) (string, error) {
 	if err := os.MkdirAll(h.scratch, 0o755); err != nil {
 		return "", err
@@ -162,10 +147,6 @@ func (h *harness) writeDriftDraft(fixture Fixture, scenario DriftScenario) (stri
 	return path, nil
 }
 
-// setSummarizeAgentKind points both agent selections of the Repository at the
-// kind the drift's code -> spec pass must use. The summarize reconciler reads
-// the repository's populate agent, so naming only spec.agent would leave the
-// fixture's own draft answering the drift.
 func (h *harness) setSummarizeAgentKind(ctx context.Context, kind string) error {
 	repository, err := h.typedRepository(ctx)
 	if err != nil {
@@ -185,7 +166,6 @@ func sortedCopy(values []string) []string {
 	return out
 }
 
-// sameSet compares two name lists as sets.
 func sameSet(left, right []string) bool {
 	leftSet, rightSet := map[string]bool{}, map[string]bool{}
 	for _, name := range left {

@@ -65,8 +65,6 @@ func gvrOf(object *unstructured.Unstructured) schema.GroupVersionResource {
 	return schema.GroupVersionResource{Group: gvk.Group, Version: gvk.Version, Resource: specapi.ResourceForKind(gvk.Kind)}
 }
 
-// Apply emulates the API server closely enough for the round trip: the spec of
-// a changed object bumps the generation, and a spec write never touches status.
 func (f *fakeCluster) Apply(_ context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
 	objectKey := key(gvrOf(object), object.GetNamespace(), object.GetName())
 	stored, exists := f.objects[objectKey]
@@ -189,8 +187,6 @@ func TestImportStoresTheArchView(t *testing.T) {
 	if context.Spec.Arch.Parent != "sc.deno-kcp" || context.Spec.Arch.Slot == "" {
 		t.Errorf("parent/slot = %q/%q", context.Spec.Arch.Parent, context.Spec.Arch.Slot)
 	}
-	// This context's upstream is its own manifest, which is not a ref, so the
-	// context is its own upstream; the manifest itself stays in the node body.
 	if context.Spec.Upstream != spec.RefSelf {
 		t.Errorf("upstream = %q, want self", context.Spec.Upstream)
 	}
@@ -301,8 +297,6 @@ func TestExportWithoutAnImport(t *testing.T) {
 	}
 }
 
-// The arch block is opaque JSON, so the CRD must keep unknown fields under it,
-// or kcp prunes the node body on the way in and the export loses the document.
 func TestSystemContextCRDPreservesTheArchBlock(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "deploy", "crds", "specs.publicdomainrelay.dev_systemcontexts.yaml"))
 	if err != nil {

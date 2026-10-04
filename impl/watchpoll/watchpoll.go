@@ -21,9 +21,6 @@ type Options struct {
 	Log *slog.Logger
 }
 
-// Source lists the workspace on a timer and turns the difference between two
-// listings into events. It is the fallback for an API server whose watch a
-// client cannot hold open, and it costs one list per resource per interval.
 type Source struct {
 	opts Options
 

@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-// tsBody is the replacement TypeScript body. A throw is assignable to every
-// declared return type, so a stripped module still type checks.
 const tsBody = `{ throw new Error("unimplemented"); }`
 
 type tsToken struct {
@@ -18,9 +16,6 @@ type tsToken struct {
 	end int
 }
 
-// scanTS reads the source into tokens, dropping whitespace and comments. A
-// token is an identifier, a number, a string body or one punctuation mark; the
-// exact text never matters past the few words the stripper looks for.
 func scanTS(source string) []tsToken {
 	tokens := []tsToken{}
 	for index := 0; index < len(source); {
@@ -101,10 +96,6 @@ func isTSModifier(text string) bool {
 	return false
 }
 
-// stripTS rewrites one TypeScript file in place and reports how many bodies it
-// removed: every function declaration and every class method. An arrow function
-// whose body is a block is out of scope, because telling it apart from a call
-// needs a real parser and the fixtures do not use one.
 func stripTS(path string) (int, error) {
 	source, err := os.ReadFile(path)
 	if err != nil {
@@ -192,9 +183,6 @@ func stripTS(path string) (int, error) {
 	return len(replacements), os.WriteFile(path, []byte(out), info.Mode())
 }
 
-// startsMember reports whether the identifier at index begins a class member
-// declaration rather than a call inside a field initializer: what precedes it
-// is the class brace, the end of the member before it, or a modifier.
 func startsMember(tokens []tsToken, index int) bool {
 	if index == 0 {
 		return true
@@ -207,9 +195,6 @@ func startsMember(tokens []tsToken, index int) bool {
 	return isTSModifier(previous) && !isTSKeyword(previous)
 }
 
-// tsBodyStart finds the brace that opens the body after a parameter list, and
-// skips an inline object type in the return position: a brace right after a
-// type punctuation is a type literal, and the body brace comes later.
 func tsBodyStart(tokens []tsToken, index int) int {
 	if index < len(tokens) && tokens[index].text != ":" {
 		if tokens[index].text == "{" {
@@ -245,8 +230,6 @@ func tsBodyStart(tokens []tsToken, index int) int {
 	return -1
 }
 
-// skipBalanced returns the index of the closing token of the balanced pair
-// opened at index, or -1 when it never closes.
 func skipBalanced(tokens []tsToken, index int, open, close string) int {
 	depth := 0
 	for position := index; position < len(tokens); position++ {
@@ -263,7 +246,6 @@ func skipBalanced(tokens []tsToken, index int, open, close string) int {
 	return -1
 }
 
-// needsStrip decides the language from the file name.
 func needsStrip(path string) bool {
 	return strings.HasSuffix(path, ".go") || strings.HasSuffix(path, ".ts")
 }

@@ -1,6 +1,3 @@
-// Package scriptedagent is the deterministic agent. A scenario file names the
-// draft of each context and the file edits a realize applies, so every test of
-// the loop runs the same way twice and no test needs a model.
 package scriptedagent
 
 import (
@@ -64,7 +61,6 @@ type Delete struct {
 	Path string `json:"path"`
 }
 
-// Step is one realize edit. Exactly one of Write, Patch and Delete is set.
 type Step struct {
 	Write *Write `json:"write,omitempty"`
 
@@ -103,8 +99,6 @@ func New(scenario *Scenario) *Agent {
 	return &Agent{scenario: scenario}
 }
 
-// Summarize answers from the scenario through the same strict parser a model
-// answer goes through, so a scenario cannot draft what a model could not.
 func (a *Agent) Summarize(_ context.Context, bundle agent.ContextBundle) (agent.SpecDraft, error) {
 	if a.scenario == nil {
 		return agent.SpecDraft{}, fmt.Errorf("scriptedagent: no scenario")
@@ -120,8 +114,6 @@ func (a *Agent) Summarize(_ context.Context, bundle agent.ContextBundle) (agent.
 	return agent.ParseDraft(string(encoded), bundle.Observed)
 }
 
-// Realize applies the scenario's edits to the directory the reconciler handed
-// over. It touches nothing the scenario does not name.
 func (a *Agent) Realize(_ context.Context, request agent.RealizeRequest) (agent.RealizeResult, error) {
 	if a.scenario == nil {
 		return agent.RealizeResult{}, fmt.Errorf("scriptedagent: no scenario")

@@ -65,8 +65,6 @@ func (f *fakeCluster) PatchStatus(_ context.Context, gvr schema.GroupVersionReso
 	if !ok {
 		return nil, apierrors.NewNotFound(schema.GroupResource{Group: gvr.Group, Resource: gvr.Resource}, name)
 	}
-	// The status crosses as JSON in the real client, so the fake reads it the
-	// same way: a Go struct in the map is not something unstructured can hold.
 	encoded, err := json.Marshal(map[string]any{"status": status})
 	if err != nil {
 		return nil, err
@@ -75,8 +73,6 @@ func (f *fakeCluster) PatchStatus(_ context.Context, gvr schema.GroupVersionReso
 	if err := json.Unmarshal(encoded, &patch); err != nil {
 		return nil, err
 	}
-	// A merge patch, as the API server performs one: a key the patch does not
-	// name keeps the value it had.
 	updated := stored.DeepCopy()
 	existing, _, err := unstructured.NestedMap(updated.Object, "status")
 	if err != nil {
@@ -197,9 +193,6 @@ func TestApplyWritesTheDeltaWithTheCLMOrigin(t *testing.T) {
 	}
 }
 
-// A model refining the spec while the change it is realizing is Running must
-// not make the tool raise a second change; the edit is folded into the running
-// change's progress record instead.
 func TestApplyFoldsAnEditIntoTheRunningChange(t *testing.T) {
 	cluster := fixture(t)
 	applyObject(t, cluster, &spec.SpecChange{
@@ -282,7 +275,6 @@ func TestReportAppendsToTheBoundedListAndWritesTheGraph(t *testing.T) {
 	if change.Status.Progress[0].At != fixedNow().UTC().Format(time.RFC3339) {
 		t.Errorf("at = %q", change.Status.Progress[0].At)
 	}
-	// One upsert per report, all on the same vertex id: the graph merges them.
 	for index, vertex := range writer.labels[graph.LabelChange] {
 		if vertex.ID != graph.ChangeID("calc-s2c-abc") || index > 0 && vertex.ID != writer.labels[graph.LabelChange][0].ID {
 			t.Errorf("change vertex %d = %+v", index, vertex)
@@ -342,9 +334,6 @@ func fixedNow() time.Time {
 	return time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
 }
 
-// addSubtract renders the model zone, adds one interface the way a model
-// would, and renders it again: the edit goes through the real format instead
-// of a string patch that a layout change would silently break.
 func addSubtract(t *testing.T, cluster *fakeCluster) string {
 	t.Helper()
 	rendered, err := Render(context.Background(), Options{Cluster: cluster, Context: "calc"})

@@ -1,7 +1,3 @@
-// Package evalrun is the effectiveness harness: it takes a fixture directory,
-// turns each fixture into a working tree, drives the whole loop over it with
-// the controller the project ships, and measures what happened. The pure
-// measures live in abc/eval; this package is the I/O that feeds them.
 package evalrun
 
 import (
@@ -20,19 +16,11 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/scriptedagent"
 )
 
-// Config is the fixture manifest: what the fixture is, the command that gates a
-// spec -> code change, and the command the hidden acceptance tests run under.
 type Config struct {
 	Name string `json:"name"`
 
-	// Source names a git working tree the controller clones instead of a
-	// fixture copied into a temporary directory. It is how a run measures a
-	// codebase this repository does not carry: a fixture with a source has no
-	// drafts and no scenarios, because nobody knows its surface in advance.
 	Source *GitSource `json:"source"`
 
-	// Populate is how the tree is split, when the default (one context per
-	// directory, everything included) is not what the measurement wants.
 	Populate *PopulateConfig `json:"populate"`
 
 	Verify []string `json:"verify"`
@@ -40,14 +28,12 @@ type Config struct {
 	Accept []string `json:"accept"`
 }
 
-// GitSource is where a fixture that is not in this repository is cloned from.
 type GitSource struct {
 	URL string `json:"url"`
 
 	Ref string `json:"ref,omitempty"`
 }
 
-// PopulateConfig narrows what the populate step indexes.
 type PopulateConfig struct {
 	Partition string `json:"partition,omitempty"`
 
@@ -56,21 +42,12 @@ type PopulateConfig struct {
 	Exclude []string `json:"exclude,omitempty"`
 }
 
-// AcceptanceFile is one hidden test file, copied into the tree only to grade a
-// scenario and never present while the agent works.
 type AcceptanceFile struct {
 	Path string `json:"path"`
 
 	Contents string `json:"contents"`
 }
 
-// Scenario is one spec edit and the test that decides whether it landed. The
-// spec patch is applied to the SystemContext as a merge: the entries it names
-// are added or replaced and the rest of the spec is left alone.
-//
-// A scenario with Via "clm" carries no patch: the model is asked in natural
-// language and edits the context document, and the host inside the model
-// applies the delta. Request is that ask.
 type Scenario struct {
 	Name string `json:"name"`
 
@@ -96,18 +73,11 @@ type Scenario struct {
 
 	Realize []scriptedagent.Step `json:"realize"`
 
-	// Targets is a change that spans more than one context: each target carries
-	// its own spec edit, its own intended delta and its own hidden tests. A
-	// scenario with no targets is the single target the fields above describe.
 	Targets []Target `json:"targets,omitempty"`
 
-	// File is the scenario's file name without its extension. A glob may match
-	// it, so `--scenarios 01-*` names the easiest scenario of every fixture
-	// without knowing the names each fixture gave them.
 	File string `json:"-"`
 }
 
-// Target is one context a scenario changes.
 type Target struct {
 	Context string `json:"context"`
 
@@ -115,8 +85,6 @@ type Target struct {
 
 	ExpectedInterfaces []string `json:"expectedInterfaces"`
 
-	// ExpectedRemovedInterfaces names the interfaces the change must make the
-	// index stop observing, which is how a removal is graded.
 	ExpectedRemovedInterfaces []string `json:"expectedRemovedInterfaces"`
 
 	ExpectedDeltaEntries int `json:"expectedDeltaEntries"`
@@ -126,8 +94,6 @@ type Target struct {
 	Realize []scriptedagent.Step `json:"realize"`
 }
 
-// Resolved is the scenario as a list of targets: what it says when it names
-// targets, and the single target its own fields describe when it does not.
 func (s Scenario) Resolved() []Target {
 	if len(s.Targets) > 0 {
 		return s.Targets
@@ -143,10 +109,6 @@ func (s Scenario) Resolved() []Target {
 	}}
 }
 
-// Expectations is the fixture's expected.yaml: the behavioural facts a correct
-// spec of each context must state. It is what the code -> spec half is graded
-// on, because the observed interface list is handed to the model and scoring it
-// measures the prompt.
 type Expectations struct {
 	Contexts map[string]ContextExpectation `json:"contexts"`
 }
@@ -155,9 +117,6 @@ type ContextExpectation struct {
 	Facts []eval.Fact `json:"facts"`
 }
 
-// DriftScenario is one human code edit and the spec specd should write for it.
-// The edit is committed the way a person commits one; the controller raises the
-// CodeToSpec change; the spec it writes is graded against this.
 type DriftScenario struct {
 	Name string `json:"name"`
 
@@ -182,7 +141,6 @@ type DriftScenario struct {
 	File string `json:"-"`
 }
 
-// Fixture is one repository under fixtures/ with its scenarios.
 type Fixture struct {
 	Name string
 
@@ -211,12 +169,7 @@ const (
 	driftDir = "drift"
 )
 
-// Load reads every fixture under dir: a directory with a fixture.yaml, the
-// scripted code -> spec answer in summarize.yaml, and one scenario per YAML
-// file in scenarios/.
 func Load(dir string) ([]Fixture, error) {
-	// A single fixture may be named directly, which is how a run is narrowed to
-	// one repository without narrowing its scenarios.
 	if _, err := os.Stat(filepath.Join(dir, fixtureManifest)); err == nil {
 		fixture, err := loadFixture(dir)
 		if err != nil {
@@ -270,14 +223,9 @@ func loadFixture(root string) (Fixture, error) {
 		fixture.Config.Accept = fixture.Config.Verify
 	}
 	if fixture.Config.Source != nil {
-		// A codebase this repository does not carry has no scripted answer and
-		// no scenario: the whole measurement is what one manifest populates.
 		if fixture.Config.Source.URL == "" {
 			return fixture, fmt.Errorf("eval: %s names a source with no url", fixture.Name)
 		}
-		// The url may name the checkout through the environment and may be a
-		// relative path, because where an unknown codebase sits is a fact about
-		// the machine and not about this repository.
 		url := expandDefault(fixture.Config.Source.URL)
 		if url == "" {
 			return fixture, fmt.Errorf("eval: the source of %s expands to nothing", fixture.Name)
@@ -318,9 +266,6 @@ func loadFixture(root string) (Fixture, error) {
 	return fixture, nil
 }
 
-// loadExpectations reads the behavioural facts a correct spec must state. A
-// fixture without the file has no facts, and the fact measure says not measured
-// for it rather than scoring it 100%.
 func loadExpectations(path string) (Expectations, error) {
 	expectations := Expectations{}
 	contents, err := os.ReadFile(path)
@@ -336,8 +281,6 @@ func loadExpectations(path string) (Expectations, error) {
 	return expectations, nil
 }
 
-// loadDrift reads the drift scenarios: a code change committed as a human, and
-// what a correct code -> spec pass should write for it.
 func loadDrift(dir string) ([]DriftScenario, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -436,9 +379,6 @@ func loadScenarios(dir string) ([]Scenario, error) {
 	return scenarios, nil
 }
 
-// SelectScenarios filters the scenarios of every fixture by a glob matched
-// against the scenario name and against its file name. An empty pattern keeps
-// them all.
 func SelectScenarios(fixtures []Fixture, pattern string) ([]Fixture, error) {
 	if pattern == "" {
 		return fixtures, nil
@@ -471,11 +411,6 @@ func SelectScenarios(fixtures []Fixture, pattern string) ([]Fixture, error) {
 	return selected, nil
 }
 
-// defaultPattern matches `${NAME:-fallback}`, which os.ExpandEnv does not
-// understand: it would read the whole thing as the variable name, find nothing,
-// and hand back an empty string. An empty source url is not an error to the
-// clone, it is the current directory, so the mistake would be silent and the
-// run would measure the wrong codebase.
 var defaultPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}`)
 
 func expandDefault(value string) string {
@@ -494,10 +429,6 @@ func isYAML(name string) bool {
 	return extension == ".yaml" || extension == ".yml"
 }
 
-// CopyTree copies a fixture into a fresh working tree. The scenario files, the
-// fixture manifest and the scripted drafts are left behind on purpose: they
-// carry the hidden acceptance tests and the intended edit, and an agent that
-// could read them would be graded on a test it was shown.
 func CopyTree(source, target string) error {
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {

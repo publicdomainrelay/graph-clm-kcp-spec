@@ -16,8 +16,6 @@ func TestKindsNamesTheScriptedFilesForEachHalf(t *testing.T) {
 	if summarize != "scripted:/fixtures/calc/"+fixtureDrafts {
 		t.Errorf("summarize kind = %q, want the fixture's own drafts", summarize)
 	}
-	// One scripted kind is selected at a time, and the harness points the
-	// Repository at each scenario's file as it goes.
 	if realize != "scripted:/work/calc-one.yaml" {
 		t.Errorf("realize kind = %q, want the first scenario's merged file", realize)
 	}
@@ -30,8 +28,6 @@ func TestKindsNamesTheScriptedFilesForEachHalf(t *testing.T) {
 	if summarize != "pi" {
 		t.Errorf("summarize kind = %q, want the override", summarize)
 	}
-	// The bare word scripted means the fixture's own drafts: the caller cannot
-	// name a file that lives beside the fixture.
 	summarize, realize = fixture.kinds(Options{Agent: "claude-mod", SummarizeAgent: "scripted"}, files)
 	if summarize != "scripted:/fixtures/calc/"+fixtureDrafts {
 		t.Errorf("summarize kind = %q, want the fixture's drafts", summarize)
@@ -65,8 +61,6 @@ func TestWriteScenarioFilesMergesTheDraftsWithTheSteps(t *testing.T) {
 	if path == "" {
 		t.Fatal("no scenario file was written")
 	}
-	// The file lives outside the working tree, so the agent under test cannot
-	// read the intended edit out of the tree it is editing.
 	if _, err := os.Stat(filepath.Join(dir, "calc")); !os.IsNotExist(err) {
 		t.Errorf("the merged scenario landed inside the fixture directory: %v", err)
 	}

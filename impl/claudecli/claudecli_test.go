@@ -22,8 +22,6 @@ func observed() spec.ObservedFacts {
 	}
 }
 
-// recorder writes a stub model: it records its arguments, the directory it ran
-// in and the prompt it read, then prints the answer.
 func recorder(t *testing.T) (command, dir string) {
 	t.Helper()
 	dir = t.TempDir()
@@ -158,9 +156,6 @@ func TestDefaultsAreTheHeadlessCommand(t *testing.T) {
 	}
 }
 
-// TestRealizePromptPutsTheDeltaFirst is the contract of the spec -> code ask:
-// the agent reads what changed before it reads the spec, and it is told the
-// verify command and that the tool owns the commit.
 func TestRealizePromptPutsTheDeltaFirst(t *testing.T) {
 	request := agent.RealizeRequest{
 		Context:    "calc",
@@ -200,10 +195,6 @@ func TestRealizePromptPutsTheDeltaFirst(t *testing.T) {
 	}
 }
 
-// TestBothDirectionsHandTheModelItsContainmentRoot pins the scope guard's
-// input: the host inside the model has to be told which worktree it may work
-// in, on the summarize call and the realize call alike, or it has no root to
-// hold a tool path against.
 func TestBothDirectionsHandTheModelItsContainmentRoot(t *testing.T) {
 	dir := t.TempDir()
 	rootFile := filepath.Join(dir, "root")
@@ -248,8 +239,6 @@ func TestBothDirectionsHandTheModelItsContainmentRoot(t *testing.T) {
 	}
 }
 
-// TestRealizeRunsInTheGivenDirectoryAndReportsItsOutput checks the other half:
-// the model runs where the worktree is, and its output comes back as the log.
 func TestRealizeRunsInTheGivenDirectoryAndReportsItsOutput(t *testing.T) {
 	command, dir := recorder(t)
 	worktree := filepath.Join(dir, "worktree")

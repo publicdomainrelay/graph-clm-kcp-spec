@@ -98,10 +98,6 @@ func TestFactsCarryExportedSymbols(t *testing.T) {
 	}
 }
 
-// TestFactsCarryExportedMethods is the Go half of the observed surface: the
-// index reports is_exported false for every method node, so a reader that
-// trusted it would see no exported method at all and the spec of a service
-// would be missing most of what it offers.
 func TestFactsCarryExportedMethods(t *testing.T) {
 	fixture.Require(t, "codegraph", "git")
 	repo := fixture.Copy(t, "todo")
@@ -130,9 +126,6 @@ func TestFactsCarryExportedMethods(t *testing.T) {
 	}
 }
 
-// indexTree writes a small tree and indexes it, so a visibility or keying rule
-// can be proven against source written for the test rather than against a
-// fixture whose shape another test also depends on.
 func indexTree(t *testing.T, files map[string]string) *codegraphsqlite.DB {
 	t.Helper()
 	fixture.Require(t, "codegraph")
@@ -158,9 +151,6 @@ func indexTree(t *testing.T, files map[string]string) *codegraphsqlite.DB {
 	return database
 }
 
-// TestFactsQualifyMethodsByReceiver is the keying half of the observed surface:
-// two types that both offer a method named List are two symbols with two keys,
-// because a surface keyed by bare name could hold only one of them.
 func TestFactsQualifyMethodsByReceiver(t *testing.T) {
 	database := indexTree(t, map[string]string{
 		"store.go": `package store
@@ -197,8 +187,6 @@ type SetAlias = Set
 			t.Errorf("%s was not observed; keys = %v", want, keys)
 		}
 	}
-	// A ref the spec stores is keyed the same way, so it has to resolve to the
-	// one node: the index spells the receiver with `::` and the spec with `.`.
 	nodes, err := database.Resolve(context.Background(), "Indexer.List")
 	if err != nil {
 		t.Fatal(err)
@@ -208,9 +196,6 @@ type SetAlias = Set
 	}
 }
 
-// TestFactsReportTypeScriptMemberVisibility is the TypeScript half of the
-// observed surface: the index reports every class member unexported, but a
-// member is public unless it says private or protected, or carries a # name.
 func TestFactsReportTypeScriptMemberVisibility(t *testing.T) {
 	database := indexTree(t, map[string]string{
 		"sample.ts": `export class Sample {
@@ -246,10 +231,6 @@ class Local {
 	}
 }
 
-// TestFactsObserveTheGreetClassMembers is the fixture case for the TypeScript
-// half: the greet module exports a class, and its public members belong to the
-// observed surface exactly as its functions do. No scenario is involved: this
-// is the index and the reader alone.
 func TestFactsObserveTheGreetClassMembers(t *testing.T) {
 	fixture.Require(t, "codegraph", "git")
 	repo := fixture.Copy(t, "greet")

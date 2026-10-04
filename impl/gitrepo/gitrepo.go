@@ -1,7 +1,3 @@
-// Package gitrepo is the only place this repository runs git against a managed
-// working tree. Reading is a rev-parse; the spec -> code direction needs more:
-// a worktree on its own branch, a commit the tool signs, the diff it touched,
-// and a fast-forward that lands it.
 package gitrepo
 
 import (
@@ -14,16 +10,11 @@ import (
 )
 
 const (
-	// AuthorName and AuthorEmail sign every commit the tool makes, so a commit
-	// an agent wrote is never mistaken for a human's.
 	AuthorName  = "specd"
 	AuthorEmail = "specd@localhost"
 
-	// BranchPrefix names the branch one SpecToCode change works on.
 	BranchPrefix = "spec/"
 
-	// codegraphDir is the index ingest writes beside the code. It is not part
-	// of the spec, so it never joins a realize commit.
 	codegraphDir = ".codegraph"
 )
 
@@ -31,18 +22,10 @@ func Head(ctx context.Context, path string) (string, error) {
 	return run(ctx, path, "rev-parse", "--verify", "HEAD")
 }
 
-// EnsureCheckout makes dir a checkout of url at ref and returns its commit. A
-// missing directory is cloned; an existing one is fetched and moved to the ref
-// (or to the remote's default branch when ref is empty), so a Repository whose
-// source moves forward is indexed at its new HEAD. It is idempotent, so a
-// controller restart re-runs it without harm.
 func EnsureCheckout(ctx context.Context, url, ref, dir string) (string, error) {
 	if url == "" {
 		return "", fmt.Errorf("gitrepo: a git source needs a url")
 	}
-	// A relative local url has to be resolved against the caller's working
-	// directory: the clone runs with -C in the cache's parent, so git would
-	// otherwise resolve it there.
 	if !strings.Contains(url, "://") && !filepath.IsAbs(url) {
 		absolute, err := filepath.Abs(url)
 		if err != nil {
@@ -55,10 +38,6 @@ func EnsureCheckout(ctx context.Context, url, ref, dir string) (string, error) {
 			return "", fmt.Errorf("gitrepo: clear %s: %w", dir, err)
 		}
 	}
-	// The cache is keyed by the repository, not by its url, so a manifest that
-	// points somewhere else would otherwise fetch from the remote the cache was
-	// first cloned from and index a different codebase without saying so. A
-	// url that moved is a different source: the cache is thrown away.
 	if IsRepo(ctx, dir) {
 		if origin, err := remoteURL(ctx, dir); err == nil && origin != url {
 			if err := os.RemoveAll(dir); err != nil {
@@ -82,8 +61,6 @@ func EnsureCheckout(ctx context.Context, url, ref, dir string) (string, error) {
 	return Head(ctx, dir)
 }
 
-// remoteURL is where a cached clone was cloned from, empty when it has no
-// origin.
 func remoteURL(ctx context.Context, dir string) (string, error) {
 	output, err := run(ctx, dir, "remote", "get-url", "origin")
 	if err != nil {
@@ -94,20 +71,13 @@ func remoteURL(ctx context.Context, dir string) (string, error) {
 
 func checkout(ctx context.Context, dir, ref string) error {
 	if ref != "" {
-		// A branch that exists on the remote is reset to it. A plain checkout
-		// leaves the cached local branch where it was, so a source with a ref
-		// would be indexed once and never follow its remote again.
 		if _, err := run(ctx, dir, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+ref); err == nil {
 			_, err := run(ctx, dir, "checkout", "--force", "--quiet", "-B", ref, "origin/"+ref)
 			return err
 		}
-		// A tag or a commit is checked out detached; it cannot move.
 		_, err := run(ctx, dir, "checkout", "--force", "--quiet", ref)
 		return err
 	}
-	// An empty ref is the remote's default branch. A clone has an upstream, so
-	// the fast-forward is what moves a cache forward; a detached checkout has
-	// none and is left where the caller put it.
 	if _, err := run(ctx, dir, "merge", "--ff-only", "--quiet", "@{u}"); err != nil {
 		if _, fallbackErr := run(ctx, dir, "reset", "--hard", "--quiet", "origin/HEAD"); fallbackErr != nil {
 			return err
@@ -125,9 +95,6 @@ func IsRepo(ctx context.Context, path string) bool {
 	return err == nil
 }
 
-// WorktreeAdd checks out a fresh worktree for one change. The branch is reset
-// to base, so a retry of an episode starts from the code as it is now and not
-// from the half finished tree the failed attempt left behind.
 func WorktreeAdd(ctx context.Context, repo, dir, branch, base string) error {
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("gitrepo: clear %s: %w", dir, err)
@@ -136,8 +103,6 @@ func WorktreeAdd(ctx context.Context, repo, dir, branch, base string) error {
 	return err
 }
 
-// WorktreeRemove takes a worktree away. The branch stays: a failed change keeps
-// it for a human to read, and the next attempt resets it.
 func WorktreeRemove(ctx context.Context, repo, dir string) error {
 	if _, err := run(ctx, repo, "worktree", "remove", "--force", dir); err != nil {
 		if err := os.RemoveAll(dir); err != nil {
@@ -148,9 +113,6 @@ func WorktreeRemove(ctx context.Context, repo, dir string) error {
 	return err
 }
 
-// CommitAll stages everything in a worktree except the codegraph index and
-// commits it as specd. It returns the empty string when the agent changed
-// nothing, which the caller reads as "there was nothing to do".
 func CommitAll(ctx context.Context, dir, message string) (string, error) {
 	if _, err := run(ctx, dir, "add", "-A", "--", ".", ":!"+codegraphDir); err != nil {
 		return "", err
@@ -167,8 +129,6 @@ func CommitAll(ctx context.Context, dir, message string) (string, error) {
 	return Head(ctx, dir)
 }
 
-// ChangedFiles is the diff stat a SpecChange reports: the files one commit
-// touched relative to the commit it was built on.
 func ChangedFiles(ctx context.Context, dir, base, commit string) ([]string, error) {
 	if base == "" || commit == "" || base == commit {
 		return nil, nil
@@ -190,10 +150,6 @@ func ChangedLines(ctx context.Context, dir, base, commit string) (string, error)
 	return run(ctx, dir, "diff", "--shortstat", base, commit)
 }
 
-// FastForward lands a realize commit on the branch the Repository manages. The
-// merge is --ff-only, so it can never rewrite what a human pushed; a branch
-// that moved under the change is a failure the caller reports, not a merge it
-// resolves.
 func FastForward(ctx context.Context, repo, branch, commit string) error {
 	current, err := Branch(ctx, repo)
 	if err != nil {
@@ -212,15 +168,11 @@ func FastForward(ctx context.Context, repo, branch, commit string) error {
 	return err
 }
 
-// DeleteBranch drops the branch of a landed change, so a workspace does not
-// fill with branches whose work is already in the managed branch.
 func DeleteBranch(ctx context.Context, repo, branch string) error {
 	_, err := run(ctx, repo, "branch", "-D", branch)
 	return err
 }
 
-// CommitOf is the commit one branch points at, so a caller can name the base a
-// worktree was built on.
 func CommitOf(ctx context.Context, repo, ref string) (string, error) {
 	return run(ctx, repo, "rev-parse", "--verify", ref)
 }

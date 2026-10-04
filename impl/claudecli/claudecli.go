@@ -1,7 +1,3 @@
-// Package claudecli is the agent that shells out to a headless model CLI. The
-// prompt goes on standard input, never in the argument list: the launcher word
-// splits its argv, so a prompt passed as an argument would arrive as a handful
-// of words.
 package claudecli
 
 import (
@@ -24,25 +20,16 @@ const (
 
 	DefaultTimeout = 3 * time.Minute
 
-	// WaitDelay is the grace after the timeout or a cancel, before the output
-	// pipes of a killed model are closed by force.
 	WaitDelay = 5 * time.Second
 
 	LogTailBytes = 4000
 )
 
-// The environment a host running inside the model reads to find the state it
-// must report into. They are set on every call, so a plain model ignores them
-// and a mod or an extension uses them.
 const (
 	EnvContext = "SPECD_CLM_CONTEXT"
 
 	EnvChange = "SPECD_CLM_CHANGE"
 
-	// EnvRoot is the worktree the model may work in. It is the same directory
-	// the model runs in, so a host inside the model can hold every path a tool
-	// names against it and refuse the ones that land outside. specd sets it on
-	// both the summarize and the realize call.
 	EnvRoot = "SPECD_CLM_ROOT"
 
 	EnvRepository = "SPECD_CLM_REPOSITORY"
@@ -73,9 +60,6 @@ type Options struct {
 
 	Timeout time.Duration
 
-	// Env is set over the process environment of every call: the workspace
-	// kubeconfig, the specctl path and the bolt endpoint a host inside the model
-	// needs to report into the same state the controllers watch.
 	Env map[string]string
 }
 
@@ -104,9 +88,6 @@ func (a *Agent) Args() []string {
 	return a.options.Args
 }
 
-// Summarize asks the model for the JSON contract and reads the answer strictly.
-// A model that wraps the object in a fence is tolerated; a model that answers
-// with an unknown level is not.
 func (a *Agent) Summarize(ctx context.Context, bundle agent.ContextBundle) (agent.SpecDraft, error) {
 	prompt, _ := agent.RenderPromptWithSections(bundle)
 	env := docEnv(bundle.Repository, bundle.Context)
@@ -123,9 +104,6 @@ func (a *Agent) Summarize(ctx context.Context, bundle agent.ContextBundle) (agen
 	return draft, nil
 }
 
-// Realize runs the model inside the worktree so it can edit files in place, and
-// reports its output. Deciding what the model actually changed is the
-// reconciler's job: it owns the git worktree.
 func (a *Agent) Realize(ctx context.Context, request agent.RealizeRequest) (agent.RealizeResult, error) {
 	prompt := RealizePrompt(request)
 	env := docEnv(request.Repository, request.Context)
@@ -140,29 +118,15 @@ func (a *Agent) Realize(ctx context.Context, request agent.RealizeRequest) (agen
 	return result, nil
 }
 
-// Run drives the model with a prompt the caller owns. The summarize and realize
-// contracts cover the loop's two directions; the CLM path needs a third ask
-// ("change the specification by editing the context document"), and a host
-// inside the model applies it. Everything about the transport is the same, so
-// this is the same process with a different prompt.
 func (a *Agent) Run(ctx context.Context, prompt string, extra map[string]string) (string, string, error) {
 	return a.run(ctx, prompt, extra)
 }
 
-// RealizePrompt is the ask for the other direction. The delta comes first: the
-// agent is told what changed in the specification, then the spec the code must
-// reach, then the command that decides whether the change is accepted. The
-// rules are the contract with the reconciler, which owns the worktree and the
-// commit.
 func RealizePrompt(request agent.RealizeRequest) string {
 	builder := strings.Builder{}
 	builder.WriteString("You change a working tree so the code matches its specification.\n\n")
 	builder.WriteString("Edit the files in place. Do not ask questions and do not print a plan.\n")
 	builder.WriteString("Edit files only: do not run git and do not commit. The tool commits for you.\n")
-	// A host inside the model injects the context document, whose spec block is
-	// the specification being realized. Rewriting it during the realize would
-	// change the target while the code is being brought to it, so the ask names
-	// it: the model changes code, the tool owns the spec.
 	builder.WriteString("Do not rewrite the spec block of the context document; it is the specification you are implementing.\n\n")
 
 	builder.WriteString("## what changed in the specification\n\n")
@@ -194,8 +158,6 @@ func (a *Agent) run(ctx context.Context, prompt string, extra map[string]string)
 	command.Dir = a.options.Dir
 	command.Env = environ(a.options.Env, extra)
 	command.Stdin = strings.NewReader(prompt)
-	// A cancelled command is killed, but a child it spawned can hold the output
-	// pipes open; WaitDelay bounds that wait instead of hanging forever.
 	command.WaitDelay = WaitDelay
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
@@ -212,10 +174,6 @@ func (a *Agent) run(ctx context.Context, prompt string, extra map[string]string)
 	return stdout.String(), stderr.String(), nil
 }
 
-// environ is the process environment with the agent's own variables over it.
-// A name is replaced, never appended twice, because which of two entries a
-// child reads is not defined. No override at all means the process environment
-// is inherited as it stands.
 func environ(base, extra map[string]string) []string {
 	if len(base) == 0 && len(extra) == 0 {
 		return nil

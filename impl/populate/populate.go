@@ -1,9 +1,3 @@
-// Package populate is one "turn a codebase into specs" unit of work: index the
-// working tree, create one SystemContext per partition, and, when the
-// Repository asks for it, raise one CodeToSpec change per context whose spec is
-// still empty. specd's Repository reconciler is the caller; specctl ingest
-// applies a Repository and waits for the phase this writes, so there is one
-// code path.
 package populate
 
 import (
@@ -45,16 +39,10 @@ type Options struct {
 
 	Repository *spec.Repository
 
-	// Path is the resolved working tree. It is the Repository's spec.path, or
-	// the cache directory a git source was cloned into.
 	Path string
 
-	// Index runs codegraph and rewrites the observed facts. A reconcile that
-	// finds the HEAD already indexed and the pipeline complete leaves it false.
 	Index bool
 
-	// Commit is the resolved HEAD of Path, empty when the tree is not a git
-	// working tree. It is what the observed facts are recorded against.
 	Commit string
 
 	Tool string
@@ -84,9 +72,6 @@ type Result struct {
 	Raised int
 }
 
-// Run indexes and populates one Repository. It is idempotent: the status it
-// writes is derived from what it reads, and a second run over the same tree
-// raises no change and writes no status.
 func Run(ctx context.Context, options Options) (Result, error) {
 	namespace := options.Namespace
 	if namespace == "" {
@@ -95,7 +80,6 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	repository := options.Repository
 	result := Result{Repository: repository.Name, Total: 0}
 
-	// Cloning happened before this call and is the caller's phase to write.
 	if options.Index {
 		if err := patchPhase(ctx, options, namespace, specapi.PhaseIndexing); err != nil {
 			return result, err
@@ -119,9 +103,6 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		result.Commit = indexed.Commit
 	}
 
-	// The index step wrote headCommit, indexedCommit and the Indexed condition,
-	// so the status this run writes has to start from the object as it is now.
-	// A conditions list copied from before the index would drop that write.
 	current, err := Read(ctx, options.Cluster, namespace, repository.Name)
 	if err != nil {
 		return result, err
@@ -176,10 +157,6 @@ type counts struct {
 	running int
 }
 
-// tallyContexts reads the population state off the objects themselves, so a
-// controller restart resumes exactly where it stopped: a context is summarized
-// when its intent is not empty, failed when its newest change of the episode is
-// Failed and the attempt cap is reached, and open otherwise.
 func tallyContexts(contexts []spec.SystemContext, changes []spec.SpecChange, maxAttempts int) counts {
 	out := counts{}
 	for index := range contexts {
@@ -223,10 +200,6 @@ func episode(changes []spec.SpecChange, base string) (int, *spec.SpecChange) {
 	return attempts, newest
 }
 
-// raise creates the CodeToSpec changes one populate still owes, at most
-// MaxConcurrent of them running across the namespace at a time. A context that
-// already has an unfinished change is left alone, so a reconcile that runs
-// twice raises one change, not two.
 func raise(
 	ctx context.Context,
 	options Options,
@@ -243,9 +216,6 @@ func raise(
 	for index := range changes {
 		change := &changes[index]
 		taken = append(taken, change.Name)
-		// A change created but not yet phased (the create and the status patch
-		// are two calls) counts as unfinished too: treating it as absent would
-		// raise a second attempt of the same episode beside it.
 		if change.Spec.Direction == specapi.DirectionCodeToSpec &&
 			change.Status.Phase != specapi.PhaseFailed && change.Status.Phase != specapi.PhaseSucceeded {
 			unfinished[change.Spec.SystemContext] = true
@@ -297,8 +267,6 @@ func raise(
 			}
 			return raised, err
 		}
-		// A create cannot write the status subresource, so the phase is patched
-		// in right after it; no reader ever sees a change without one.
 		if _, err := options.Cluster.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, created.GetName(), map[string]any{
 			"phase":   specapi.PhasePending,
 			"message": "waiting for the agent that summarizes " + context.Name,
@@ -314,9 +282,6 @@ func raise(
 func writeStatus(ctx context.Context, options Options, namespace string, result Result) error {
 	repository := options.Repository
 	conditions := condition.Copy(repository.Status.Conditions)
-	// A failure leaves Indexed False so a reader can see it; when this run has
-	// the index current, the condition has to come back to True, or a transient
-	// failure of another step would leave a permanent False behind.
 	if options.Index || (options.Commit != "" && options.Commit == repository.Status.IndexedCommit) {
 		condition.SetTrue(&conditions, repository.GetGeneration(), specapi.ConditionIndexed,
 			specapi.ReasonIndexed, "the codegraph index is current")
@@ -334,10 +299,6 @@ func writeStatus(ctx context.Context, options Options, namespace string, result 
 			specapi.ReasonPopulating,
 			fmt.Sprintf("%d of %d context(s) summarized", result.Summarized, result.Total))
 	}
-	// The desired status is built as the typed status and marshalled back, so a
-	// field this run has nothing to say about is omitted exactly as it is on the
-	// object being compared with. A hand written map would carry its zero values
-	// and every reconcile would look like a change.
 	status := statusObject(spec.RepositoryStatus{
 		ObservedGeneration: repository.GetGeneration(),
 		ResolvedPath:       options.Path,
@@ -399,9 +360,6 @@ func listContexts(ctx context.Context, cluster Cluster, namespace, repository st
 	return out, nil
 }
 
-// listChanges reads every SpecChange in the namespace. The tally only counts
-// code -> spec ones, but the names are shared: a new change must never collide
-// with a change of the other direction.
 func listChanges(ctx context.Context, cluster Cluster, namespace string) ([]spec.SpecChange, error) {
 	listed, err := cluster.List(ctx, specapi.SpecChangeGVR, namespace)
 	if err != nil {
@@ -436,9 +394,6 @@ func excludeOf(repository *spec.Repository) []string {
 	return repository.Spec.Populate.Exclude
 }
 
-// WaitForPopulated polls a Repository until the phase answers the request, and
-// reports the phase it settled on. specctl ingest uses it; a timeout is not an
-// error of the manifest but of the controller, so the caller reports both.
 func WaitForPopulated(ctx context.Context, cluster Cluster, namespace, name, request string, interval time.Duration) (*spec.Repository, error) {
 	if interval <= 0 {
 		interval = 250 * time.Millisecond

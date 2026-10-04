@@ -10,12 +10,6 @@ import (
 	"testing"
 )
 
-// TestTwoLiveSuitesSerialise proves the lock the way the failure it prevents
-// would happen: two `go test ./test/e2e` runs started at once. Each run takes
-// the same lock in its TestMain and appends a begin and an end mark around the
-// window it holds it. Serialized, the marks read begin, end, begin, end; two
-// runs overlapping would read begin, begin, ... and the second run's objects
-// would land on the first run's.
 func TestTwoLiveSuitesSerialise(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {

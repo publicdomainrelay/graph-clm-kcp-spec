@@ -33,12 +33,8 @@ import (
 )
 
 const (
-	// DefaultTimeout bounds one scenario from the spec edit to a settled change.
 	DefaultTimeout = 5 * time.Minute
 
-	// DefaultScenarioAttempts is how many attempts one scenario's change gets
-	// before the harness gives up on it. It is small on purpose: an eval run
-	// measures the loop, it does not retry it forever.
 	DefaultScenarioAttempts = 2
 
 	defaultResync = 500 * time.Millisecond
@@ -47,9 +43,6 @@ const (
 
 	pollInterval = 250 * time.Millisecond
 
-	// scenarioManager is the field manager the scenario edit is applied under.
-	// It is distinct from the tool's own writer, so the controller reads the
-	// edit as the human change it stands in for.
 	scenarioManager = "specctl-eval-scenario"
 
 	gitAuthorName = "eval"
@@ -57,31 +50,21 @@ const (
 	gitAuthorMail = "eval@localhost"
 )
 
-// Report is what one run measured. It is the pure report of abc/eval, named
-// here so a caller of this package needs one import and not two.
 type Report = eval.Report
 
-// Comparison is a live run beside the scripted baseline, and the two functions
-// that produce it, re-exported for the same reason as Report.
 type Comparison = eval.Comparison
 
 func ParseReport(encoded []byte) (eval.Report, error) { return eval.ParseReport(encoded) }
 
 func Compare(baseline, live eval.Report) eval.Comparison { return eval.Compare(baseline, live) }
 
-// Options is one eval run.
 type Options struct {
 	FixturesDir string
 
 	ScenarioGlob string
 
-	// Agent is the agent kind of both halves, in the agentfactory spelling:
-	// claude, claude-mod or pi. Empty means the scripted baseline, where each
-	// fixture answers from its own files.
 	Agent string
 
-	// SummarizeAgent, when set, is the kind of the code -> spec half only, so a
-	// run can measure one host in that direction and another in the other.
 	SummarizeAgent string
 
 	AgentCommand string
@@ -112,22 +95,12 @@ type Options struct {
 
 	Keep bool
 
-	// CodeOnly stops after the code -> spec half and the round trip: a run that
-	// only asks whether one host can read a codebase.
 	CodeOnly bool
 
-	// NoRoundTrip skips the second and third summarize of every context. The
-	// round trip is two more model calls per context, which is worth paying for
-	// a fixture and not for a codebase of forty of them.
 	NoRoundTrip bool
 
-	// SkipSuffice drops the spec sufficiency measure, which is one model call
-	// and one test run per context. It is off by default because it is the
-	// strongest test of a spec there is.
 	SkipSuffice bool
 
-	// Judge overrides how facts are graded. Empty means the keyword judge under
-	// the scripted baseline and a model judge otherwise.
 	Judge eval.Judge
 
 	JudgeCommand string
@@ -145,9 +118,6 @@ type Options struct {
 	Log *slog.Logger
 }
 
-// baseline is where every scenario of one context starts: the commit the tree
-// is reset to, the spec the code -> spec half left, and the fingerprint of the
-// facts that spec was written about.
 type baseline struct {
 	commit string
 
@@ -167,30 +137,19 @@ type harness struct {
 
 	repository *spec.Repository
 
-	// realizeKind and summarizeKind are the agent kinds of the two halves, fixed
-	// once per fixture so the sufficiency measure, a drift scenario and a CLM
-	// scenario can tell a live host from the scripted baseline.
 	realizeKind string
 
 	summarizeKind string
 
-	// scratch holds the generated scenario files, outside every working tree.
 	scratch string
 
-	// judge grades the behavioural facts a spec must state.
 	judge eval.Judge
 
 	judgeName string
 
-	// stop stops the in-process controller. A scenario stops it across the
-	// reset, so nothing reconciles the reverted tree while it is being put
-	// back, and starts it again before the scenario's edit is applied.
 	stop func()
 }
 
-// Run drives every fixture through both halves of the loop and returns the
-// numbers. The caller owns the workspace and the client; Run owns the working
-// trees and, unless Keep is set, the objects it created.
 func Run(ctx context.Context, options Options) (eval.Report, error) {
 	report := eval.Report{
 		Agent:     orScripted(options.Agent),
@@ -212,9 +171,6 @@ func Run(ctx context.Context, options Options) (eval.Report, error) {
 	if options.Log == nil {
 		options.Log = logging.Discard()
 	}
-	// A host inside the model runs in a worktree, so every path it is handed
-	// has to be absolute: a relative kubeconfig would be resolved against the
-	// directory the model happens to be editing.
 	if options.Kubeconfig != "" {
 		if absolute, err := filepath.Abs(options.Kubeconfig); err == nil {
 			options.Kubeconfig = absolute
@@ -287,8 +243,6 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 	baseCommit := ""
 	cloned := fixture.Config.Source != nil
 	if cloned {
-		// A git source is resolved by the controller into its own cache, so
-		// nothing is copied and nothing is written where the source lives.
 		dir = ""
 	} else {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -368,8 +322,6 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 		_ = forget(cleanupCtx, client, options.Namespace, fixture.Name)
 	}()
 
-	// The code -> spec half: one Repository manifest, every context summarized,
-	// measured from the objects the controller wrote.
 	populateStart := time.Now()
 	waitErr := h.waitPopulated(ctx)
 	run.populate.WallTimeSeconds = time.Since(populateStart).Seconds()
@@ -391,15 +343,10 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 	if status.Phase != specapi.PhasePopulated {
 		run.populate.Error = populateError(status)
 		run.populate.Failures = h.failedSummaries(ctx)
-		// A codebase that only partly populated is still a measurement: what
-		// was summarized is measured, and the rest is reported by name.
 		if status.Contexts == nil || status.Contexts.Summarized == 0 {
 			return run, nil
 		}
 	}
-	// A git source is resolved into the controller's cache, so the tree the
-	// measurements read is the one the Repository reports, never a path this
-	// harness guessed.
 	if status.ResolvedPath != "" {
 		h.dir = status.ResolvedPath
 	}
@@ -418,10 +365,6 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 		run.sufficiency = h.measureSufficiency(ctx, fixture, contexts, baseCommit)
 	}
 
-	// Every scenario starts from the same baseline, so the fixtures are compared
-	// with each other and not with their own history. The baseline is read
-	// before the drift scenarios run, because a drift scenario changes the spec
-	// and the change must not become the next scenario's starting point.
 	baselines, err := h.baselines(ctx, baseCommit)
 	if err != nil {
 		return run, err
@@ -430,7 +373,6 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 		run.drift = h.runDrift(ctx, fixture, baselines)
 	}
 
-	// The spec -> code half.
 	if options.CodeOnly || len(fixture.Scenarios) == 0 {
 		return run, nil
 	}
@@ -440,18 +382,10 @@ func runFixture(ctx context.Context, options Options, fixture Fixture, workDir s
 	return run, nil
 }
 
-// isScripted reports whether an agent kind answers from a scenario file, which
-// is the deterministic baseline and the only agent that cannot rebuild code
-// from a spec or edit a context document for a reason.
 func isScripted(kind string) bool {
 	return kind == "" || strings.HasPrefix(kind, agentfactory.Scripted+":")
 }
 
-// kinds is the agent of each half. An empty Agent is the scripted baseline: the
-// code -> spec half answers from the fixture's own drafts and the spec -> code
-// half from the generated scenario file. SummarizeAgent overrides the code ->
-// spec half alone, and the bare word scripted means the fixture's own drafts,
-// because the drafts live beside the fixture and the caller cannot name them.
 func (f Fixture) kinds(options Options, scenarioFiles map[string]string) (string, string) {
 	drafts := "scripted:" + filepath.Join(f.Dir, fixtureDrafts)
 	realize := drafts
@@ -474,8 +408,6 @@ func (f Fixture) kinds(options Options, scenarioFiles map[string]string) (string
 	return summarize, realize
 }
 
-// startController starts the controller the whole loop runs against, and
-// stopController stops it. The two are called around every reset.
 func (h *harness) startController() error {
 	if h.stop != nil {
 		return nil
@@ -533,9 +465,6 @@ func (h *harness) newController() (func(), error) {
 	}, nil
 }
 
-// agentEnv is what a host inside the model reads to reach the same state the
-// controller watches: the workspace, the state bridge and the namespace. A
-// plain model ignores all of it.
 func (h *harness) agentEnv() map[string]string {
 	return map[string]string{
 		"SPECD_KUBECONFIG": h.options.Kubeconfig,
@@ -543,15 +472,10 @@ func (h *harness) agentEnv() map[string]string {
 		"SPECD_WORKSPACE":  h.options.Workspace,
 		"SPECD_NAMESPACE":  h.namespace,
 		"SPECD_SPECCTL":    specctlPath(),
-		// A host inside the model keeps the context document under the working
-		// tree and applies it with specctl, so it needs the tree it owns.
-		"SPECD_CLM_REPO": h.dir,
+		"SPECD_CLM_REPO":   h.dir,
 	}
 }
 
-// specctlPath is the state bridge a host inside the model calls. The eval
-// harness is normally run by specctl itself, so its own executable is the
-// bridge; SPECD_SPECCTL overrides it and a specctl on PATH is the fallback.
 func specctlPath() string {
 	if fromEnv := os.Getenv("SPECD_SPECCTL"); fromEnv != "" {
 		return fromEnv
@@ -562,10 +486,6 @@ func specctlPath() string {
 	return "specctl"
 }
 
-// agent builds the agent of one half explicitly. It goes through AgentFor and
-// not Agent because a Repository that names its own agent wins over the
-// controller's, which would silently answer a round trip asked for in the
-// code -> spec half with the agent of the other half.
 func (h *harness) agent(kind string) (agent.Agent, error) {
 	factory, err := agentfactory.New(agentfactory.Options{
 		Kind:        kind,
@@ -582,9 +502,6 @@ func (h *harness) agent(kind string) (agent.Agent, error) {
 	return factory.AgentFor(&spec.AgentSpec{Kind: kind}, h.repository, h.dir)
 }
 
-// measureCodeToSpec scores the spec the code -> spec half wrote against the
-// facts the index observed, and then summarizes every context twice more to see
-// whether a second pass says the same thing.
 func (h *harness) measureCodeToSpec(ctx context.Context, contexts []spec.SystemContext, summarizer agent.Agent) []eval.CodeToSpecReport {
 	out := make([]eval.CodeToSpecReport, 0, len(contexts))
 	for _, entry := range contexts {
@@ -626,10 +543,6 @@ func (h *harness) measureCodeToSpec(ctx context.Context, contexts []spec.SystemC
 	return out
 }
 
-// report0IsEmpty marks the contexts that declare nothing and observe nothing.
-// They are left out of the means and counted instead: a context with no surface
-// scores a perfect 1 by definition, and averaging those in is how a run of
-// empty contexts reports 100%.
 func report0IsEmpty(entry spec.SystemContext) bool {
 	return len(entry.Spec.Interfaces) == 0 && len(entry.Status.Observed.Interfaces) == 0
 }
@@ -648,8 +561,6 @@ func (h *harness) summarizeOnce(ctx context.Context, name string, summarizer age
 	})
 }
 
-// baselines reads where every context of the fixture starts: the spec the code
-// -> spec half left, and the fingerprint of the facts it was written about.
 func (h *harness) baselines(ctx context.Context, commit string) (map[string]baseline, error) {
 	contexts, err := h.contexts(ctx)
 	if err != nil {
@@ -662,9 +573,6 @@ func (h *harness) baselines(ctx context.Context, commit string) (map[string]base
 	return out, nil
 }
 
-// runScenario resets the tree and the spec to the baseline, applies the
-// scenario's edit, waits for the controller to work it off, and grades the
-// result with the hidden acceptance tests.
 func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Scenario, scenarioFile string, starts map[string]baseline) eval.ScenarioReport {
 	started := time.Now()
 	report := eval.ScenarioReport{
@@ -688,10 +596,6 @@ func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Sce
 	deadline, cancel := context.WithTimeout(ctx, h.options.Timeout)
 	defer cancel()
 
-	// A CLM scenario is the model's work: it edits the context document and the
-	// host inside it applies the delta. The scripted baseline has no host in it,
-	// so the scenario is left out of the run and counted as skipped rather than
-	// scored as a failure.
 	if scenario.Via == "clm" && isScripted(h.realizeKind) {
 		report.Skipped = true
 		report.WallTimeSeconds = time.Since(started).Seconds()
@@ -727,9 +631,6 @@ func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Sce
 	report.Delta.Entries = entries
 	report.Delta.Precise = report.Delta.Precise && entries == expected
 	report.Pass = clean && report.VerifyPass && report.AcceptancePass && report.Delta.Precise
-	// A delta that carried more or fewer entries than intended is a failure of
-	// the scenario, but not of the code: the acceptance tests still ran and
-	// their result is in the report. The message says which of the two it was.
 	if !report.Delta.Precise && report.Error == "" {
 		report.Error = fmt.Sprintf("the change carried %d delta entries, the scenario intended %d", entries, expected)
 	}
@@ -737,14 +638,9 @@ func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Sce
 	return report
 }
 
-// runTarget is one context of a scenario: reset that context and the tree,
-// apply the edit or drive the model, wait for the change, and grade it.
 func (h *harness) runTarget(ctx context.Context, fixture Fixture, scenario Scenario, scenarioFile string, target Target, start baseline) (eval.ScenarioReport, error) {
 	report := eval.ScenarioReport{Context: target.Context}
 
-	// The controller is stopped across the reset: the tree goes back to the
-	// baseline commit, and a reconcile of that window would read the revert
-	// against the last scenario's spec.
 	h.stopController()
 	if err := h.reset(ctx, target.Context, scenarioFile, start); err != nil {
 		h.startController()
@@ -790,9 +686,6 @@ func (h *harness) runTarget(ctx context.Context, fixture Fixture, scenario Scena
 	return report, nil
 }
 
-// reset puts the working tree and the context back where the scenario found
-// them: the tree at the baseline commit, the spec at the baseline every
-// scenario starts from, and no change left over from the scenario before.
 func (h *harness) reset(ctx context.Context, name, scenarioFile string, start baseline) error {
 	if err := h.git(ctx, "reset", "--hard", start.commit); err != nil {
 		return err
@@ -819,10 +712,6 @@ func (h *harness) reset(ctx context.Context, name, scenarioFile string, start ba
 	return h.waitNoChanges(ctx, name)
 }
 
-// waitNoChanges deletes every change of the context until the workspace holds
-// none, so the change the scenario raises is the only one admission can see. It
-// deletes inside the wait because a reconcile that was already running can put
-// one back between the delete and the read.
 func (h *harness) waitNoChanges(ctx context.Context, name string) error {
 	return h.wait(ctx, "the changes of "+name+" to be swept", func() bool {
 		changes, err := h.changes(ctx, name)
@@ -841,18 +730,6 @@ func (h *harness) waitNoChanges(ctx context.Context, name string) error {
 	})
 }
 
-// restoreSpec writes the baseline back as one settled context: the baseline
-// spec with the tool's own origin annotation, so the write is never read as a
-// human edit, and the facts of the baseline commit as the observed *and* the
-// synced state, so the revert the harness just made in git is not reported as
-// drift. It is a whole object write because the spec it replaces may hold
-// entries a scenario added.
-//
-// The facts are written rather than waited for on purpose: an ingest that ran
-// between the git reset and this write would see the reverted tree against the
-// last scenario's baseline and raise a code -> spec change for the revert, and
-// a live agent would then spend a model call summarizing a tree that is about
-// to be replaced.
 func (h *harness) restoreSpec(ctx context.Context, current *spec.SystemContext, start baseline) error {
 	restored := *current
 	restored.Spec = start.spec
@@ -889,27 +766,11 @@ func (h *harness) restoreSpec(ctx context.Context, current *spec.SystemContext, 
 	})
 }
 
-// keyedLists names the spec lists that are keyed, and the key each is keyed by.
-// The CRD declares them as list maps, so a scenario patch addresses one entry by
-// its key and leaves the others alone, exactly as a server side apply would.
 var keyedLists = map[string]string{
 	"requirements": "id",
 	"interfaces":   "name",
 }
 
-// mergeKeyedList merges a scenario's list into the list the spec already holds.
-// An entry that says {"$patch": "delete"} takes its key away; any other entry
-// merges over the stored one by key, so a scenario changes the fields it names
-// and keeps the ones it does not (a stored code ref, for one, is canonical and
-// cannot be written by hand). The order the spec already had is kept, and new
-// keys go on the end.
-//
-// A delete may name a `text` as well as a key: the keyed lists of a spec a
-// model wrote carry the model's own ids, so a scenario that means "the
-// requirement about Save" names the words and the key is a fallback. A delete
-// that matches nothing, or that matches more than one entry by text, is an
-// error naming what the spec holds, because a scenario that removes nothing
-// would otherwise be measured as a smaller delta instead of as a mistake.
 func mergeKeyedList(current, patch any, key string) ([]any, error) {
 	existing, _ := current.([]any)
 	incoming, _ := patch.([]any)
@@ -977,10 +838,6 @@ func mergeKeyedList(current, patch any, key string) ([]any, error) {
 	return out, nil
 }
 
-// matchByText finds the one entry whose text holds the words a delete names.
-// None, or more than one, is an error: a scenario that meant one entry and
-// would have removed none or several has to say which, not be measured as a
-// smaller delta.
 func matchByText(entries map[string]map[string]any, wanted any) (string, error) {
 	words, _ := wanted.(string)
 	if words == "" {
@@ -1009,11 +866,6 @@ func matchByText(entries map[string]map[string]any, wanted any) (string, error) 
 	return "", fmt.Errorf("eval: %q matched more than one entry: %v", words, matched)
 }
 
-// checkPatchRefs refuses a scenario whose code refs are not in the stored form.
-// A bare name is what a model may write, because the draft parser canonicalizes
-// it; a server side apply stores the ref exactly as written, and a bare one is
-// refused later by the validator with an error that names the object and not
-// the scenario. Catching it here names the file the mistake is in.
 func checkPatchRefs(name string, patch map[string]any) error {
 	requirements, _ := patch["requirements"].([]any)
 	for _, raw := range requirements {
@@ -1038,19 +890,10 @@ func checkPatchRefs(name string, patch map[string]any) error {
 	return nil
 }
 
-// applyPatch writes one scenario's spec edit the way a person writes one: read
-// the spec, change what the scenario names, write the whole thing back. It is
-// not a server side apply because a merge by key can add and change an entry
-// but cannot take one away, and a removal scenario needs the entry gone. The
-// removal is spelled the same way a Kubernetes apply spells one, with a
-// {"$patch": "delete"} entry, so a scenario says what it means.
 func (h *harness) applyPatch(ctx context.Context, name string, patch map[string]any) error {
 	if err := checkPatchRefs(name, patch); err != nil {
 		return err
 	}
-	// The controller writes the status while this runs, so the read and the
-	// write can disagree by one resource version. A conflict means somebody
-	// else wrote; the read is taken again and the merge reapplied.
 	var err error
 	for attempt := 0; attempt < 5; attempt++ {
 		err = h.writePatch(ctx, name, patch)
@@ -1097,11 +940,6 @@ func (h *harness) writePatch(ctx context.Context, name string, patch map[string]
 	return err
 }
 
-// setAgentKind points the Repository's agent at the kind the spec -> code half
-// of one scenario must use. A live run names the live kind; the scripted
-// baseline names the scenario file that carries this scenario's edits. A reset
-// with no scenario file and no live agent leaves the agent alone, which is what
-// a drift scenario wants: its code -> spec pass sets the agent itself.
 func (h *harness) setAgentKind(ctx context.Context, scenarioFile string) error {
 	kind := ""
 	switch {
@@ -1237,12 +1075,6 @@ func (h *harness) patchStatus(ctx context.Context, name string, status map[strin
 	return err
 }
 
-// waitPopulated waits for the populate step to settle, and returns as soon as
-// the Repository says it cannot be indexed at all: a manifest the validator
-// would refuse never reaches a phase, and waiting for one would hang a run.
-// failedSummaries names the contexts of this fixture whose code -> spec change
-// failed, and the message it failed with. It is how a partly populated codebase
-// says which part it could not read.
 func (h *harness) failedSummaries(ctx context.Context) []string {
 	contexts, err := h.contexts(ctx)
 	if err != nil {
@@ -1263,8 +1095,6 @@ func (h *harness) failedSummaries(ctx context.Context) []string {
 			}
 			message := strings.TrimSpace(change.Status.Message)
 			if message == "" {
-				// A change that failed before it could be described still has
-				// the model's own output, which is the only clue left.
 				message = "no message; the agent answered: " + strings.TrimSpace(change.Status.AgentLog)
 			}
 			out = append(out, entry.Name+": "+firstLine(limitText(message, 400)))
@@ -1290,7 +1120,6 @@ func (h *harness) waitPopulated(ctx context.Context) error {
 	})
 }
 
-// blocked reports the conditions that say the Repository will never populate.
 func blocked(status spec.RepositoryStatus) bool {
 	for _, condition := range status.Conditions {
 		if condition.Status == metav1.ConditionFalse && condition.Reason == specapi.ReasonSourceInvalid {
@@ -1321,10 +1150,6 @@ func (h *harness) waitChange(ctx context.Context, name, direction string) (spec.
 	return found, err
 }
 
-// waitInterfaces waits for the re-ingest that follows a realize to observe the
-// interfaces the scenario declared, and reports the ones that never appeared or
-// that should have gone and did not. A removal is graded here: a spec that lost
-// an interface and code that still exports it is a change that did not happen.
 func (h *harness) waitInterfaces(ctx context.Context, name string, expected, removed []string) []string {
 	if len(expected) == 0 && len(removed) == 0 {
 		return nil
@@ -1360,10 +1185,6 @@ func (h *harness) waitInterfaces(ctx context.Context, name string, expected, rem
 	}
 }
 
-// runAcceptance copies the scenario's hidden tests into the tree, runs the
-// fixture's acceptance command, and takes them out again. The tree at this
-// point is the one the agent committed, so the tests run against the code the
-// change produced and nothing else.
 func (h *harness) runAcceptance(ctx context.Context, command []string, files []AcceptanceFile) (bool, error) {
 	written := []string{}
 	defer func() {
@@ -1435,9 +1256,6 @@ func applyTyped(ctx context.Context, client *kcpclient.Client, value any) error 
 	if setter, ok := value.(defaults); ok {
 		setter.SetDefaults()
 	}
-	// The controller would report a manifest the validator refuses as a
-	// condition nobody reads, and a run would wait for a phase that never
-	// comes. The harness refuses it where the mistake was made instead.
 	if result := spec.ValidateAny(value); !result.OK() {
 		return fmt.Errorf("eval: the manifest the harness built is invalid: %w", result.Err())
 	}
@@ -1449,8 +1267,6 @@ func applyTyped(ctx context.Context, client *kcpclient.Client, value any) error 
 	return err
 }
 
-// populateError says why a Repository did not populate: the phase it stopped
-// at and the conditions that stopped it.
 func populateError(status spec.RepositoryStatus) string {
 	message := status.Phase
 	for _, condition := range status.Conditions {
@@ -1461,15 +1277,6 @@ func populateError(status spec.RepositoryStatus) string {
 	return strings.TrimSpace(message)
 }
 
-// forget removes the objects of one fixture's previous run, so a re-run does
-// not grade itself against its own history, and it waits until they are really
-// gone.
-//
-// A change is deleted when its context belongs to this repository or when the
-// context it names does not exist at all: a run that is stopped part way can
-// leave a change behind whose context is already deleted, and a context
-// recreated with the same name would then be read against the old one's
-// baseline and report a drift nobody caused.
 func forget(ctx context.Context, client *kcpclient.Client, namespace, repository string) error {
 	owned := map[string]bool{}
 	live := map[string]bool{}
@@ -1509,9 +1316,6 @@ func forget(ctx context.Context, client *kcpclient.Client, namespace, repository
 	return waitGone(ctx, client, namespace, owned, repository)
 }
 
-// waitGone waits until every object forget removed is no longer listed. An
-// ingest that raced a delete would otherwise adopt the object that was on its
-// way out and keep the baseline of the tree before it.
 func waitGone(ctx context.Context, client *kcpclient.Client, namespace string, contexts map[string]bool, repository string) error {
 	for {
 		remaining := false
@@ -1584,10 +1388,6 @@ func runGit(ctx context.Context, dir string, args ...string) error {
 	return nil
 }
 
-// writeScenarioFiles writes one merged scripted scenario per scenario: the
-// fixture's code -> spec drafts plus that scenario's realize steps. The file
-// lives outside the working tree, so the agent under test cannot read the
-// intended edit out of the tree it is editing.
 func writeScenarioFiles(workDir string, fixture Fixture) (map[string]string, error) {
 	dir := filepath.Join(workDir, "eval-scenarios")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -1633,8 +1433,6 @@ func orScripted(kind string) string {
 	return kind
 }
 
-// firstLine keeps one line of a failure, and limitText bounds it, so a report
-// stays readable when a model answered with a whole JSON document.
 func firstLine(value string) string {
 	line, _, _ := strings.Cut(value, "\n")
 	return line

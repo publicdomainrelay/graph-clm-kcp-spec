@@ -1,13 +1,3 @@
-// Package exportwatch is the multi workspace half of specd's watch: instead of
-// one logical cluster, it watches every workspace that bound an APIExport,
-// through the APIExport virtual workspace the provider publishes.
-//
-// It discovers the virtual workspace URL from the APIExportEndpointSlice in the
-// provider workspace (../kcp-libs does the same), then holds one dynamic
-// informer per resource against `<url>/clusters/*`. Every object that comes
-// back carries the `kcp.io/cluster` annotation of the workspace it lives in, so
-// the event names the logical cluster it belongs to and the controller can
-// write back to that one cluster.
 package exportwatch
 
 import (
@@ -30,8 +20,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 )
 
-// AllClusters is the kcp path segment that lists every logical cluster bound to
-// an APIExport at once.
 const AllClusters = "*"
 
 const (
@@ -64,7 +52,6 @@ type Options struct {
 	Log *slog.Logger
 }
 
-// Source is a watch.Source over every bound workspace.
 type Source struct {
 	config *rest.Config
 
@@ -117,9 +104,6 @@ func New(options Options) (*Source, error) {
 	}, nil
 }
 
-// Endpoint resolves the virtual workspace URL a bound export serves. It is
-// exported because a caller that must write back per logical cluster (specd in
-// export mode) builds its client from the same URL.
 func (s *Source) Endpoint(ctx context.Context) (string, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, s.discoveryWait)
 	defer cancel()
@@ -195,8 +179,6 @@ func emit(notify watch.Notify, resource watch.Resource, event watch.Event, obj a
 	notify(resource, event, key)
 }
 
-// keyOf reads the logical cluster, namespace and name of an event object. A
-// delete can arrive as a tombstone, so the wrapped object is unwrapped first.
 func keyOf(obj any) (watch.Key, bool) {
 	object, ok := obj.(*unstructured.Unstructured)
 	if !ok {

@@ -28,10 +28,6 @@ func generate(t *testing.T, name string) []byte {
 	return data
 }
 
-// TestEveryCRDHasItsAPIResourceSchema is the drift gate: the multi workspace
-// API is generated from the CRDs, so a CRD that changed without its schema
-// being regenerated fails here. Regenerate with
-// SPECD_UPDATE_GOLDEN=1 go test ./impl/schemagen.
 func TestEveryCRDHasItsAPIResourceSchema(t *testing.T) {
 	crdDir := filepath.Join("..", "..", "deploy", "crds")
 	outDir := filepath.Join("..", "..", "deploy", "apiresourceschemas")
@@ -65,9 +61,6 @@ func TestEveryCRDHasItsAPIResourceSchema(t *testing.T) {
 	}
 }
 
-// TestTheProviderExportPublishesEverySchema holds deploy/specs-apiexport.yaml
-// to the generated schemas: a resource whose schema name is not the generated
-// one, or a kind the export forgot, would be an API a tenant cannot bind.
 func TestTheProviderExportPublishesEverySchema(t *testing.T) {
 	path := filepath.Join("..", "..", "deploy", "specs-apiexport.yaml")
 	data, err := os.ReadFile(path)

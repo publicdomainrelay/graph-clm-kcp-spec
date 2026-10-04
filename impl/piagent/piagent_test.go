@@ -12,10 +12,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
 )
 
-// fakePi is a stand-in for the pi binary: it reads the prompt from standard
-// input, honours the headless flag, records the environment it was given and
-// answers with a draft. It is how the host is tested without spending a model
-// call, exactly as the scripted agent tests the loop.
 func fakePi(t *testing.T, dir string) (string, string) {
 	t.Helper()
 	envFile := filepath.Join(dir, "env.txt")
@@ -67,9 +63,6 @@ func TestSummarizeRunsTheHostAndParsesTheAnswer(t *testing.T) {
 }
 
 func TestDefaultCommandIsTheNpxPackage(t *testing.T) {
-	// The pi coding agent is not installed globally everywhere this repository
-	// runs, so the default command resolves the npm package the same way the
-	// project documents it, and the headless flag is there.
 	if DefaultCommand != "npx" {
 		t.Errorf("DefaultCommand = %q, want npx", DefaultCommand)
 	}
@@ -86,10 +79,6 @@ func TestDefaultCommandIsTheNpxPackage(t *testing.T) {
 	}
 }
 
-// TestDefaultArgsNameTheHostedProvider is the guard the eval depends on: every
-// number in docs/eval is taken against the hosted provider, so a default that
-// named a local one would put measurements in the reports that describe a
-// model nobody can reproduce. Local providers are not used in this repository.
 func TestDefaultArgsNameTheHostedProvider(t *testing.T) {
 	args := DefaultArgs()
 	if DefaultProvider != "deepseek" || DefaultModel != "deepseek-flash" {
@@ -106,9 +95,6 @@ func TestDefaultArgsNameTheHostedProvider(t *testing.T) {
 	}
 }
 
-// TestNewTakesTheApiKeyFromTheLauncher pins how the pi host gets its credential
-// when the environment has not exported one: the launcher script that carries
-// it for the claude host is read, and the value is handed to the child only.
 func TestNewTakesTheApiKeyFromTheLauncher(t *testing.T) {
 	dir := t.TempDir()
 	launcher := filepath.Join(dir, Launcher)
@@ -129,8 +115,6 @@ func TestNewTakesTheApiKeyFromTheLauncher(t *testing.T) {
 	}
 }
 
-// TestNewLeavesAnExportedCredentialAlone: a caller that already exported the key
-// owns it, and the launcher is not consulted over it.
 func TestNewLeavesAnExportedCredentialAlone(t *testing.T) {
 	dir := t.TempDir()
 	launcher := filepath.Join(dir, Launcher)
@@ -159,10 +143,6 @@ func valueOf(t *testing.T, args []string, name string) string {
 	return args[index+1]
 }
 
-// TestNewDefaultsTheCommandAndArgs is the shape check the host needs: a pi
-// host with no command and no arguments must still be a usable agent, and it
-// must fail loudly (not silently) when the default command cannot run, because
-// that is what a caller sees when pi is not installed.
 func TestNewDefaultsTheCommandAndArgs(t *testing.T) {
 	dir := t.TempDir()
 	host := New(Options{Dir: dir, Command: filepath.Join(dir, "missing-pi"), Timeout: 5 * time.Second})

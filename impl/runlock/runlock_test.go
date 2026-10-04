@@ -10,9 +10,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/runlock"
 )
 
-// TestAcquireWaitsForTheHolder pins the behaviour a person sees: the second
-// acquisition does not proceed, it says why it is waiting, and it takes the
-// lock as soon as the first releases it.
 func TestAcquireWaitsForTheHolder(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "live.lock")
 	first, err := runlock.Acquire(path, runlock.Options{Name: "the first run"})

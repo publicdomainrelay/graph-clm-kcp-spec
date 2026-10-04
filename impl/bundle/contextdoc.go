@@ -8,9 +8,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
 )
 
-// ReadContextDoc returns the model zone of a context document. A missing
-// document is not an error: the first summarize of a context starts from an
-// empty model zone.
 func ReadContextDoc(docDir, repository, context string) (string, error) {
 	path := agent.ContextDocPath(docDir, repository, context)
 	contents, err := os.ReadFile(path)
@@ -24,9 +21,6 @@ func ReadContextDoc(docDir, repository, context string) (string, error) {
 	return model, nil
 }
 
-// WriteContextDoc puts the model zone above a managed zone regenerated from the
-// observed facts. An empty model zone keeps what the document already holds, so
-// a summarize that produced no prose does not erase the last summary.
 func WriteContextDoc(docDir, repository, context, modelZone string, refs []agent.ResolvedRef, managedBudget int) (string, error) {
 	if modelZone == "" {
 		existing, err := ReadContextDoc(docDir, repository, context)

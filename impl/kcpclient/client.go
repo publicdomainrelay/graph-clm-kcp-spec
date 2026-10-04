@@ -66,9 +66,6 @@ func RestConfig(kubeconfig, contextName string) (*rest.Config, error) {
 	return config, nil
 }
 
-// WorkspaceRestConfig loads a kubeconfig and points the rest config at a
-// workspace, which is what a caller that builds its own client (a watch, an
-// informer) needs.
 func WorkspaceRestConfig(kubeconfig, contextName, workspace string, qps float32, burst int) (*rest.Config, error) {
 	config, err := RestConfig(kubeconfig, contextName)
 	if err != nil {
@@ -107,8 +104,6 @@ func NewFromRestConfig(config *rest.Config, workspace, namespace string, qps flo
 	return &Client{dynamic: client, namespace: namespace, workspace: workspace}, nil
 }
 
-// The dynamic client builds every resource URL from the host path, so the
-// logical cluster belongs in the host, not in an API path.
 func WorkspaceHost(host, workspace string) string {
 	trimmed, _, _ := strings.Cut(host, clustersPath)
 	trimmed = strings.TrimSuffix(trimmed, "/")
@@ -149,9 +144,6 @@ func (c *Client) List(ctx context.Context, gvr schema.GroupVersionResource, name
 	return listed, nil
 }
 
-// An empty namespace means the client's default, as it does everywhere else
-// here, so the cluster wide listing needs its own entry point: metav1.NamespaceAll
-// is the empty string and cannot be told apart from an unset namespace.
 func (c *Client) ListAll(ctx context.Context, gvr schema.GroupVersionResource) (*unstructured.UnstructuredList, error) {
 	listed, err := c.dynamic.Resource(gvr).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -193,11 +185,6 @@ func (c *Client) Apply(ctx context.Context, object *unstructured.Unstructured) (
 	return c.Update(ctx, object)
 }
 
-// ServerSideApply writes one object with the apply patch type, so the CRD's
-// keyed lists are merged by key: a manifest that names one requirement adds
-// that requirement and leaves the others alone. The field manager is what makes
-// the write a distinct writer, which is what lets a human edit and the tool's
-// own writes coexist.
 func (c *Client) ServerSideApply(ctx context.Context, object *unstructured.Unstructured, fieldManager string) (*unstructured.Unstructured, error) {
 	if object.GetNamespace() == "" {
 		object.SetNamespace(c.namespace)

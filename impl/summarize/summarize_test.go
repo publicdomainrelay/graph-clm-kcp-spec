@@ -67,8 +67,6 @@ func (f *fakeCluster) PatchStatus(_ context.Context, gvr schema.GroupVersionReso
 			if err != nil {
 				return nil, err
 			}
-			// The real client sends a JSON merge patch, so the fake has to take
-			// the same round trip: a []metav1.Condition is not a JSON value yet.
 			normalized, ok := normalize(status).(map[string]any)
 			if !ok {
 				return nil, apierrors.NewInternalError(errors.New("status is not an object"))
@@ -237,10 +235,6 @@ func TestRunRefusesAMissingContext(t *testing.T) {
 	}
 }
 
-// A second summarize over the same facts must not rewrite the context
-// document. The model zone is the model's; the managed zone is derived. If a
-// re-run changed either byte the file would churn on every resync and a diff
-// would never be empty.
 func TestSummarizingTwiceLeavesTheDocumentByteIdentical(t *testing.T) {
 	cluster, repository := setup(t)
 	options := Options{Cluster: cluster, Context: "calc", Repository: repository, Agent: scripted(t, oneRequirement)}
@@ -268,9 +262,6 @@ func TestSummarizingTwiceLeavesTheDocumentByteIdentical(t *testing.T) {
 	}
 }
 
-// The document the code -> spec direction writes and the document a host inside
-// a model renders are one format: either parses the other's spec block, which is
-// what lets the mod run `specctl clm apply` on a file summarize produced.
 func TestTheWrittenDocumentParsesAsACLMModelZone(t *testing.T) {
 	cluster, repository := setup(t)
 	if _, err := Run(context.Background(), Options{

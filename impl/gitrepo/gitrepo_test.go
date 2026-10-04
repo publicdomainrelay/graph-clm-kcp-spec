@@ -82,7 +82,6 @@ func TestWorktreeCommitFastForward(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = WorktreeRemove(ctx, repo, worktree) })
 
-	// The index ingest writes is never part of a realize commit.
 	if err := os.MkdirAll(filepath.Join(worktree, codegraphDir), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +129,6 @@ func TestWorktreeCommitFastForward(t *testing.T) {
 		t.Errorf("shortstat = %q, %v", stat, err)
 	}
 
-	// A second commit with nothing staged is not an empty commit.
 	if again, err := CommitAll(ctx, worktree, "realize calc"); err != nil {
 		t.Fatal(err)
 	} else if again != "" {
@@ -180,7 +178,6 @@ func TestFastForwardRefusesADivergedBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A human pushes something on top of the branch the change was built on.
 	if err := os.WriteFile(filepath.Join(repo, "human.txt"), []byte("human\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +223,6 @@ func TestEnsureCheckoutClonesAndFollowsTheSource(t *testing.T) {
 		t.Fatalf("the clone has no working tree: %v", err)
 	}
 
-	// A second call is idempotent and does not move the checkout.
 	again, err := EnsureCheckout(ctx, "file://"+bare, "", dir)
 	if err != nil {
 		t.Fatal(err)
@@ -235,7 +231,6 @@ func TestEnsureCheckoutClonesAndFollowsTheSource(t *testing.T) {
 		t.Errorf("HEAD = %s, want %s", again, first)
 	}
 
-	// A new commit on the source is what the next call has to pick up.
 	if err := os.WriteFile(filepath.Join(source, "file.txt"), []byte("two\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -279,8 +274,6 @@ func TestEnsureCheckoutHonoursARef(t *testing.T) {
 	if strings.TrimSpace(string(contents)) != "one" {
 		t.Errorf("the working tree = %q, want the tagged commit", contents)
 	}
-	// A relative local url resolves against the caller's directory, not the
-	// cache's, even though the clone runs with -C there.
 	if _, err := EnsureCheckout(ctx, source, "main", filepath.Join(t.TempDir(), "cache", "again")); err != nil {
 		t.Fatal(err)
 	}
@@ -311,8 +304,6 @@ func TestEnsureCheckoutFollowsANamedRef(t *testing.T) {
 		t.Fatalf("the branch was not checked out: %v", err)
 	}
 
-	// The remote branch moves. A cached checkout has to follow it, or a source
-	// with a ref would be indexed once and never again.
 	git(t, source, "checkout", "-q", "feature")
 	if err := os.WriteFile(filepath.Join(source, "feature.txt"), []byte("two\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -332,10 +323,6 @@ func TestEnsureCheckoutFollowsANamedRef(t *testing.T) {
 	}
 }
 
-// TestEnsureCheckoutDropsACacheFromAnotherSource is the unknown codebase's
-// finding: the cache is keyed by the repository, so a manifest that points at a
-// different url would otherwise fetch from the remote the cache was first
-// cloned from and index a codebase nobody asked for, silently.
 func TestEnsureCheckoutDropsACacheFromAnotherSource(t *testing.T) {
 	ctx := context.Background()
 	bare := func(name, contents string) string {

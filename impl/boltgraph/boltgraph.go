@@ -82,11 +82,6 @@ func (c *Client) Run(ctx context.Context, query string, params map[string]any) (
 	return rows, nil
 }
 
-// writeBatch is how many rows one UNWIND carries. A whole label at once is
-// not safe: ArcadeDB stops writing part way through a large parameter list and
-// answers without an error, which showed up as a rebuild that wrote 100 of 167
-// contexts depending on the run. A batch small enough to be one transaction
-// makes the write deterministic on both engines.
 const writeBatch = 64
 
 func (c *Client) WriteVertices(ctx context.Context, set graph.VertexSet) error {

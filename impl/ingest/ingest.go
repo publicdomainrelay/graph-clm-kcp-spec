@@ -44,21 +44,12 @@ type Options struct {
 
 	Commit string
 
-	// Partition is directory (the default) or package; Include and Exclude are
-	// globs over the repository-relative path applied before the split.
 	Partition string
 
 	Include []string
 
 	Exclude []string
 
-	// Adopt is the spec a realize has just landed. When the stored spec still
-	// says the same thing about the fields a human owns, this ingest is the
-	// tail of that realize: it moves the synced baseline onto the facts it just
-	// read and records the spec as realized, in the one status write it already
-	// makes. Without it the realize would be followed by a drift report against
-	// the old baseline, and the controller would raise the opposite change for
-	// its own work.
 	Adopt *spec.SystemContextSpec
 
 	Writer graph.Writer
@@ -72,11 +63,8 @@ type ContextResult struct {
 	Fingerprint string
 	Observed    spec.ObservedFacts
 	Conditions  []metav1.Condition
-	// Skipped marks a partition whose name already belongs to a SystemContext
-	// of another Repository. Two working trees that both hold a directory of
-	// the same name would otherwise take turns overwriting one context.
-	Skipped bool
-	Reason  string
+	Skipped     bool
+	Reason      string
 }
 
 type Result struct {
@@ -260,16 +248,8 @@ func ingestPartition(
 
 	previousSpec := existingContext.Spec
 	previousHash, previousErr := spec.HashSystemContextSpec(previousSpec)
-	// A realize that has just landed asks this ingest to adopt what it finds.
-	// The stored spec is still the one that was realized, so the adopt is
-	// unconditional on that hash and the whole tail of the realize — the new
-	// file refs, the new fingerprint, the new commit — lands in one status
-	// write instead of a drift the controller would act on.
 	adopted := adopt != nil && spec.SameDeclaredState(previousSpec, *adopt)
 
-	// The synced baseline is the fingerprint and commit the spec was last
-	// brought into agreement with. Ingest only establishes it, so a code change
-	// keeps Drifted true until something acknowledges it.
 	syncedFingerprint := existingContext.Status.SyncedFingerprint
 	syncedCommit := existingContext.Status.SyncedCommit
 	syncedObserved := existingContext.Status.SyncedObserved
@@ -283,25 +263,15 @@ func ingestPartition(
 	if merged.Repository == "" {
 		merged.Repository = repositoryName
 	}
-	// A context ingest creates is its own upstream; the CRD default only
-	// applies on the server, and the local validator runs before that.
 	if merged.Upstream == "" {
 		merged.Upstream = spec.RefSelf
 	}
 	merged.CodeRefs = mergeCodeRefs(merged.CodeRefs, observed.Files)
-	// A spec stored before a method's receiver was part of its key still names
-	// the method bare. The observed facts say which receiver was meant when
-	// exactly one offers the name, so the ingest moves the stored spec onto the
-	// qualified key itself instead of reporting drift for a spelling.
 	merged = specsync.MigrateDeclared(merged, observed)
 
 	specChanged := !reflect.DeepEqual(merged, previousSpec)
 	generation := existingContext.GetGeneration()
 
-	// The realized hash moves only when nothing was pending: a stored spec that
-	// already hashes to the realized hash carries no unprocessed human edit, so
-	// ingest may absorb its own write. A pending human edit keeps the old hash,
-	// which is what makes the controller raise a SpecToCode change.
 	realizedSpecHash := existingContext.Status.RealizedSpecHash
 	mergedHash, mergedErr := spec.HashSystemContextSpec(merged)
 	absorbed := previousErr == nil && mergedErr == nil && (realizedSpecHash == "" || realizedSpecHash == previousHash)
@@ -311,8 +281,6 @@ func ingestPartition(
 	realizedSpec := existingContext.Status.RealizedSpec
 	if absorbed {
 		realizedSpecHash = mergedHash
-		// The snapshot is the old side of the next spec -> code delta, so it
-		// has to be the spec this ingest just acknowledged.
 		snapshot := merged
 		realizedSpec = &snapshot
 	}
@@ -328,11 +296,6 @@ func ingestPartition(
 			updated.Annotations = map[string]string{}
 		}
 		updated.Annotations[specapi.OriginAnnotation] = specapi.OriginIngest
-		// The status write is a separate call, so the object has to say which
-		// spec this write produced — but only when the write is really the
-		// tool's own. Ingest deliberately leaves a human edit unabsorbed, and
-		// stamping a hash over that spec would hide the edit from the
-		// controller, which reads the annotation to tell the two apart.
 		delete(updated.Annotations, specapi.OriginHashAnnotation)
 		if absorbed {
 			if mergedHash, err := spec.HashSystemContextSpec(merged); err == nil {
@@ -415,9 +378,6 @@ func mergeCodeRefs(existing []string, files []string) []string {
 	return out
 }
 
-// SanitizeName is the DNS-1123 label a Repository or partition name is built
-// from, so a manifest that names a path never carries a character the API
-// server would reject.
 func SanitizeName(value string) string {
 	return sanitizeName(value)
 }

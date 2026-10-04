@@ -18,9 +18,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/stripbodies"
 )
 
-// buildJudge picks how behavioural facts are graded: the deterministic keyword
-// judge under the scripted baseline, a model judge otherwise. A judge failure
-// is a harness failure and is reported as one, never scored as the model's.
 func (h *harness) buildJudge(summarizeKind string) eval.Judge {
 	if h.options.Judge != nil {
 		h.judgeName = "custom"
@@ -40,10 +37,6 @@ func (h *harness) buildJudge(summarizeKind string) eval.Judge {
 	})
 }
 
-// gradeFacts scores each context's spec against the behavioural facts a correct
-// spec must state. This is the code -> spec measure that means something: the
-// observed interface list is in the bundle, so recall and precision say what
-// the prompt said, and only the prose can say what the model read.
 func (h *harness) gradeFacts(ctx context.Context, fixture Fixture, contexts []spec.SystemContext) []eval.FactsReport {
 	out := make([]eval.FactsReport, 0, len(contexts))
 	for _, entry := range contexts {
@@ -69,9 +62,6 @@ func (h *harness) gradeFacts(ctx context.Context, fixture Fixture, contexts []sp
 	return out
 }
 
-// measureSufficiency is the strongest test of a spec the harness has: remove a
-// context's implementation bodies, keep its spec, let the model rebuild the
-// code from the spec alone, and run the tests it never saw.
 func (h *harness) measureSufficiency(ctx context.Context, fixture Fixture, contexts []spec.SystemContext, baseCommit string) []eval.SufficiencyReport {
 	out := make([]eval.SufficiencyReport, 0, len(contexts))
 	for _, entry := range contexts {
@@ -95,15 +85,9 @@ func (h *harness) suffice(ctx context.Context, fixture Fixture, entry spec.Syste
 		return report
 	}
 
-	// One context's sufficiency is bounded like one scenario: the model call
-	// has its own timeout, but the test command that grades the rebuild does
-	// not, and a test runner that hangs must not hang the whole run.
 	ctx, cancel := context.WithTimeout(ctx, h.options.Timeout)
 	defer cancel()
 
-	// The controller is stopped: the tree is about to lose its bodies and the
-	// tests are about to disappear, and neither is a change anyone should
-	// reconcile.
 	h.stopController()
 	defer h.startController()
 	if err := h.resetTree(ctx, baseCommit); err != nil {
@@ -164,9 +148,6 @@ func (h *harness) suffice(ctx context.Context, fixture Fixture, entry spec.Syste
 	return report
 }
 
-// hiddenTests is the test files a sufficiency run took out of the tree, held so
-// they can be put back byte for byte. The model must not read them, and the
-// grade must run them.
 type hiddenTests struct {
 	files map[string][]byte
 }
@@ -213,10 +194,6 @@ func (h *hiddenTests) restore() error {
 	return nil
 }
 
-// resetTree puts the working tree back on the baseline commit with nothing
-// left over. It is the tree half of reset, split out because the sufficiency
-// measure uses it without touching the spec. A codebase the controller cloned
-// has no commit the harness took, so its own HEAD is the baseline.
 func (h *harness) resetTree(ctx context.Context, commit string) error {
 	if commit == "" {
 		commit = "HEAD"
@@ -230,8 +207,6 @@ func (h *harness) resetTree(ctx context.Context, commit string) error {
 	return h.deleteBranches(ctx)
 }
 
-// runCommand runs one gate command in the tree and reports whether it exited
-// zero.
 func runCommand(ctx context.Context, command []string, dir string) (bool, error) {
 	if len(command) == 0 {
 		return true, nil

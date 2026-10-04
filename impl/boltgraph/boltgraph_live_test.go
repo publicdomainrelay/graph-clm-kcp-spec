@@ -12,10 +12,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/ids"
 )
 
-// requireBolt reads the same environment as the phase 2 end to end test. The
-// default backend is ArcadeDB, the project default; SPECD_TEST_BACKEND=hydradb
-// switches to the HydraDB variables instead. With no endpoint it skips; with
-// SPECD_REQUIRE_LIVE=1 it fails instead.
 func requireBolt(t *testing.T) Options {
 	t.Helper()
 	if testing.Short() && os.Getenv("SPECD_REQUIRE_LIVE") != "1" {
@@ -115,7 +111,6 @@ func TestBoltWriteReadDeleteRoundTrip(t *testing.T) {
 		}
 	}
 
-	// Writing the same rows again must merge onto the same vertices.
 	if err := client.WriteVertices(ctx, contexts); err != nil {
 		t.Fatalf("second write: %v", err)
 	}
@@ -188,7 +183,6 @@ func TestBoltWriteReadDeleteRoundTrip(t *testing.T) {
 	if len(gone) != 0 {
 		t.Fatalf("the deleted vertex is still there: %+v", gone)
 	}
-
 }
 
 func countOf(values []int64, want int64) int {

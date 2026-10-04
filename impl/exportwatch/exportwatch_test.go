@@ -27,8 +27,6 @@ const (
 	provider = "root:specs-provider"
 )
 
-// The two objects one virtual workspace watch delivers: one per tenant, each
-// carrying the annotation kcp puts on an object it serves through an export.
 const (
 	objectA = `{"apiVersion":"specs.publicdomainrelay.dev/v1alpha1","kind":"SystemContext","metadata":{"name":"calc","namespace":"tenant-a","resourceVersion":"2","annotations":{"kcp.io/cluster":"cluster-a"}}}`
 
@@ -37,9 +35,6 @@ const (
 
 const bookmark = `{"type":"BOOKMARK","object":{"apiVersion":"specs.publicdomainrelay.dev/v1alpha1","kind":"SystemContext","metadata":{"resourceVersion":"3","annotations":{"k8s.io/initial-events-end":"true"}}}}`
 
-// fakeKcp serves the two paths an export mode watch needs: the endpoint slice
-// in the provider workspace, and the virtual workspace itself, which answers
-// `/clusters/*` with every bound workspace's objects.
 func fakeKcp(t *testing.T, items []string) *httptest.Server {
 	t.Helper()
 	slice := fmt.Sprintf(`{"apiVersion":"apis.kcp.io/v1alpha1","kind":"APIExportEndpointSliceList","metadata":{"resourceVersion":"1"},"items":[{"metadata":{"name":%q},"spec":{"export":{"name":%q,"path":%q}},"status":{"endpoints":[{"url":%q}]}}]}`,
@@ -77,8 +72,6 @@ func fakeKcp(t *testing.T, items []string) *httptest.Server {
 	return server
 }
 
-// kubeconfigFor writes the smallest kubeconfig that points a client at the fake
-// server, which is what the source resolves its provider client from.
 func kubeconfigFor(t *testing.T, server *httptest.Server) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "kubeconfig")
@@ -113,9 +106,6 @@ func TestNewValidatesItsOptions(t *testing.T) {
 	}
 }
 
-// TestRunKeysCarryTheLogicalCluster is the whole point of the package: one
-// watch over `/clusters/*` delivers every tenant's objects, and each event must
-// name the logical cluster it came from so the controller can write back to it.
 func TestRunKeysCarryTheLogicalCluster(t *testing.T) {
 	server := fakeKcp(t, []string{objectA, objectB})
 	source, err := New(Options{
@@ -167,8 +157,6 @@ func TestRunKeysCarryTheLogicalCluster(t *testing.T) {
 	}
 }
 
-// TestKeyOfUnwrapsATombstone covers the delete path: an informer can deliver a
-// deleted object wrapped in a tombstone, and the key must still be read.
 func TestKeyOfUnwrapsATombstone(t *testing.T) {
 	object := &unstructured.Unstructured{}
 	if err := json.Unmarshal([]byte(objectA), &object.Object); err != nil {

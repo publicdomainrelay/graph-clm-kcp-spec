@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// TestMergeKeyedListKeepsWhatTheScenarioDoesNotName is the rule a scenario
-// patch lives by: it changes the fields it names, keeps the ones it does not
-// (a stored code ref is canonical and cannot be written by hand), and a
-// {"$patch": "delete"} entry takes its key away.
 func TestMergeKeyedListKeepsWhatTheScenarioDoesNotName(t *testing.T) {
 	current := []any{
 		map[string]any{"id": "r.add", "level": "MUST", "text": "Add sums.", "codeRefs": []any{"function:0a1b"}},
@@ -45,11 +41,6 @@ func TestMergeKeyedListRefusesAnEntryWithNoKey(t *testing.T) {
 	}
 }
 
-// TestMergeKeyedListDeletesByTextWhenTheKeyIsTheModels is the case a live
-// code -> spec half creates: the requirement ids are the model's, so a scenario
-// that means "the requirement about Save" names the words. A delete that
-// matches nothing has to fail loudly, or a scenario that removed nothing would
-// be measured as a smaller delta.
 func TestMergeKeyedListDeletesByTextWhenTheKeyIsTheModels(t *testing.T) {
 	current := []any{
 		map[string]any{"id": "r.save-json", "text": "Save writes the store's entries to a JSON file."},
@@ -73,10 +64,6 @@ func TestMergeKeyedListDeletesByTextWhenTheKeyIsTheModels(t *testing.T) {
 	}
 }
 
-// TestCheckPatchRefsRefusesABareName is the guard that names the scenario
-// instead of the object: a server side write stores a ref exactly as written,
-// and a bare name is refused later by the validator with an error about the
-// SystemContext.
 func TestCheckPatchRefsRefusesABareName(t *testing.T) {
 	patch := map[string]any{"requirements": []any{
 		map[string]any{"id": "r.x", "codeRefs": []any{"function:Add", "file:calc/calc.go"}},

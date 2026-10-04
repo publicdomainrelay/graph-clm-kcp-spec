@@ -38,10 +38,6 @@ func TestLoadReadsEveryFixtureWithItsScenarios(t *testing.T) {
 		if len(entry.Config.Verify) == 0 || len(entry.Config.Accept) == 0 {
 			t.Errorf("%s names no verify or accept command", entry.Name)
 		}
-		// The three original fixtures carry three scenarios of increasing
-		// difficulty. A focused fixture may carry one: `shared` exists to make
-		// the two-receiver keying case cheap and deterministic, and a second
-		// scenario of it would measure the same thing twice.
 		want := 1
 		for _, name := range []string{"calc", "greet", "todo"} {
 			if entry.Name == name {
@@ -117,11 +113,6 @@ func TestCopyTreeLeavesTheHiddenFilesBehind(t *testing.T) {
 	}
 }
 
-// TestScriptedScenariosSatisfyTheirOwnAcceptanceTests is the harness's own
-// proof, with no cluster in it: every scenario's realize steps are applied to a
-// copy of its fixture, the fixture's verify command must pass, and the hidden
-// acceptance tests must pass on top. A scenario that cannot satisfy its own
-// tests would make the eval report meaningless.
 func TestScriptedScenariosSatisfyTheirOwnAcceptanceTests(t *testing.T) {
 	fixture.Require(t, "git", "go", "deno")
 	ctx := context.Background()
@@ -132,8 +123,6 @@ func TestScriptedScenariosSatisfyTheirOwnAcceptanceTests(t *testing.T) {
 				if err := eval.CopyTree(entry.Dir, dir); err != nil {
 					t.Fatal(err)
 				}
-				// A CLM scenario carries no scripted steps: its spec edit is the
-				// model's, so only the patch scenarios are checked here.
 				if scenario.Via == "clm" {
 					t.Skip("the scripted baseline does not drive a CLM scenario")
 				}

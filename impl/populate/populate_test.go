@@ -111,8 +111,6 @@ func normalize(value any) any {
 	return out
 }
 
-// setup builds a Repository over three contexts: two with no spec yet and one
-// that a model already summarized.
 func setup(t *testing.T, summarize bool, maxConcurrent int) (*fakeCluster, *spec.Repository) {
 	t.Helper()
 	repository := &spec.Repository{
@@ -288,9 +286,6 @@ func TestRunFailedWhenTheAttemptCapIsReached(t *testing.T) {
 	}
 }
 
-// A change whose create succeeded and whose status patch did not land has no
-// phase. It is still the attempt for its episode, so a second one must not be
-// raised beside it.
 func TestRunTreatsAPhaseLessChangeAsUnfinished(t *testing.T) {
 	cluster, repository := setup(t, true, 4)
 	store(t, cluster, &spec.SpecChange{
@@ -303,8 +298,6 @@ func TestRunTreatsAPhaseLessChangeAsUnfinished(t *testing.T) {
 	}
 }
 
-// A failure leaves the Indexed condition False; a run that has the index
-// current has to put it back, or the False would outlive the failure.
 func TestRunRestoresTheIndexedCondition(t *testing.T) {
 	cluster, repository := setup(t, true, 4)
 	repository.Status.Conditions = []metav1.Condition{{
@@ -321,7 +314,6 @@ func TestRunRestoresTheIndexedCondition(t *testing.T) {
 
 func TestRunIsAlreadyExistsTolerant(t *testing.T) {
 	cluster, repository := setup(t, true, 4)
-	// A change of another direction with the same name must not stop a populate.
 	store(t, cluster, &spec.SpecChange{
 		ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-c1-c1", Namespace: specapi.DefaultNamespace},
 		Spec:       spec.SpecChangeSpec{SystemContext: "calc", Direction: specapi.DirectionSpecToCode, ToSpecHash: strings.Repeat("a", 64)},

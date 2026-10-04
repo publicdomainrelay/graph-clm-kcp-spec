@@ -1,6 +1,3 @@
-// Package bundle builds what the model reads about one context: the spec, the
-// observed facts, the context document, one hop of the spec graph and the
-// codegraph excerpts behind the code refs, cut to a token budget.
 package bundle
 
 import (
@@ -34,9 +31,6 @@ type Cluster interface {
 	Get(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
 }
 
-// Codegraph is the two codegraph reads a bundle needs. It is an interface so a
-// test can answer without the command, and so the builder works when the
-// caller has no codegraph at all.
 type Codegraph interface {
 	Context(ctx context.Context, task string, maxNodes int) (string, error)
 
@@ -72,9 +66,6 @@ func (o Options) docDir() string {
 	return statedir.ClmDocDir()
 }
 
-// Build reads one context and everything one hop from it. The graph and
-// codegraph are optional: without them the bundle is the spec, the facts and
-// the context document, which is still a usable ask.
 func Build(ctx context.Context, options Options) (agent.ContextBundle, error) {
 	namespace := options.Namespace
 	if namespace == "" {
@@ -140,8 +131,6 @@ func Build(ctx context.Context, options Options) (agent.ContextBundle, error) {
 		}
 		bundle.Neighbors = neighbors
 	}
-	// Without an index there is nothing for the CLI to read, and spawning it
-	// twice per context to be told so is waste.
 	if options.Codegraph != nil && repoPath != "" {
 		if _, err := os.Stat(codegraphsqlite.DatabasePath(repoPath)); err == nil {
 			bundle.CodeExcerpts = excerpts(ctx, options.Codegraph, bundle, nodeLimit)
@@ -166,9 +155,6 @@ func readRepository(ctx context.Context, cluster Cluster, namespace, name string
 	return repository, nil
 }
 
-// Neighbors is one hop in and out of a context in the spec graph. The graph is
-// an index of kcp plus CodeGraph, so the read uses the same edge table the
-// writer uses and the two cannot disagree about a direction.
 func Neighbors(ctx context.Context, writer graph.Writer, contextName string) ([]agent.Neighbor, error) {
 	id := graph.ContextID(contextName)
 	out := []agent.Neighbor{}
@@ -220,9 +206,6 @@ func neighborName(row map[string]any) string {
 	return ""
 }
 
-// excerpts asks codegraph for the source behind the observed interfaces, then
-// for the context as a whole. A symbol the index cannot read is skipped: a
-// model that is missing one excerpt still gets the spec and the facts.
 func excerpts(ctx context.Context, codegraph Codegraph, bundle agent.ContextBundle, nodeLimit int) []agent.CodeExcerpt {
 	out := []agent.CodeExcerpt{}
 	for index, observedInterface := range bundle.Observed.Interfaces {
@@ -258,15 +241,10 @@ func taskWords(bundle agent.ContextBundle) string {
 	return strings.Join(words, " ")
 }
 
-// ResolvedRefs is the managed zone of the context document: every observed
-// interface, as the id the graph and the spec cite it by. It is derived from
-// the facts, never from the model, so the zone is the same on every run.
 func ResolvedRefs(observed spec.ObservedFacts) []agent.ResolvedRef {
 	return agent.ObservedRefs(observed)
 }
 
-// SpecFromCluster is a small helper for callers that already hold an
-// unstructured object and want the typed spec.
 func SpecFromCluster(object *unstructured.Unstructured) (*spec.SystemContext, error) {
 	typed, err := kcpclient.Typed(object)
 	if err != nil {

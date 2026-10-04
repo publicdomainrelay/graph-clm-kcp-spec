@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// stub writes a fake codegraph that records its arguments and prints a fixed
-// line, so the commands this package builds can be read without the real tool.
 func stub(t *testing.T, output string) (command, argsFile, project string) {
 	t.Helper()
 	dir := t.TempDir()

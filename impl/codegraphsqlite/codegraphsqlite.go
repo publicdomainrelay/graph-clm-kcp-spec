@@ -50,9 +50,6 @@ type Edge struct {
 type DB struct {
 	sql *sql.DB
 
-	// root is the working tree the index describes. The index carries no
-	// visibility for a TypeScript class member, so the reader has to see the
-	// declaration line to tell a public member from a private one.
 	root string
 }
 
@@ -60,9 +57,6 @@ func DatabasePath(repoPath string) string {
 	return filepath.Join(repoPath, Directory, DatabaseName)
 }
 
-// Ensure indexes the repository when that is needed and returns the path of
-// the sqlite database codegraph wrote. An existing index is synced so the
-// facts match the working tree.
 func Ensure(ctx context.Context, repoPath, tool string) (string, error) {
 	if tool == "" {
 		tool = DefaultTool
@@ -126,8 +120,6 @@ func excludeLocally(ctx context.Context, repoPath, pattern string) error {
 	return err
 }
 
-// OpenRepo opens the index of a repository that has already been indexed. It
-// reports found as false when the repository has no index yet.
 func OpenRepo(repoPath string) (*DB, bool, error) {
 	dbPath := DatabasePath(repoPath)
 	if _, err := os.Stat(dbPath); err != nil {
@@ -151,7 +143,6 @@ func Open(dbPath string) (*DB, error) {
 		handle.Close()
 		return nil, fmt.Errorf("codegraphsqlite: ping %s: %w", dbPath, err)
 	}
-	// The index sits at <tree>/.codegraph/<name>, so the tree is two levels up.
 	return &DB{sql: handle, root: filepath.Dir(filepath.Dir(dbPath))}, nil
 }
 
@@ -215,10 +206,6 @@ func scanNodes(rows *sql.Rows) ([]Node, error) {
 	return out, rows.Err()
 }
 
-// exportedMethod corrects the index for Go methods. A Go method is exported
-// when its name is capitalised, and the index reports is_exported false for
-// every method node, so an observed package would otherwise be missing half its
-// public surface. The rule is Go's own and needs no reading of the source.
 func exportedMethod(node Node) bool {
 	if node.Kind != "method" || node.Language != "go" {
 		return false
@@ -244,8 +231,6 @@ func (db *DB) Edges(ctx context.Context) ([]Edge, error) {
 	return out, rows.Err()
 }
 
-// Facts maps the index onto the pure sync input. Only exported nodes become
-// symbols; the partition step decides which kinds count as an interface.
 func (db *DB) Facts(ctx context.Context, commit string) (specsync.Facts, error) {
 	files, err := db.Files(ctx)
 	if err != nil {
@@ -279,8 +264,6 @@ func (db *DB) Facts(ctx context.Context, commit string) (specsync.Facts, error) 
 	return facts, nil
 }
 
-// typeKinds are the nodes a member's visibility depends on: a public member of
-// an unexported class is not part of the package's surface.
 var typeKinds = map[string]bool{
 	"class": true, "interface": true, "struct": true,
 	"enum": true, "type_alias": true,
@@ -296,9 +279,6 @@ func exportedTypes(nodes []Node) map[string]bool {
 	return out
 }
 
-// qualifiedName is the index's qualified name with the key separator a spec
-// uses: `Type::Method` becomes `Type.Method`. A symbol the index did not
-// qualify keeps its bare name.
 func qualifiedName(node Node) string {
 	qualified := strings.TrimSpace(node.QualifiedName)
 	if qualified == "" {
@@ -310,11 +290,6 @@ func qualifiedName(node Node) string {
 	return qualified
 }
 
-// exported reports whether a node is part of the observed public surface. The
-// index answers for most nodes; the two gaps it leaves are Go methods, every
-// one of them reported unexported, and TypeScript class members, every one of
-// them reported unexported although a member is public unless it says
-// otherwise.
 func (db *DB) exported(node Node, types map[string]bool, sources map[string][]string) bool {
 	if node.IsExported {
 		return true
@@ -328,12 +303,6 @@ func (db *DB) exported(node Node, types map[string]bool, sources map[string][]st
 	return false
 }
 
-// exportedTypeScriptMethod applies TypeScript's own rule: a class member is
-// public unless it is declared private or protected, or its name is a `#`
-// private one, and a member of a class that is not exported is not part of the
-// surface either. The index carries no modifier, so the declaration line is
-// read; an unreadable line leaves the member public, which is the language's
-// default.
 func (db *DB) exportedTypeScriptMethod(node Node, types map[string]bool, sources map[string][]string) bool {
 	if strings.HasPrefix(node.Name, "#") {
 		return false
@@ -348,7 +317,6 @@ func (db *DB) exportedTypeScriptMethod(node Node, types map[string]bool, sources
 	return typescriptMemberPublic(db.sourceLine(node, sources), node.Name)
 }
 
-// sourceLine is the declaration line of a node, read once per file.
 func (db *DB) sourceLine(node Node, sources map[string][]string) string {
 	lines, ok := sources[node.FilePath]
 	if !ok {
@@ -366,10 +334,6 @@ func (db *DB) sourceLine(node Node, sources map[string][]string) string {
 	return lines[node.StartLine-1]
 }
 
-// typescriptMemberPublic reports whether a declaration line declares a public
-// member. The modifier is looked for only before the member's own name, so the
-// `private` of a constructor's parameter property does not hide a public
-// constructor.
 func typescriptMemberPublic(line, name string) bool {
 	index := tokenIndex(line, name)
 	if index < 0 {
@@ -441,9 +405,6 @@ func containsWord(text, word string) bool {
 	return false
 }
 
-// Resolve turns a code ref payload into codegraph nodes. It never computes an
-// id: it looks the payload up as a codegraph id, then as a qualified name,
-// then as a bare name, and finally as a file path.
 func (db *DB) Resolve(ctx context.Context, reference string) ([]Node, error) {
 	if nodes, err := db.nodesByID(ctx, reference); err != nil {
 		return nil, err
@@ -455,10 +416,6 @@ func (db *DB) Resolve(ctx context.Context, reference string) ([]Node, error) {
 	} else if len(nodes) > 0 {
 		return nodes, nil
 	}
-	// A spec keys a method by its receiver with a dot; the index spells the
-	// same thing with `::`. Either spelling names the one symbol, so a ref the
-	// spec stores resolves here rather than through the bare-name fallback,
-	// which cannot tell two receivers apart.
 	if index := strings.LastIndex(reference, "."); index >= 0 {
 		spelling := reference[:index] + "::" + reference[index+1:]
 		if nodes, err := db.query(ctx, `SELECT `+nodeColumns+` FROM nodes WHERE qualified_name = ? LIMIT 2`, spelling); err != nil {

@@ -31,8 +31,6 @@ type Source struct {
 	log *slog.Logger
 }
 
-// New builds a dynamic shared informer source against the workspace the rest
-// config already points at.
 func New(config *rest.Config, opts Options) (*Source, error) {
 	if config == nil {
 		return nil, errors.New("watchinformer: a rest config is required")
@@ -61,8 +59,6 @@ func (s *Source) Run(ctx context.Context, notify watch.Notify) error {
 		informer := s.factory.ForResource(resource.GVR).Informer()
 		notifyOf := func(event watch.Event) func(any) {
 			return func(object any) {
-				// A delete can arrive as a tombstone when an informer relists,
-				// and only the deletion-aware key function unwraps it.
 				key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(object)
 				if err != nil {
 					s.log.Error("watch event without a key", "kind", resource.Kind, "err", err)

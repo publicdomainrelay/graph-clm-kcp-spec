@@ -19,13 +19,8 @@ const systemContextPath = "/apis/specs.publicdomainrelay.dev/v1alpha1/systemcont
 
 const liveEvent = `{"type":"ADDED","object":{"apiVersion":"specs.publicdomainrelay.dev/v1alpha1","kind":"SystemContext","metadata":{"name":"calc","namespace":"default","resourceVersion":"2"}}}`
 
-// The end of the initial events stream: a client that asks for the streaming
-// list waits for this bookmark before it reports the cache synced.
 const bookmarkEvent = `{"type":"BOOKMARK","object":{"apiVersion":"specs.publicdomainrelay.dev/v1alpha1","kind":"SystemContext","metadata":{"resourceVersion":"2","annotations":{"k8s.io/initial-events-end":"true"}}}}`
 
-// The wiring a unit test can prove without kcp: the informer lists or streams
-// the list, holds the watch, and hands every event to Notify with its
-// namespaced key.
 func fakeAPIServer(t *testing.T, items []string) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +99,6 @@ func TestRunDeliversAnAddedEventFromTheWatch(t *testing.T) {
 		t.Fatal("no event arrived")
 	}
 
-	// A cancel must stop the source instead of leaking the informer.
 	cancel()
 	select {
 	case err := <-done:

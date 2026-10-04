@@ -1,8 +1,3 @@
-// Package boltflags gives the spec binaries the same Bolt endpoint flags. The
-// graph is a derived index, so every command that can write it takes the same
-// options and the same SPECD_BOLT_* environment. One backend is selected
-// (ArcadeDB by default, HydraDB by option) and it fills the options that no
-// flag and no environment variable set.
 package boltflags
 
 import (
@@ -23,9 +18,6 @@ const (
 	DefaultBackend = ArcadeDB
 )
 
-// BackendDefaults is where one backend listens and how it authenticates. The
-// values describe the local development instances; a flag or an environment
-// variable overrides any of them.
 type BackendDefaults struct {
 	URL string
 
@@ -78,10 +70,6 @@ func Add(fs *flag.FlagSet) *Options {
 	return options
 }
 
-// Resolve fills the options no flag and no environment variable set from the
-// selected backend: a flag beats an environment variable beats the backend
-// default. An environment variable that is set but empty is a value, so
-// `SPECD_BOLT_URL=` turns the graph off for a whole run.
 func (o *Options) Resolve(fs *flag.FlagSet) error {
 	backend := strings.ToLower(strings.TrimSpace(o.Backend))
 	defaults, ok := backendDefaults[backend]

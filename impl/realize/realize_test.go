@@ -95,8 +95,6 @@ func TestLimitBoundsTheDiffStat(t *testing.T) {
 	}
 }
 
-// TestRealizeRunNeedsARepository pins the first thing the unit of work checks:
-// a change with nowhere to work cannot invent a tree.
 func TestRealizeRunNeedsARepository(t *testing.T) {
 	_, err := Run(context.Background(), Options{Context: "calc"})
 	if err == nil || !strings.Contains(err.Error(), "no repository") {
