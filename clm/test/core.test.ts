@@ -11,6 +11,7 @@ import {
   deltaEmpty,
   diff,
   diffObserved,
+  docPathFromEnv,
   extractReferences,
   fileCodeRefId,
   mergeDeclared,
@@ -215,4 +216,12 @@ test("references are read from prose and from spelled ids", () => {
   const found = extractReferences("See `calc/calc.go` and function:Add here\n");
   assert.deepEqual(found, ["calc/calc.go", "function:Add"]);
   assert.deepEqual(extractReferences("no references here"), []);
+});
+
+test("the context document lives in the state dir, never in the project tree", () => {
+  assert.equal(docPathFromEnv({ SPECD_CLM_DOC: "/exact/calc.md" }, "/home/u", "/src/calc", "calc"), "/exact/calc.md");
+  assert.equal(docPathFromEnv({ SPECD_CLM_DOC_DIR: "/docs", SPECD_CLM_REPOSITORY: "calc" }, "/home/u", "/src/x", "c"), "/docs/calc/c.md");
+  assert.equal(docPathFromEnv({ XDG_STATE_HOME: "/xdg" }, "/home/u", "/src/calc/", "c"), "/xdg/specd/clm/calc/c.md");
+  assert.equal(docPathFromEnv({}, "/home/u", "/src/calc", "c"), "/home/u/.local/state/specd/clm/calc/c.md");
+  assert.ok(!docPathFromEnv({}, "/home/u", "/src/calc", "c").startsWith("/src/calc"));
 });

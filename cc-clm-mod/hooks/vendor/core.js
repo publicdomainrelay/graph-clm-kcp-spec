@@ -6329,7 +6329,6 @@ function stringify3(value, replacer, options) {
 // ../clm/core/context-doc.ts
 var MANAGED_BEGIN = "<!-- SPECD_MANAGED_BEGIN -->";
 var MANAGED_END = "<!-- SPECD_MANAGED_END -->";
-var CONTEXT_DIR = ".specs/context";
 var DEFAULT_MANAGED_BUDGET = 1500;
 var HEADER_LINE = "# Context: ";
 var SPEC_HEADING = "## spec";
@@ -6337,8 +6336,20 @@ var SPEC_FENCE = "```yaml spec";
 var SPEC_FENCE_CLOSE = "```";
 var EMPTY_INTENT = "_(empty: write what this context is for)_";
 var NOTICE = "_Write the prose above and the fields in the spec block. `codeRefs` and the resolved references below are maintained by the tool; an edit there is lost._";
-function contextDocPath(repoPath, context) {
-  return `${repoPath.replace(/\/+$/, "")}/${CONTEXT_DIR}/${context}.md`;
+function contextDocPath(docDir, repository, context) {
+  return `${docDir.replace(/\/+$/, "")}/${repository}/${context}.md`;
+}
+function docDirFromEnv(env, home) {
+  if (env.SPECD_CLM_DOC_DIR) return env.SPECD_CLM_DOC_DIR;
+  if (env.SPECD_STATE_DIR) return `${env.SPECD_STATE_DIR.replace(/\/+$/, "")}/clm`;
+  if (env.XDG_STATE_HOME) return `${env.XDG_STATE_HOME.replace(/\/+$/, "")}/specd/clm`;
+  if (home) return `${home.replace(/\/+$/, "")}/.local/state/specd/clm`;
+  return "/tmp/specd/clm";
+}
+function docPathFromEnv(env, home, repoPath, context) {
+  if (env.SPECD_CLM_DOC) return env.SPECD_CLM_DOC;
+  const repository = env.SPECD_CLM_REPOSITORY || repoPath.replace(/\/+$/, "").split("/").pop() || "repository";
+  return contextDocPath(docDirFromEnv(env, home), repository, context);
 }
 function estimateTokens(text) {
   return Math.ceil(text.length / 4);
@@ -6888,8 +6899,8 @@ var ClmHost = class {
     return this.options.change ?? "";
   }
   /**
-   * session start: render the context from kcp and write it to
-   * `.specs/context/<name>.md`. A bridge that cannot answer (no workspace, no
+   * session start: render the context from kcp and write it to the state dir,
+   * outside the project tree. A bridge that cannot answer (no workspace, no
    * such context) leaves the session without a document rather than failing it.
    */
   async start() {
@@ -6899,7 +6910,7 @@ var ClmHost = class {
     } catch {
       return void 0;
     }
-    const path = contextDocPath(this.options.repoPath, this.options.context);
+    const path = this.options.docPath;
     const previous = await this.options.files.exists(path) ? await this.options.files.read(path) : "";
     this.appliedModelZone = splitContextDoc(document).model;
     if (previous !== document) await this.options.files.write(path, document);
@@ -6910,7 +6921,7 @@ var ClmHost = class {
    * missing file answers undefined and the section is simply not added.
    */
   async section() {
-    const path = contextDocPath(this.options.repoPath, this.options.context);
+    const path = this.options.docPath;
     if (!await this.options.files.exists(path)) return void 0;
     const document = await this.options.files.read(path);
     return document.trim().length ? document : void 0;
@@ -6927,7 +6938,7 @@ var ClmHost = class {
   }
   /** end of turn: apply the model zone when it changed, then report the turn. */
   async finish(note) {
-    const path = contextDocPath(this.options.repoPath, this.options.context);
+    const path = this.options.docPath;
     let result;
     if (await this.options.files.exists(path)) {
       const document = await this.options.files.read(path);
@@ -6992,7 +7003,6 @@ function extractReferences(text) {
   return found;
 }
 export {
-  CONTEXT_DIR,
   ClmHost,
   DEFAULT_MANAGED_BUDGET,
   EDGES,
@@ -7035,6 +7045,8 @@ export {
   deltaEmpty,
   diff,
   diffObserved,
+  docDirFromEnv,
+  docPathFromEnv,
   edgeCreate,
   edgeSelectIn,
   edgeSelectOut,

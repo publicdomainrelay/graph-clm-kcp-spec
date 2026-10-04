@@ -4,7 +4,8 @@ import { Type } from "typebox";
 import { type GraphBackend } from "./backend.ts";
 import { CodegraphResolver, type CodegraphNode } from "./codegraph.ts";
 import { clmHostFromEnv } from "./bridge.ts";
-import { contextDocPath } from "../../clm/core/context-doc.ts";
+import { docPathFromEnv } from "../../clm/core/context-doc.ts";
+import { homedir } from "node:os";
 import { contextFilePath, ensureContextFile, readContextFile, writeContextFile } from "./context-file.ts";
 import {
   MEMORY_PROTOCOL,
@@ -98,7 +99,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
   const resolver = CodegraphResolver.open(process.cwd());
   const clmHost = clmHostFromEnv();
   const filePath = clmHost
-    ? contextDocPath(process.env.SPECD_CLM_REPO ?? process.cwd(), clmHost.context)
+    ? docPathFromEnv(process.env, homedir(), process.env.SPECD_CLM_REPO ?? process.cwd(), clmHost.context)
     : options.contextPath ?? contextFilePath(options.sessionKey);
 
   const sessionNodeId = () =>

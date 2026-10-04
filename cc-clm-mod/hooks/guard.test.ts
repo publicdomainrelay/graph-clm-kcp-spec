@@ -118,3 +118,15 @@ test("containment and the system list are lexical", () => {
   expect(joinLexical("/work/tree", "../secrets")).toBe("/work/secrets");
   expect(joinLexical("/work/tree", "calc/../calc/a.go")).toBe("/work/tree/calc/a.go");
 });
+
+test("the context document outside the root is the one file the guard lets through", async () => {
+  const doc = "/home/user/.local/state/specd/clm/calc/calc.md";
+  const resolve = resolver({ ...insideMap(), [doc]: doc, "/home/user/.local/state/specd/clm/calc/other.md": "/home/user/.local/state/specd/clm/calc/other.md" });
+  expect(await guardDenial("Read", { file_path: doc }, ROOT, resolve, [doc])).toBeUndefined();
+  expect(await guardDenial("Edit", { file_path: doc }, ROOT, resolve, [doc])).toBeUndefined();
+  expect(await guardDenial("Read", { file_path: "/home/user/.local/state/specd/clm/calc/other.md" }, ROOT, resolve, [doc])).toBeDefined();
+  expect(await guardDenial("Read", { file_path: doc }, ROOT, resolve)).toBeDefined();
+  expect(
+    await guardDenial("Read", { file_path: "/home/user/repo/fixtures/greet/scenarios/01-add-farewell.yaml" }, ROOT, resolve, [doc]),
+  ).toBeDefined();
+});

@@ -174,7 +174,13 @@ export async function guardDenial(
   event: ToolCallLike,
   root: string,
   resolve: PathResolver,
+  allowed: readonly string[] = [],
 ): Promise<string | undefined> {
+  const allowedReal = new Set<string>(allowed);
+  for (const path of allowed) {
+    const real = await resolve(path);
+    if (real) allowedReal.add(real);
+  }
   const rootReal = await resolve(root);
   if (!rootReal) {
     return (
@@ -185,7 +191,9 @@ export async function guardDenial(
   if (guardedTool(tool)) {
     const path = pathArgument(event);
     if (!path) return undefined;
+    if (allowedReal.has(path)) return undefined;
     const real = await place(path, resolve);
+    if (real !== undefined && allowedReal.has(real)) return undefined;
     if (real === undefined) {
       // An absolute spelling that leads nowhere is still judged by where it
       // says it is, so a probe of a file the session may not touch is refused
@@ -204,7 +212,7 @@ export async function guardDenial(
   const command = typeof event.command === "string" ? event.command : "";
   for (const path of bashPaths(command)) {
     const real = (await resolve(path)) ?? path;
-    if (insideRoot(real, rootReal) || systemPath(real)) continue;
+    if (insideRoot(real, rootReal) || systemPath(real) || allowedReal.has(path) || allowedReal.has(real)) continue;
     return outsideMessage("Bash", path, rootReal);
   }
   for (const path of bashRelativeEscapes(command)) {

@@ -127,6 +127,7 @@ export interface HostOptions {
   bridge: StateBridge;
   files: FileStore;
   repoPath: string;
+  docPath: string;
   context: string;
   change?: string;
   clock?: Clock;
@@ -137,6 +138,14 @@ export interface StartResult {
   document: string;
   changed: boolean;
 }
+
+export type Env = Readonly<Record<string, string | undefined>>;
+
+export declare function contextDocPath(docDir: string, repository: string, context: string): string;
+
+export declare function docDirFromEnv(env: Env, home: string | undefined): string;
+
+export declare function docPathFromEnv(env: Env, home: string | undefined, repoPath: string, context: string): string;
 
 export declare class ClmHost {
   constructor(options: HostOptions);

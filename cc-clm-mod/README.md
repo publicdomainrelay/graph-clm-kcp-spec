@@ -17,7 +17,7 @@ happens**, not guessed afterwards.
 
 | Hook | Behaviour |
 | --- | --- |
-| `session.start` | resolve the context (`SPECD_CLM_CONTEXT`), render it from kcp, write `.specs/context/<name>.md` |
+| `session.start` | resolve the context (`SPECD_CLM_CONTEXT`), render it from kcp, write the context document to the state dir (`SPECD_CLM_DOC`), outside the project tree |
 | `prompt.compose` | inject that file as one more session system section |
 | `tool.call` | refuse a path outside `SPECD_CLM_ROOT`, then report the file a `Read`/`Write`/`Edit`/`MultiEdit` touched |
 | `turn.complete` | apply the model zone when the model changed it, then report the turn |
@@ -88,6 +88,8 @@ Set by specd on the model it launches:
 | `SPECD_CLM_CHANGE` | the running `SpecChange` progress is reported against |
 | `SPECD_CLM_REPO` | the managed working tree (default: the session's cwd) |
 | `SPECD_CLM_ROOT` | the containment root the scope guard enforces; specd sets it to the worktree on the summarize and the realize call, and unset turns the guard off |
+| `SPECD_CLM_DOC` | the exact context document file; specd sets it. It lives in the state dir, never in the project tree, and it is the one file outside the root the scope guard allows |
+| `SPECD_CLM_REPOSITORY`, `SPECD_CLM_DOC_DIR` | without `SPECD_CLM_DOC`, the document is `$SPECD_CLM_DOC_DIR/<repository>/<context>.md` (default `$XDG_STATE_HOME/specd/clm`, else `~/.local/state/specd/clm`) |
 | `SPECD_SPECCTL` | the `specctl` binary (default: `specctl` on `PATH`) |
 | `KUBECONFIG` / `SPECD_KUBECONFIG` | the workspace kubeconfig |
 | `SPECD_WORKSPACE`, `SPECD_NAMESPACE` | the logical cluster and namespace (defaults `root:specs`, `default`) |

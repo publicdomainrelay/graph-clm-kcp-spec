@@ -11,7 +11,6 @@ import type { Interface, Requirement, SystemContextSpec } from "./types.ts";
 
 export const MANAGED_BEGIN = "<!-- SPECD_MANAGED_BEGIN -->";
 export const MANAGED_END = "<!-- SPECD_MANAGED_END -->";
-export const CONTEXT_DIR = ".specs/context";
 export const DEFAULT_MANAGED_BUDGET = 1500;
 
 export const HEADER_LINE = "# Context: ";
@@ -38,8 +37,24 @@ export interface ResolvedRef {
   filePath: string;
 }
 
-export function contextDocPath(repoPath: string, context: string): string {
-  return `${repoPath.replace(/\/+$/, "")}/${CONTEXT_DIR}/${context}.md`;
+export type Env = Readonly<Record<string, string | undefined>>;
+
+export function contextDocPath(docDir: string, repository: string, context: string): string {
+  return `${docDir.replace(/\/+$/, "")}/${repository}/${context}.md`;
+}
+
+export function docDirFromEnv(env: Env, home: string | undefined): string {
+  if (env.SPECD_CLM_DOC_DIR) return env.SPECD_CLM_DOC_DIR;
+  if (env.SPECD_STATE_DIR) return `${env.SPECD_STATE_DIR.replace(/\/+$/, "")}/clm`;
+  if (env.XDG_STATE_HOME) return `${env.XDG_STATE_HOME.replace(/\/+$/, "")}/specd/clm`;
+  if (home) return `${home.replace(/\/+$/, "")}/.local/state/specd/clm`;
+  return "/tmp/specd/clm";
+}
+
+export function docPathFromEnv(env: Env, home: string | undefined, repoPath: string, context: string): string {
+  if (env.SPECD_CLM_DOC) return env.SPECD_CLM_DOC;
+  const repository = env.SPECD_CLM_REPOSITORY || repoPath.replace(/\/+$/, "").split("/").pop() || "repository";
+  return contextDocPath(docDirFromEnv(env, home), repository, context);
 }
 
 export function estimateTokens(text: string): number {

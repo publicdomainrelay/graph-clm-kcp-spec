@@ -14,6 +14,7 @@ import type { Register } from "claude-code";
 
 import {
   ClmHost,
+  docPathFromEnv,
   type CommandResult,
   type FileStore,
   type ProgressRecord,
@@ -65,6 +66,7 @@ interface Session {
   // is an ordinary one whose paths are not the guard's business.
   root?: string;
   rootRead?: boolean;
+  doc?: string;
 }
 
 /** Where a path lands, through the engine's own file system. */
@@ -80,6 +82,8 @@ async function scopeRoot($: Engine, session: Session): Promise<string | undefine
     session.rootRead = true;
     const root = (await $.env.get("SPECD_CLM_ROOT"))?.trim();
     session.root = root ? root : undefined;
+    const doc = (await $.env.get("SPECD_CLM_DOC"))?.trim();
+    if (doc && !session.doc) session.doc = doc;
   }
   return session.root;
 }
@@ -177,10 +181,23 @@ async function start($: Engine, session: Session, cwd: string): Promise<void> {
     session.host = undefined;
     return;
   }
+  session.doc = docPathFromEnv(
+    {
+      SPECD_CLM_DOC: await $.env.get("SPECD_CLM_DOC"),
+      SPECD_CLM_DOC_DIR: await $.env.get("SPECD_CLM_DOC_DIR"),
+      SPECD_CLM_REPOSITORY: await $.env.get("SPECD_CLM_REPOSITORY"),
+      SPECD_STATE_DIR: await $.env.get("SPECD_STATE_DIR"),
+      XDG_STATE_HOME: await $.env.get("XDG_STATE_HOME"),
+    },
+    await $.env.get("HOME"),
+    session.repoPath,
+    context,
+  );
   const host = new ClmHost({
     bridge: modBridge($, env, session.repoPath),
     files: modFileStore($),
     repoPath: session.repoPath,
+    docPath: session.doc,
     context,
     change: env.change,
   });
@@ -241,6 +258,7 @@ export const register: Register = (on) => {
         e as unknown as Record<string, unknown>,
         root,
         statResolver($ as Engine),
+        session.doc ? [session.doc] : [],
       );
       if (denial) {
         $.ui.log(`clm: ${denial}`, { to: "debug" });
@@ -252,7 +270,7 @@ export const register: Register = (on) => {
     // `kubectl get specchange -w` shows the work while it happens.
     const result = await next(e);
     const path = touchedPath(e as unknown as Record<string, unknown>);
-    if (!session.host || !path) return result;
+    if (!session.host || !path || path === session.doc) return result;
     await session.host.touched(String(e.tool), [relativePath(path, session.repoPath)]);
     return result;
   });

@@ -4,7 +4,7 @@
 // touched, and apply the model zone when the turn ends — so the steps live
 // here, over the ports, and each host only has to say how to reach them.
 
-import { contextDocPath, parseModelZone, splitContextDoc } from "./context-doc.ts";
+import { parseModelZone, splitContextDoc } from "./context-doc.ts";
 import { deltaEmpty } from "./delta.ts";
 import type { Clock, FileStore, StateBridge } from "./ports.ts";
 import { systemClock } from "./ports.ts";
@@ -15,8 +15,9 @@ export interface HostOptions {
 
   files: FileStore;
 
-  /** The managed working tree; the context document lives under it. */
   repoPath: string;
+
+  docPath: string;
 
   context: string;
 
@@ -66,8 +67,8 @@ export class ClmHost {
   }
 
   /**
-   * session start: render the context from kcp and write it to
-   * `.specs/context/<name>.md`. A bridge that cannot answer (no workspace, no
+   * session start: render the context from kcp and write it to the state dir,
+   * outside the project tree. A bridge that cannot answer (no workspace, no
    * such context) leaves the session without a document rather than failing it.
    */
   async start(): Promise<StartResult | undefined> {
@@ -77,7 +78,7 @@ export class ClmHost {
     } catch {
       return undefined;
     }
-    const path = contextDocPath(this.options.repoPath, this.options.context);
+    const path = this.options.docPath;
     const previous = (await this.options.files.exists(path)) ? await this.options.files.read(path) : "";
     this.appliedModelZone = splitContextDoc(document).model;
     if (previous !== document) await this.options.files.write(path, document);
@@ -89,7 +90,7 @@ export class ClmHost {
    * missing file answers undefined and the section is simply not added.
    */
   async section(): Promise<string | undefined> {
-    const path = contextDocPath(this.options.repoPath, this.options.context);
+    const path = this.options.docPath;
     if (!(await this.options.files.exists(path))) return undefined;
     const document = await this.options.files.read(path);
     return document.trim().length ? document : undefined;
@@ -109,7 +110,7 @@ export class ClmHost {
 
   /** end of turn: apply the model zone when it changed, then report the turn. */
   async finish(note?: string): Promise<ApplyResult | undefined> {
-    const path = contextDocPath(this.options.repoPath, this.options.context);
+    const path = this.options.docPath;
     let result: ApplyResult | undefined;
     if (await this.options.files.exists(path)) {
       const document = await this.options.files.read(path);

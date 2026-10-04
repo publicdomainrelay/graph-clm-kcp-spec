@@ -4,7 +4,7 @@
 // session protocol and the turn summary.
 
 export {
-  CONTEXT_DIR,
+  docPathFromEnv,
   DEFAULT_MANAGED_BUDGET,
   EMPTY_INTENT,
   MANAGED_BEGIN,

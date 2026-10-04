@@ -5,6 +5,8 @@
 package claudecli
 
 import (
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/statedir"
+
 	"bytes"
 	"context"
 	"errors"
@@ -42,7 +44,21 @@ const (
 	// names against it and refuse the ones that land outside. specd sets it on
 	// both the summarize and the realize call.
 	EnvRoot = "SPECD_CLM_ROOT"
+
+	EnvRepository = "SPECD_CLM_REPOSITORY"
+
+	EnvDoc = "SPECD_CLM_DOC"
 )
+
+func docEnv(repository, context string) map[string]string {
+	if repository == "" || context == "" {
+		return map[string]string{}
+	}
+	return map[string]string{
+		EnvRepository: repository,
+		EnvDoc:        agent.ContextDocPath(statedir.ClmDocDir(), repository, context),
+	}
+}
 
 func DefaultArgs() []string {
 	return []string{"-p", "--output-format", "text"}
@@ -89,10 +105,10 @@ func (a *Agent) Command() string {
 // with an unknown level is not.
 func (a *Agent) Summarize(ctx context.Context, bundle agent.ContextBundle) (agent.SpecDraft, error) {
 	prompt, _ := agent.RenderPromptWithSections(bundle)
-	stdout, stderr, err := a.run(ctx, prompt, map[string]string{
-		EnvContext: bundle.Context,
-		EnvRoot:    a.options.Dir,
-	})
+	env := docEnv(bundle.Repository, bundle.Context)
+	env[EnvContext] = bundle.Context
+	env[EnvRoot] = a.options.Dir
+	stdout, stderr, err := a.run(ctx, prompt, env)
 	if err != nil {
 		return agent.SpecDraft{}, fmt.Errorf("claudecli: summarize %s: %w: %s", bundle.Context, err, tail(stderr))
 	}
@@ -108,11 +124,11 @@ func (a *Agent) Summarize(ctx context.Context, bundle agent.ContextBundle) (agen
 // reconciler's job: it owns the git worktree.
 func (a *Agent) Realize(ctx context.Context, request agent.RealizeRequest) (agent.RealizeResult, error) {
 	prompt := RealizePrompt(request)
-	stdout, stderr, err := a.run(ctx, prompt, map[string]string{
-		EnvContext: request.Context,
-		EnvChange:  request.Change,
-		EnvRoot:    a.options.Dir,
-	})
+	env := docEnv(request.Repository, request.Context)
+	env[EnvContext] = request.Context
+	env[EnvChange] = request.Change
+	env[EnvRoot] = a.options.Dir
+	stdout, stderr, err := a.run(ctx, prompt, env)
 	result := agent.RealizeResult{Summary: firstLine(stdout), Log: tail(stdout + "\n" + stderr)}
 	if err != nil {
 		return result, fmt.Errorf("claudecli: realize %s: %w", request.Context, err)
