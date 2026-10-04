@@ -1,15 +1,3 @@
-// cc-clm-mod: the Claude Code host of the CLM loop. specd launches the model
-// inside a SpecChange with this folder loaded, and the hooks below report into
-// the same context file, graph and kcp state the controllers watch — so the
-// alignment of code to spec is observed while the work happens, not guessed
-// afterwards.
-//
-// The engine's rules shape this file. A mod has no Node and no sockets: it
-// reaches the host only through `$`, and `$` may be followed only into a
-// function declared in this same file, never across an import. So the pure
-// decisions live in plan.ts, the shared logic comes from the vendored core, and
-// everything that touches `$` is here.
-
 import type { Register } from "claude-code";
 
 import {
@@ -38,7 +26,6 @@ import {
   type PathResolver,
 } from "./plan.js";
 
-/** The slice of the engine interface this mod uses. */
 interface Engine {
   fs: {
     read(path: string): Promise<string>;
@@ -62,14 +49,10 @@ interface Engine {
   };
 }
 
-/** The state the hooks of one session share. */
 interface Session {
   host?: ClmHost;
   repoPath: string;
 
-  // The containment root the scope guard enforces. It is read once, lazily:
-  // the tool.call hook may run before session.start, and a session without it
-  // is an ordinary one whose paths are not the guard's business.
   root?: string;
   rootRead?: boolean;
   doc?: string;
@@ -77,7 +60,6 @@ interface Session {
   archCwd?: string;
 }
 
-/** Where a path lands, through the engine's own file system. */
 function statResolver($: Engine): PathResolver {
   return async (path) => {
     const stat = await $.fs.stat(path, { resolve: true }).catch(() => undefined);
@@ -95,8 +77,6 @@ async function scopeRoot($: Engine, session: Session): Promise<string | undefine
   }
   return session.root;
 }
-
-// ---- the core's ports, over $ -------------------------------------------
 
 function modRunner($: Engine): Runner {
   return {
@@ -117,19 +97,12 @@ function modFileStore($: Engine): FileStore {
     read: (path) => $.fs.read(path),
     write: (path, text) => $.fs.write(path, text),
     exists: (path) => $.fs.exists(path),
-    // A mod has no ancestor walk of its own, and the engine already reads the
-    // CLAUDE.md stack for the model; the context document is the mod's part.
     async ancestors() {
       return [];
     },
   };
 }
 
-/**
- * The state bridge over `specctl clm`. The mod never computes a delta or writes
- * a graph row itself: the Go CLI does, so both hosts and the controller agree
- * on what changed.
- */
 function modBridge($: Engine, env: BridgeEnv, cwd: string): StateBridge {
   const runner = modRunner($);
   const call = async (argv: readonly string[], stdin?: string) => {
@@ -165,8 +138,6 @@ function modBridge($: Engine, env: BridgeEnv, cwd: string): StateBridge {
   };
 }
 
-// ---- what a session does ------------------------------------------------
-
 async function readEnv($: Engine): Promise<BridgeEnv> {
   return {
     context: await $.env.get("SPECD_CLM_CONTEXT"),
@@ -184,8 +155,6 @@ async function start($: Engine, session: Session, cwd: string): Promise<void> {
   const env = await readEnv($);
   const context = env.context ?? "";
   if (!context) {
-    // No controller put this session inside a change, so the mod has nothing to
-    // report into and the session is an ordinary one.
     session.host = undefined;
     return;
   }
@@ -276,8 +245,6 @@ export const register: Register = (on) => {
     return started;
   });
 
-  // The context document is one more system section, added last: it is session
-  // text, so it belongs after the shared half of the prompt.
   on("prompt.compose", async ($, e, next) => {
     const composed = await next(e);
     if (!session.host) return composed;
@@ -290,10 +257,6 @@ export const register: Register = (on) => {
     if (session.archSpecctl && String(e.tool).startsWith(ARCH_TOOL_PREFIX)) {
       return { result: await runArchTool($ as Engine, session, String(e.tool), e as unknown as Record<string, unknown>) };
     }
-    // The scope guard runs before anything beneath: a path outside the root
-    // must not be read, listed or written even once, so the call never reaches
-    // the tool. The refusal is the model's, as an error result it can learn
-    // from.
     const root = await scopeRoot($ as Engine, session);
     if (root) {
       const denial = await guardDenial(
@@ -309,8 +272,6 @@ export const register: Register = (on) => {
       }
     }
 
-    // A tool call that touched a file is reported against the running change, so
-    // `kubectl get specchange -w` shows the work while it happens.
     const result = await next(e);
     const path = touchedPath(e as unknown as Record<string, unknown>);
     if (!session.host || !path || path === session.doc) return result;
@@ -324,9 +285,6 @@ export const register: Register = (on) => {
     return result;
   });
 
-  // A session ends on one short wall clock, so the apply is skipped when there
-  // is no room for it: an exit that hangs is worse than a spec edit the next
-  // session renders again from kcp.
   on("session.end", async ($, e, next) => {
     if (next.budget.remainingMs > 1_000) await settle($ as Engine, session);
     return next(e);

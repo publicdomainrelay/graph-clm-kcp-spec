@@ -1,9 +1,3 @@
-// What the mod decides, with no host in it: how a tool call becomes the files
-// it touched, how the context file becomes a system section, and how the
-// environment becomes the state bridge's argument vector. A hook that has to
-// ask the engine anything lives in register.ts; everything a test can decide
-// without an engine lives here.
-
 const TOUCHED_TOOLS = ["Read", "Write", "Edit", "MultiEdit", "NotebookEdit"];
 
 const GUARDED_TOOLS = [
@@ -16,11 +10,6 @@ const GUARDED_TOOLS = [
   "Glob",
 ];
 
-// The absolute prefixes a Bash command may name without leaving the session.
-// They are the system's own: the tools the verify command needs, the device
-// files a shell redirects to, and /tmp, where a build keeps its scratch. A
-// path under the containment root is allowed whatever it is; a path under
-// none of these and not under the root is refused.
 const SYSTEM_PREFIXES = [
   "/usr",
   "/bin",
@@ -46,14 +35,12 @@ export interface ToolCallLike {
   [key: string]: unknown;
 }
 
-/** The file a tool call names, whichever of the file tools it is. */
 export function touchedPath(event: ToolCallLike): string | undefined {
   const tool = String(event.tool ?? "");
   if (!TOUCHED_TOOLS.includes(tool)) return undefined;
   return pathArgument(event);
 }
 
-/** Every path-bearing argument key a tool call may carry. */
 function pathArgument(event: ToolCallLike): string | undefined {
   for (const key of ["file_path", "notebook_path", "path"]) {
     const value = event[key];
@@ -62,20 +49,12 @@ function pathArgument(event: ToolCallLike): string | undefined {
   return undefined;
 }
 
-/** Whether the scope guard checks this tool's path arguments. */
 export function guardedTool(tool: string): boolean {
   return GUARDED_TOOLS.includes(tool);
 }
 
-/** Where a path lands, or undefined when no spelling of it can be placed. */
 export type PathResolver = (path: string) => Promise<string | undefined>;
 
-/**
- * The absolute path a spelling lands on. The path itself is tried first, then
- * its folder and the name kept, so a Write to a file that is not there yet is
- * placed as reliably as a Read of one that is. The folder is kept with its
- * separator so a drive or a share root stays that root.
- */
 export async function place(path: string, resolve: PathResolver): Promise<string | undefined> {
   const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   const name = path.slice(cut + 1);
@@ -88,25 +67,15 @@ export async function place(path: string, resolve: PathResolver): Promise<string
   return `${dir.replace(/[\\/]+$/, "")}/${name}`;
 }
 
-/** Whether an absolute path is the root itself or below it. */
 export function insideRoot(path: string, root: string): boolean {
   const base = root.replace(/[\\/]+$/, "");
   return path === base || path.startsWith(`${base}/`);
 }
 
-/** Whether an absolute path is one the system owns. */
 export function systemPath(path: string): boolean {
   return SYSTEM_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
 
-/**
- * The absolute-looking paths a shell command names, best effort. Word splitting
- * is on whitespace and the shell operators, quotes are trimmed, and a value is
- * read out of `--flag=value`; a token that is a URL, a bare `/`, or a network
- * or device spelling (`//host`, `\\host`) is left alone. A `..`-relative token
- * is not returned here: it is a relative escape and the caller resolves it
- * against the root.
- */
 export function bashPaths(command: string): string[] {
   const found: string[] = [];
   const seen = new Set<string>();
@@ -124,7 +93,6 @@ export function bashPaths(command: string): string[] {
   return found;
 }
 
-/** The `..`-relative tokens a shell command names, best effort. */
 export function bashRelativeEscapes(command: string): string[] {
   const found: string[] = [];
   const seen = new Set<string>();
@@ -138,7 +106,6 @@ export function bashRelativeEscapes(command: string): string[] {
   return found;
 }
 
-/** The one lexical join used on a `..`-relative token, with no file system. */
 export function joinLexical(root: string, path: string): string {
   const parts = `${root.replace(/[\\/]+$/, "")}/${path}`.split("/");
   const out: string[] = [];
@@ -153,7 +120,6 @@ export function joinLexical(root: string, path: string): string {
   return `/${out.join("/")}`;
 }
 
-/** The refusal text the model receives, so a deny teaches where the line is. */
 export function outsideMessage(tool: string, path: string, root: string): string {
   return (
     `refusing ${tool}: ${path} is outside the containment root ${root}. ` +
@@ -163,12 +129,6 @@ export function outsideMessage(tool: string, path: string, root: string): string
   );
 }
 
-/**
- * The scope guard's decision, with the file system behind `resolve`. An
- * undefined answer allows the call; a string is the reason the model reads.
- * The decision is pure given the resolver, so the whole allow/deny matrix is
- * a unit test.
- */
 export async function guardDenial(
   tool: string,
   event: ToolCallLike,
@@ -195,9 +155,6 @@ export async function guardDenial(
     const real = await place(path, resolve);
     if (real !== undefined && allowedReal.has(real)) return undefined;
     if (real === undefined) {
-      // An absolute spelling that leads nowhere is still judged by where it
-      // says it is, so a probe of a file the session may not touch is refused
-      // with the same reason as one that is there.
       if (path.startsWith("/") && !insideRoot(joinLexical("/", path), rootReal)) {
         return outsideMessage(tool, path, rootReal);
       }
@@ -223,7 +180,6 @@ export async function guardDenial(
   return undefined;
 }
 
-/** The path as the managed tree sees it, so two spellings are one file. */
 export function relativePath(path: string, repoPath: string): string {
   const root = repoPath.replace(/\/+$/, "");
   if (root && path.startsWith(`${root}/`)) return path.slice(root.length + 1);
@@ -231,7 +187,6 @@ export function relativePath(path: string, repoPath: string): string {
   return path;
 }
 
-/** The system section the context file is injected as. */
 export function contextSection(document: string): { id: string; text: string; scope: "session" } | undefined {
   const text = document.trim();
   if (!text) return undefined;
@@ -258,11 +213,6 @@ export interface BridgeArgv {
   kubeconfig?: string;
 }
 
-/**
- * The shared flags of every `specctl clm` call. The workspace and the namespace
- * are named explicitly, because the mod runs inside a workspace the controller
- * chose, not inside `root:specs`.
- */
 export function bridgeArgv(env: BridgeEnv): BridgeArgv {
   return {
     specctl: env.specctl || "specctl",
@@ -326,7 +276,6 @@ function kubeconfigArgs(base: BridgeArgv): string[] {
   return base.kubeconfig ? ["--kubeconfig", base.kubeconfig] : [];
 }
 
-/** The parse of `specctl clm report`'s one line of output. */
 export function parseReport(stdout: string): { progress: number; recorded: boolean } {
   const match = /progress=(\d+) recorded=(true|false)/.exec(stdout);
   return { progress: match ? Number(match[1]) : 0, recorded: match?.[2] === "true" };

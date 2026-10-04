@@ -6898,11 +6898,6 @@ var ClmHost = class {
   get change() {
     return this.options.change ?? "";
   }
-  /**
-   * session start: render the context from kcp and write it to the state dir,
-   * outside the project tree. A bridge that cannot answer (no workspace, no
-   * such context) leaves the session without a document rather than failing it.
-   */
   async start() {
     let document;
     try {
@@ -6916,17 +6911,12 @@ var ClmHost = class {
     if (previous !== document) await this.options.files.write(path, document);
     return { path, document, changed: previous !== document };
   }
-  /**
-   * before every model request: the context file as one system section. A
-   * missing file answers undefined and the section is simply not added.
-   */
   async section() {
     const path = this.options.docPath;
     if (!await this.options.files.exists(path)) return void 0;
     const document = await this.options.files.read(path);
     return document.trim().length ? document : void 0;
   }
-  /** after a tool call: report the files it touched against the running change. */
   async touched(tool, files, note) {
     if (!this.change || files.length === 0) return;
     const event = { turn: this.turn, tool, files: [...files], at: this.now() };
@@ -6936,7 +6926,6 @@ var ClmHost = class {
     } catch {
     }
   }
-  /** end of turn: apply the model zone when it changed, then report the turn. */
   async finish(note) {
     const path = this.options.docPath;
     let result;

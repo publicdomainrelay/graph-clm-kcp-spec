@@ -1,10 +1,3 @@
-// The mod's own test, run by `claude plugin test cc-clm-mod`. It exercises the
-// decisions: which tool call touched which file, how the context document
-// becomes a system section, and what argument vector the state bridge is called
-// with. The host access itself (`$.process.run`, `$.fs`) is not reachable from
-// the test environment, which is exactly why it lives in adapters.ts and not in
-// a decision.
-
 import { expect, test } from "claude-code/testing";
 
 import {
