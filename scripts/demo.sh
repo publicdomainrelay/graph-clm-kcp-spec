@@ -82,7 +82,7 @@ cleanup() {
   forget
   rm -rf "$WORK"
   if [ -n "$SERVER" ]; then
-    "$KUBECTL" --server="${SERVER}/clusters/${EVAL_WORKSPACE}" -n "$NAMESPACE" delete repository calc greet todo >/dev/null 2>&1 || true
+    "$KUBECTL" --server="${SERVER}/clusters/${EVAL_WORKSPACE}" -n "$NAMESPACE" delete repository calc greet todo ledger >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -198,10 +198,16 @@ if [ "$CLM_PATH" = "off" ]; then
 fi
 
 echo
+# The scenario carries `via: clm`: nobody patches the spec. The model is asked
+# in natural language, it edits the context document, and the host inside it
+# applies the delta with `specctl clm apply`; specd realizes it and the hidden
+# tests grade the code. The code -> spec half stays scripted so the run costs
+# one model session and not one per context.
 echo "=== one scenario driven through the CLM path ($CLM_PATH) ==="
-CLM_ARGS=(--fixtures "$REPO/fixtures/calc" --scenarios add-subtract --summarize-agent scripted)
+CLM_ARGS=(--fixtures "$REPO/fixtures/ledger" --scenarios clm-reject-negative-amounts
+  --summarize-agent scripted --suffice=false --round-trip=false)
 if [ "$CLM_PATH" = "pi" ]; then
-  CLM_ARGS+=(--agent pi)
+  CLM_ARGS+=(--agent pi --pi-extension "$REPO/pi-hydradb-clm")
 else
   CLM_ARGS+=(--agent claude-mod --clm-mod "$REPO/cc-clm-mod")
 fi

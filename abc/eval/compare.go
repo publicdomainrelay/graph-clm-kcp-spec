@@ -26,7 +26,8 @@ type MeasurePair struct {
 
 // Comparison is a live run against the scripted baseline. NotDiscriminating is
 // the flag the phase 11 review asked for: the live model scored exactly the
-// baseline on every measure both runs took, so the eval cannot tell them apart.
+// baseline on every measure both runs took and nothing below perfect on a
+// measure only it could take, so nothing in the run separates the two agents.
 type Comparison struct {
 	BaselineAgent string `json:"baselineAgent"`
 
@@ -48,6 +49,7 @@ func Compare(baseline, live Report) Comparison {
 	comparable := 0
 	equal := 0
 	liveOnly := 0
+	liveOnlyPerfect := true
 	for _, name := range names {
 		pair := MeasurePair{Name: name, Baseline: measureNamed(baseline, name), Live: measureNamed(live, name)}
 		switch {
@@ -59,17 +61,25 @@ func Compare(baseline, live Report) Comparison {
 			}
 		case pair.Live.Measured() && !pair.Baseline.Measured():
 			liveOnly++
+			if pair.Live.Value < 1 {
+				liveOnlyPerfect = false
+			}
 		}
 		comparison.Measures = append(comparison.Measures, pair)
 	}
 	switch {
 	case comparable == 0:
 		comparison.Note = "no measure was taken by both runs, so there is nothing to compare"
-	case equal == comparable && liveOnly == 0:
+	case equal == comparable && liveOnlyPerfect:
 		comparison.NotDiscriminating = true
-		comparison.Note = "the live run is equal to the scripted baseline on every measure both took: the eval does not discriminate"
+		switch liveOnly {
+		case 0:
+			comparison.Note = "the live run is equal to the scripted baseline on every measure both took: the eval does not discriminate"
+		default:
+			comparison.Note = fmt.Sprintf("equal on every measure both took, and perfect on the %d measure(s) only the live run could take: nothing in this run separates the agents", liveOnly)
+		}
 	case equal == comparable:
-		comparison.Note = fmt.Sprintf("equal on every shared measure, but the live run measured %d measure(s) the baseline did not", liveOnly)
+		comparison.Note = fmt.Sprintf("equal on every shared measure, but the live run scored below perfect on a measure the baseline could not take")
 	default:
 		comparison.Note = fmt.Sprintf("%d of %d shared measure(s) differ", comparable-equal, comparable)
 	}

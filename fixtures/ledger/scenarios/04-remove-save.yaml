@@ -3,7 +3,9 @@
 # and the graded surface is what the index must stop observing. The store's own
 # test used the method, so the change has to carry it too or the gate fails. The
 # removal is a merge directive: a merge by key can add and change an entry but
-# only a directive can take one away.
+# only a directive can take one away. The requirement is named by its words as
+# well as by its id, because the id of a requirement is the model's choice when
+# the code -> spec half ran live.
 name: remove-save
 context: storage
 difficulty: 2
@@ -12,7 +14,7 @@ specPatch:
   interfaces:
     - {"$patch": "delete", "name": "Store.Save"}
   requirements:
-    - {"$patch": "delete", "id": "r.save"}
+    - {"$patch": "delete", "id": "r.save", "text": "Save writes"}
 expectedInterfaces: []
 expectedRemovedInterfaces: ["Store.Save"]
 expectedDeltaEntries: 2

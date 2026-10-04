@@ -95,6 +95,12 @@ func (h *harness) suffice(ctx context.Context, fixture Fixture, entry spec.Syste
 		return report
 	}
 
+	// One context's sufficiency is bounded like one scenario: the model call
+	// has its own timeout, but the test command that grades the rebuild does
+	// not, and a test runner that hangs must not hang the whole run.
+	ctx, cancel := context.WithTimeout(ctx, h.options.Timeout)
+	defer cancel()
+
 	// The controller is stopped: the tree is about to lose its bodies and the
 	// tests are about to disappear, and neither is a change anyone should
 	// reconcile.
@@ -209,8 +215,12 @@ func (h *hiddenTests) restore() error {
 
 // resetTree puts the working tree back on the baseline commit with nothing
 // left over. It is the tree half of reset, split out because the sufficiency
-// measure uses it without touching the spec.
+// measure uses it without touching the spec. A codebase the controller cloned
+// has no commit the harness took, so its own HEAD is the baseline.
 func (h *harness) resetTree(ctx context.Context, commit string) error {
+	if commit == "" {
+		commit = "HEAD"
+	}
 	if err := h.git(ctx, "reset", "--hard", commit); err != nil {
 		return err
 	}

@@ -150,8 +150,10 @@ realizes a change reports into the same state the controllers watch, the API
 is multi-tenant: an APIExport in a provider workspace, tenant workspaces that
 bind it, one `specd --mode export` that reconciles it all, and a `.specs/` git
 mirror so a pull request carries the spec and the code together, and the whole
-loop is measured: `specctl eval` runs four fixtures and an unknown real
-codebase through it and reports what actually happened.**
+loop is measured: `specctl eval` runs five fixtures and an unknown real
+codebase through it — including what the spec makes an agent able to rebuild,
+what a human's code edit makes the spec say, and whether the model's answer
+beats the scripted baseline at all — and reports what actually happened.**
 
 - API group `specs.publicdomainrelay.dev/v1alpha1`, kinds `Repository`,
   `SystemContext`, `SpecChange`, namespaced, with a status subresource and
@@ -265,33 +267,57 @@ codebase through it and reports what actually happened.**
   package as its default command, and the pi extension writes
   `(PiMemory)-[:SPECIFIES]->(SpecRequirement)` for the requirements a remembered
   code reference anchors to.
-- `fixtures/` holds three small repositories with tests — `calc` (a Go
-  library), `greet` (a Deno/TypeScript module) and `todo` (a Go JSON service
-  over `net/http`) — and each carries `scenarios/*.yaml`: a spec patch to
-  apply, the hidden acceptance tests that grade it, the interfaces the change
-  should make observable, and the deterministic realize steps. The scenarios
-  are of increasing difficulty (add a function, change a behaviour a test
-  already pins, add a feature that spans two files). The harness files are
+- `fixtures/` holds five repositories with tests — `calc` (a Go library),
+  `greet` (a Deno/TypeScript module), `todo` (a Go JSON service over
+  `net/http`), `shared` (two Go types that share a method name) and `ledger`
+  (a Go double-entry service with 12 source files over four contexts) — and
+  each carries `scenarios/*.yaml`: a spec patch to apply, the hidden
+  acceptance tests that grade it, the interfaces the change should make
+  observable, and the deterministic realize steps. The ledger scenarios are
+  the hard ones: a delta that spans two contexts, a requirement-only
+  behaviour change, a removal and a rename, and one driven through the CLM
+  path (`via: clm`) where the model, not the harness, changes the spec. A
+  removal is spelled `{"$patch": "delete"}`, because a patch merged by key
+  can add and change an entry but cannot take one away. The harness files are
   named in the fixture's `.gitignore`, which the index honours as well as git,
   so a fixture stays a working tree and a scenario file can never become a
   context of its own.
+- Each fixture also carries `expected.yaml`, the behavioural facts a correct
+  spec must state ("Balance returns the sum of the entries of one account"),
+  and `drift/*.yaml`, a code change committed the way a person commits one:
+  the drift raises a `CodeToSpec` change and the spec it writes is graded on
+  the interfaces it gained and lost, the facts its prose states, and the
+  interface entries of its diff. That is goal 5 — human code edit, drift,
+  code -> spec, graded spec — measured rather than described.
 - `specctl eval --fixtures fixtures [--agent claude|claude-mod|pi]
-  [--scenarios <glob>] [--out docs/eval/run-<date>.md]` measures the loop, one
-  fixture at a time: it copies the tree into a fresh git repository, applies
-  one `Repository` manifest and lets the controller populate it, then applies
-  each scenario's spec patch, waits for the `SpecToCode` change, and grades the
-  result with the verification command and the hidden acceptance tests, which
-  are copied in only for grading. It resets the tree and the spec between
-  scenarios and defaults to the workspace `root:specs-eval`, so a run never
-  disturbs the objects another suite owns.
-- The measures are pure and unit tested in `abc/eval`: interface recall and
-  precision of the declared surface against the observed one, requirement
-  anchoring (the share of requirements whose code refs resolve), validator
-  pass, round trip stability (a second summarize, compared by the Jaccard of
-  the interface sets and the requirement count delta), delta precision (the
-  entries a change carried against the scenario's intent), the files a realize
-  touched outside its context, attempts used, and wall time. The report is a
-  markdown table and the same numbers as JSON beside it.
+  [--scenarios <glob>] [--out docs/eval/run-<date>.md]
+  [--baseline <a previous report.json>]` measures the loop, one fixture at a
+  time: it copies the tree into a fresh git repository, applies one
+  `Repository` manifest and lets the controller populate it, then applies
+  each scenario's spec edit, waits for the `SpecToCode` change, and grades
+  the result with the verification command and the hidden acceptance tests,
+  which are copied in only for grading. It resets the tree and the spec
+  between scenarios and defaults to the workspace `root:specs-eval`, so a run
+  never disturbs the objects another suite owns. `--baseline` puts a live run
+  beside the scripted one and flags a run that is equal on every measure as
+  **not discriminating**.
+- The measures are pure and unit tested in `abc/eval`. Every measure carries
+  the sample count behind it: with no samples it prints `not measured`, never
+  0% or 100%, and a context with an empty surface (or a scenario the run
+  could not take) is excluded from the mean and counted by name. The code ->
+  spec score is the share of the fixture's expected facts the spec states,
+  graded per fact by a model judge with a fixed rubric (`impl/judge`) and,
+  under the scripted baseline, by a deterministic keyword fallback. Spec
+  sufficiency is the strongest test: `impl/stripbodies` removes every
+  implementation body (Go through `go/ast` to `panic("unimplemented")`,
+  TypeScript to a throw), the tests are hidden, the agent rebuilds the code
+  from the spec alone, and the original tests run again. Alongside those are
+  interface recall, precision and F1, requirement anchoring, validator pass,
+  round trip Jaccard, delta precision, the files a realize touched outside
+  its context, attempts, wall time, and the code -> spec facts a drift
+  produced. The report is a markdown table and the same numbers as JSON
+  beside it, and a `--baseline` run adds a side by side table saying whether
+  the eval discriminated at all.
 - `fixtures/external/kcp-libs` is a fixture that is not in this repository: one
   `Repository` manifest with a `git` source clones a read-only checkout of the
   sibling `kcp-libs` into the controller's cache and populates it, so the
@@ -1087,7 +1113,12 @@ go test ./impl/eval/ -run TestScriptedScenarios -count=1 -v
 # SPECS_WORKSPACE=specs-eval WORKSPACE_KUBECONFIG=.kcp-specd/specs-eval.kubeconfig deploy/install-specs.sh)
 bin/specctl eval --fixtures fixtures --out docs/eval/run-<date>-scripted.md
 bin/specctl eval --fixtures fixtures --agent claude-mod --clm-mod cc-clm-mod
-bin/specctl eval --fixtures fixtures --agent pi --code-only
+bin/specctl eval --fixtures fixtures --agent pi --pi-extension pi-hydradb-clm --code-only
+
+# the same run beside the scripted baseline: the comparison is written next to
+# the report and says whether the live run discriminated at all
+bin/specctl eval --fixtures fixtures --agent claude-mod --clm-mod cc-clm-mod \
+  --baseline docs/eval/run-<date>-scripted.json --out docs/eval/run-<date>-hard.md
 
 # an unknown real codebase: one manifest, a read-only clone, no drafts and no
 # scenarios. SPECD_EVAL_UNKNOWN_REPO overrides the checkout the fixture names.

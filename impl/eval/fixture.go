@@ -126,10 +126,9 @@ type Target struct {
 	Realize []scriptedagent.Step `json:"realize"`
 }
 
-// resolvedTargets is the scenario as a list of targets: what it says when it
-// names targets, and the single target its own fields describe when it does
-// not.
-func (s Scenario) resolvedTargets() []Target {
+// Resolved is the scenario as a list of targets: what it says when it names
+// targets, and the single target its own fields describe when it does not.
+func (s Scenario) Resolved() []Target {
 	if len(s.Targets) > 0 {
 		return s.Targets
 	}
@@ -413,7 +412,7 @@ func loadScenarios(dir string) ([]Scenario, error) {
 					scenario.Targets[index].Context = scenario.Context
 				}
 			}
-			for _, target := range scenario.resolvedTargets() {
+			for _, target := range scenario.Resolved() {
 				if len(target.SpecPatch) == 0 {
 					return nil, fmt.Errorf("eval: %s carries no specPatch for %s", path, target.Context)
 				}

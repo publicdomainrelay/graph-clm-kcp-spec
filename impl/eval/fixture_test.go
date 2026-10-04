@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
@@ -52,11 +53,13 @@ func TestLoadReadsEveryFixtureWithItsScenarios(t *testing.T) {
 		}
 		for _, scenario := range entry.Scenarios {
 			difficulties[scenario.Difficulty] = true
-			if len(scenario.Acceptance) == 0 {
-				t.Errorf("%s/%s carries no acceptance test", entry.Name, scenario.Name)
-			}
-			if scenario.ExpectedDeltaEntries <= 0 {
-				t.Errorf("%s/%s does not say how many delta entries it intends", entry.Name, scenario.Name)
+			for _, target := range scenario.Resolved() {
+				if len(target.Acceptance) == 0 {
+					t.Errorf("%s/%s carries no acceptance test for %s", entry.Name, scenario.Name, target.Context)
+				}
+				if target.ExpectedDeltaEntries < 0 {
+					t.Errorf("%s/%s does not say how many delta entries it intends for %s", entry.Name, scenario.Name, target.Context)
+				}
 			}
 		}
 	}
@@ -85,11 +88,11 @@ func TestSelectScenariosMatchesTheNameAndTheFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(byFile) != 3 {
-		t.Fatalf("by file = %d fixtures, want the easiest scenario of each", len(byFile))
+	if len(byFile) != 4 {
+		t.Fatalf("by file = %d fixtures, want the first scenario of each", len(byFile))
 	}
 	for _, entry := range byFile {
-		if len(entry.Scenarios) != 1 || entry.Scenarios[0].Difficulty != 1 {
+		if len(entry.Scenarios) != 1 || !strings.HasPrefix(entry.Scenarios[0].File, "01-") {
 			t.Errorf("%s kept %+v, want its first scenario", entry.Name, entry.Scenarios)
 		}
 	}
@@ -129,20 +132,36 @@ func TestScriptedScenariosSatisfyTheirOwnAcceptanceTests(t *testing.T) {
 				if err := eval.CopyTree(entry.Dir, dir); err != nil {
 					t.Fatal(err)
 				}
-				scripted := scriptedagent.New(&scriptedagent.Scenario{
-					Realize: map[string][]scriptedagent.Step{scenario.Context: scenario.Realize},
-				})
-				if _, err := scripted.Realize(ctx, agent.RealizeRequest{Context: scenario.Context, Dir: dir}); err != nil {
-					t.Fatal(err)
+				// A CLM scenario carries no scripted steps: its spec edit is the
+				// model's, so only the patch scenarios are checked here.
+				if scenario.Via == "clm" {
+					t.Skip("the scripted baseline does not drive a CLM scenario")
 				}
-				run(t, dir, entry.Config.Verify)
-				for _, file := range scenario.Acceptance {
-					target := filepath.Join(dir, filepath.FromSlash(file.Path))
-					if err := os.WriteFile(target, []byte(file.Contents), 0o644); err != nil {
-						t.Fatal(err)
+				realize := map[string][]scriptedagent.Step{}
+				for _, target := range scenario.Resolved() {
+					if len(target.Realize) > 0 {
+						realize[target.Context] = target.Realize
 					}
 				}
-				run(t, dir, entry.Config.Accept)
+				scripted := scriptedagent.New(&scriptedagent.Scenario{Realize: realize})
+				for _, target := range scenario.Resolved() {
+					if _, err := scripted.Realize(ctx, agent.RealizeRequest{Context: target.Context, Dir: dir}); err != nil {
+						t.Fatal(err)
+					}
+					run(t, dir, entry.Config.Verify)
+					for _, file := range target.Acceptance {
+						path := filepath.Join(dir, filepath.FromSlash(file.Path))
+						if err := os.WriteFile(path, []byte(file.Contents), 0o644); err != nil {
+							t.Fatal(err)
+						}
+					}
+					run(t, dir, entry.Config.Accept)
+					for _, file := range target.Acceptance {
+						if err := os.Remove(filepath.Join(dir, filepath.FromSlash(file.Path))); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
 			})
 		}
 	}

@@ -677,7 +677,7 @@ func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Sce
 		Via:         scenario.Via,
 		Request:     scenario.Request,
 	}
-	targets := scenario.resolvedTargets()
+	targets := scenario.Resolved()
 	if len(targets) > 1 {
 		names := make([]string, 0, len(targets))
 		for _, target := range targets {
@@ -698,15 +698,18 @@ func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Sce
 		return report
 	}
 
-	report.Pass = true
 	report.VerifyPass = true
 	report.AcceptancePass = true
 	report.Delta.Precise = true
+	clean := true
 	entries, expected := 0, 0
 	for _, target := range targets {
 		report.Delta.Expected += target.ExpectedDeltaEntries
 		one, err := h.runTarget(deadline, fixture, scenario, scenarioFile, target, starts[target.Context])
 		entries += one.Delta.Entries
+		report.Delta.Added += one.Delta.Added
+		report.Delta.Removed += one.Delta.Removed
+		report.Delta.Changed += one.Delta.Changed
 		report.Attempts += one.Attempts
 		report.ProgressRecords += one.ProgressRecords
 		report.FilesOutside = append(report.FilesOutside, one.FilesOutside...)
@@ -714,7 +717,7 @@ func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Sce
 		report.AcceptancePass = report.AcceptancePass && one.AcceptancePass
 		report.Delta.Precise = report.Delta.Precise && one.Delta.Precise
 		if err != nil {
-			report.Pass = false
+			clean = false
 			if report.Error == "" {
 				report.Error = target.Context + ": " + err.Error()
 			}
@@ -723,6 +726,13 @@ func (h *harness) runScenario(ctx context.Context, fixture Fixture, scenario Sce
 	expected = report.Delta.Expected
 	report.Delta.Entries = entries
 	report.Delta.Precise = report.Delta.Precise && entries == expected
+	report.Pass = clean && report.VerifyPass && report.AcceptancePass && report.Delta.Precise
+	// A delta that carried more or fewer entries than intended is a failure of
+	// the scenario, but not of the code: the acceptance tests still ran and
+	// their result is in the report. The message says which of the two it was.
+	if !report.Delta.Precise && report.Error == "" {
+		report.Error = fmt.Sprintf("the change carried %d delta entries, the scenario intended %d", entries, expected)
+	}
 	report.WallTimeSeconds = time.Since(started).Seconds()
 	return report
 }
@@ -893,6 +903,13 @@ var keyedLists = map[string]string{
 // and keeps the ones it does not (a stored code ref, for one, is canonical and
 // cannot be written by hand). The order the spec already had is kept, and new
 // keys go on the end.
+//
+// A delete may name a `text` as well as a key: the keyed lists of a spec a
+// model wrote carry the model's own ids, so a scenario that means "the
+// requirement about Save" names the words and the key is a fallback. A delete
+// that matches nothing, or that matches more than one entry by text, is an
+// error naming what the spec holds, because a scenario that removes nothing
+// would otherwise be measured as a smaller delta instead of as a mistake.
 func mergeKeyedList(current, patch any, key string) ([]any, error) {
 	existing, _ := current.([]any)
 	incoming, _ := patch.([]any)
@@ -918,12 +935,23 @@ func mergeKeyedList(current, patch any, key string) ([]any, error) {
 			return nil, fmt.Errorf("eval: a %s entry is not an object", key)
 		}
 		name, _ := entry[key].(string)
+		if entry["$patch"] == "delete" {
+			if name == "" {
+				return nil, fmt.Errorf("eval: a %s delete names no %s", key, key)
+			}
+			if _, found := entries[name]; found {
+				delete(entries, name)
+				continue
+			}
+			matched, err := matchByText(entries, entry["text"])
+			if err != nil {
+				return nil, err
+			}
+			delete(entries, matched)
+			continue
+		}
 		if name == "" {
 			return nil, fmt.Errorf("eval: a %s entry names no %s", key, key)
-		}
-		if entry["$patch"] == "delete" {
-			delete(entries, name)
-			continue
 		}
 		merged := map[string]any{}
 		for field, value := range entries[name] {
@@ -947,6 +975,38 @@ func mergeKeyedList(current, patch any, key string) ([]any, error) {
 		}
 	}
 	return out, nil
+}
+
+// matchByText finds the one entry whose text holds the words a delete names.
+// None, or more than one, is an error: a scenario that meant one entry and
+// would have removed none or several has to say which, not be measured as a
+// smaller delta.
+func matchByText(entries map[string]map[string]any, wanted any) (string, error) {
+	words, _ := wanted.(string)
+	if words == "" {
+		return "", fmt.Errorf("eval: a delete matched no entry and names no text to match by")
+	}
+	folded := strings.ToLower(words)
+	matched := []string{}
+	for name, entry := range entries {
+		text, _ := entry["text"].(string)
+		if strings.Contains(strings.ToLower(text), folded) {
+			matched = append(matched, name)
+		}
+	}
+	sort.Strings(matched)
+	switch len(matched) {
+	case 1:
+		return matched[0], nil
+	case 0:
+		held := make([]string, 0, len(entries))
+		for name := range entries {
+			held = append(held, name)
+		}
+		sort.Strings(held)
+		return "", fmt.Errorf("eval: no entry matched %q; the spec holds %v", words, held)
+	}
+	return "", fmt.Errorf("eval: %q matched more than one entry: %v", words, matched)
 }
 
 // checkPatchRefs refuses a scenario whose code refs are not in the stored form.
@@ -1536,7 +1596,7 @@ func writeScenarioFiles(workDir string, fixture Fixture) (map[string]string, err
 	files := map[string]string{}
 	for _, scenario := range fixture.Scenarios {
 		realize := map[string][]scriptedagent.Step{}
-		for _, target := range scenario.resolvedTargets() {
+		for _, target := range scenario.Resolved() {
 			if len(target.Realize) > 0 {
 				realize[target.Context] = target.Realize
 			}

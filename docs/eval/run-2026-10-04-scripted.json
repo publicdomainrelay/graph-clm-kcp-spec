@@ -1,0 +1,1078 @@
+{
+  "agent": "scripted",
+  "fixtures": "fixtures",
+  "startedAt": "2026-10-04T00:28:49Z",
+  "finishedAt": "2026-10-04T00:29:42Z",
+  "populate": [
+    {
+      "fixture": "calc",
+      "phase": "Populated",
+      "contexts": 2,
+      "summarized": 2,
+      "failed": 0,
+      "wallTimeSeconds": 1.267337824
+    },
+    {
+      "fixture": "greet",
+      "phase": "Populated",
+      "contexts": 2,
+      "summarized": 2,
+      "failed": 0,
+      "wallTimeSeconds": 1.766125232
+    },
+    {
+      "fixture": "ledger",
+      "phase": "Populated",
+      "contexts": 4,
+      "summarized": 4,
+      "failed": 0,
+      "wallTimeSeconds": 1.763213413
+    },
+    {
+      "fixture": "shared",
+      "phase": "Populated",
+      "contexts": 1,
+      "summarized": 1,
+      "failed": 0,
+      "wallTimeSeconds": 1.7629126529999999
+    },
+    {
+      "fixture": "todo",
+      "phase": "Populated",
+      "contexts": 3,
+      "summarized": 3,
+      "failed": 0,
+      "wallTimeSeconds": 2.268740146
+    }
+  ],
+  "codeToSpec": [
+    {
+      "fixture": "calc",
+      "context": "calc",
+      "interfaces": {
+        "declared": 2,
+        "target": 2,
+        "matched": 2,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 2,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "roundTripMeasured": true,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "calc",
+      "context": "cmd-calc",
+      "interfaces": {
+        "declared": 0,
+        "target": 0,
+        "matched": 0,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "empty": true,
+      "requirements": 1,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "roundTripMeasured": true,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "greet",
+      "context": "format",
+      "interfaces": {
+        "declared": 2,
+        "target": 2,
+        "matched": 2,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 2,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "roundTripMeasured": true,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "greet",
+      "context": "greet",
+      "interfaces": {
+        "declared": 6,
+        "target": 6,
+        "matched": 6,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 3,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "roundTripMeasured": true,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "ledger",
+      "context": "cmd-ledger",
+      "interfaces": {
+        "declared": 0,
+        "target": 0,
+        "matched": 0,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "empty": true,
+      "requirements": 1,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "roundTripMeasured": true,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "ledger",
+      "context": "domain",
+      "interfaces": {
+        "declared": 10,
+        "target": 10,
+        "matched": 10,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 7,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "roundTripMeasured": true,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "ledger",
+      "context": "httpapi",
+      "interfaces": {
+        "declared": 1,
+        "target": 1,
+        "matched": 1,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 1,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "roundTripMeasured": true,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "ledger",
+      "context": "storage",
+      "interfaces": {
+        "declared": 7,
+        "target": 7,
+        "matched": 7,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 6,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "roundTripMeasured": true,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "shared",
+      "context": "shared",
+      "interfaces": {
+        "declared": 8,
+        "target": 8,
+        "matched": 8,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 2,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "roundTripMeasured": true,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "todo",
+      "context": "cmd-todo",
+      "interfaces": {
+        "declared": 0,
+        "target": 0,
+        "matched": 0,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "empty": true,
+      "requirements": 1,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "roundTripMeasured": true,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "todo",
+      "context": "httpapi",
+      "interfaces": {
+        "declared": 1,
+        "target": 1,
+        "matched": 1,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 1,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "roundTripMeasured": true,
+      "requirementCountDelta": 0
+    },
+    {
+      "fixture": "todo",
+      "context": "todo",
+      "interfaces": {
+        "declared": 7,
+        "target": 7,
+        "matched": 7,
+        "recall": 1,
+        "precision": 1,
+        "f1": 1
+      },
+      "requirements": 5,
+      "anchoringRate": 1,
+      "validatorPass": true,
+      "droppedRefs": 0,
+      "roundTripJaccard": 1,
+      "roundTripMeasured": true,
+      "requirementCountDelta": 0
+    }
+  ],
+  "facts": [
+    {
+      "fixture": "calc",
+      "context": "calc",
+      "verdicts": [
+        {
+          "id": "f-add-sums",
+          "text": "Add returns the sum of two integers.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "add"
+        },
+        {
+          "id": "f-multiply-products",
+          "text": "Multiply returns the product of two integers.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "multiply"
+        }
+      ],
+      "stated": 2,
+      "expected": 2,
+      "score": 1
+    },
+    {
+      "fixture": "calc",
+      "context": "cmd-calc",
+      "verdicts": null,
+      "stated": 0,
+      "expected": 0,
+      "score": 0
+    },
+    {
+      "fixture": "greet",
+      "context": "format",
+      "verdicts": [
+        {
+          "id": "f-title-case",
+          "text": "titleCase capitalises every word of a string.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "titlecase"
+        },
+        {
+          "id": "f-trim-all",
+          "text": "trimAll trims every value of a list.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "trimall"
+        }
+      ],
+      "stated": 2,
+      "expected": 2,
+      "score": 1
+    },
+    {
+      "fixture": "greet",
+      "context": "greet",
+      "verdicts": [
+        {
+          "id": "f-greet-text",
+          "text": "greet returns the name and the greeting text for it.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "greet"
+        },
+        {
+          "id": "f-greeter-prefix",
+          "text": "Greeter prefixes a greeting with the prefix it was built with.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "greeter"
+        },
+        {
+          "id": "f-shout-uppercase",
+          "text": "shout returns the greeting text in upper case.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "shout"
+        }
+      ],
+      "stated": 3,
+      "expected": 3,
+      "score": 1
+    },
+    {
+      "fixture": "ledger",
+      "context": "cmd-ledger",
+      "verdicts": null,
+      "stated": 0,
+      "expected": 0,
+      "score": 0
+    },
+    {
+      "fixture": "ledger",
+      "context": "domain",
+      "verdicts": [
+        {
+          "id": "f-balance-sums-account",
+          "text": "Balance returns the sum of the entries of one account.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "balance"
+        },
+        {
+          "id": "f-empty-account-error",
+          "text": "Balance rejects an empty account with ErrUnknownAccount.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "balance"
+        },
+        {
+          "id": "f-entries-oldest-first",
+          "text": "Entries returns the entries of one account, oldest first.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "entries"
+        },
+        {
+          "id": "f-post-appends",
+          "text": "Post validates an entry and only then appends it to the ledger.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "post"
+        },
+        {
+          "id": "f-sum-totals",
+          "text": "Sum totals the amounts of a set of entries.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "sum"
+        },
+        {
+          "id": "f-validate-empty-account",
+          "text": "Validate rejects an entry that names no account with ErrEmptyAccount.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "validate"
+        }
+      ],
+      "stated": 6,
+      "expected": 6,
+      "score": 1
+    },
+    {
+      "fixture": "ledger",
+      "context": "httpapi",
+      "verdicts": [
+        {
+          "id": "f-entries-query",
+          "text": "The entries route lists what was posted, filtered by an account query parameter.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "entries"
+        },
+        {
+          "id": "f-handler-routes",
+          "text": "NewHandler returns the service's routes over one ledger.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "handler"
+        }
+      ],
+      "stated": 2,
+      "expected": 2,
+      "score": 1
+    },
+    {
+      "fixture": "ledger",
+      "context": "storage",
+      "verdicts": [
+        {
+          "id": "f-add-appends",
+          "text": "Add appends one entry to the store.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "add"
+        },
+        {
+          "id": "f-all-copies",
+          "text": "All returns a copy of every entry.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "all"
+        },
+        {
+          "id": "f-for-one-account",
+          "text": "For returns the entries of one account.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "for"
+        },
+        {
+          "id": "f-load-reads",
+          "text": "Load reads back the entries a Save wrote.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "load"
+        },
+        {
+          "id": "f-save-json",
+          "text": "Save writes the entries to a JSON file.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "save"
+        }
+      ],
+      "stated": 5,
+      "expected": 5,
+      "score": 1
+    },
+    {
+      "fixture": "shared",
+      "context": "shared",
+      "verdicts": [
+        {
+          "id": "f-indexer-order",
+          "text": "Indexer.List returns the items in the order they were added.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "indexer"
+        },
+        {
+          "id": "f-set-sorted",
+          "text": "Set.List returns the members in sorted order.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "set"
+        }
+      ],
+      "stated": 2,
+      "expected": 2,
+      "score": 1
+    },
+    {
+      "fixture": "todo",
+      "context": "cmd-todo",
+      "verdicts": null,
+      "stated": 0,
+      "expected": 0,
+      "score": 0
+    },
+    {
+      "fixture": "todo",
+      "context": "httpapi",
+      "verdicts": [
+        {
+          "id": "f-handler-routes",
+          "text": "NewHandler returns the service's routes over one store.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "handler"
+        }
+      ],
+      "stated": 1,
+      "expected": 1,
+      "score": 1
+    },
+    {
+      "fixture": "todo",
+      "context": "todo",
+      "verdicts": [
+        {
+          "id": "f-add-returns",
+          "text": "Add appends a task with the given title and returns it.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "add"
+        },
+        {
+          "id": "f-complete-marks-done",
+          "text": "Complete marks a task done and returns it, or ErrNotFound.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "complete"
+        },
+        {
+          "id": "f-get-not-found",
+          "text": "Get returns one task by id, or ErrNotFound.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "get"
+        },
+        {
+          "id": "f-list-oldest-first",
+          "text": "List returns every task, oldest first.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "list"
+        },
+        {
+          "id": "f-new-store-empty",
+          "text": "NewStore returns an empty store whose first task gets id 1.",
+          "stated": true,
+          "judge": "keyword",
+          "evidence": "newstore"
+        }
+      ],
+      "stated": 5,
+      "expected": 5,
+      "score": 1
+    }
+  ],
+  "drift": [
+    {
+      "fixture": "calc",
+      "scenario": "human-adds-abs",
+      "context": "calc",
+      "difficulty": 1,
+      "description": "a human adds Abs to the calc library",
+      "changePhase": "Succeeded",
+      "interfacesAdded": [
+        "Abs"
+      ],
+      "expectedAdded": [
+        "Abs"
+      ],
+      "delta": {
+        "added": 1,
+        "removed": 0,
+        "changed": 0,
+        "entries": 1,
+        "expected": 1,
+        "precise": true
+      },
+      "prose": {
+        "fixture": "calc",
+        "context": "calc",
+        "verdicts": [
+          {
+            "id": "f-abs",
+            "text": "Abs returns the absolute value of an integer.",
+            "stated": true,
+            "judge": "keyword",
+            "evidence": "abs"
+          }
+        ],
+        "stated": 1,
+        "expected": 1,
+        "score": 1
+      },
+      "pass": true,
+      "wallTimeSeconds": 1.3971650580000001
+    },
+    {
+      "fixture": "ledger",
+      "scenario": "human-adds-sign",
+      "context": "domain",
+      "difficulty": 2,
+      "description": "a human adds Sign to the domain",
+      "changePhase": "Succeeded",
+      "interfacesAdded": [
+        "Sign"
+      ],
+      "expectedAdded": [
+        "Sign"
+      ],
+      "delta": {
+        "added": 1,
+        "removed": 0,
+        "changed": 0,
+        "entries": 1,
+        "expected": 1,
+        "precise": true
+      },
+      "prose": {
+        "fixture": "ledger",
+        "context": "domain",
+        "verdicts": [
+          {
+            "id": "f-sign",
+            "text": "Sign returns -1 for a negative amount, 0 for zero and 1 for a positive one.",
+            "stated": true,
+            "judge": "keyword",
+            "evidence": "sign"
+          }
+        ],
+        "stated": 1,
+        "expected": 1,
+        "score": 1
+      },
+      "pass": true,
+      "wallTimeSeconds": 1.464068253
+    },
+    {
+      "fixture": "ledger",
+      "scenario": "human-rejects-negative",
+      "context": "domain",
+      "difficulty": 3,
+      "description": "a human makes Validate refuse a negative amount",
+      "changePhase": "Succeeded",
+      "delta": {
+        "added": 0,
+        "removed": 0,
+        "changed": 0,
+        "entries": 0,
+        "expected": 0,
+        "precise": true
+      },
+      "prose": {
+        "fixture": "ledger",
+        "context": "domain",
+        "verdicts": [
+          {
+            "id": "f-reject-negative",
+            "text": "Validate rejects a negative amount with ErrNegativeAmount.",
+            "stated": true,
+            "judge": "keyword",
+            "evidence": "validate"
+          }
+        ],
+        "stated": 1,
+        "expected": 1,
+        "score": 1
+      },
+      "pass": true,
+      "wallTimeSeconds": 2.089384405
+    },
+    {
+      "fixture": "ledger",
+      "scenario": "human-removes-save",
+      "context": "storage",
+      "difficulty": 3,
+      "description": "a human removes Store.Save and the test that used it",
+      "changePhase": "Succeeded",
+      "interfacesRemoved": [
+        "Store.Save"
+      ],
+      "expectedRemoved": [
+        "Store.Save"
+      ],
+      "delta": {
+        "added": 0,
+        "removed": 1,
+        "changed": 0,
+        "entries": 1,
+        "expected": 1,
+        "precise": true
+      },
+      "prose": {
+        "fixture": "ledger",
+        "context": "storage",
+        "verdicts": [
+          {
+            "id": "f-load-json",
+            "text": "Load reads entries back from a JSON file.",
+            "stated": true,
+            "judge": "keyword",
+            "evidence": "load"
+          }
+        ],
+        "stated": 1,
+        "expected": 1,
+        "score": 1
+      },
+      "pass": true,
+      "wallTimeSeconds": 2.069009029
+    }
+  ],
+  "scenarios": [
+    {
+      "fixture": "calc",
+      "scenario": "add-divide-with-an-error",
+      "context": "calc",
+      "difficulty": 3,
+      "description": "add a function whose error spans a second file",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 2,
+        "removed": 0,
+        "changed": 0,
+        "entries": 2,
+        "expected": 2,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 0.822220571,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "calc",
+      "scenario": "add-subtract",
+      "context": "calc",
+      "difficulty": 1,
+      "description": "add an exported function to the library",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 2,
+        "removed": 0,
+        "changed": 0,
+        "entries": 2,
+        "expected": 2,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.432360014,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "calc",
+      "scenario": "change-add-to-variadic",
+      "context": "calc",
+      "difficulty": 2,
+      "description": "change the signature and the requirement of an existing function",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 0,
+        "removed": 0,
+        "changed": 2,
+        "entries": 2,
+        "expected": 2,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.443877966,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "greet",
+      "scenario": "add-a-person-module",
+      "context": "greet",
+      "difficulty": 3,
+      "description": "add a new module and a function that uses it",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 6,
+        "removed": 0,
+        "changed": 0,
+        "entries": 6,
+        "expected": 6,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 2.361956363,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "greet",
+      "scenario": "add-farewell",
+      "context": "greet",
+      "difficulty": 1,
+      "description": "add an exported function to the module",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 2,
+        "removed": 0,
+        "changed": 0,
+        "entries": 2,
+        "expected": 2,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 2.69806454,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "greet",
+      "scenario": "change-the-greeting-text",
+      "context": "greet",
+      "difficulty": 2,
+      "description": "change the greeting text and the test that pins it",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 0,
+        "removed": 0,
+        "changed": 1,
+        "entries": 1,
+        "expected": 1,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 2.292630219,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "ledger",
+      "scenario": "clm-reject-negative-amounts",
+      "context": "domain",
+      "difficulty": 3,
+      "description": "the model changes the spec by editing the context document",
+      "via": "clm",
+      "request": "The ledger must reject an entry whose amount is negative. Change the\nrequirement r.validate so it also says that Validate returns ErrNegativeAmount\nfor an amount below zero, and that Post refuses such an entry because it\nvalidates first. Do not add or remove any interface and do not add a new\nrequirement: edit r.validate.\n",
+      "skipped": true,
+      "pass": false,
+      "verifyPass": false,
+      "acceptancePass": false,
+      "delta": {
+        "added": 0,
+        "removed": 0,
+        "changed": 0,
+        "entries": 0,
+        "expected": 0,
+        "precise": false
+      },
+      "attempts": 0,
+      "progressRecords": 0,
+      "wallTimeSeconds": 0.0000015,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "ledger",
+      "scenario": "post-all-across-two-contexts",
+      "context": "domain+storage",
+      "difficulty": 3,
+      "description": "add a batch operation to the domain and to the storage",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 4,
+        "removed": 0,
+        "changed": 0,
+        "entries": 4,
+        "expected": 4,
+        "precise": true
+      },
+      "attempts": 2,
+      "progressRecords": 0,
+      "wallTimeSeconds": 2.916270263,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "ledger",
+      "scenario": "reject-negative-amounts",
+      "context": "domain",
+      "difficulty": 3,
+      "description": "change a requirement so the ledger refuses a negative amount",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 0,
+        "removed": 0,
+        "changed": 1,
+        "entries": 1,
+        "expected": 1,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 2.186349681,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "ledger",
+      "scenario": "remove-save",
+      "context": "storage",
+      "difficulty": 2,
+      "description": "remove an exported method and the test that used it",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 0,
+        "removed": 2,
+        "changed": 0,
+        "entries": 2,
+        "expected": 2,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.984894996,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "ledger",
+      "scenario": "rename-sum-to-total",
+      "context": "domain",
+      "difficulty": 3,
+      "description": "rename an exported function and its requirement",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 1,
+        "removed": 1,
+        "changed": 1,
+        "entries": 3,
+        "expected": 3,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.696559987,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "shared",
+      "scenario": "add-delete-to-both",
+      "context": "shared",
+      "difficulty": 2,
+      "description": "add Delete to both collections",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 3,
+        "removed": 0,
+        "changed": 0,
+        "entries": 3,
+        "expected": 3,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.418159323,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "todo",
+      "scenario": "add-delete",
+      "context": "todo",
+      "difficulty": 1,
+      "description": "add an exported method to the store",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 2,
+        "removed": 0,
+        "changed": 0,
+        "entries": 2,
+        "expected": 2,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.7856786580000001,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "todo",
+      "scenario": "add-get-one-task-endpoint",
+      "context": "httpapi",
+      "difficulty": 3,
+      "description": "add an endpoint whose handler lives in a new file",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 2,
+        "removed": 0,
+        "changed": 0,
+        "entries": 2,
+        "expected": 2,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.428894186,
+      "agent": "scripted"
+    },
+    {
+      "fixture": "todo",
+      "scenario": "list-newest-first",
+      "context": "todo",
+      "difficulty": 2,
+      "description": "change the order List answers in, and the test that pins it",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 0,
+        "removed": 0,
+        "changed": 1,
+        "entries": 1,
+        "expected": 1,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 0,
+      "wallTimeSeconds": 1.6730659129999998,
+      "agent": "scripted"
+    }
+  ],
+  "notes": [
+    "working trees under /tmp/specd-eval.3078104291"
+  ]
+}

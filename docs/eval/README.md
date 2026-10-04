@@ -17,6 +17,8 @@ bin/specctl eval --fixtures fixtures --out docs/eval/run-<date>.md
 
 | run | agent | scope | report |
 | --- | --- | --- | --- |
+| scripted baseline, phase 11 | `scripted` | 5 fixtures, 15 scenarios, 4 drifts, facts; sufficiency and CLM not measured | `run-2026-10-04-scripted.md` |
+| live, phase 11 | `claude-mod` (`deepseek-claude` + `cc-clm-mod`) | the same 5 fixtures: facts, sufficiency, drift, the CLM scenario | `run-2026-10-04-hard.md` and its `-compare.md` |
 | scripted baseline | `scripted` | 3 fixtures, 9 scenarios, both halves | `run-2026-10-03-scripted.md` |
 | scripted baseline, receiver-keyed | `scripted` | 4 fixtures, 10 scenarios, both halves | `run-2026-10-03-scripted-qualified.md` |
 | live, primary | `claude-mod` (`deepseek-claude` + `cc-clm-mod`) | 3 fixtures, 9 scenarios, both halves | `run-2026-10-03.md` |
@@ -42,8 +44,13 @@ model call (`SPECD_REQUIRE_LIVE_MODEL=1`), all five passing.
 | round trip stability | `abc/eval.Jaccard`, the round trip column |
 | populate: `Populated`, contexts, failed, wall time | the Populate table |
 | delta precision | the `delta` column, entries against the scenario's intent |
-| CLM path | the `claude-mod` run is the CLM path, `pi` the other host |
+| CLM path | the `via: clm` scenario: the model edits the context document and the host applies it |
 | `SpecChange.status.progress` | the `progress` column: the host reported while it ran |
+| code -> spec on behaviour, not the handed interface list | `expected.yaml` facts, graded by `impl/judge`; the Facts table |
+| spec sufficiency (rebuild the code from the spec alone) | `impl/stripbodies`, the Spec sufficiency table |
+| goal 5: human edit -> drift -> `CodeToSpec` -> graded spec | the Drift table |
+| honest reporting (samples, `not measured`, empty contexts counted) | the `samples` column; `abc/eval.Measure` |
+| live vs scripted, "not discriminating" | `--baseline`, the `*-compare.md` beside a live report |
 
 ## What the runs say
 

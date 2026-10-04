@@ -3,6 +3,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type GraphBackend } from "./backend.ts";
 import { CodegraphResolver, type CodegraphNode } from "./codegraph.ts";
+import { clmHostFromEnv } from "./bridge.ts";
+import { contextDocPath } from "../../clm/core/context-doc.ts";
 import { contextFilePath, ensureContextFile, readContextFile, writeContextFile } from "./context-file.ts";
 import {
   MEMORY_PROTOCOL,
@@ -94,7 +96,10 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
   const codeRefs = new Map<string, CodeRefRecord>();
   const unresolvedRefs = new Set<string>();
   const resolver = CodegraphResolver.open(process.cwd());
-  const filePath = options.contextPath ?? contextFilePath(options.sessionKey);
+  const clmHost = clmHostFromEnv();
+  const filePath = clmHost
+    ? contextDocPath(process.env.SPECD_CLM_REPO ?? process.cwd(), clmHost.context)
+    : options.contextPath ?? contextFilePath(options.sessionKey);
 
   const sessionNodeId = () =>
     stableNodeId(nodeKey(options.sessionKey, "session", options.sessionKey));
@@ -194,6 +199,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
   const contextBudget = Math.max(400, Math.floor(options.budgetTokens * 0.6));
 
   function refreshContextFile(model: string): void {
+    if (clmHost) return;
     writeContextFile(
       filePath,
       model,
@@ -207,7 +213,11 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
 
   pi.on("session_start", async () => {
     if (!options.enabled) return;
-    ensureContextFile(filePath, options.sessionKey, revision, contextBudget);
+    if (clmHost) {
+      await clmHost.start();
+    } else {
+      ensureContextFile(filePath, options.sessionKey, revision, contextBudget);
+    }
     const client = await connect();
     if (client) await ensureSession(client);
     pi.appendEntry?.("pi-hydradb-clm", { contextPath: filePath });
@@ -236,6 +246,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
 
   pi.on("turn_end", async (event) => {
     if (!options.enabled) return;
+    if (clmHost) await clmHost.finish();
     const client = graph;
     if (!client) return;
     await ensureSession(client);
@@ -255,6 +266,11 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
 
   pi.on("context", async (event) => {
     if (!options.enabled) return;
+    if (clmHost) {
+      const document = await clmHost.section();
+      if (!document) return;
+      return { messages: [...event.messages, { role: "system" as const, content: document, timestamp: Date.now() }] };
+    }
     const client = await connect();
     if (client) {
       await ensureSession(client);
@@ -283,6 +299,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
   });
 
   pi.on("session_shutdown", async () => {
+    if (clmHost) await clmHost.finish();
     resolver.close();
     if (!graph) return;
     await graph.close();

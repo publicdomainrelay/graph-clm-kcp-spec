@@ -334,17 +334,35 @@ func TestCompareFlagsARunEqualToTheBaseline(t *testing.T) {
 		t.Fatalf("comparison = %+v, want no flag when the pass rate differs", differing)
 	}
 
-	// A measure the baseline could not take at all is not equality: it is the
-	// live run reaching something the baseline cannot.
+	// A measure only the live run could take, scored perfect, is still nothing
+	// that separates the two agents, and the note says so.
 	withClm := eval.Report{Agent: "claude-mod", Scenarios: []eval.ScenarioReport{
 		{Fixture: "f", Scenario: "s", Pass: true, Delta: eval.DeltaScore{Precise: true}},
 		{Fixture: "f", Scenario: "clm", Via: "clm", Pass: true, Delta: eval.DeltaScore{Precise: true}},
 	}}
 	reaching := eval.Compare(baseline, withClm)
-	if reaching.NotDiscriminating {
-		t.Fatalf("comparison = %+v, want no flag when the live run measured more", reaching)
+	if !reaching.NotDiscriminating {
+		t.Fatalf("comparison = %+v, want the flag: everything shared is equal and the extra measure is perfect", reaching)
 	}
-	if !strings.Contains(reaching.Note, "measured 1 measure(s) the baseline did not") {
+	if !strings.Contains(reaching.Note, "only the live run could take") {
 		t.Errorf("note = %q", reaching.Note)
+	}
+
+	// A measure only the live run could take, scored below perfect, is the run
+	// separating something: the baseline could not be measured there at all.
+	withFailedSuffice := eval.Report{Agent: "claude-mod",
+		Scenarios: []eval.ScenarioReport{
+			{Fixture: "f", Scenario: "s", Pass: true, Delta: eval.DeltaScore{Precise: true}},
+		},
+		Sufficiency: []eval.SufficiencyReport{
+			{Fixture: "f", Context: "f", Files: 1, Stripped: 2, Realized: true, TestsPass: false},
+		},
+	}
+	reachingFailed := eval.Compare(baseline, withFailedSuffice)
+	if reachingFailed.NotDiscriminating {
+		t.Fatalf("comparison = %+v, want no flag when the live-only measure is not perfect", reachingFailed)
+	}
+	if !strings.Contains(reachingFailed.Note, "below perfect") {
+		t.Errorf("note = %q", reachingFailed.Note)
 	}
 }
