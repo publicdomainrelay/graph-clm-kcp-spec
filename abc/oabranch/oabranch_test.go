@@ -1,12 +1,15 @@
 package oabranch
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/yaml"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/clm"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
@@ -32,7 +35,7 @@ func calcSnapshot() Snapshot {
 		Upstream:   "self",
 		Intent:     "Integer arithmetic.",
 		Requirements: []spec.Requirement{
-			{ID: "r.add", Level: spec.LevelMust, Text: "Add returns the sum.", CodeRefs: []string{"file:calc/calc.go"}},
+			{ID: "r.add", Level: spec.LevelMust, Text: "Add returns the sum.", CodeRefs: []string{"function:abc", "file:calc/calc.go"}},
 		},
 		Interfaces: []spec.Interface{{Name: "Add", Kind: "function", Signature: "func Add(a, b int) int", File: "calc/calc.go"}},
 		CodeRefs:   []string{"file:calc/calc.go"},
@@ -102,6 +105,34 @@ func TestFilesAreDeterministic(t *testing.T) {
 	}
 }
 
+func TestFilesAreDeterministicWithManyRefs(t *testing.T) {
+	snapshot := calcSnapshot()
+	context := &snapshot.Contexts[0]
+	for index := 0; index < 24; index++ {
+		reference := fmt.Sprintf("struct:%02x%02x", index*7, index*13)
+		context.Spec.Requirements[0].CodeRefs = append(context.Spec.Requirements[0].CodeRefs, reference)
+		context.Status.Observed.Interfaces = append(context.Status.Observed.Interfaces, spec.ObservedInterface{
+			Name: fmt.Sprintf("Type%02d", index), Kind: "struct", File: "calc/calc.go",
+			Line: index + 1, CodegraphID: reference,
+		})
+	}
+	first, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < 10; attempt++ {
+		next, err := Files(snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for path, data := range first {
+			if string(next[path]) != string(data) {
+				t.Fatalf("%s differs between two renders of the same state:\n%s\n---\n%s", path, data, next[path])
+			}
+		}
+	}
+}
+
 func TestBlobIDMatchesGit(t *testing.T) {
 	git, err := exec.LookPath("git")
 	if err != nil {
@@ -155,17 +186,267 @@ func TestMessageNamesObjectsAndCodeCommits(t *testing.T) {
 		}
 		return ""
 	})
-	message := Message("calc", plan, objects, commits)
+	message := Message("calc", plan, snapshot, nil, objects, commits)
 	for _, want := range []string{
-		"open-architecture: calc: ",
+		"spec(calc): +Add +r.add ~intent ~upstream\n",
 		"A specs/calc.yaml",
 		"SystemContext calc generation=3 resourceVersion=42 origin=clm",
 		"SpecChange calc-s2c-12345678",
+		"Spec-Change: calc-s2c-12345678",
 		"Code-Commit: c0ffee",
 	} {
 		if !strings.Contains(message, want) {
 			t.Errorf("message lacks %q:\n%s", want, message)
 		}
+	}
+}
+
+func TestFilesCarryReadableRefs(t *testing.T) {
+	files, err := Files(calcSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	specFile := string(files[SpecPath("calc")])
+	if !strings.Contains(specFile, "codeRefIndex:") || !strings.Contains(specFile, "function:abc Add@calc/calc.go:3") {
+		t.Errorf("the spec file does not index its refs:\n%s", specFile)
+	}
+	arch := string(files[ArchPath])
+	if !strings.Contains(arch, "kind: GeneratedArchitecture") {
+		t.Errorf("arch.yaml is not its own kind:\n%s", arch)
+	}
+	if !strings.Contains(arch, "branch: open-architecture/calc") {
+		t.Errorf("arch.yaml names the wrong branch:\n%s", arch)
+	}
+	if !strings.Contains(arch, "Add@calc/calc.go:3") {
+		t.Errorf("arch.yaml does not index its refs:\n%s", arch)
+	}
+	edges := string(files[GraphEdgesPath])
+	if !strings.Contains(edges, `"type":"REFERENCES"`) {
+		t.Errorf("the graph has no REFERENCES edge:\n%s", edges)
+	}
+	vertices := string(files[GraphVerticesPath])
+	if !strings.Contains(vertices, `"label":"CodeRef"`) || !strings.Contains(vertices, `"display":"Add@calc/calc.go:3"`) {
+		t.Errorf("the graph has no readable CodeRef vertex:\n%s", vertices)
+	}
+}
+
+func TestContextDocumentDoesNotRepeatTheSpec(t *testing.T) {
+	files, err := Files(calcSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := string(files[ContextPath("calc")])
+	if strings.Contains(document, clm.SpecFence) {
+		t.Errorf("the context document repeats the spec block:\n%s", document)
+	}
+	if !strings.Contains(document, "Integer arithmetic.") || !strings.Contains(document, "function:abc") {
+		t.Errorf("the context document lacks the prose or the managed refs:\n%s", document)
+	}
+}
+
+func TestFeatureBranchWritesTheChangesDocument(t *testing.T) {
+	snapshot := calcSnapshot()
+	snapshot.Branch = "open-architecture/calc--spec-bob"
+	baselineContext := calcSnapshot().Contexts[0]
+	baselineContext.Spec.Requirements[0].Text = "Add returns the sum."
+	snapshot.Baseline = &Baseline{
+		Contexts: []spec.SystemContext{baselineContext},
+		Changes:  []spec.SpecChange{{ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-a-b"}}},
+	}
+	snapshot.Contexts[0].Spec.Requirements = append(snapshot.Contexts[0].Spec.Requirements,
+		spec.Requirement{ID: "r.sub", Level: spec.LevelMust, Text: "Subtract returns the difference."})
+	snapshot.Contexts[0].Spec.Intent = "Integer arithmetic, with subtraction."
+	files, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, ok := files[ChangesDocPath]
+	if !ok {
+		t.Fatal("a feature branch has no CHANGES.md")
+	}
+	for _, want := range []string{
+		"# Changes on `open-architecture/calc--spec-bob`",
+		"### calc",
+		"added `r.sub` (MUST): \"Subtract returns the difference.\"",
+		"intent: \"Integer arithmetic.\" -> \"Integer arithmetic, with subtraction.\"",
+		"| calc-s2c-12345678 | SpecToCode | Succeeded | c0ffee | 0 | - |",
+	} {
+		if !strings.Contains(string(document), want) {
+			t.Errorf("CHANGES.md lacks %q:\n%s", want, document)
+		}
+	}
+	if strings.Contains(string(document), "calc-c2s-a-b") {
+		t.Errorf("CHANGES.md lists the baseline's own change as this branch's outcome:\n%s", document)
+	}
+}
+
+func TestDefaultBranchWritesNoChangesDocument(t *testing.T) {
+	files, err := Files(calcSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := files[ChangesDocPath]; ok {
+		t.Fatal("the default branch carries a CHANGES.md")
+	}
+}
+
+func TestStatusRecordsTheCommonCommitOnce(t *testing.T) {
+	snapshot := calcSnapshot()
+	snapshot.Contexts[0].Status.ObservedCommit = "aaaa"
+	snapshot.Contexts[0].Status.SyncedCommit = "bbbb"
+	files, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := string(files[StatusPath("calc")])
+	if strings.Contains(status, "observedCommit") || strings.Contains(status, "syncedCommit") {
+		t.Errorf("the status file repeats the repository's commits:\n%s", status)
+	}
+	if !strings.Contains(string(files[RepositoryPath]), "observedCommit: aaaa") {
+		t.Errorf("repository.yaml lacks the observed commit:\n%s", files[RepositoryPath])
+	}
+}
+
+func TestStatusKeepsACommitThatDiffers(t *testing.T) {
+	snapshot := calcSnapshot()
+	snapshot.Contexts[0].Status.ObservedCommit = "aaaa"
+	snapshot.Contexts[0].Status.SyncedCommit = "bbbb"
+	other := snapshot.Contexts[0]
+	other.Name = "other"
+	other.Status.ObservedCommit = "cccc"
+	snapshot.Contexts = append(snapshot.Contexts, other)
+	files, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(files[StatusPath("calc")]), "observedCommit: aaaa") {
+		t.Errorf("a context that differs lost its commit:\n%s", files[StatusPath("calc")])
+	}
+	if strings.Contains(string(files[RepositoryPath]), "observedCommit") {
+		t.Errorf("repository.yaml claims a common commit:\n%s", files[RepositoryPath])
+	}
+}
+
+func TestSubjectsNameEveryKindOfChange(t *testing.T) {
+	snapshot := calcSnapshot()
+	files, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := map[string][]byte{}
+	for _, path := range []string{SpecPath("calc"), StatusPath("calc"), ChangePath("calc-s2c-12345678")} {
+		previous[path] = files[path]
+	}
+	edited := snapshot
+	edited.Contexts = append([]spec.SystemContext{}, snapshot.Contexts...)
+	edited.Contexts[0].Spec.Requirements = append(edited.Contexts[0].Spec.Requirements,
+		spec.Requirement{ID: "r.sub", Level: spec.LevelMust, Text: "Subtract."})
+	edited.Contexts[0].Status.ObservedCommit = "1234567890"
+	edited.Contexts[0].Status.Observed.Interfaces[0].Line = 9
+	edited.Changes = append([]spec.SpecChange{}, snapshot.Changes...)
+	edited.Changes[0].Status.Phase = specapi.PhaseRunning
+	next, err := Files(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := PlanCommit(map[string]string{}, next)
+	subjects := Subjects(plan, edited, previous)
+	joined := strings.Join(subjects, "\n")
+	for _, want := range []string{
+		"spec(calc): +r.sub",
+		"change(calc-s2c-12345678): Succeeded -> Running",
+		"status(calc): observed 12345678",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("subjects lack %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestCoalesceProgressDefersAProgressOnlyRewrite(t *testing.T) {
+	change := calcSnapshot().Changes[0]
+	before, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: change.Spec, Status: change.Status})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := change
+	after.Status.Progress = append(after.Status.Progress, spec.ProgressRecord{Turn: 1, Tool: "edit", At: "2026-01-01T00:00:00Z"})
+	next, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: change.Spec, Status: after.Status})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := ChangePath(change.Name)
+	plan := Plan{Write: map[string][]byte{path: next}, Modified: []string{path}}
+	plan, deferred := CoalesceProgress(plan, map[string][]byte{path: before})
+	if !plan.Empty() || len(deferred) != 1 || deferred[0] != path {
+		t.Fatalf("a progress-only rewrite was planned: %+v %v", plan, deferred)
+	}
+	after.Status.Phase = specapi.PhaseFailed
+	final, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: change.Spec, Status: after.Status})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan = Plan{Write: map[string][]byte{path: final}, Modified: []string{path}}
+	plan, deferred = CoalesceProgress(plan, map[string][]byte{path: before})
+	if plan.Empty() || len(deferred) != 0 {
+		t.Fatalf("a phase transition was deferred: %+v %v", plan, deferred)
+	}
+}
+
+func TestOneRecordPerEpisodeSummarizesTheEarlierAttempts(t *testing.T) {
+	snapshot := calcSnapshot()
+	failed := snapshot.Changes[0]
+	failed.Name = "calc-s2c-12345678-a2"
+	failed.Status = spec.SpecChangeStatus{Phase: specapi.PhaseFailed, Message: "verify exited 1"}
+	succeeded := snapshot.Changes[0]
+	succeeded.Status = spec.SpecChangeStatus{Phase: specapi.PhaseSucceeded, Commit: "c0ffee"}
+	snapshot.Changes = []spec.SpecChange{failed, succeeded}
+	files, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := files[ChangePath("calc-s2c-12345678-a2")]; ok {
+		t.Error("the failed attempt still has its own record")
+	}
+	surviving, ok := files[ChangePath("calc-s2c-12345678")]
+	if !ok {
+		t.Fatal("the surviving attempt has no record")
+	}
+	for _, want := range []string{"superseded:", "name: calc-s2c-12345678-a2", "phase: Failed", "message: verify exited 1"} {
+		if !strings.Contains(string(surviving), want) {
+			t.Errorf("the surviving record lacks %q:\n%s", want, surviving)
+		}
+	}
+}
+
+func TestPreserveChangesKeepsTheBranchesOwnRecords(t *testing.T) {
+	change := calcSnapshot().Changes[0]
+	survivor, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name}, Spec: change.Spec, Status: change.Status})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := yaml.Marshal(changeDoc{Metadata: objectMeta{Name: change.Name + "-a2"}, Spec: change.Spec, Status: spec.SpecChangeStatus{Phase: specapi.PhaseFailed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string][]byte{SpecPath("calc"): []byte("spec"), ChangePath(change.Name): survivor}
+	previous := map[string][]byte{
+		ChangePath("calc-c2s-aaaaaaaaaaaa-bbbbbbbbbbbb"): []byte("kept"),
+		ChangePath(change.Name + "-a2"):                  attempt,
+		SpecPath("calc"):                                 []byte("old spec"),
+	}
+	PreserveChanges(files, previous)
+	if string(files[ChangePath("calc-c2s-aaaaaaaaaaaa-bbbbbbbbbbbb")]) != "kept" {
+		t.Error("an inherited change record was dropped")
+	}
+	if string(files[ChangePath(change.Name)]) != string(survivor) {
+		t.Error("the rewritten change record was overwritten by the branch's copy")
+	}
+	if _, ok := files[ChangePath(change.Name+"-a2")]; ok {
+		t.Error("a superseded attempt came back from the branch")
+	}
+	if string(files[SpecPath("calc")]) != "spec" {
+		t.Error("a non-change file was preserved from the branch")
 	}
 }
 
@@ -189,6 +470,77 @@ func TestSpecFilesAndRepositoryFileRoundTrip(t *testing.T) {
 	}
 	if repository.Name != "calc" || repository.Spec.Source == nil || repository.Spec.Source.Git.URL != "https://example.com/calc.git" {
 		t.Fatalf("repository = %+v", repository)
+	}
+}
+
+func TestABranchWrittenBeforeThisChangeStillLoads(t *testing.T) {
+	old := map[string][]byte{
+		RepositoryPath: []byte(`apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: Repository
+metadata:
+  name: calc
+  namespace: default
+spec:
+  branch: main
+status:
+  headCommit: aaaa
+  phase: Populated
+`),
+		SpecPath("calc"): []byte(`apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: SystemContext
+metadata:
+  name: calc
+  namespace: default
+spec:
+  repository: calc
+  upstream: self
+  intent: Integer arithmetic.
+  requirements:
+  - id: r.add
+    level: MUST
+    text: Add returns the sum.
+`),
+		StatusPath("calc"): []byte(`observedCommit: aaaa
+syncedCommit: aaaa
+observed:
+  files:
+  - calc/calc.go
+`),
+		ChangePath("calc-c2s-aaaa-bbbb"): []byte(`apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: SpecChange
+metadata:
+  name: calc-c2s-aaaa-bbbb
+  namespace: default
+spec:
+  systemContext: calc
+  direction: CodeToSpec
+  fromCommit: aaaa
+  toCommit: bbbb
+status:
+  phase: Succeeded
+`),
+		ArchPath: []byte("apiVersion: open-architecture.dffml.github.io/v0alpha1\nkind: OpenArchitecture\nmetadata:\n  name: calc\n  branch: open-architecture/calc\n"),
+	}
+	specs, err := SpecFiles(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if specs["calc"].Spec.Intent != "Integer arithmetic." {
+		t.Fatalf("specs = %+v", specs)
+	}
+	repository, err := RepositoryFile(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repository.Name != "calc" || repository.Spec.Branch != "main" {
+		t.Fatalf("repository = %+v", repository)
+	}
+	changes, err := ChangeFiles(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].Status.Phase != specapi.PhaseSucceeded {
+		t.Fatalf("changes = %+v", changes)
 	}
 }
 

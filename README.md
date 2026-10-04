@@ -446,13 +446,15 @@ graph.
   logical cluster the object came from: the specs stay per workspace, the API is
   shared. Plain workspace mode is the default and is unchanged.
 - Every change of a repository's kcp state is a commit on the orphan branch
-  `open-architecture/<repository>` (arch.yaml, specs/, status/, context/,
-  changes/, graph/*.jsonl), written with git plumbing so the tree, index and
-  HEAD are never touched. `specctl sync --repo <path>` merges a reviewed edit on
-  that branch back into kcp by delta key (writing with `origin: git`, so specd
-  realizes it); the same key moved on both sides is reported and kept from
-  kcp. A realize commit carries code only, with `Spec-Change` and
-  `Open-Architecture` trailers.
+  `open-architecture/<repository>` (arch.yaml, repository.yaml, specs/, status/,
+  context/, changes/, CHANGES.md on a feature branch, graph/*.jsonl), written
+  with git plumbing so the tree, index and HEAD are never touched; commit
+  subjects name the context and the change and spec commits carry `Spec-Change:`
+  trailers. See "Specs on an orphan branch". `specctl sync --repo <path>` merges
+  a reviewed edit on that branch back into kcp by delta key (writing with
+  `origin: git`, so specd realizes it); the same key moved on both sides is
+  reported and kept from kcp. A realize commit carries code only, with
+  `Spec-Change` and `Open-Architecture` trailers.
 - `impl/piagent` is the pi host over the same agent contract, with the npm
   package as its default command, and the pi extension writes
   `(PiMemory)-[:SPECIFIES]->(SpecRequirement)` for the requirements a remembered
@@ -1249,6 +1251,50 @@ tenant A that drifts only tenant A, the orphan branch with one commit per change
 a reviewed branch edit flowing into kcp, and a conflict on the same key that is
 reported and kept from kcp. The live test
 `TestPhase9TwoTenantsOneExportController` is the same against a real kcp.
+
+## Specs on an orphan branch
+
+Every change of a repository's kcp state is a commit on the orphan branch
+`open-architecture/<repository>`; a checkout on any other code branch persists
+to `open-architecture/<repository>--<branch>` instead, branched off the
+default's, so a pull request's spec never lands in the architecture of `main`.
+The branch is written with git plumbing, so the tree, index and HEAD of the
+checkout are never touched, and it is never checked out beside the code.
+
+| path | holds |
+| --- | --- |
+| `arch.yaml` | the whole repository as generated system contexts |
+| `repository.yaml` | the Repository manifest, its populate state, and the commits every context shares |
+| `specs/<context>.yaml` | each context's declared spec; edit here to change kcp |
+| `status/<context>.yaml` | observed code facts and conditions |
+| `context/<context>.md` | the context's prose and its resolved code references; the spec lives in `specs/` |
+| `changes/<name>.yaml` | each SpecChange: direction, delta, progress, outcome |
+| `CHANGES.md` | on a feature branch: the requirement-level delta against the default branch, and what this branch realized |
+| `graph/*.jsonl` | the context graph, one vertex or edge per line |
+
+The commit subjects name what changed — `spec(<context>): +r.x -r.y ~r.z`,
+`status(<context>): CodeSynced=True observed <commit>`,
+`change(<name>): Pending -> Succeeded` — and a commit that carries a spec edit
+adds one `Spec-Change:` trailer per change behind it. A change record is written
+on a phase transition and at the end, not on every progress record, so a long
+agent run does not add one commit per turn. `changes/` is the branch's attempt
+history: a record the branch carries is never deleted because the kcp watching
+the branch does not hold it.
+
+Every code reference is readable where it appears: `specs/<context>.yaml` and
+`arch.yaml` carry a `codeRefIndex` mapping each codegraph id to
+`name@path:line`, taken from the context's observed facts, and the graph turns
+each of them into a `CodeRef` vertex joined by a `REFERENCES` edge.
+
+The generated `arch.yaml` is not the hand-written document. It is
+`kind: GeneratedArchitecture`,
+`apiVersion: open-architecture.dffml.github.io/v0alpha1`, and its shape is
+`metadata` (`name`, `source`, `branch` — the branch it was written to) and
+`system_contexts`, one entry per context: `id`, `name`, `upstream`, `overlay`,
+`orchestrator`, `depends_on`, `introduces`, `intent`, `requirements`,
+`interfaces`, `code` (the observed files) and `codeRefIndex`. `specctl
+import-arch` reads the hand-written `kind: OpenArchitecture` document instead;
+the two never mix.
 
 ## The open architecture document
 

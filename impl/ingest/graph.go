@@ -176,6 +176,7 @@ func resolveRef(ctx context.Context, database *codegraphsqlite.DB, ref string) (
 		Kind:        node.Kind,
 		Name:        firstNonEmpty(node.QualifiedName, node.Name),
 		FilePath:    node.FilePath,
+		Line:        node.StartLine,
 	}, true, nil
 }
 

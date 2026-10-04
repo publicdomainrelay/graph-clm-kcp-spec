@@ -36,6 +36,18 @@ func shorten(value string) string {
 	return value[:changeNameHashLength]
 }
 
+// EpisodeBase names the change a later attempt repeats: the same context and
+// the same code or spec hash, whatever the attempt's own name is.
+func EpisodeBase(change SpecChange) string {
+	switch change.Spec.Direction {
+	case specapi.DirectionCodeToSpec:
+		return ChangeNameCodeToSpec(change.Spec.SystemContext, change.Spec.FromCommit, change.Spec.ToCommit)
+	case specapi.DirectionSpecToCode:
+		return ChangeNameSpecToCode(change.Spec.SystemContext, change.Spec.ToSpecHash)
+	}
+	return change.Name
+}
+
 const attemptSuffix = "-a"
 
 func AttemptCount(existing []string, base string) int {

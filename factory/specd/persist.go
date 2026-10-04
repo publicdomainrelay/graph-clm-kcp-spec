@@ -117,6 +117,7 @@ func (c *Controller) reconcilePersist(ctx context.Context, namespace, repository
 			"imported", result.Imported,
 			"created", result.Created,
 			"conflicts", result.Conflicts,
+			"deferred", result.Deferred,
 			"pushed", result.Pushed)
 	}
 	return 0, nil
