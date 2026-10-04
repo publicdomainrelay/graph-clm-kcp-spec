@@ -85,7 +85,16 @@ func (c *fakeCluster) PatchStatus(_ context.Context, gvr schema.GroupVersionReso
 	if !ok {
 		return nil, apierrors.NewInternalError(errors.New("status is not an object"))
 	}
-	if err := unstructured.SetNestedMap(updated.Object, normalized, "status"); err != nil {
+	merged := map[string]any{}
+	if existing, ok := updated.Object["status"].(map[string]any); ok {
+		for field, value := range existing {
+			merged[field] = value
+		}
+	}
+	for field, value := range normalized {
+		merged[field] = value
+	}
+	if err := unstructured.SetNestedMap(updated.Object, merged, "status"); err != nil {
 		return nil, err
 	}
 	version, _ := strconv.Atoi(stored.GetResourceVersion())
