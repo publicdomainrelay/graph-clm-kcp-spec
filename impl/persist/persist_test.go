@@ -295,6 +295,9 @@ func TestABranchEditThatCollidesWithKcpIsReportedNotWritten(t *testing.T) {
 	if strings.Join(conflicts, ",") != "calc: intent" {
 		t.Fatalf("status conflicts = %v", conflicts)
 	}
+	if message := git(t, repo, "log", "-1", "--format=%B", oabranch.Branch("calc")); !strings.Contains(message, "Conflict: calc intent kept from kcp over branch commit") {
+		t.Fatalf("the conflict is not in the branch history:\n%s", message)
+	}
 }
 
 func TestRestoreRebuildsKcpFromABranchOnTheRemote(t *testing.T) {

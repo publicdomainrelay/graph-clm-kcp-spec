@@ -138,7 +138,7 @@ func Persist(ctx context.Context, options Options) (Result, error) {
 		objects, commits := oabranch.TouchedObjects(plan, current.snapshot, func(kind, name string) string {
 			return current.origins[kind+"/"+name]
 		})
-		commit, err := store.Commit(ctx, ref, tip, plan, oabranch.Message(options.Repository, plan, objects, commits))
+		commit, err := store.Commit(ctx, ref, tip, plan, oabranch.Message(options.Repository, plan, objects, commits, conflictLines(result.Conflicts, tip)...))
 		if errors.Is(err, oagit.ErrRaced) {
 			continue
 		}
@@ -290,6 +290,17 @@ func record(ctx context.Context, options Options, repository spec.Repository, re
 		return fmt.Errorf("persist: record %s on repository %s: %w", result.Commit, repository.Name, err)
 	}
 	return nil
+}
+
+func conflictLines(conflicts map[string][]string, branchCommit string) []string {
+	lines := []string{}
+	for context, keys := range conflicts {
+		for _, key := range keys {
+			lines = append(lines, fmt.Sprintf("%s %s kept from kcp over branch commit %s", context, key, branchCommit))
+		}
+	}
+	sort.Strings(lines)
+	return lines
 }
 
 func equalStatus(left, right spec.OpenArchitectureStatus) bool {

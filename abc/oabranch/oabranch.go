@@ -48,6 +48,8 @@ const (
 	SpecChangeTrailer = "Spec-Change"
 
 	OpenArchitectureTrailer = "Open-Architecture"
+
+	ConflictTrailer = "Conflict"
 )
 
 func Branch(repository string) string {
@@ -495,7 +497,7 @@ type ObjectRef struct {
 	Origin string
 }
 
-func Message(repository string, plan Plan, objects []ObjectRef, codeCommits []string) string {
+func Message(repository string, plan Plan, objects []ObjectRef, codeCommits []string, conflicts ...string) string {
 	builder := strings.Builder{}
 	fmt.Fprintf(&builder, "open-architecture: %s: %s\n\n", repository, summary(plan))
 	for _, path := range plan.Added {
@@ -536,6 +538,14 @@ func Message(repository string, plan Plan, objects []ObjectRef, codeCommits []st
 		}
 		previous = commit
 		fmt.Fprintf(&builder, "%s: %s\n", CodeCommitTrailer, commit)
+	}
+	sortedConflicts := append([]string{}, conflicts...)
+	sort.Strings(sortedConflicts)
+	if len(sortedConflicts) > 0 && len(commits) == 0 {
+		builder.WriteString("\n")
+	}
+	for _, conflict := range sortedConflicts {
+		fmt.Fprintf(&builder, "%s: %s\n", ConflictTrailer, conflict)
 	}
 	return builder.String()
 }
