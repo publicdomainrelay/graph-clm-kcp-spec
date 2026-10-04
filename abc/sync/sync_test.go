@@ -149,6 +149,69 @@ func TestMigrateDeclaredLeavesASpecWithNothingToMigrateAlone(t *testing.T) {
 	}
 }
 
+func TestReanchorRefsFollowsASymbolThatMovedLines(t *testing.T) {
+	previous := spec.ObservedFacts{Interfaces: []spec.ObservedInterface{
+		{Name: "Add", Kind: "function", File: "calc/calc.go", Line: 4, CodegraphID: "function:aaa"},
+		{Name: "Multiply", Kind: "function", File: "calc/calc.go", Line: 9, CodegraphID: "function:bbb"},
+		{Name: "Gone", Kind: "function", File: "calc/calc.go", Line: 20, CodegraphID: "function:zzz"},
+	}}
+	observed := spec.ObservedFacts{Interfaces: []spec.ObservedInterface{
+		{Name: "Add", Kind: "function", File: "calc/calc.go", Line: 6, CodegraphID: "function:ccc"},
+		{Name: "Multiply", Kind: "function", File: "calc/calc.go", Line: 11, CodegraphID: "function:ddd"},
+	}}
+	declared := spec.SystemContextSpec{
+		CodeRefs: []string{"function:aaa", "file:calc/calc.go"},
+		Requirements: []spec.Requirement{
+			{ID: "r.add", CodeRefs: []string{"function:aaa", "Add"}},
+			{ID: "r.mul", CodeRefs: []string{"function:bbb"}},
+			{ID: "r.gone", CodeRefs: []string{"function:zzz"}},
+			{ID: "r.file", CodeRefs: []string{"file:calc/calc.go"}},
+		},
+	}
+	got := ReanchorRefs(declared, previous, observed)
+	if got.CodeRefs[0] != "function:ccc" || got.CodeRefs[1] != "file:calc/calc.go" {
+		t.Errorf("context refs = %v", got.CodeRefs)
+	}
+	if refs := got.Requirements[0].CodeRefs; len(refs) != 2 || refs[0] != "function:ccc" || refs[1] != "Add" {
+		t.Errorf("r.add refs = %v", refs)
+	}
+	if refs := got.Requirements[1].CodeRefs; len(refs) != 1 || refs[0] != "function:ddd" {
+		t.Errorf("r.mul refs = %v", refs)
+	}
+	if refs := got.Requirements[2].CodeRefs; len(refs) != 1 || refs[0] != "function:zzz" {
+		t.Errorf("a symbol that is gone must stay unresolved, not point elsewhere: %v", refs)
+	}
+	if refs := got.Requirements[3].CodeRefs; len(refs) != 1 || refs[0] != "file:calc/calc.go" {
+		t.Errorf("r.file refs = %v", refs)
+	}
+	if declared.Requirements[0].CodeRefs[0] != "function:aaa" {
+		t.Error("ReanchorRefs mutated the spec it was given")
+	}
+	if unresolved := UnresolvedCodeRefs(got.Requirements[:2], observed); len(unresolved) > 0 {
+		t.Errorf("the re-anchored requirements do not resolve: %v", unresolved)
+	}
+}
+
+func TestReanchorRefsLeavesAMovedNameAndAnUnmovedIDAlone(t *testing.T) {
+	observed := spec.ObservedFacts{Interfaces: []spec.ObservedInterface{
+		{Name: "Add", Kind: "function", File: "calc/calc.go", Line: 4, CodegraphID: "function:aaa"},
+	}}
+	declared := spec.SystemContextSpec{
+		Requirements: []spec.Requirement{{ID: "r.add", CodeRefs: []string{"function:aaa"}}},
+	}
+	if got := ReanchorRefs(declared, spec.ObservedFacts{}, observed); !reflect.DeepEqual(got, declared) {
+		t.Errorf("an unchanged id moved: %+v", got)
+	}
+	twice := spec.ObservedFacts{Interfaces: []spec.ObservedInterface{
+		{Name: "Add", Kind: "function", File: "calc/calc.go", Line: 8, CodegraphID: "function:ccc"},
+		{Name: "Add", Kind: "function", File: "calc/other.go", Line: 3, CodegraphID: "function:eee"},
+	}}
+	got := ReanchorRefs(declared, observed, twice)
+	if got.Requirements[0].CodeRefs[0] != "function:aaa" {
+		t.Errorf("an ambiguous name picked a symbol: %v", got.Requirements[0].CodeRefs)
+	}
+}
+
 func TestPartitionFactsNamesRootFilesAfterTheRepository(t *testing.T) {
 	partitions := PartitionFacts(Facts{
 		Files: []SourceFile{{Path: "main.go", Language: "go"}},

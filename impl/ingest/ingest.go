@@ -338,6 +338,8 @@ func ingestPartition(
 		merged.DependsOn = specsync.DependencyRefs(partition.DependsOn)
 	}
 	merged.CodeRefs = mergeCodeRefs(merged.CodeRefs, observed.Files)
+	merged = specsync.ReanchorRefs(merged, existingContext.Status.SyncedObserved, observed)
+	merged = specsync.ReanchorRefs(merged, existingContext.Status.Observed, observed)
 	merged = specsync.MigrateDeclared(merged, observed)
 
 	specChanged := !reflect.DeepEqual(merged, previousSpec)

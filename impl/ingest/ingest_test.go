@@ -454,6 +454,93 @@ func storedContext(t *testing.T, cluster *fakeCluster, name string) *spec.System
 	return context
 }
 
+func TestRunReanchorsCodeRefsWhenAnEditShiftsLines(t *testing.T) {
+	fixture.Require(t, "codegraph", "git")
+	repoPath := fixture.Copy(t, "calc")
+	cluster := newFakeCluster()
+	ctx := context.Background()
+	if _, err := Run(ctx, cluster, Options{RepoPath: repoPath, Commit: "cafebabe"}); err != nil {
+		t.Fatal(err)
+	}
+
+	before := storedContext(t, cluster, "calc")
+	addRef := observedRef(t, before, "Add")
+	multiplyRef := observedRef(t, before, "Multiply")
+	before.Spec.Interfaces = nil
+	for _, entry := range before.Status.Observed.Interfaces {
+		before.Spec.Interfaces = append(before.Spec.Interfaces, spec.Interface{
+			Name: entry.Name, Kind: entry.Kind, Signature: entry.Signature, File: entry.File,
+		})
+	}
+	before.Spec.Requirements = []spec.Requirement{
+		{ID: "r.add", Level: spec.LevelMust, Text: "Add returns the sum.", CodeRefs: []string{addRef}},
+		{ID: "r.multiply", Level: spec.LevelMust, Text: "Multiply returns the product.", CodeRefs: []string{multiplyRef}},
+	}
+	object, err := kcpclient.Unstructured(before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cluster.Apply(ctx, object); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(ctx, cluster, Options{RepoPath: repoPath, Commit: "cafecafe"}); err != nil {
+		t.Fatal(err)
+	}
+	seeded := storedContext(t, cluster, "calc")
+	if synced := conditionOf(seeded.Status.Conditions, specapi.ConditionCodeSynced); synced == nil || synced.Status != metav1.ConditionTrue {
+		t.Fatalf("the seeded requirements do not start CodeSynced: %+v", seeded.Status.Conditions)
+	}
+
+	source := filepath.Join(repoPath, "calc", "calc.go")
+	code, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, append([]byte("// a realized edit above every symbol\n// shifts every id below it\n"), code...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(ctx, cluster, Options{RepoPath: repoPath, Commit: "deadbeef"}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := storedContext(t, cluster, "calc")
+	if after.Status.Observed.Interfaces == nil {
+		t.Fatal("no observed interfaces")
+	}
+	newAdd := observedRef(t, after, "Add")
+	newMultiply := observedRef(t, after, "Multiply")
+	if newAdd == addRef || newMultiply == multiplyRef {
+		t.Fatalf("the edit did not move the ids: %s, %s", newAdd, newMultiply)
+	}
+	refs := map[string]string{}
+	for _, requirement := range after.Spec.Requirements {
+		if len(requirement.CodeRefs) != 1 {
+			t.Fatalf("%s refs = %v", requirement.ID, requirement.CodeRefs)
+		}
+		refs[requirement.ID] = requirement.CodeRefs[0]
+	}
+	if refs["r.add"] != newAdd || refs["r.multiply"] != newMultiply {
+		t.Fatalf("the untouched requirements went stale: %v, want %s and %s", refs, newAdd, newMultiply)
+	}
+	if after.Spec.Requirements[0].Text != "Add returns the sum." {
+		t.Errorf("the edit rewrote requirement text: %q", after.Spec.Requirements[0].Text)
+	}
+	if synced := conditionOf(after.Status.Conditions, specapi.ConditionCodeSynced); synced == nil || synced.Status != metav1.ConditionTrue {
+		t.Errorf("CodeSynced = %+v, want True", synced)
+	}
+}
+
+func observedRef(t *testing.T, context *spec.SystemContext, name string) string {
+	t.Helper()
+	for _, entry := range context.Status.Observed.Interfaces {
+		if entry.Name == name {
+			return entry.CodegraphID
+		}
+	}
+	t.Fatalf("%s is not observed: %+v", name, context.Status.Observed.Interfaces)
+	return ""
+}
+
 func TestMergeCodeRefs(t *testing.T) {
 	merged := mergeCodeRefs([]string{"function:Add", "file:stale.go"}, []string{"calc/calc.go", "calc/calc_test.go"})
 	want := []string{"calc/calc_test.go", "calc/calc.go", "function:Add"}
