@@ -34,7 +34,8 @@ sequenceDiagram
     H->>K: arch_edit: 10 requirement changes in 2 contexts
     S->>S: one batch: every pending SpecToCode change of the repository
     S->>R: every delta, one worktree, one agent run
-    R->>G: edits, go test ./... gates, one commit lands on BRANCH
+    R->>R: go test ./... gates, then acceptance: accept.sh brings the market up live
+    R->>G: one commit lands on BRANCH
     S->>G: open-architecture/deno-kcp--BRANCH, Code-Commit trailer
     U->>G: git push, gh pr create
 ```
@@ -259,7 +260,142 @@ Requirements the harness added to `deploy-examples-atproto-market` in run 1:
   `Spec-Change:` trailer per member. The same sentence now lands as a single
   change on the first attempt, and a failure whose branch moved under it is
   retried once on the new base without counting against the attempt cap.
-- **"Running" is checked offline.** The manifests decode, fit the installed
-  schemas, and `apply.sh` applies them, but neither run brought the market
-  stack up live (provider, OpenBao, PLC, relay, both PDSes, the bidder). The
-  live `apply.sh` run is the check left to do, and PR #1 says so.
+- **"Running" is checked offline: closed by the live acceptance below.** The
+  manifests decode, fit the installed schemas and `apply.sh` applies them, and
+  the example now carries `deploy/examples/atproto/market/accept.sh`, realized
+  through the same flow and wired as the `deno-kcp` Repository's gating
+  `spec.acceptance` step, which brings the whole market up on its own kcp, kine
+  and OpenBao and reaches every workload. It is red: the market does not come up
+  at all, for a defect in kcp-libs that no offline gate could see. See
+  [Live acceptance](#live-acceptance).
+
+## Live acceptance
+
+Part C of plan 0002 asks the worked example to stop stopping at "the manifests
+decode": bring the market up and reach it. This was done on the same PR branch,
+entirely through the spec flow, by the harness acting as operator -- it ran
+things in the clone, and never edited a file in it.
+
+### The requirement
+
+One `MUST` requirement went into the `deploy-examples-atproto-market` context,
+`r.live-acceptance-script`, naming `deploy/examples/atproto/market/accept.sh`
+and stating its behaviour exactly: a throwaway state directory it owns
+(`ACCEPT_ROOT`), three kernel-assigned ports for kcp, kine and OpenBao, the
+provider built and pointed at that OpenBao, `apply.sh` run against it, and then
+one pass/fail line per check -- `apply.sh` exit 0; `plc`, `relay`, both `pds`
+and `bidder` Running and ready; `verifier` Succeeded; bob's PDS answering on
+`pds.default.bob.svc.kcp.local` (the provider's readiness probe through the
+shim) and on `http://127.0.0.1:2585/xrpc/_health`; the bidder answering on its
+name and on `http://127.0.0.1:2586/oauth-client-metadata.json`; and the five
+long-running pods still up ten seconds later. The intent paragraph gained a
+sentence saying the example carries its own live acceptance.
+
+The edit was written with the CLM bridge, exactly as a model host would write
+it:
+
+```bash
+specctl clm render --context deploy-examples-atproto-market > ctx.md
+# edit ctx.md: the prose, and one more entry under requirements
+specctl clm apply  --context deploy-examples-atproto-market < ctx.md
+# specctl clm apply: deploy-examples-atproto-market applied (+1 ~1)
+```
+
+specd raised `deploy-examples-atproto-market-s2c-48cbbf77ef57`, the realize
+agent (DeepSeek with `cc-clm-mod`, contained to its worktree) wrote
+`accept.sh` (252 lines) and a README section, `go test ./...` passed, and one
+commit landed: `a41ca4a realize deploy-examples-atproto-market: +1`. The spec
+edit and the commit took about four minutes together.
+
+Then the Repository was told to gate on it, in the clone's own kcp:
+
+```bash
+kubectl patch repository deno-kcp --type merge -p \
+  '{"spec":{"acceptance":[{"name":"market-live-acceptance",
+    "command":["bash","deploy/examples/atproto/market/accept.sh"],
+    "timeoutSeconds":1200,"gate":true}]}}'
+specctl accept --repo .
+```
+
+### The result: red, and not deno-kcp's fault
+
+```
+$ specctl accept --repo .
+accept market-live-acceptance: failed (exit 1, 276.6s)
+  results:
+    check                                result evidence
+    apply.sh                             FAIL exit=1
+    denopod root:global/plc              FAIL phase=missing ready=missing
+    denopod root:relay/relay             FAIL phase=missing ready=missing
+    denopod root:alice/pds               FAIL phase=missing ready=missing
+    denopod root:bob/pds                 FAIL phase=missing ready=missing
+    denopod root:bob/bidder              FAIL phase=missing ready=missing
+    denopod root:alice/verifier          FAIL phase=missing
+    bob pds on its name                  FAIL ready=missing probe=kcpdns pds.default.bob.svc.kcp.local /xrpc/_health
+    bob pds on the host                  FAIL GET http://127.0.0.1:2585/xrpc/_health -> 000000
+    bidder on its name                   FAIL ready=missing probe=kcpdns bidder.default.bob.svc.kcp.local /oauth-client-metadata.json
+    bidder on the host                   FAIL GET http://127.0.0.1:2586/oauth-client-metadata.json -> 000000
+    still up root:global/plc             FAIL phase=missing ready=missing after 10s
+    still up root:relay/relay            FAIL phase=missing ready=missing after 10s
+    still up root:alice/pds              FAIL phase=missing ready=missing after 10s
+    still up root:bob/pds                FAIL phase=missing ready=missing after 10s
+    still up root:bob/bidder             FAIL phase=missing ready=missing after 10s
+  accept: fail
+specctl accept: market-live-acceptance failed (exit 1) and gates the commit
+```
+
+`apply.sh` never gets past its OpenBao gate (`the OpenBao namespace for
+root:global never became ready`), so not one workload is applied. The provider
+log names the cause:
+
+```
+level=WARN msg="openbao: provisioning failed" namespace=global.default
+  err="openbao: GET /v1/pki/cert/ca -> HTTP 400: no default issuer currently configured"
+```
+
+`kcp-libs/impl/openbaoclient.CASerial` (and `CAChain`) map only HTTP 404 to
+`pki.ErrNoAuthority`. OpenBao answers `GET /v1/pki/cert/ca` with HTTP 400 `no
+default issuer currently configured` on a pki mount with no issuer -- which is
+exactly what `impl/pkiprovisioner.ensureRoot` creates, because it calls
+`EnsureMount` and then reads the CA. So `EnsureAuthority` fails on every fresh
+vault, no namespace gets an intermediate, no DenoPod gets a certificate, and
+`apply.sh` refuses to continue.
+
+That the defect is outside deno-kcp, and predates the PR, is not an inference:
+
+```bash
+cd deno-kcp
+DENO_KCP_REQUIRE_LIVE=1 go test ./test/integration/ \
+  -run TestOpenBaoAuthorityIssuesTheCertificateADenoPodServesWith
+# provider.log: ... err="openbao: GET /v1/pki/cert/ca -> HTTP 400: no default issuer ..."
+# --- FAIL: TestOpenBaoAuthorityIssuesTheCertificateADenoPodServesWith (139.35s)
+```
+
+The repository's own live test fails identically, against the OpenBao pinned in
+`third_party/openbao`, with no market manifest involved; and the commit that
+moved the client into kcp-libs (`a24f43b`) is on `main`. The fix is one
+condition in kcp-libs: read that 400 as `pki.ErrNoAuthority`.
+
+### Reading this
+
+- **The flow worked.** A requirement, realized by an agent, verified by the
+  repository's own tests, gated by a live run of the thing itself -- and the
+  live run found what the offline gate structurally could not.
+- **The flow did not "fix" anything here, because there was nothing in deno-kcp
+  to fix.** Two spec edits, both landed first try. The failure is in a
+  dependency, and the acceptance is what produced the evidence for it in five
+  minutes instead of an argument.
+- **A gating step that cannot pass stops the line.** With `gate: true`, every
+  `SpecToCode` realization for deno-kcp now ends `Failed` until kcp-libs is
+  fixed. That is the honest state -- it is what "the example does not come up"
+  should mean -- and it is also why the cosmetic `000000` in the two host checks
+  (`curl` writes `000` and the fallback appends another) is left in place: fixing
+  it would need the gate relaxed first.
+- **Reproduce in one command,** from a clone with the siblings beside it:
+
+  ```bash
+  for r in kcp-libs atproto-market atproto-relay hono-pds typescript-helpers policy-engine; do
+    git clone -q https://github.com/publicdomainrelay/$r ../$r
+  done
+  bash deploy/examples/atproto/market/accept.sh   # ~5 minutes; exit 1 today
+  ```

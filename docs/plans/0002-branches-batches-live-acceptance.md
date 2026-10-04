@@ -206,9 +206,56 @@ line names the instance root, `Stop` waits for the process to be gone after
 SIGTERM and again after SIGKILL, and `specctl down` fails, keeping its session,
 when a process is still alive.
 
-**Left (deno-kcp half).** The live market acceptance run on deno-kcp's PR
-branch, its output in `docs/examples/deno-kcp-pr.md`, and the PR #1 follow-up:
-those belong to the deno-kcp repository and its own spec flow.
+**Shipped (deno-kcp half), and what it found.** The acceptance run happened, on
+deno-kcp's PR branch, through deno-kcp's own spec flow: one `MUST` requirement
+(`r.live-acceptance-script`) added to the `deploy-examples-atproto-market`
+context with `specctl clm apply`, realized first try as
+`a41ca4a realize deploy-examples-atproto-market: +1`
+(`deploy/examples/atproto/market/accept.sh`, 252 lines, plus a README section),
+and the `deno-kcp` Repository's `spec.acceptance` set to run it as a gating step
+(`market-live-acceptance`, `gate: true`, 1200s). `specctl accept` runs it in
+4 min 37 s and exits 1. The design sketch's expectation that the first live run
+would show a small deno-kcp gap -- a bidder flag, a port, a verifier that cannot
+see bob -- is wrong in an instructive way: the run shows nothing about deno-kcp
+at all, because `apply.sh` stops at its OpenBao gate and no workload is ever
+applied. `kcp-libs/impl/openbaoclient.CASerial` maps only HTTP 404 to
+`pki.ErrNoAuthority`, and OpenBao answers `GET /v1/pki/cert/ca` with HTTP 400
+`no default issuer currently configured` on a pki mount with no issuer -- the
+state `impl/pkiprovisioner.ensureRoot` creates by calling `EnsureMount` and then
+reading the CA. So `EnsureAuthority` fails on every fresh vault, no namespace is
+provisioned an intermediate, no DenoPod is issued a certificate, and the example
+never starts. That is outside deno-kcp and outside this repository's remaining
+work: the commit that moved the client into kcp-libs (`a24f43b`) is on deno-kcp's
+`main`, and deno-kcp's own live test
+`TestOpenBaoAuthorityIssuesTheCertificateADenoPodServesWith` fails with the same
+message against the OpenBao pinned in `third_party/openbao`. The fix is one
+condition in kcp-libs (read that 400 as `pki.ErrNoAuthority`); until then the
+gate is red and blocks that repository's realizations, deliberately. The whole
+run, the table and the PR #1 follow-up are in `docs/examples/deno-kcp-pr.md`
+(see [Live acceptance](examples/deno-kcp-pr.md#live-acceptance)).
+
+Two findings about the flow itself came out of the run and are worth a phase:
+
+- **A gating acceptance that cannot pass freezes a repository.** `gate: true`
+  makes every `SpecToCode` realization of that repository end `Failed`, so a
+  spec change can only land by relaxing the Repository's acceptance from
+  outside the flow. That is the right default -- a red live acceptance should
+  stop the line -- but it needs a stated escape (for example `specctl accept
+  --override` recording a reason on the change) rather than a manual
+  `kubectl patch`.
+- **`specctl restore` cannot rebuild `SpecChange` records.** A `SpecChange`
+  keeps its outcome in the `status` subresource, and a CRD's status is dropped
+  when it is applied, so restoring an architecture into a fresh kcp rebuilds the
+  Repository and the SystemContexts but not the change history -- the branch's
+  `changes/` then re-renders with only the new run's records. (Re-applying the
+  old records by hand is worse than losing them: they arrive without status,
+  read as `Pending`, and specd re-realizes them.) The restore should rebuild
+  them as historical records without a phase, or the branch should say which
+  part of itself is not restorable.
+- *Unrelated, found while reading the same tree:* the runtime's host check
+  prints `000000` when nothing is listening (`curl` writes `000`, the fallback
+  appends another). Cosmetic, and left alone on purpose: fixing it needs the
+  gate relaxed first.
 
 ## Order
 

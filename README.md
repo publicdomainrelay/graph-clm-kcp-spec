@@ -291,10 +291,24 @@ exists, and the architecture branch follows the code branch
 the architecture of `main`. Since then one spec edit is realized as one change
 — one realization per Repository at a time, every pending change of it in the
 same batch and the same commit — so the registry change no longer races the
-example change that its files depend on. What is still weak: "running" is
-checked offline (manifests decode, fit the schemas, and `apply.sh` applies
-them), not by bringing the market stack up live. Details and the full table:
-[`docs/examples/deno-kcp-pr.md`](docs/examples/deno-kcp-pr.md#analysis).
+example change that its files depend on. The offline-only weak point is closed
+and the answer is not the one that was hoped for. The example now carries its own
+live acceptance, `deploy/examples/atproto/market/accept.sh`, written as one
+`MUST` requirement and realized through the same flow on the PR branch, and the
+`deno-kcp` Repository's `spec.acceptance` runs it as a gating step; `specctl
+accept` brings the whole market up on its own kcp, kine and OpenBao and reads
+every workload back. It is **red**, and not because of anything in deno-kcp: no
+workload is ever applied, because `apply.sh` stops at its OpenBao gate. kcp-libs
+reads OpenBao's HTTP 400 `no default issuer currently configured` on a fresh
+`pki` mount as a failure instead of as "no authority yet", so no namespace is
+ever provisioned an intermediate and no DenoPod is issued a certificate.
+deno-kcp's own live test `TestOpenBaoAuthorityIssuesTheCertificateADenoPodServesWith`
+fails with the same message against the OpenBao pinned in `third_party/openbao`,
+and the commit that moved the client into kcp-libs is on `main`, so the defect
+predates the pull request and belongs to that repository. It is exactly the
+failure the offline gate could not see, which is what part C was for. Details,
+the pass/fail table and the root cause:
+[`docs/examples/deno-kcp-pr.md`](docs/examples/deno-kcp-pr.md#live-acceptance).
 
 ## Status
 
