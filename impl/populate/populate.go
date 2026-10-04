@@ -94,6 +94,8 @@ func Run(ctx context.Context, options Options) (Result, error) {
 			Partition:      repository.Partition(),
 			Include:        includeOf(repository),
 			Exclude:        excludeOf(repository),
+			RootContext:    repository.RootContext(),
+			ArchPath:       repository.ArchPath(),
 			Writer:         options.Writer,
 		})
 		if err != nil {

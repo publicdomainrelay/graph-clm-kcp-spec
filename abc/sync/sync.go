@@ -3,6 +3,7 @@ package specsync
 import (
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,17 +46,30 @@ func InterfaceKey(symbol Symbol) string {
 	return symbol.Name
 }
 
+type Import struct {
+	From string
+
+	Path string
+}
+
 type Facts struct {
-	Commit  string
+	Commit string
+
 	Files   []SourceFile
 	Symbols []Symbol
+
+	Imports []Import
 }
 
 type Partition struct {
 	Name      string
 	Directory string
+
 	Files     []string
+	TreeFiles []string
 	Symbols   []Symbol
+
+	DependsOn []string
 }
 
 var interfaceKinds = map[string]bool{
@@ -102,7 +116,17 @@ type PartitionOptions struct {
 	Roots []string
 
 	RepositoryName string
+
+	TreeFiles []string
+
+	ModulePath string
+
+	RootDirs []string
+
+	RootContext bool
 }
+
+var DefaultRootDirs = []string{"docs"}
 
 func PartitionFacts(facts Facts, repositoryName string) []Partition {
 	return PartitionFactsWith(facts, PartitionOptions{RepositoryName: repositoryName})
@@ -110,16 +134,22 @@ func PartitionFacts(facts Facts, repositoryName string) []Partition {
 
 func PartitionFactsWith(facts Facts, options PartitionOptions) []Partition {
 	files := filterFiles(facts.Files, options.Include, options.Exclude)
-	switch options.Mode {
-	case spec.PartitionPackage:
-		roots := options.Roots
-		if len(roots) == 0 {
-			roots = []string{"."}
-		}
-		return partitionsByKey(files, facts.Symbols, options.RepositoryName, roots)
-	default:
-		return partitionsByKey(files, facts.Symbols, options.RepositoryName, nil)
+	roots := options.Roots
+	if options.Mode == spec.PartitionPackage && len(roots) == 0 {
+		roots = []string{"."}
 	}
+	if options.Mode != spec.PartitionPackage {
+		roots = nil
+	}
+	partitions := partitionsByKey(files, facts.Symbols, options.RepositoryName, roots)
+	return attachTreeFiles(partitions, options.TreeFiles, options)
+}
+
+func rootDirs(options PartitionOptions) []string {
+	if len(options.RootDirs) > 0 {
+		return options.RootDirs
+	}
+	return DefaultRootDirs
 }
 
 func partitionsByKey(files []SourceFile, symbols []Symbol, repositoryName string, roots []string) []Partition {
@@ -155,6 +185,105 @@ func partitionsByKey(files []SourceFile, symbols []Symbol, repositoryName string
 		partitions[index].Symbols = symbolsUnder(partitions[index], symbols)
 	}
 	return partitions
+}
+
+func attachTreeFiles(partitions []Partition, treeFiles []string, options PartitionOptions) []Partition {
+	if len(treeFiles) == 0 {
+		return partitions
+	}
+	byDirectory := map[string]int{}
+	for index := range partitions {
+		byDirectory[partitions[index].Directory] = index
+	}
+	owner := map[string]int{}
+	root := -1
+	for _, file := range treeFiles {
+		if IsLegacySpecMirrorPath(file) || file == "" {
+			continue
+		}
+		target := treeFileDirectory(file, byDirectory, options)
+		if target == "" {
+			continue
+		}
+		index, ok := byDirectory[target]
+		if !ok {
+			if root < 0 {
+				root = len(partitions)
+				partitions = append(partitions, Partition{Directory: target})
+			}
+			index = root
+		}
+		owner[file] = index
+	}
+	used := map[string]int{}
+	for index := range partitions {
+		used[partitions[index].Name]++
+	}
+	for _, file := range treeFiles {
+		index, ok := owner[file]
+		if !ok {
+			continue
+		}
+		if partitions[index].Directory == "." && partitions[index].Name == "" {
+			name := partitionName(".", options.RepositoryName)
+			if used[name] > 0 {
+				name = name + "-root"
+			}
+			partitions[index].Name = uniqueName(name, used)
+		}
+		if slices.Contains(partitions[index].Files, file) || slices.Contains(partitions[index].TreeFiles, file) {
+			continue
+		}
+		partitions[index].TreeFiles = append(partitions[index].TreeFiles, file)
+	}
+	for index := range partitions {
+		sort.Strings(partitions[index].TreeFiles)
+	}
+	sort.SliceStable(partitions, func(left, right int) bool {
+		return partitions[left].Directory < partitions[right].Directory
+	})
+	return partitions
+}
+
+func treeFileDirectory(file string, byDirectory map[string]int, options PartitionOptions) string {
+	directory := path.Dir(file)
+	if directory == "" {
+		directory = "."
+	}
+	roots := options.Roots
+	if options.Mode != spec.PartitionPackage {
+		roots = nil
+	}
+	if roots != nil {
+		directory = enclosingRoot(directory, roots)
+	}
+	best := ""
+	for candidate := range byDirectory {
+		if directory == candidate || strings.HasPrefix(directory, candidate+"/") {
+			if len(candidate) > len(best) {
+				best = candidate
+			}
+		}
+	}
+	if best != "" {
+		return best
+	}
+	if options.RootContext && isRootFile(file, rootDirs(options)) {
+		return "."
+	}
+	return ""
+}
+
+func isRootFile(file string, rootDirs []string) bool {
+	if !strings.Contains(file, "/") {
+		return true
+	}
+	for _, dir := range rootDirs {
+		if dir != "" && strings.HasPrefix(file, dir+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 var PackageManifests = []string{
@@ -306,6 +435,25 @@ func uniqueName(name string, used map[string]int) string {
 	}
 }
 
+var generatedFilePrefixes = []string{"zz_generated", "zz_gen"}
+
+var generatedSymbolPrefixes = []string{"DeepCopy"}
+
+func IsGeneratedSymbol(file, name string) bool {
+	base := path.Base(file)
+	for _, prefix := range generatedFilePrefixes {
+		if strings.HasPrefix(base, prefix) {
+			return true
+		}
+	}
+	for _, prefix := range generatedSymbolPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func symbolsUnder(partition Partition, symbols []Symbol) []Symbol {
 	inPartition := map[string]bool{}
 	for _, file := range partition.Files {
@@ -318,6 +466,9 @@ func symbolsUnder(partition Partition, symbols []Symbol) []Symbol {
 			continue
 		}
 		if !symbol.Exported || !IsInterfaceKind(symbol.Kind) {
+			continue
+		}
+		if IsGeneratedSymbol(symbol.File, symbol.Name) || IsGeneratedSymbol(symbol.File, InterfaceKey(symbol)) {
 			continue
 		}
 		if seen[symbol.ID] {
@@ -341,10 +492,108 @@ func symbolsUnder(partition Partition, symbols []Symbol) []Symbol {
 	return out
 }
 
+const dependencyRoot = "."
+
+func PartitionDependencies(partitions []Partition, imports []Import, modulePath string) map[string][]string {
+	byDirectory := map[string]string{}
+	for _, partition := range partitions {
+		byDirectory[partition.Directory] = partition.Name
+	}
+	owner := map[string]string{}
+	for _, partition := range partitions {
+		for _, file := range partition.Files {
+			owner[file] = partition.Name
+		}
+	}
+	dependencies := map[string]map[string]bool{}
+	for _, partition := range partitions {
+		dependencies[partition.Name] = map[string]bool{}
+	}
+	for _, edge := range imports {
+		from, ok := owner[edge.From]
+		if !ok {
+			continue
+		}
+		target, ok := importPartition(edge.Path, modulePath, byDirectory)
+		if !ok || target == from {
+			continue
+		}
+		dependencies[from][target] = true
+	}
+	root := byDirectory[dependencyRoot]
+	for _, partition := range partitions {
+		if root != "" && partition.Name != root {
+			dependencies[partition.Name][root] = true
+		}
+	}
+	out := map[string][]string{}
+	for name, targets := range dependencies {
+		ordered := make([]string, 0, len(targets))
+		for target := range targets {
+			ordered = append(ordered, target)
+		}
+		sort.Strings(ordered)
+		if len(ordered) == 0 {
+			continue
+		}
+		out[name] = ordered
+	}
+	return out
+}
+
+func importPartition(importPath, modulePath string, byDirectory map[string]string) (string, bool) {
+	directory, ok := importDirectory(importPath, modulePath)
+	if !ok {
+		return "", false
+	}
+	best := ""
+	for candidate := range byDirectory {
+		if directory == candidate || strings.HasPrefix(directory, candidate+"/") {
+			if len(candidate) > len(best) {
+				best = candidate
+			}
+		}
+	}
+	if best == "" {
+		return "", false
+	}
+	return byDirectory[best], true
+}
+
+func importDirectory(importPath, modulePath string) (string, bool) {
+	if modulePath == "" || importPath == "" {
+		return "", false
+	}
+	trimmed := strings.TrimSuffix(importPath, "/")
+	if trimmed == modulePath {
+		return ".", true
+	}
+	relative, ok := strings.CutPrefix(trimmed, modulePath+"/")
+	if !ok || relative == "" {
+		return "", false
+	}
+	return relative, true
+}
+
+func DependencyRefs(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		out = append(out, spec.RefPrefixContext+name)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func Observed(partition Partition) spec.ObservedFacts {
 	files := append([]string{}, partition.Files...)
 	sort.Strings(files)
 	files = dedupe(files)
+	treeFiles := append([]string{}, partition.TreeFiles...)
+	sort.Strings(treeFiles)
+	treeFiles = dedupe(treeFiles)
 
 	interfaces := make([]spec.ObservedInterface, 0, len(partition.Symbols))
 	keyed := map[string]bool{}
@@ -363,7 +612,7 @@ func Observed(partition Partition) spec.ObservedFacts {
 			CodegraphID: symbol.ID,
 		})
 	}
-	observed := spec.ObservedFacts{Files: files, Interfaces: interfaces}
+	observed := spec.ObservedFacts{Files: files, TreeFiles: treeFiles, Interfaces: interfaces}
 	observed.Fingerprint = Fingerprint(observed)
 	return observed
 }
@@ -608,7 +857,7 @@ func RunningAdmitted(name string, running []string) bool {
 
 func ResolvableRefs(observed spec.ObservedFacts) map[string]bool {
 	resolvable := map[string]bool{}
-	for _, file := range observed.Files {
+	for _, file := range append(append([]string{}, observed.Files...), observed.TreeFiles...) {
 		resolvable[spec.CodeRefPrefixFile+file] = true
 	}
 	for _, observedInterface := range observed.Interfaces {

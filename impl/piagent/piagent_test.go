@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 )
 
 func fakePi(t *testing.T, dir string) (string, string) {
@@ -42,6 +43,12 @@ func TestSummarizeRunsTheHostAndParsesTheAnswer(t *testing.T) {
 	bundle := agent.ContextBundle{
 		Context:    "calc",
 		Repository: "calc",
+		Observed: spec.ObservedFacts{
+			Files: []string{"calc.go"},
+			Interfaces: []spec.ObservedInterface{
+				{Name: "Add", Kind: "function", Signature: "func Add(a, b int) int", File: "calc.go", Line: 3, CodegraphID: "function:Add"},
+			},
+		},
 	}
 	draft, err := host.Summarize(context.Background(), bundle)
 	if err != nil {

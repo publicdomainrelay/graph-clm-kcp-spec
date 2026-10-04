@@ -209,6 +209,13 @@ Rules:
   types that both offer a method named List stay two describable entries.
 - Prefer the observed facts over the prose. The spec must describe the code
   that is there, not the code you would have written.
+- When this context is a command entrypoint (its files are under cmd/), one
+  requirement must state its configuration surface: each flag, the environment
+  variable behind it, and the default when the flag is absent.
+- Never write an absolute machine path (/home/..., /Users/..., /tmp/...). Name
+  a path inside the repository, or a path the code itself builds.
+- A requirement says what must hold; a list of method or field names alone says
+  nothing. Say what the code does with them.
 `
 
 func RenderPromptWithSections(bundle ContextBundle) (string, []string) {
@@ -273,6 +280,12 @@ func renderObserved(observed spec.ObservedFacts) string {
 	builder.WriteString("files:\n")
 	for _, file := range observed.Files {
 		fmt.Fprintf(&builder, "- %s\n", file)
+	}
+	if len(observed.TreeFiles) > 0 {
+		builder.WriteString("tracked files the code index does not cover:\n")
+		for _, file := range observed.TreeFiles {
+			fmt.Fprintf(&builder, "- %s\n", file)
+		}
 	}
 	builder.WriteString("interfaces:\n")
 	for _, declared := range observed.Interfaces {

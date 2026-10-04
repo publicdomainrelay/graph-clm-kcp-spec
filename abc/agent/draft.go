@@ -74,6 +74,12 @@ func ParseDraft(raw string, observed spec.ObservedFacts) (SpecDraft, error) {
 		if text == "" {
 			return SpecDraft{}, fmt.Errorf("agent: requirement %q has no text", id)
 		}
+		if path, found := spec.AbsoluteMachinePath(text); found {
+			return SpecDraft{}, fmt.Errorf("agent: requirement %q names the machine path %s; name a path inside the repository", id, path)
+		}
+		if spec.EnumeratesNames(text) {
+			draft.Warnings = append(draft.Warnings, fmt.Sprintf("requirement %s only enumerates names; say what must hold", id))
+		}
 		kept := []string{}
 		seenRefs := map[string]bool{}
 		for _, ref := range requirement.CodeRefs {
@@ -114,9 +120,12 @@ func ParseDraft(raw string, observed spec.ObservedFacts) (SpecDraft, error) {
 		if name == "" {
 			return SpecDraft{}, fmt.Errorf("agent: interfaces[%d] has no name", index)
 		}
-		if key, ok := keys[name]; ok {
-			name = key
+		key, ok := keys[name]
+		if !ok {
+			draft.Warnings = append(draft.Warnings, fmt.Sprintf("interface %s is not in the observed facts; dropped", name))
+			continue
 		}
+		name = key
 		if seenInterfaces[name] {
 			return SpecDraft{}, fmt.Errorf("agent: interface %q is not unique", name)
 		}
@@ -160,7 +169,7 @@ func observedInterfaceKeys(observed spec.ObservedFacts) map[string]string {
 
 func canonicalRefs(observed spec.ObservedFacts) map[string]string {
 	out := map[string]string{}
-	for _, file := range observed.Files {
+	for _, file := range append(append([]string{}, observed.Files...), observed.TreeFiles...) {
 		ref := spec.CodeRefPrefixFile + file
 		out[ref] = ref
 	}
@@ -214,12 +223,20 @@ func DraftSpec(base spec.SystemContextSpec, draft SpecDraft) spec.SystemContextS
 	return merged
 }
 
-func ValidateDraft(name string, base spec.SystemContextSpec, draft SpecDraft) (spec.SystemContextSpec, spec.Result) {
+func ValidateDraft(name string, base spec.SystemContextSpec, observed spec.ObservedFacts, draft SpecDraft) (spec.SystemContextSpec, spec.Result) {
 	merged := DraftSpec(base, draft)
 	candidate := spec.SystemContext{}
 	candidate.Name = name
 	candidate.Spec = merged
-	return merged, spec.ValidateSystemContext(&candidate)
+	result := spec.ValidateSystemContext(&candidate)
+	if spec.CommandContext(append(append([]string{}, observed.Files...), observed.TreeFiles...)) &&
+		!spec.DeclaresConfigSurface(merged.Requirements) {
+		result.Problems = append(result.Problems, spec.Problem{
+			Path:    "spec.requirements",
+			Message: "a command entrypoint must declare its configuration surface: its flags, the environment variables behind them and their defaults",
+		})
+	}
+	return merged, result
 }
 
 func extractJSON(raw string) string {

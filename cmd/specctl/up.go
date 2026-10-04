@@ -246,7 +246,12 @@ func applyRepository(ctx context.Context, client *kcpclient.Client, record sessi
 	repository.Spec.Source = &spec.RepositorySource{Path: record.Repo}
 	repository.Spec.Branch = branch
 	repository.Spec.Verify = detectVerify(record.Repo)
-	repository.Spec.Populate = &spec.RepositoryPopulate{Partition: spec.PartitionDirectory, Summarize: summarize}
+	repository.Spec.Populate = &spec.RepositoryPopulate{
+		Partition: spec.PartitionDirectory,
+		Summarize: summarize,
+		Root:      true,
+		Arch:      spec.DefaultArchPath,
+	}
 	object, err := kcpclient.Unstructured(&repository)
 	if err != nil {
 		return err
