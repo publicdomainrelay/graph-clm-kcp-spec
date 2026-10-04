@@ -251,19 +251,7 @@ func taskWords(bundle agent.ContextBundle) string {
 // interface, as the id the graph and the spec cite it by. It is derived from
 // the facts, never from the model, so the zone is the same on every run.
 func ResolvedRefs(observed spec.ObservedFacts) []agent.ResolvedRef {
-	out := make([]agent.ResolvedRef, 0, len(observed.Interfaces))
-	for _, observedInterface := range observed.Interfaces {
-		if observedInterface.CodegraphID == "" {
-			continue
-		}
-		out = append(out, agent.ResolvedRef{
-			CodegraphID: observedInterface.CodegraphID,
-			Kind:        observedInterface.Kind,
-			Name:        observedInterface.Name,
-			FilePath:    observedInterface.File,
-		})
-	}
-	return out
+	return agent.ObservedRefs(observed)
 }
 
 // SpecFromCluster is a small helper for callers that already hold an

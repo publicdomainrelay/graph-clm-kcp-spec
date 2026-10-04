@@ -5,6 +5,8 @@ import (
 	"path"
 	"sort"
 	"strings"
+
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 )
 
 // The context document is a real file in the managed repository. The model owns
@@ -114,4 +116,37 @@ func RenderManagedZone(refs []ResolvedRef, budget int) string {
 
 func sortRefs(refs []ResolvedRef) {
 	sort.Slice(refs, func(left, right int) bool { return refs[left].CodegraphID < refs[right].CodegraphID })
+}
+
+func ObservedRefs(observed spec.ObservedFacts) []ResolvedRef {
+	out := make([]ResolvedRef, 0, len(observed.Interfaces))
+	for _, observedInterface := range observed.Interfaces {
+		if observedInterface.CodegraphID == "" {
+			continue
+		}
+		out = append(out, ResolvedRef{
+			CodegraphID: observedInterface.CodegraphID,
+			Kind:        observedInterface.Kind,
+			Name:        observedInterface.Name,
+			FilePath:    observedInterface.File,
+		})
+	}
+	return out
+}
+
+func ContextRefs(contextSpec spec.SystemContextSpec, observed spec.ObservedFacts) []ResolvedRef {
+	refs := ObservedRefs(observed)
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		seen[ref.CodegraphID] = true
+	}
+	for _, codeRef := range contextSpec.CodeRefs {
+		fileRef, ok := FileRef(codeRef)
+		if !ok || seen[fileRef.CodegraphID] {
+			continue
+		}
+		seen[fileRef.CodegraphID] = true
+		refs = append(refs, fileRef)
+	}
+	return refs
 }

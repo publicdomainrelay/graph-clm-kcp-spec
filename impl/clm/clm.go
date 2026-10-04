@@ -20,7 +20,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/bundle"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 )
 
@@ -374,20 +373,7 @@ func writeLive(ctx context.Context, writer graph.Writer, change spec.SpecChange,
 // observed, and the context's own `file:` refs, which are already CodeGraph ids
 // and need no lookup.
 func resolvedRefs(systemContext *spec.SystemContext) []agent.ResolvedRef {
-	refs := bundle.ResolvedRefs(systemContext.Status.Observed)
-	seen := map[string]bool{}
-	for _, ref := range refs {
-		seen[ref.CodegraphID] = true
-	}
-	for _, codeRef := range systemContext.Spec.CodeRefs {
-		fileRef, ok := agent.FileRef(codeRef)
-		if !ok || seen[fileRef.CodegraphID] {
-			continue
-		}
-		seen[fileRef.CodegraphID] = true
-		refs = append(refs, fileRef)
-	}
-	return refs
+	return agent.ContextRefs(systemContext.Spec, systemContext.Status.Observed)
 }
 
 func readContext(ctx context.Context, options Options) (*spec.SystemContext, error) {
