@@ -163,6 +163,9 @@ func TestPhase13CloneUpPersistsAndASecondCloneRestores(t *testing.T) {
 	if !strings.Contains(outline, "decided in clone A") {
 		t.Fatalf("clone B's kcp lacks clone A's decision:\n%s", outline)
 	}
+	phase13Wait(t, "clone B to be populated", func() bool {
+		return strings.Contains(machineB.run(t, specctl, cloneB, "status"), "Populated")
+	})
 	if status := phase13Git(t, cloneB, "status", "--porcelain"); status != "" {
 		t.Fatalf("clone B's tree changed: %q", status)
 	}
