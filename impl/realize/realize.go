@@ -413,7 +413,7 @@ func runAcceptanceStep(ctx context.Context, step spec.AcceptanceStep, dir string
 	process := exec.CommandContext(runCtx, step.Command[0], step.Command[1:]...)
 	process.Dir = dir
 	process.WaitDelay = WaitDelay
-	process.Env = append(os.Environ(), envPairs(step.Env)...)
+	process.Env = stepEnv(step.Env)
 	started := time.Now()
 	output, err := process.CombinedOutput()
 	result.DurationSeconds = time.Since(started).Seconds()
@@ -429,6 +429,21 @@ func runAcceptanceStep(ctx context.Context, step spec.AcceptanceStep, dir string
 	}
 	result.OutputTail = tail(text)
 	return result
+}
+
+func stepEnv(extra map[string]string) []string {
+	if len(extra) == 0 {
+		return os.Environ()
+	}
+	out := make([]string, 0, len(os.Environ())+len(extra))
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if _, replaced := extra[name]; replaced {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return append(out, envPairs(extra)...)
 }
 
 func envPairs(environment map[string]string) []string {
