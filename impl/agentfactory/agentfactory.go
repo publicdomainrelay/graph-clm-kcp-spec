@@ -221,13 +221,17 @@ func (f *Factory) Agent(repository *spec.Repository, dir string) (agent.Agent, e
 		}
 		return scriptedagent.New(scenario), nil
 	case kind == Pi:
+		if len(args) == 0 {
+			args = piagent.DefaultArgs()
+		}
+		extension := absolute(f.options.PiExtension)
 		return piagent.New(piagent.Options{
 			Command:   command,
-			Args:      args,
+			Args:      piArgs(args, extension),
 			Dir:       dir,
 			Timeout:   f.options.Timeout,
 			Env:       f.options.Env,
-			Extension: f.options.PiExtension,
+			Extension: extension,
 		}), nil
 	case kind == ClaudeMod:
 		if err := f.checkMod(); err != nil {
@@ -240,7 +244,7 @@ func (f *Factory) Agent(repository *spec.Repository, dir string) (agent.Agent, e
 		}
 		return claudecli.New(claudecli.Options{
 			Command: command,
-			Args:    modArgs(args, f.options.ClmMod),
+			Args:    modArgs(args, absolute(f.options.ClmMod)),
 			Dir:     dir,
 			Timeout: f.options.Timeout,
 			Env:     f.options.Env,
@@ -263,6 +267,21 @@ func (f *Factory) Agent(repository *spec.Repository, dir string) (agent.Agent, e
 	}), nil
 }
 
+// absolute names a folder the way the model's own working directory can be
+// relied on to reach it. The model runs in the working tree and not in the
+// directory the caller typed the flag in, so a folder left relative would be
+// looked for inside the tree: the failure reads as a missing extension rather
+// than as a path the caller got wrong.
+func absolute(path string) string {
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	if resolved, err := filepath.Abs(path); err == nil {
+		return resolved
+	}
+	return path
+}
+
 // modArgs adds the plugin folder to the model arguments, unless the caller
 // already named one.
 func modArgs(args []string, folder string) []string {
@@ -271,4 +290,21 @@ func modArgs(args []string, folder string) []string {
 		return out
 	}
 	return append(out, "--plugin-dir", folder)
+}
+
+// piArgs adds the extension folder to the model arguments, unless the caller
+// already named one. pi discovers an extension from a settings file, not from
+// the folder holding it, so a controller that was given one has to hand it to
+// the command as well: without this the CLM path would ask the model to edit a
+// document nothing applies, and the scenario would fail for the harness's
+// reason rather than the model's.
+func piArgs(args []string, folder string) []string {
+	if folder == "" {
+		return args
+	}
+	out := append([]string{}, args...)
+	if slices.Contains(out, "--extension") || slices.Contains(out, "-e") {
+		return out
+	}
+	return append(out, "--extension", folder)
 }

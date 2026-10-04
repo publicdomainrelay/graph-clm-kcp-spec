@@ -40,7 +40,7 @@ func (h *harness) driveClm(ctx context.Context, scenario Scenario) error {
 	if err != nil {
 		return err
 	}
-	_, stderr, err := runner.Run(ctx, ClmPrompt(scenario.Context, document, scenario.Request), map[string]string{
+	stdout, stderr, err := runner.Run(ctx, ClmPrompt(scenario.Context, document, scenario.Request), map[string]string{
 		"SPECD_CLM_CONTEXT": scenario.Context,
 		"SPECD_CLM_REPO":    h.dir,
 		"SPECD_CLM_ROOT":    h.dir,
@@ -48,6 +48,11 @@ func (h *harness) driveClm(ctx context.Context, scenario Scenario) error {
 	if err != nil {
 		return fmt.Errorf("eval: the model did not answer for %s: %w: %s", scenario.Context, err, firstLine(stderr))
 	}
+	// What the model said about the document it was asked to change. The
+	// scenario grades the delta the host applied, so a run that applied nothing
+	// has to say why, and the answer is the only evidence there is.
+	h.options.Log.Info("eval: the CLM ask was answered", "context", scenario.Context,
+		"document", document, "answer", firstLine(stdout))
 	return nil
 }
 

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	abceval "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/eval"
+
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 )
@@ -193,6 +195,24 @@ func TestDefaultKubeconfigFallsBackToTheRepositoryState(t *testing.T) {
 	}
 }
 
+// Two checkouts of this repository share nothing but the machine, so an eval
+// run has to be able to name a workspace of its own. The environment fills the
+// default and the flag still wins.
+func TestEvalWorkspaceComesFromTheEnvironment(t *testing.T) {
+	t.Setenv(EnvEvalWorkspace, "")
+	if got := defaultEvalWorkspace(); got != evalWorkspace {
+		t.Errorf("workspace = %q, want %q", got, evalWorkspace)
+	}
+	t.Setenv(EnvEvalWorkspace, "root:specs-eval-p11")
+	if got := defaultEvalWorkspace(); got != "root:specs-eval-p11" {
+		t.Errorf("workspace = %q, want the environment's", got)
+	}
+	t.Setenv(EnvEvalWorkspace, "  ")
+	if got := defaultEvalWorkspace(); got != evalWorkspace {
+		t.Errorf("a blank override must not win: %q", got)
+	}
+}
+
 // `clm render --context <name>` names a SystemContext, and the global --context
 // names a kubeconfig context: the subcommand must not register the same flag
 // twice, which would panic, and must not read the wrong one.
@@ -239,5 +259,18 @@ func TestSyncValidatesItsArguments(t *testing.T) {
 				t.Errorf("exit = %d, want %d", got, testCase.code)
 			}
 		})
+	}
+}
+
+// A skipped scenario is not a failure: the scripted baseline cannot take a CLM
+// scenario, and a baseline run that reports 14 passes and one skip is clean.
+func TestCountFailedLeavesASkippedScenarioOut(t *testing.T) {
+	report := abceval.Report{Scenarios: []abceval.ScenarioReport{
+		{Scenario: "apply-one", Pass: true},
+		{Scenario: "clm", Skipped: true},
+		{Scenario: "apply-two", Pass: false},
+	}}
+	if failed := countFailed(report); failed != 1 {
+		t.Errorf("countFailed = %d, want 1", failed)
 	}
 }

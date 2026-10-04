@@ -100,6 +100,10 @@ func (a *Agent) Command() string {
 	return a.options.Command
 }
 
+func (a *Agent) Args() []string {
+	return a.options.Args
+}
+
 // Summarize asks the model for the JSON contract and reads the answer strictly.
 // A model that wraps the object in a fence is tolerated; a model that answers
 // with an unknown level is not.

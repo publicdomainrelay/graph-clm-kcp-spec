@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -85,15 +86,77 @@ func TestDefaultCommandIsTheNpxPackage(t *testing.T) {
 	}
 }
 
-func TestArgsFromEnvOverridesTheDefaults(t *testing.T) {
-	if got := ArgsFromEnv(); strings.Join(got, " ") != strings.Join(DefaultArgs(), " ") {
-		t.Errorf("ArgsFromEnv = %v, want the defaults", got)
+// TestDefaultArgsNameTheHostedProvider is the guard the eval depends on: every
+// number in docs/eval is taken against the hosted provider, so a default that
+// named a local one would put measurements in the reports that describe a
+// model nobody can reproduce. Local providers are not used in this repository.
+func TestDefaultArgsNameTheHostedProvider(t *testing.T) {
+	args := DefaultArgs()
+	if DefaultProvider != "deepseek" || DefaultModel != "deepseek-flash" {
+		t.Fatalf("the hosted defaults are %s/%s", DefaultProvider, DefaultModel)
 	}
-	t.Setenv(EnvArgs, "--yes @earendil-works/pi-coding-agent@1.0.0 --provider llama-cpp --model m -p")
-	got := ArgsFromEnv()
-	if len(got) != 7 || got[2] != "--provider" {
-		t.Fatalf("ArgsFromEnv = %v", got)
+	if provider := valueOf(t, args, "--provider"); provider != DefaultProvider {
+		t.Errorf("--provider %q, want %s", provider, DefaultProvider)
 	}
+	if model := valueOf(t, args, "--model"); model != DefaultModel {
+		t.Errorf("--model %q, want %s", model, DefaultModel)
+	}
+	if !slices.Contains(args, "--no-session") || !slices.Contains(args, "-ne") {
+		t.Errorf("DefaultArgs leave a session or discover extensions: %v", args)
+	}
+}
+
+// TestNewTakesTheApiKeyFromTheLauncher pins how the pi host gets its credential
+// when the environment has not exported one: the launcher script that carries
+// it for the claude host is read, and the value is handed to the child only.
+func TestNewTakesTheApiKeyFromTheLauncher(t *testing.T) {
+	dir := t.TempDir()
+	launcher := filepath.Join(dir, Launcher)
+	body := "#!/usr/bin/env bash\nexport ANTHROPIC_BASE_URL=\"https://example.invalid\"\nexport ANTHROPIC_API_KEY=\"sk-from-the-launcher\"\nexec claude $@\n"
+	if err := os.WriteFile(launcher, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvAPIKey, "")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	script, envFile := fakePi(t, dir)
+	host := New(Options{Command: script, Dir: dir, Timeout: 30 * time.Second})
+	if _, err := host.Summarize(context.Background(), agent.ContextBundle{Context: "calc"}); err != nil {
+		t.Fatalf("the host did not answer: %v", err)
+	}
+	if environment := readFile(t, envFile); !strings.Contains(environment, EnvAPIKey+"=sk-from-the-launcher") {
+		t.Error("the launcher's credential did not reach the child")
+	}
+}
+
+// TestNewLeavesAnExportedCredentialAlone: a caller that already exported the key
+// owns it, and the launcher is not consulted over it.
+func TestNewLeavesAnExportedCredentialAlone(t *testing.T) {
+	dir := t.TempDir()
+	launcher := filepath.Join(dir, Launcher)
+	if err := os.WriteFile(launcher, []byte("export ANTHROPIC_API_KEY=\"sk-from-the-launcher\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvAPIKey, "sk-exported")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	script, envFile := fakePi(t, dir)
+	host := New(Options{Command: script, Dir: dir, Timeout: 30 * time.Second})
+	if _, err := host.Summarize(context.Background(), agent.ContextBundle{Context: "calc"}); err != nil {
+		t.Fatalf("the host did not answer: %v", err)
+	}
+	if environment := readFile(t, envFile); !strings.Contains(environment, EnvAPIKey+"=sk-exported") {
+		t.Error("the exported credential was replaced")
+	}
+}
+
+func valueOf(t *testing.T, args []string, name string) string {
+	t.Helper()
+	index := slices.Index(args, name)
+	if index < 0 || index+1 >= len(args) {
+		t.Fatalf("%s is not in %v", name, args)
+	}
+	return args[index+1]
 }
 
 // TestNewDefaultsTheCommandAndArgs is the shape check the host needs: a pi

@@ -20,8 +20,9 @@ import (
 // held to the same contract the scripted agent and the claude host are held to.
 //
 // The default command is the npm package (impl/piagent.DefaultCommand), because
-// pi is not installed globally everywhere this repository runs; an environment
-// that must name its own provider or model sets SPECD_PI_ARGS.
+// pi is not installed globally everywhere this repository runs, and the default
+// arguments name the hosted provider every measurement in docs/eval uses. A
+// local provider is not used anywhere in this repository.
 func TestPhase8PiHostSummarizesCalc(t *testing.T) {
 	requireLiveModel(t, "npx", "codegraph")
 
@@ -62,7 +63,6 @@ func TestPhase8PiHostSummarizesCalc(t *testing.T) {
 
 	factory, err := agentfactory.New(agentfactory.Options{
 		Kind:    agentfactory.Pi,
-		Args:    piagent.ArgsFromEnv(),
 		Timeout: 10 * time.Minute,
 	})
 	if err != nil {
@@ -72,7 +72,7 @@ func TestPhase8PiHostSummarizesCalc(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("the pi host runs %s %v", piagent.DefaultCommand, piagent.ArgsFromEnv())
+	t.Logf("the pi host runs %s %v", piagent.DefaultCommand, piagent.DefaultArgs())
 	draft, err := host.Summarize(ctx, bundle)
 	if err != nil {
 		t.Fatalf("the pi host did not answer with a readable spec: %v", err)

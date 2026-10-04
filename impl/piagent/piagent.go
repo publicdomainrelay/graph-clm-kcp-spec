@@ -9,8 +9,10 @@
 package piagent
 
 import (
+	"bufio"
 	"maps"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -27,27 +29,69 @@ const (
 	// Package is the npm package the default command runs.
 	Package = "@earendil-works/pi-coding-agent@1.0.0"
 
+	// DefaultProvider and DefaultModel are the hosted provider every number in
+	// docs/eval is taken with. A local model is not used anywhere in this
+	// repository: a measurement taken from one describes the model, not the
+	// loop, and cannot be compared with the runs recorded beside it.
+	DefaultProvider = "deepseek"
+
+	DefaultModel = "deepseek-flash"
+
+	// EnvAPIKey is the credential the provider reads. It is passed to the child
+	// and never logged.
+	EnvAPIKey = "DEEPSEEK_API_KEY"
+
+	// Launcher is the wrapper that carries the same credential for the claude
+	// host, so an environment that runs one host can run the other without
+	// exporting the key a second time.
+	Launcher = "deepseek-claude"
+
 	// EnvExtension names the folder pi loads the CLM extension from.
 	EnvExtension = "SPECD_PI_EXTENSION"
-
-	// EnvArgs overrides the arguments of the default command, for an
-	// environment that must name its own provider or model.
-	EnvArgs = "SPECD_PI_ARGS"
 )
 
-// DefaultArgs is the headless invocation: the package, then non-interactive
-// mode. A pi build whose flags differ is selected with --agent-args.
+// DefaultArgs is the headless invocation: the npm package, the hosted provider
+// and model, no session to leave behind, no extension discovery beyond the one
+// the caller names, and non-interactive mode. A pi build whose flags differ is
+// selected with --agent-args.
 func DefaultArgs() []string {
-	return []string{"--yes", Package, "-p"}
+	return []string{
+		"--yes", Package,
+		"--provider", DefaultProvider,
+		"--model", DefaultModel,
+		"--no-session",
+		"-ne",
+		"-p",
+	}
 }
 
-// ArgsFromEnv is the arguments a caller should use when it has no opinion: the
-// environment's override when there is one, the defaults otherwise.
-func ArgsFromEnv() []string {
-	if fromEnv := strings.TrimSpace(os.Getenv(EnvArgs)); fromEnv != "" {
-		return strings.Fields(fromEnv)
+// APIKeyFromLauncher reads the provider credential out of the launcher script
+// that carries it for the claude host. An environment with no launcher, or with
+// a launcher that names no key, answers empty and the child runs with whatever
+// credential the caller exported. The value is a secret: it is handed to the
+// child and never printed.
+func APIKeyFromLauncher() string {
+	path, err := exec.LookPath(Launcher)
+	if err != nil {
+		return ""
 	}
-	return DefaultArgs()
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		name, value, found := strings.Cut(strings.TrimSpace(scanner.Text()), "=")
+		if !found || strings.TrimPrefix(name, "export ") != "ANTHROPIC_API_KEY" {
+			continue
+		}
+		return strings.Trim(strings.TrimSpace(value), `"'`)
+	}
+	if err := scanner.Err(); err != nil {
+		return ""
+	}
+	return ""
 }
 
 type Options struct {
@@ -79,6 +123,11 @@ func New(options Options) *claudecli.Agent {
 	maps.Copy(env, options.Env)
 	if options.Extension != "" {
 		env[EnvExtension] = options.Extension
+	}
+	if _, given := env[EnvAPIKey]; !given && os.Getenv(EnvAPIKey) == "" {
+		if key := APIKeyFromLauncher(); key != "" {
+			env[EnvAPIKey] = key
+		}
 	}
 	return claudecli.New(claudecli.Options{
 		Command: command,

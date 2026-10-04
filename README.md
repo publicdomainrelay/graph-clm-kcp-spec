@@ -368,7 +368,13 @@ beats the scripted baseline at all — and reports what actually happened.**
   between scenarios and defaults to the workspace `root:specs-eval`, so a run
   never disturbs the objects another suite owns. `--baseline` puts a live run
   beside the scripted one and flags a run that is equal on every measure as
-  **not discriminating**.
+  **not discriminating**. Both live hosts run the same hosted provider
+  (`--agent claude-mod` runs `deepseek-claude` with the mod, `--agent pi` runs
+  the pi package with the extension and takes `DEEPSEEK_API_KEY` from the
+  `deepseek-claude` launcher when the environment has not exported one); no
+  local provider is used anywhere in this repository, because a number taken
+  from one measures the model rather than the loop and cannot be compared with
+  the runs in `docs/eval/`.
 - The measures are pure and unit tested in `abc/eval`. Every measure carries
   the sample count behind it: with no samples it prints `not measured`, never
   0% or 100%, and a context with an empty surface (or a scenario the run
@@ -1183,8 +1189,10 @@ bin/specctl eval --fixtures fixtures --agent claude-mod --clm-mod cc-clm-mod \
 SPECD_EVAL_UNKNOWN_REPO=../kcp-libs bin/specctl eval --fixtures fixtures/external \
   --agent claude-mod --clm-mod cc-clm-mod --code-only --round-trip=false
 
-# the pi host over a real model (the default command is the npm package;
-# SPECD_PI_ARGS names a provider or model when the environment needs one)
+# the pi host over a real model: the default command is the npm package and the
+# default arguments name the hosted provider (deepseek). The pi host takes the
+# provider credential from the deepseek-claude launcher when DEEPSEEK_API_KEY is
+# not exported. Local providers are not used in this repository.
 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase8PiHostSummarizesCalc -count=1 -v
 
 # the three tests that spend a real model call

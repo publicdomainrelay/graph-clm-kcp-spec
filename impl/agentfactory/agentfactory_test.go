@@ -3,6 +3,7 @@ package agentfactory
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -152,6 +153,51 @@ func TestARepositoryKindWinsOverTheController(t *testing.T) {
 		Agent: &spec.AgentSpec{Kind: ClaudeMod},
 	}}, "/tmp/calc"); err == nil {
 		t.Error("the mod kind with no --clm-mod folder must be refused")
+	}
+}
+
+// pi discovers an extension from a settings file, so a controller that was
+// given a folder has to hand it to the command too; otherwise the CLM path
+// asks the model to edit a document nothing applies.
+func TestPiKindLoadsTheExtensionFolder(t *testing.T) {
+	got := piArgs([]string{"--yes", piagent.Package, "-p"}, "/tmp/pi-hydradb-clm")
+	want := []string{"--yes", piagent.Package, "-p", "--extension", "/tmp/pi-hydradb-clm"}
+	if !slices.Equal(got, want) {
+		t.Errorf("args = %v, want %v", got, want)
+	}
+	named := []string{"--yes", piagent.Package, "-p", "--extension", "/other"}
+	if got := piArgs(named, "/tmp/pi-hydradb-clm"); !slices.Equal(got, named) {
+		t.Errorf("a caller that named an extension was overridden: %v", got)
+	}
+	if got := piArgs([]string{"-p"}, ""); !slices.Equal(got, []string{"-p"}) {
+		t.Errorf("no folder must add nothing: %v", got)
+	}
+}
+
+// TestPiKindNamesTheExtensionAbsolutely is the guard for a path the caller
+// typed where it stood: the model runs in the working tree, so a folder left
+// relative is looked for inside the tree and the run fails with "extension path
+// does not exist" instead of naming the caller's mistake.
+func TestPiKindNamesTheExtensionAbsolutely(t *testing.T) {
+	factory, err := New(Options{Kind: Pi, PiExtension: "pi-hydradb-clm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	built, err := factory.Agent(nil, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude, ok := built.(*claudecli.Agent)
+	if !ok {
+		t.Fatalf("built a %T", built)
+	}
+	args := claude.Args()
+	index := slices.Index(args, "--extension")
+	if index < 0 || index+1 >= len(args) {
+		t.Fatalf("the extension is not in %v", args)
+	}
+	if !filepath.IsAbs(args[index+1]) {
+		t.Errorf("--extension %q is not absolute", args[index+1])
 	}
 }
 

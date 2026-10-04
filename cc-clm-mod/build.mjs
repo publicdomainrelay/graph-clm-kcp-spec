@@ -111,6 +111,7 @@ export interface AppliedDelta {
   delta: unknown;
   applied: boolean;
   folded?: string;
+  error?: string;
 }
 
 export interface StateBridge {

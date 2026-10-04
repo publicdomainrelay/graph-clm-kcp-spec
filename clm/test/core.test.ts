@@ -19,6 +19,7 @@ import {
   renderModelZone,
   renderManagedZone,
   splitContextDoc,
+  ClmHost,
   stable,
   summary,
   type Delta,
@@ -224,4 +225,43 @@ test("the context document lives in the state dir, never in the project tree", (
   assert.equal(docPathFromEnv({ XDG_STATE_HOME: "/xdg" }, "/home/u", "/src/calc/", "c"), "/xdg/specd/clm/calc/c.md");
   assert.equal(docPathFromEnv({}, "/home/u", "/src/calc", "c"), "/home/u/.local/state/specd/clm/calc/c.md");
   assert.ok(!docPathFromEnv({}, "/home/u", "/src/calc", "c").startsWith("/src/calc"));
+});
+
+test("an apply that failed is reported and tried again", async () => {
+  const document = renderModelZone("calc", "calc", calcSpec());
+  const files = new Map<string, string>();
+  let attempts = 0;
+  const host = new ClmHost({
+    context: "calc",
+    repoPath: "/repo",
+    docPath: "/state/clm/calc/calc.md",
+    files: {
+      exists: (path) => Promise.resolve(files.has(path)),
+      read: (path) => Promise.resolve(files.get(path) ?? ""),
+      write: (path, contents) => {
+        files.set(path, contents);
+        return Promise.resolve();
+      },
+      ancestors: () => Promise.resolve([]),
+    },
+    bridge: {
+      render: () => Promise.resolve(document),
+      apply: () => {
+        attempts += 1;
+        return Promise.reject(new Error("the workspace has no such context"));
+      },
+      report: () => Promise.resolve({ progress: 0, recorded: false }),
+    },
+  });
+  await host.start();
+  const path = [...files.keys()][0] as string;
+  files.set(path, `${document}\n<!-- a model edit -->\n`);
+  const first = await host.finish("turn");
+  assert.equal(first?.applied, false);
+  assert.match(first?.error ?? "", /no such context/);
+  // The edit is not marked as applied, so the next turn tries again instead of
+  // losing it: a failure that is swallowed once would be swallowed forever.
+  const second = await host.finish("turn");
+  assert.match(second?.error ?? "", /no such context/);
+  assert.equal(attempts, 2);
 });

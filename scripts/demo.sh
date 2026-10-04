@@ -115,7 +115,8 @@ SERVER=${SERVER%%/clusters/*}
 
 echo "=== the spec workspace, and the eval workspace beside it ==="
 SPECS_WORKSPACE=specs "$REPO/deploy/install-specs.sh" >/dev/null
-SPECS_WORKSPACE=specs-eval WORKSPACE_KUBECONFIG="$REPO/.kcp-specd/specs-eval.kubeconfig" \
+EVAL_WS_NAME=${EVAL_WORKSPACE#root:}
+SPECS_WORKSPACE="$EVAL_WS_NAME" WORKSPACE_KUBECONFIG="$REPO/.kcp-specd/${EVAL_WS_NAME}.kubeconfig" \
   "$REPO/deploy/install-specs.sh" >/dev/null
 echo "  ${WORKSPACE} serves the specs API"
 echo "  ${EVAL_WORKSPACE} serves it too, so an eval run never fights this one"
