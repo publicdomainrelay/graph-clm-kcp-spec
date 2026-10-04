@@ -19,12 +19,18 @@ bin/specctl eval --fixtures fixtures --out docs/eval/run-<date>.md
 | --- | --- | --- | --- |
 | scripted baseline, phase 11 | `scripted` | 5 fixtures, 15 scenarios, 4 drifts, facts; sufficiency and CLM not measured | `run-2026-10-04-scripted.md` |
 | live, phase 11 | `claude-mod` (`deepseek-claude` + `cc-clm-mod`) | the same 5 fixtures: facts, sufficiency, drift, the CLM scenario | `run-2026-10-04-hard.md` and its `-compare.md` |
+| live, phase 11, second host | `pi` (`pi-coding-agent` + `pi-hydradb-clm`, `deepseek`) | the same 5 fixtures, every measure the harness can take | `run-2026-10-04-pi.md` and its `-compare.md` |
 | scripted baseline | `scripted` | 3 fixtures, 9 scenarios, both halves | `run-2026-10-03-scripted.md` |
 | scripted baseline, receiver-keyed | `scripted` | 4 fixtures, 10 scenarios, both halves | `run-2026-10-03-scripted-qualified.md` |
 | live, primary | `claude-mod` (`deepseek-claude` + `cc-clm-mod`) | 3 fixtures, 9 scenarios, both halves | `run-2026-10-03.md` |
-| live, code -> spec | `pi` (local `llama-cpp`, `ternary-bonsai-2-27b`) | 3 fixtures, code -> spec and the round trip | `run-2026-10-03-pi.md` |
 | unknown codebase | `claude-mod` | `../kcp-libs`, 34 contexts, populate only | `run-2026-10-03-kcp-libs.md` |
 | unknown codebase, receiver-keyed | `claude-mod` | the same 34 contexts after the interface key took its receiver | `run-2026-10-03-kcp-libs-qualified.md` |
+
+A `pi` report taken earlier (`run-2026-10-03-pi.md`) has been withdrawn: it was
+measured against a local model on a local port, and a number taken from one
+describes that model rather than the loop. No local provider is used anywhere
+in this repository, and both live hosts run the same hosted provider, so their
+numbers can be read side by side.
 
 The gated live model tests are recorded beside them, as they ran:
 `live-model-tests.log` holds the output of the five tests that spend a real
@@ -52,13 +58,62 @@ model call (`SPECD_REQUIRE_LIVE_MODEL=1`), all five passing.
 | honest reporting (samples, `not measured`, empty contexts counted) | the `samples` column; `abc/eval.Measure` |
 | live vs scripted, "not discriminating" | `--baseline`, the `*-compare.md` beside a live report |
 
+## What the phase 11 runs say
+
+The eval did not discriminate before this phase: the live run scored exactly
+the scripted baseline, 100% everywhere, and an eval that cannot tell a model
+from a scripted answer measures nothing. It discriminates now. These are the
+headline measures of the three runs, side by side, with the samples behind
+each one.
+
+| measure | scripted | claude-mod | pi |
+| --- | --- | --- | --- |
+| spec -> code pass rate (verify + acceptance) | 100.0% (14) | 93.3% (15) | 93.3% (15) |
+| spec -> code via CLM | not measured | 100.0% (1) | 100.0% (1) |
+| delta precision (entries as intended) | 100.0% (14) | 100.0% (15) | 100.0% (15) |
+| code -> spec facts stated (judged) | 100.0% (9) | 95.9% (9) | 93.3% (9) |
+| spec sufficiency (rebuild from spec, original tests) | not measured | 100.0% (12) | not measured |
+| drift (code -> spec from a human edit) | 100.0% (4) | 50.0% (4) | 75.0% (4) |
+| interface recall | 100.0% (9) | 100.0% (11) | 100.0% (10) |
+| interface precision | 100.0% (9) | 81.8% (11) | 90.0% (10) |
+| requirement anchoring | 100.0% (12) | 95.0% (12) | 100.0% (12) |
+| validator pass | 100.0% (9) | 100.0% (11) | 100.0% (10) |
+| round trip interface Jaccard | 100.0% (12) | 100.0% (12) | 100.0% (12) |
+| fixtures reaching Populated | 100.0% (5) | 100.0% (5) | 100.0% (5) |
+
+The scripted baseline is 100% on everything it can take, which is what makes it
+a baseline; what it cannot take — sufficiency, which needs an agent that can
+rebuild code, and the CLM scenario, which needs a host inside the model — is
+`not measured` and counted, never scored. Both live runs fall below it, on
+different measures, and `specctl eval --baseline` says so in as many words:
+`not discriminating: no`, 6 of 11 shared measures differ for `claude-mod`, 5 of
+11 for `pi`.
+
+**Sufficiency holds.** Twelve contexts had their implementation bodies replaced
+with `panic("unimplemented")`, their tests hidden, and were handed back to
+`claude-mod` with the spec alone: all twelve rebuilt code that passes the
+original tests. That is the strongest statement the harness can make, because
+nothing but the spec was left to work from.
+
+**Both hosts fail the same scenario, and it is the right failure.** `ledger`'s
+`remove-save` takes `Store.Save` out of the specification and expects the code
+to lose it. `claude-mod` and `pi` each carried exactly the intended delta (one
+removed interface), passed `go test ./...`, passed the hidden acceptance test —
+and left `func (s *Store) Save` in `storage/json.go`. The observed surface
+still reported `Store.Save` thirty seconds later, so the scenario failed with
+`the observed surface is wrong: still observed Store.Save`. Nothing else in the
+harness could have caught it: the change's own gate passes because the method
+and the test that used it are consistent with each other, and only the
+spec-to-code comparison sees the code that should have gone. The `rename-sum`
+scenario, which removes one name and adds another and also asserts a removal,
+passes in both runs, which is the control: the check is not simply refusing
+every removal.
+
 ## What the runs say
 
 **The harness is sound.** The scripted baseline passes every scenario of every
 fixture, which is the point of having it: a failure in the live runs after this
-one belongs to the agent under test, not to the measurement around it. The same
-scenarios pass with `deepseek-claude` and the mod loaded, so the loop is not
-tuned to the deterministic agent.
+one belongs to the agent under test, not to the measurement around it.
 
 **The live model reads code and edits it well.** Over three fixtures and nine
 scenarios the primary live run passed 9 of 9, carried exactly the entries each
@@ -104,21 +159,41 @@ yet closed, because closing it changes the observed surface of a fixture the
 live tests of phases 4 to 9 are written against. The measure is reported as it
 comes out of each run rather than adjusted to flatter it.
 
-**The local model is much weaker than the hosted one, and that is the point of
-running both.** `pi` over a local `ternary-bonsai-2-27b` reached 100% interface
-recall but 85.7% precision and 84.2% requirement anchoring. Two causes:
+**A context with nothing exported is where a model invents a surface.**
+`ledger/cmd-ledger` and `todo/cmd-todo` are `main` packages: they observe
+nothing, because Go does not export a `main`. `claude-mod` declared four
+interfaces for each of them, and `pi` declared one for `calc/cmd-calc`. Recall
+does not move — there is nothing to miss — so the cost lands in precision,
+which fell to 81.8% for `claude-mod` and 90.0% for `pi`, and in anchoring,
+40.0% on `cmd-todo`. That is what precision and anchoring are for, and it is
+why they are measured apart from facts: a spec can name every symbol in a file
+and still be anchored to nothing, or to something that is not there.
 
-- `todo/cmd-todo` has one file and no exported function (its `main` is
-  unexported). The local model declared ten interfaces for it — an API it
-  imagined — so the declared surface is entirely extra. `deepseek-claude`
-  declared none, which is correct.
-- `calc/calc` anchored three of its four requirements. The fourth named a code
-  reference the observed facts do not answer to; `ParseDraft` drops such a ref
-  and reports it as dropped rather than storing a claim nothing backs.
+**Drift is where the two hosts differ most, and where the facts earn their
+keep.** `claude-mod` scored 2 of 4 drift scenarios and `pi` 3 of 4. In both
+runs the model gained the right interface and wrote exactly the intended delta
+entry when a person added a function. What they lost was the sentence about the
+new behaviour: for `human-adds-sign` the `claude-mod` spec said the domain had
+a `Sign` and did not say what it returns; for `human-rejects-negative` — the
+requirement-only case, where no interface moves and prose is the only thing
+that can carry the change — neither run's spec stated that `Validate` now
+refuses a negative amount. Interface recall and precision are 100% in both
+runs over the contexts whose facts were graded, which is exactly the point:
+the surface was right and the behaviour was missing, and only the judged facts
+can see the difference.
 
-Neither is a harness fault. They are what a smaller model does with a context
-it cannot verify, and they are the reason anchoring is measured separately from
-recall: a spec can name every symbol and still be anchored to nothing.
+**The CLM path through the pi host was broken in the harness.** The first pi
+CLM run timed out waiting for a `SpecToCode` change with nothing applied, while
+the model had edited the context document correctly. `clm/adapters-node` called
+`specctl clm render|apply|report` with no `--workspace`, so every call landed on
+specctl's default workspace, where the context of the run does not exist; the
+bridge's failure was swallowed by an empty catch and read as a model that had
+changed nothing. The mod had always passed the workspace, which is why the
+`claude-mod` CLM scenario passed and the pi one did not. The shared bridge now
+passes the scope the environment names, `ClmHost.finish` reports a failed apply
+instead of dropping it, both hosts print it, and a failed apply no longer marks
+the edit as applied — the next turn tries again instead of losing it. This is
+the harness bug the eval found, and it is a better find than any model miss.
 
 **The unknown codebase is where the loop met code nobody wrote for it.**
 `../kcp-libs` is 34 contexts of real Go across `common/`, `abc/`, `impl/` and
@@ -173,6 +248,15 @@ checkout after the fix, and it is the evidence.
 
 ## What is left
 
+- **`pi` has no sufficiency measure in its report.** The run took the code ->
+  spec half, the drifts and every scenario, including the CLM one, but spec
+  sufficiency is twelve rebuilds and it was left to the `claude-mod` run. The
+  measure prints `not measured` with a sample count of 0 rather than 0% or
+  100%, and the same command with `--suffice` takes it over either host.
+- **`remove-save` is the scenario both hosts fail.** It is left in the report
+  as it is: a model that changes the specification and not the code is exactly
+  what the observed-surface check exists to catch, and the failure is reported
+  per scenario rather than smoothed into a mean.
 - **A codebase of 34 contexts takes about four minutes to populate** at two
   concurrent summaries, and the new run took 231 seconds, the same as before.
   The wall time is reported; nothing here is tuned for it.

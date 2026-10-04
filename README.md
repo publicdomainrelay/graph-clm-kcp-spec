@@ -300,7 +300,13 @@ beats the scripted baseline at all — and reports what actually happened.**
   between scenarios and defaults to the workspace `root:specs-eval`, so a run
   never disturbs the objects another suite owns. `--baseline` puts a live run
   beside the scripted one and flags a run that is equal on every measure as
-  **not discriminating**.
+  **not discriminating**. Both live hosts run the same hosted provider
+  (`--agent claude-mod` runs `deepseek-claude` with the mod, `--agent pi` runs
+  the pi package with the extension and takes `DEEPSEEK_API_KEY` from the
+  `deepseek-claude` launcher when the environment has not exported one); no
+  local provider is used anywhere in this repository, because a number taken
+  from one measures the model rather than the loop and cannot be compared with
+  the runs in `docs/eval/`.
 - The measures are pure and unit tested in `abc/eval`. Every measure carries
   the sample count behind it: with no samples it prints `not measured`, never
   0% or 100%, and a context with an empty surface (or a scenario the run

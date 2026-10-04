@@ -1,8 +1,8 @@
 {
-  "agent": "scripted",
+  "agent": "claude-mod",
   "fixtures": "fixtures",
-  "startedAt": "2026-10-04T01:52:27Z",
-  "finishedAt": "2026-10-04T01:53:23Z",
+  "startedAt": "2026-10-04T01:59:09Z",
+  "finishedAt": "2026-10-04T02:13:32Z",
   "populate": [
     {
       "fixture": "calc",
@@ -10,7 +10,7 @@
       "contexts": 2,
       "summarized": 2,
       "failed": 0,
-      "wallTimeSeconds": 1.513084225
+      "wallTimeSeconds": 9.829636213
     },
     {
       "fixture": "greet",
@@ -18,7 +18,7 @@
       "contexts": 2,
       "summarized": 2,
       "failed": 0,
-      "wallTimeSeconds": 1.767820883
+      "wallTimeSeconds": 8.568915132
     },
     {
       "fixture": "ledger",
@@ -26,7 +26,7 @@
       "contexts": 4,
       "summarized": 4,
       "failed": 0,
-      "wallTimeSeconds": 2.266548541
+      "wallTimeSeconds": 25.69721003
     },
     {
       "fixture": "shared",
@@ -34,7 +34,7 @@
       "contexts": 1,
       "summarized": 1,
       "failed": 0,
-      "wallTimeSeconds": 1.763638425
+      "wallTimeSeconds": 12.097067353
     },
     {
       "fixture": "todo",
@@ -42,7 +42,7 @@
       "contexts": 3,
       "summarized": 3,
       "failed": 0,
-      "wallTimeSeconds": 2.301828608
+      "wallTimeSeconds": 21.163445211
     }
   ],
   "codeToSpec": [
@@ -57,7 +57,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 2,
+      "requirements": 5,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -77,7 +77,7 @@
         "f1": 1
       },
       "empty": true,
-      "requirements": 1,
+      "requirements": 5,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -96,7 +96,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 2,
+      "requirements": 6,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -115,7 +115,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 3,
+      "requirements": 6,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -127,15 +127,20 @@
       "fixture": "ledger",
       "context": "cmd-ledger",
       "interfaces": {
-        "declared": 0,
+        "declared": 4,
         "target": 0,
         "matched": 0,
+        "extra": [
+          "Ledger.Balance",
+          "Ledger.Post",
+          "NewLedger",
+          "main"
+        ],
         "recall": 1,
-        "precision": 1,
-        "f1": 1
+        "precision": 0,
+        "f1": 0
       },
-      "empty": true,
-      "requirements": 1,
+      "requirements": 5,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -154,7 +159,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 7,
+      "requirements": 12,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -173,7 +178,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 1,
+      "requirements": 7,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -192,7 +197,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 6,
+      "requirements": 8,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -211,7 +216,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 2,
+      "requirements": 9,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -223,18 +228,23 @@
       "fixture": "todo",
       "context": "cmd-todo",
       "interfaces": {
-        "declared": 0,
+        "declared": 4,
         "target": 0,
         "matched": 0,
+        "extra": [
+          "ErrNotFound",
+          "NewHandler",
+          "Store.Complete",
+          "Store.Get"
+        ],
         "recall": 1,
-        "precision": 1,
-        "f1": 1
+        "precision": 0,
+        "f1": 0
       },
-      "empty": true,
-      "requirements": 1,
-      "anchoringRate": 1,
+      "requirements": 5,
+      "anchoringRate": 0.4,
       "validatorPass": true,
-      "droppedRefs": 0,
+      "droppedRefs": 4,
       "roundTripJaccard": 1,
       "roundTripMeasured": true,
       "requirementCountDelta": 0
@@ -250,7 +260,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 1,
+      "requirements": 11,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -269,7 +279,7 @@
         "precision": 1,
         "f1": 1
       },
-      "requirements": 5,
+      "requirements": 8,
       "anchoringRate": 1,
       "validatorPass": true,
       "droppedRefs": 0,
@@ -287,15 +297,15 @@
           "id": "f-add-sums",
           "text": "Add returns the sum of two integers.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "add"
+          "judge": "model",
+          "evidence": "Add takes two int operands and returns their sum as an int"
         },
         {
           "id": "f-multiply-products",
           "text": "Multiply returns the product of two integers.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "multiply"
+          "judge": "model",
+          "evidence": "Multiply takes two int operands and returns their product as an int"
         }
       ],
       "stated": 2,
@@ -318,15 +328,15 @@
           "id": "f-title-case",
           "text": "titleCase capitalises every word of a string.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "titlecase"
+          "judge": "model",
+          "evidence": "titleCase takes a single string and returns a string in which the first character of every word is uppercased, matched on word boundaries, leaving all other characters unchanged."
         },
         {
           "id": "f-trim-all",
           "text": "trimAll trims every value of a list.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "trimall"
+          "judge": "model",
+          "evidence": "trimAll takes an array of strings and returns a new array of the same length and order in which every element has leading and trailing whitespace removed."
         }
       ],
       "stated": 2,
@@ -341,22 +351,22 @@
           "id": "f-greet-text",
           "text": "greet returns the name and the greeting text for it.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "greet"
+          "judge": "model",
+          "evidence": "greet must accept a name string and return a Greeting whose name is that input and whose text is `hello, ${name}`"
         },
         {
           "id": "f-greeter-prefix",
           "text": "Greeter prefixes a greeting with the prefix it was built with.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "greeter"
+          "judge": "model",
+          "evidence": "The exported Greeter class must be constructible with a single private readonly prefix string. Greeter.greeting must accept a name string and return a string joining the instance prefix and the name with a single space."
         },
         {
           "id": "f-shout-uppercase",
           "text": "shout returns the greeting text in upper case.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "shout"
+          "judge": "model",
+          "evidence": "shout must accept a name string and return the uppercased text of the Greeting produced by greet for that name"
         }
       ],
       "stated": 3,
@@ -379,48 +389,48 @@
           "id": "f-balance-sums-account",
           "text": "Balance returns the sum of the entries of one account.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "balance"
+          "judge": "model",
+          "evidence": "Ledger.Balance returns the sum of the amounts of the entries posted to the named account"
         },
         {
           "id": "f-empty-account-error",
           "text": "Balance rejects an empty account with ErrUnknownAccount.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "balance"
+          "judge": "model",
+          "evidence": "Ledger.Balance returns ErrUnknownAccount as its error when asked for an account that names nothing, i.e. the empty account string."
         },
         {
           "id": "f-entries-oldest-first",
           "text": "Entries returns the entries of one account, oldest first.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "entries"
+          "judge": "model",
+          "evidence": "Ledger.Entries returns the entries posted to the given account, in post order"
         },
         {
           "id": "f-post-appends",
           "text": "Post validates an entry and only then appends it to the ledger.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "post"
+          "judge": "model",
+          "evidence": "Ledger.Post validates the entry first; on a validation error it returns that error and appends nothing to the ledger. Ledger.Post appends an accepted entry to the ledger, preserving the order in which entries were posted, and returns nil."
         },
         {
           "id": "f-sum-totals",
           "text": "Sum totals the amounts of a set of entries.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "sum"
+          "judge": "model",
+          "evidence": "Sum returns the total of the amounts of the given entries, and zero for an empty slice."
         },
         {
           "id": "f-validate-empty-account",
           "text": "Validate rejects an entry that names no account with ErrEmptyAccount.",
-          "stated": true,
-          "judge": "keyword",
-          "evidence": "validate"
+          "stated": false,
+          "judge": "model",
+          "evidence": "Validate returns an error for an entry that has no account, and nil for an entry whose account is present. (no ErrEmptyAccount named)"
         }
       ],
-      "stated": 6,
+      "stated": 5,
       "expected": 6,
-      "score": 1
+      "score": 0.8333333333333334
     },
     {
       "fixture": "ledger",
@@ -430,15 +440,15 @@
           "id": "f-entries-query",
           "text": "The entries route lists what was posted, filtered by an account query parameter.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "entries"
+          "judge": "model",
+          "evidence": "GET /entries must read the optional account query parameter and respond 200 OK with the JSON encoding of ledger.Entries(account), returning all entries when the parameter is absent or empty"
         },
         {
           "id": "f-handler-routes",
           "text": "NewHandler returns the service's routes over one ledger.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "handler"
+          "judge": "model",
+          "evidence": "NewHandler must accept a *domain.Ledger and return an http.Handler that serves the package's routes over exactly that ledger"
         }
       ],
       "stated": 2,
@@ -453,41 +463,41 @@
           "id": "f-add-appends",
           "text": "Add appends one entry to the store.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "add"
+          "judge": "model",
+          "evidence": "Store.Add must append the given domain.Entry to the store's entries, preserving insertion order."
         },
         {
           "id": "f-all-copies",
           "text": "All returns a copy of every entry.",
-          "stated": true,
-          "judge": "keyword",
-          "evidence": "all"
+          "stated": false,
+          "judge": "model",
+          "evidence": "Store.All must return every entry held by the store, so callers can see the full contents without filtering."
         },
         {
           "id": "f-for-one-account",
           "text": "For returns the entries of one account.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "for"
+          "judge": "model",
+          "evidence": "Store.For must return the entries recorded against the given account name and no others."
         },
         {
           "id": "f-load-reads",
           "text": "Load reads back the entries a Save wrote.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "load"
+          "judge": "model",
+          "evidence": "Load must read the file at the given path, unmarshal it into a slice of domain.Entry, and return a Store holding those entries"
         },
         {
           "id": "f-save-json",
           "text": "Save writes the entries to a JSON file.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "save"
+          "judge": "model",
+          "evidence": "Store.Save must take the lock, marshal the entries as indented JSON, and write them to the given path with a trailing newline and 0644 permissions"
         }
       ],
-      "stated": 5,
+      "stated": 4,
       "expected": 5,
-      "score": 1
+      "score": 0.8
     },
     {
       "fixture": "shared",
@@ -497,15 +507,15 @@
           "id": "f-indexer-order",
           "text": "Indexer.List returns the items in the order they were added.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "indexer"
+          "judge": "model",
+          "evidence": "Indexer must preserve the order in which items were added, so adding \"b\" then \"a\" and listing yields [\"b\", \"a\"]."
         },
         {
           "id": "f-set-sorted",
           "text": "Set.List returns the members in sorted order.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "set"
+          "judge": "model",
+          "evidence": "Set must expose items sorted and deduplicated, so adding \"b\", \"a\", \"b\" and listing yields [\"a\", \"b\"]."
         }
       ],
       "stated": 2,
@@ -528,8 +538,8 @@
           "id": "f-handler-routes",
           "text": "NewHandler returns the service's routes over one store.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "handler"
+          "judge": "model",
+          "evidence": "The package must export NewHandler, which accepts a single *todo.Store and returns an http.Handler serving the service's routes over that store."
         }
       ],
       "stated": 1,
@@ -544,41 +554,163 @@
           "id": "f-add-returns",
           "text": "Add appends a task with the given title and returns it.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "add"
+          "judge": "model",
+          "evidence": "Add takes a title and returns the created Task with the store-assigned id"
         },
         {
           "id": "f-complete-marks-done",
           "text": "Complete marks a task done and returns it, or ErrNotFound.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "complete"
+          "judge": "model",
+          "evidence": "Complete marks the task with the given id as done, returns the updated Task, and returns ErrNotFound when no task has that id."
         },
         {
           "id": "f-get-not-found",
           "text": "Get returns one task by id, or ErrNotFound.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "get"
+          "judge": "model",
+          "evidence": "Get returns the Task whose ID matches the requested id, and returns ErrNotFound when no task has that id."
         },
         {
           "id": "f-list-oldest-first",
           "text": "List returns every task, oldest first.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "list"
+          "judge": "model",
+          "evidence": "List returns every task in insertion order, oldest first"
         },
         {
           "id": "f-new-store-empty",
           "text": "NewStore returns an empty store whose first task gets id 1.",
           "stated": true,
-          "judge": "keyword",
-          "evidence": "newstore"
+          "judge": "model",
+          "evidence": "NewStore returns an empty store whose first assigned task id is 1."
         }
       ],
       "stated": 5,
       "expected": 5,
       "score": 1
+    }
+  ],
+  "sufficiency": [
+    {
+      "fixture": "calc",
+      "context": "calc",
+      "files": 2,
+      "stripped": 2,
+      "realized": true,
+      "testsPass": true,
+      "wallTimeSeconds": 13.16408311,
+      "agent": "claude-mod"
+    },
+    {
+      "fixture": "calc",
+      "context": "cmd-calc",
+      "files": 1,
+      "stripped": 1,
+      "realized": true,
+      "testsPass": true,
+      "wallTimeSeconds": 13.054306311,
+      "agent": "claude-mod"
+    },
+    {
+      "fixture": "greet",
+      "context": "format",
+      "files": 2,
+      "stripped": 2,
+      "realized": true,
+      "testsPass": true,
+      "wallTimeSeconds": 17.046616332,
+      "agent": "claude-mod"
+    },
+    {
+      "fixture": "greet",
+      "context": "greet",
+      "files": 2,
+      "stripped": 4,
+      "realized": true,
+      "testsPass": true,
+      "wallTimeSeconds": 15.682091807,
+      "agent": "claude-mod"
+    },
+    {
+      "fixture": "ledger",
+      "context": "cmd-ledger",
+      "files": 1,
+      "stripped": 1,
+      "realized": true,
+      "testsPass": true,
+      "wallTimeSeconds": 18.962473959,
+      "agent": "claude-mod"
+    },
+    {
+      "fixture": "ledger",
+      "context": "domain",
+      "files": 6,
+      "stripped": 7,
+      "realized": true,
+      "testsPass": true,
+      "wallTimeSeconds": 13.424860731,
+      "agent": "claude-mod"
+    },
+    {
+      "fixture": "ledger",
+      "context": "httpapi",
+      "files": 4,
+      "stripped": 5,
+      "realized": true,
+      "testsPass": true,
+      "wallTimeSeconds": 20.510827244,
+      "agent": "claude-mod"
+    },
+    {
+      "fixture": "ledger",
+      "context": "storage",
+      "files": 4,
+      "stripped": 6,
+      "realized": true,
+      "testsPass": true,
+      "wallTimeSeconds": 16.537606122,
+      "agent": "claude-mod"
+    },
+    {
+      "fixture": "shared",
+      "context": "shared",
+      "files": 2,
+      "stripped": 6,
+      "realized": true,
+      "testsPass": true,
+      "wallTimeSeconds": 13.301793281,
+      "agent": "claude-mod"
+    },
+    {
+      "fixture": "todo",
+      "context": "cmd-todo",
+      "files": 1,
+      "stripped": 1,
+      "realized": true,
+      "testsPass": true,
+      "wallTimeSeconds": 17.381281804,
+      "agent": "claude-mod"
+    },
+    {
+      "fixture": "todo",
+      "context": "httpapi",
+      "files": 2,
+      "stripped": 3,
+      "realized": true,
+      "testsPass": true,
+      "wallTimeSeconds": 28.476012747,
+      "agent": "claude-mod"
+    },
+    {
+      "fixture": "todo",
+      "context": "todo",
+      "files": 2,
+      "stripped": 5,
+      "realized": true,
+      "testsPass": true,
+      "wallTimeSeconds": 16.391230927,
+      "agent": "claude-mod"
     }
   ],
   "drift": [
@@ -611,8 +743,8 @@
             "id": "f-abs",
             "text": "Abs returns the absolute value of an integer.",
             "stated": true,
-            "judge": "keyword",
-            "evidence": "abs"
+            "judge": "model",
+            "evidence": "Abs takes a single int operand and returns its absolute value as an int, negating negative inputs and returning non-negative inputs unchanged"
           }
         ],
         "stated": 1,
@@ -620,7 +752,7 @@
         "score": 1
       },
       "pass": true,
-      "wallTimeSeconds": 1.399696869
+      "wallTimeSeconds": 12.418871963
     },
     {
       "fixture": "ledger",
@@ -650,17 +782,16 @@
           {
             "id": "f-sign",
             "text": "Sign returns -1 for a negative amount, 0 for zero and 1 for a positive one.",
-            "stated": true,
-            "judge": "keyword",
-            "evidence": "sign"
+            "stated": false,
+            "judge": "model"
           }
         ],
-        "stated": 1,
+        "stated": 0,
         "expected": 1,
-        "score": 1
+        "score": 0
       },
-      "pass": true,
-      "wallTimeSeconds": 1.432103418
+      "pass": false,
+      "wallTimeSeconds": 16.890951963
     },
     {
       "fixture": "ledger",
@@ -684,17 +815,16 @@
           {
             "id": "f-reject-negative",
             "text": "Validate rejects a negative amount with ErrNegativeAmount.",
-            "stated": true,
-            "judge": "keyword",
-            "evidence": "validate"
+            "stated": false,
+            "judge": "model"
           }
         ],
-        "stated": 1,
+        "stated": 0,
         "expected": 1,
-        "score": 1
+        "score": 0
       },
-      "pass": true,
-      "wallTimeSeconds": 1.9978273039999999
+      "pass": false,
+      "wallTimeSeconds": 19.000163864
     },
     {
       "fixture": "ledger",
@@ -725,8 +855,8 @@
             "id": "f-load-json",
             "text": "Load reads entries back from a JSON file.",
             "stated": true,
-            "judge": "keyword",
-            "evidence": "load"
+            "judge": "model",
+            "evidence": "Load must read the file at the given path, unmarshal it into a slice of domain.Entry, and return a Store holding those entries, returning the read or unmarshal error instead of a store on failure. (Also: 'read them back from a JSON file' and 'Load should read back a JSON array whose object keys are the domain.Entry field names'.)"
           }
         ],
         "stated": 1,
@@ -734,7 +864,7 @@
         "score": 1
       },
       "pass": true,
-      "wallTimeSeconds": 1.993199047
+      "wallTimeSeconds": 21.831468088
     }
   ],
   "scenarios": [
@@ -756,9 +886,9 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.061370937,
-      "agent": "scripted"
+      "progressRecords": 6,
+      "wallTimeSeconds": 10.396515066,
+      "agent": "claude-mod"
     },
     {
       "fixture": "calc",
@@ -778,9 +908,9 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.770339451,
-      "agent": "scripted"
+      "progressRecords": 5,
+      "wallTimeSeconds": 11.579670708,
+      "agent": "claude-mod"
     },
     {
       "fixture": "calc",
@@ -792,17 +922,17 @@
       "verifyPass": true,
       "acceptancePass": true,
       "delta": {
-        "added": 0,
+        "added": 1,
         "removed": 0,
-        "changed": 2,
+        "changed": 1,
         "entries": 2,
         "expected": 2,
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.750131833,
-      "agent": "scripted"
+      "progressRecords": 5,
+      "wallTimeSeconds": 11.572244303,
+      "agent": "claude-mod"
     },
     {
       "fixture": "greet",
@@ -822,9 +952,9 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 2.365411607,
-      "agent": "scripted"
+      "progressRecords": 6,
+      "wallTimeSeconds": 15.274441641,
+      "agent": "claude-mod"
     },
     {
       "fixture": "greet",
@@ -844,9 +974,9 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 2.691208868,
-      "agent": "scripted"
+      "progressRecords": 5,
+      "wallTimeSeconds": 12.036362302,
+      "agent": "claude-mod"
     },
     {
       "fixture": "greet",
@@ -854,6 +984,30 @@
       "context": "greet",
       "difficulty": 2,
       "description": "change the greeting text and the test that pins it",
+      "pass": true,
+      "verifyPass": true,
+      "acceptancePass": true,
+      "delta": {
+        "added": 1,
+        "removed": 0,
+        "changed": 0,
+        "entries": 1,
+        "expected": 1,
+        "precise": true
+      },
+      "attempts": 1,
+      "progressRecords": 6,
+      "wallTimeSeconds": 16.527650929,
+      "agent": "claude-mod"
+    },
+    {
+      "fixture": "ledger",
+      "scenario": "clm-reject-negative-amounts",
+      "context": "domain",
+      "difficulty": 3,
+      "description": "the model changes the spec by editing the context document",
+      "via": "clm",
+      "request": "The ledger must reject an entry whose amount is negative. Change the\nrequirement r.validate so it also says that Validate returns ErrNegativeAmount\nfor an amount below zero, and that Post refuses such an entry because it\nvalidates first. Do not add or remove any interface and do not add a new\nrequirement: edit r.validate.\n",
       "pass": true,
       "verifyPass": true,
       "acceptancePass": true,
@@ -866,34 +1020,9 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 2.529397322,
-      "agent": "scripted"
-    },
-    {
-      "fixture": "ledger",
-      "scenario": "clm-reject-negative-amounts",
-      "context": "domain",
-      "difficulty": 3,
-      "description": "the model changes the spec by editing the context document",
-      "via": "clm",
-      "request": "The ledger must reject an entry whose amount is negative. Change the\nrequirement r.validate so it also says that Validate returns ErrNegativeAmount\nfor an amount below zero, and that Post refuses such an entry because it\nvalidates first. Do not add or remove any interface and do not add a new\nrequirement: edit r.validate.\n",
-      "skipped": true,
-      "pass": false,
-      "verifyPass": false,
-      "acceptancePass": false,
-      "delta": {
-        "added": 0,
-        "removed": 0,
-        "changed": 0,
-        "entries": 0,
-        "expected": 0,
-        "precise": false
-      },
-      "attempts": 0,
-      "progressRecords": 0,
-      "wallTimeSeconds": 0.00000123,
-      "agent": "scripted"
+      "progressRecords": 10,
+      "wallTimeSeconds": 26.538225074,
+      "agent": "claude-mod"
     },
     {
       "fixture": "ledger",
@@ -913,9 +1042,9 @@
         "precise": true
       },
       "attempts": 2,
-      "progressRecords": 0,
-      "wallTimeSeconds": 3.385059851,
-      "agent": "scripted"
+      "progressRecords": 12,
+      "wallTimeSeconds": 22.518187672,
+      "agent": "claude-mod"
     },
     {
       "fixture": "ledger",
@@ -927,17 +1056,17 @@
       "verifyPass": true,
       "acceptancePass": true,
       "delta": {
-        "added": 0,
+        "added": 1,
         "removed": 0,
-        "changed": 1,
+        "changed": 0,
         "entries": 1,
         "expected": 1,
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 2.114543619,
-      "agent": "scripted"
+      "progressRecords": 9,
+      "wallTimeSeconds": 12.117916499,
+      "agent": "claude-mod"
     },
     {
       "fixture": "ledger",
@@ -945,7 +1074,7 @@
       "context": "storage",
       "difficulty": 2,
       "description": "remove an exported method and the test that used it",
-      "pass": true,
+      "pass": false,
       "verifyPass": true,
       "acceptancePass": true,
       "delta": {
@@ -957,9 +1086,10 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.8715529850000001,
-      "agent": "scripted"
+      "progressRecords": 6,
+      "wallTimeSeconds": 55.400772391,
+      "agent": "claude-mod",
+      "error": "storage: the observed surface is wrong: still observed Store.Save"
     },
     {
       "fixture": "ledger",
@@ -971,17 +1101,17 @@
       "verifyPass": true,
       "acceptancePass": true,
       "delta": {
-        "added": 1,
+        "added": 2,
         "removed": 1,
-        "changed": 1,
+        "changed": 0,
         "entries": 3,
         "expected": 3,
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 2.080511541,
-      "agent": "scripted"
+      "progressRecords": 6,
+      "wallTimeSeconds": 15.189037057,
+      "agent": "claude-mod"
     },
     {
       "fixture": "shared",
@@ -1001,9 +1131,9 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.664608559,
-      "agent": "scripted"
+      "progressRecords": 5,
+      "wallTimeSeconds": 12.425806169,
+      "agent": "claude-mod"
     },
     {
       "fixture": "todo",
@@ -1023,9 +1153,9 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.790794177,
-      "agent": "scripted"
+      "progressRecords": 6,
+      "wallTimeSeconds": 14.483390214,
+      "agent": "claude-mod"
     },
     {
       "fixture": "todo",
@@ -1045,9 +1175,9 @@
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.625887023,
-      "agent": "scripted"
+      "progressRecords": 8,
+      "wallTimeSeconds": 22.394826472,
+      "agent": "claude-mod"
     },
     {
       "fixture": "todo",
@@ -1059,20 +1189,20 @@
       "verifyPass": true,
       "acceptancePass": true,
       "delta": {
-        "added": 0,
+        "added": 1,
         "removed": 0,
-        "changed": 1,
+        "changed": 0,
         "entries": 1,
         "expected": 1,
         "precise": true
       },
       "attempts": 1,
-      "progressRecords": 0,
-      "wallTimeSeconds": 1.9587502890000001,
-      "agent": "scripted"
+      "progressRecords": 6,
+      "wallTimeSeconds": 15.70834458,
+      "agent": "claude-mod"
     }
   ],
   "notes": [
-    "working trees under /tmp/specd-eval.1906196705"
+    "working trees under /tmp/specd-eval.1467312115"
   ]
 }

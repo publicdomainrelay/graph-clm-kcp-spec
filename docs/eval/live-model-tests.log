@@ -12,10 +12,15 @@
 === RUN   TestPhase8LiveModelRealizesWithTheMod
     phase8_live_model_test.go:175: change calc-s2c-86cbeb0f63f5 ended Running with 2 progress record(s)
 --- PASS: TestPhase8LiveModelRealizesWithTheMod (12.89s)
+# The pi host was re-run over the hosted provider. Its earlier entry was taken
+# against a local model and is withdrawn: no local provider is used anywhere in
+# this repository, and the default arguments name `deepseek`/`deepseek-flash`,
+# with DEEPSEEK_API_KEY taken from the deepseek-claude launcher when the
+# environment has not exported one.
 === RUN   TestPhase8PiHostSummarizesCalc
-    phase8_pi_live_model_test.go:75: the pi host runs npx [--yes @earendil-works/pi-coding-agent@1.0.0 --provider llama-cpp --model ternary-bonsai-2-27b -p --no-session]
-    phase8_pi_live_model_test.go:97: the pi host wrote 4 requirement(s) and 2 interface(s)
---- PASS: TestPhase8PiHostSummarizesCalc (79.30s)
+    phase8_pi_live_model_test.go:75: the pi host runs npx [--yes @earendil-works/pi-coding-agent@1.0.0 --provider deepseek --model deepseek-flash --no-session -ne -p]
+    phase8_pi_live_model_test.go:97: the pi host wrote 2 requirement(s) and 2 interface(s)
+--- PASS: TestPhase8PiHostSummarizesCalc (3.83s)
 PASS
 ok  	github.com/publicdomainrelay/graph-clm-kcp-spec/test/e2e	122.899s
 EXIT=0
