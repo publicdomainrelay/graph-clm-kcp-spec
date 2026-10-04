@@ -53,6 +53,16 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 		return c.opts.Resync, nil
 	}
 
+	branch := c.branchStatus(ctx, repository)
+	if err := c.setBranchCondition(ctx, repository, namespace, branch); err != nil {
+		return 0, err
+	}
+	if branch.Mismatch {
+		c.log.Info("the checkout is on another branch; the repository is left alone",
+			"repository", name, "path", path, "branch", repository.Spec.Branch, "message", branch.Message)
+		return c.opts.Resync, nil
+	}
+
 	running, err := c.anyRunningRealize(ctx, namespace)
 	if err != nil {
 		return 0, err

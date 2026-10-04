@@ -40,6 +40,7 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 	specdPath := fs.String("specd", defaultSibling("SPECD_BIN", "specd"), "specd binary")
 	clmMod := fs.String("clm-mod", defaultClmMod(), "cc-clm-mod plugin folder the model runs with")
 	noSpecd := fs.Bool("no-specd", false, "start kcp and register the repository, but do not start specd")
+	stopOthers := fs.Bool("stop-others", false, "also stop the kcp and kine of the branches this checkout left; their specd stops either way")
 	options := addGlobals(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
@@ -55,6 +56,11 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl up: %v\n", err)
 		return exitError
 	}
+	branch, err := currentBranch(top)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl up: %v\n", err)
+		return exitError
+	}
 	name := *repository
 	if name == "" {
 		name = repositoryNameFor(top)
@@ -62,21 +68,22 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 	record := session.Record{
 		Repo:                top,
 		Repository:          name,
+		Branch:              branch,
 		Workspace:           "root:" + name,
 		Namespace:           options.namespace,
-		KcpRoot:             session.KcpRoot(top),
+		KcpRoot:             session.KcpRoot(top, branch),
 		ClmMod:              *clmMod,
 		ClmDocDir:           statedir.ClmDocDir(),
-		AdminKubeconfig:     filepath.Join(session.KcpRoot(top), "admin.kubeconfig"),
-		WorkspaceKubeconfig: filepath.Join(session.KcpRoot(top), name+".kubeconfig"),
+		AdminKubeconfig:     filepath.Join(session.KcpRoot(top, branch), "admin.kubeconfig"),
+		WorkspaceKubeconfig: filepath.Join(session.KcpRoot(top, branch), name+".kubeconfig"),
 	}
-	previous, hadPrevious, _ := session.Load(top)
+	previous, hadPrevious, _ := session.Load(top, branch, session.DefaultBranch(top))
 	if hadPrevious && session.Alive(previous.SpecdPid, "specd") {
 		record.SpecdPid = previous.SpecdPid
 		record.SpecdLog = previous.SpecdLog
 	}
 
-	fmt.Fprintf(stdout, "repository %s at %s\n", name, top)
+	fmt.Fprintf(stdout, "repository %s at %s on branch %s\n", name, top, branch)
 	if err := startKcp(ctx, &record, previous, hadPrevious, stdout); err != nil {
 		fmt.Fprintf(stderr, "specctl up: %v\n", err)
 		return exitError
@@ -98,8 +105,7 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 	case getErr == nil:
 		fmt.Fprintf(stdout, "kcp already holds Repository %s in %s\n", name, record.Workspace)
 	case kcpclient.IsNotFound(getErr):
-		codeBranch, _ := currentBranch(top)
-		restored, err := persist.Restore(ctx, persist.RestoreOptions{Cluster: client, Namespace: record.Namespace, Repository: name, RepoPath: top, Remote: *remote, CodeBranch: codeBranch})
+		restored, err := persist.Restore(ctx, persist.RestoreOptions{Cluster: client, Namespace: record.Namespace, Repository: name, RepoPath: top, Remote: *remote, CodeBranch: branch})
 		switch {
 		case err == nil:
 			from := "the local branch"
@@ -121,6 +127,8 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl up: %v\n", getErr)
 		return exitError
 	}
+
+	stopOtherBranchSpecds(record, *stopOthers, stdout)
 
 	if !*noSpecd && !session.Alive(record.SpecdPid, "specd") {
 		pushRemote := ""
@@ -169,9 +177,11 @@ func startKcp(ctx context.Context, record *session.Record, previous session.Reco
 		}
 		instance = started
 	}
+	record.KcpRoot = instance.Root
 	record.KcpPort, record.KcpURL, record.KcpPid = instance.KcpPort, instance.KcpURL, instance.KcpPid
 	record.KinePort, record.KineURL, record.KinePid = instance.KinePort, instance.KineURL, instance.KinePid
 	record.AdminKubeconfig = instance.AdminKubeconfig
+	record.WorkspaceKubeconfig = filepath.Join(instance.Root, record.Repository+".kubeconfig")
 
 	deployDir, err := session.ExtractDeploy()
 	if err != nil {
@@ -278,7 +288,7 @@ func startSpecd(record session.Record, specdPath, agent, pushRemote string) (int
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return 0, "", err
 	}
-	logPath := filepath.Join(logDir, filepath.Base(session.Path(record.Repo))+".specd.log")
+	logPath := filepath.Join(logDir, filepath.Base(session.RepoDir(record.Repo))+"--"+session.BranchSlug(record.Branch)+".specd.log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return 0, "", err
@@ -319,6 +329,44 @@ func startSpecd(record session.Record, specdPath, agent, pushRemote string) (int
 	return pid, logPath, nil
 }
 
+func stopOtherBranchSpecds(current session.Record, stopKcp bool, stdout io.Writer) {
+	records, err := session.List()
+	if err != nil {
+		fmt.Fprintf(stdout, "could not list this machine's instances: %v\n", err)
+		return
+	}
+	for _, other := range records {
+		if other.Repo != current.Repo || other.Branch == current.Branch {
+			continue
+		}
+		if session.Alive(other.SpecdPid, "specd") {
+			stopSpecdProcess(other.SpecdPid)
+			other.SpecdPid = 0
+			other.SpecdLog = ""
+			if err := session.Save(other); err != nil {
+				fmt.Fprintf(stdout, "could not record the stopped specd of branch %s: %v\n", other.Branch, err)
+			}
+			fmt.Fprintf(stdout, "specd of branch %s stopped (the checkout is on %s)\n", other.Branch, current.Branch)
+		}
+		if stopKcp && kcpproc.Ready(instanceOf(other)) {
+			kcpproc.Stop(instanceOf(other))
+			fmt.Fprintf(stdout, "kcp of branch %s stopped at %s\n", other.Branch, other.KcpURL)
+		}
+	}
+}
+
+func stopSpecdProcess(pid int) {
+	if process, err := os.FindProcess(pid); err == nil {
+		_ = process.Signal(syscall.SIGTERM)
+	}
+	for range 50 {
+		if !session.Alive(pid, "specd") {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func printNextSteps(stdout io.Writer, record session.Record) {
 	fmt.Fprintf(stdout, "\nnext:\n")
 	fmt.Fprintf(stdout, "  specctl status                      # populate progress, contexts, the open-architecture branch\n")
@@ -350,32 +398,29 @@ func runDown(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl down: %v\n", err)
 		return exitError
 	}
-	record, ok, err := session.Load(top)
+	branch, err := session.CurrentBranch(top)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl down: %v\n", err)
+		return exitError
+	}
+	record, ok, err := session.Load(top, branch, session.DefaultBranch(top))
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl down: %v\n", err)
 		return exitError
 	}
 	if !ok {
-		fmt.Fprintf(stdout, "no session for %s\n", top)
+		fmt.Fprintf(stdout, "no session for %s on branch %s\n", top, branch)
 		return exitOK
 	}
 	if session.Alive(record.SpecdPid, "specd") {
-		if process, err := os.FindProcess(record.SpecdPid); err == nil {
-			_ = process.Signal(syscall.SIGTERM)
-		}
-		for range 50 {
-			if !session.Alive(record.SpecdPid, "specd") {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
+		stopSpecdProcess(record.SpecdPid)
 		fmt.Fprintf(stdout, "specd %d stopped\n", record.SpecdPid)
 	}
 	if !*keepKcp {
 		kcpproc.Stop(instanceOf(record))
 		fmt.Fprintf(stdout, "kcp %s and kine stopped\n", record.KcpURL)
 	}
-	if err := session.Remove(top); err != nil {
+	if err := session.Remove(record.Repo, record.Branch); err != nil {
 		fmt.Fprintf(stderr, "specctl down: %v\n", err)
 		return exitError
 	}
@@ -407,7 +452,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	if kcpproc.Ready(instanceOf(record)) {
 		kcpState = "ready"
 	}
-	fmt.Fprintf(stdout, "repository  %s at %s\nkcp         %s %s (kine %s), workspace %s\nspecd       %s\n", record.Repository, record.Repo, record.KcpURL, kcpState, record.KineURL, record.Workspace, specdState)
+	fmt.Fprintf(stdout, "repository  %s at %s on branch %s\nkcp         %s %s (kine %s), workspace %s\nspecd       %s\n", record.Repository, record.Repo, record.Branch, record.KcpURL, kcpState, record.KineURL, record.Workspace, specdState)
 	object, err := client.Get(ctx, specapi.RepositoryGVR, record.Namespace, record.Repository)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl status: %v\n", err)

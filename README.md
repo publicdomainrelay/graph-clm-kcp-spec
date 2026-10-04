@@ -147,12 +147,13 @@ the system build the architecture, then work by changing the architecture.
 
 ```bash
 git clone https://example.com/someone/project.git && cd project
-specctl up                       # this repository's own kcp + specd; index, summarize, persist
+specctl up                       # this checkout's branch: its own kcp + specd; index, summarize, persist
 specctl status                   # populate progress, contexts, open-architecture/project
+specctl ls                       # every instance on this machine, one per (checkout, branch)
 specctl arch outline             # the architecture kcp holds
 claude --plugin-dir /path/to/cc-clm-mod   # the agent reads and edits it through kcp
 git log --oneline open-architecture/project   # every change of kcp, outside the tree
-specctl down                     # stop specd and this repository's kcp
+specctl down                     # stop specd and this branch's kcp
 ```
 
 - **Nothing lands in the project tree.** kcp, kine, logs and context documents
@@ -169,6 +170,19 @@ specctl down                     # stop specd and this repository's kcp
   `open-architecture/<repository>` is restored from it instead, so a team shares
   one architecture. `--push` pushes the branch after every change; nothing is
   pushed unless asked.
+- **One instance per (checkout, branch).** kcp, kine and the session record are
+  keyed on the checkout path *and* the checked-out branch, so `git switch` plus
+  `specctl up` starts or adopts that branch's own instance and restores from
+  that branch's architecture (`open-architecture/<repository>--<branch>`,
+  falling back to the default branch's). Only one specd runs per checkout
+  because a specd indexes the checkout's HEAD: `up` on another branch stops the
+  specd of the branch the checkout left and leaves its kcp running
+  (`--stop-others` stops that too). A stale specd can never misattribute code —
+  when the checkout's HEAD is not the Repository's branch it sets
+  `BranchMismatch=True` on the Repository and does not index, realize or persist
+  for it, and clears the condition when they match again. Work on two branches
+  at the same time = two `git worktree`s, each with its own path, instance and
+  specd; `specctl ls` lists them all.
 - **Many repositories at once.** Each `specctl up` starts its own kcp and kine.
   kine binds port 0; kcp cannot, so it gets a port the kernel assigned, retries
   if it loses that port, and the port it really serves is read back from its own
@@ -189,16 +203,16 @@ sequenceDiagram
     participant S as specd
     participant A as agent + cc-clm-mod
     participant G as git: main / open-architecture
-    D->>C: clone, cd, specctl up
-    C->>K: start kcp + kine on kernel ports
-    C->>G: fetch open-architecture/REPO?
+    D->>C: clone, cd, git switch -c BRANCH, specctl up
+    C->>K: start this branch's kcp + kine on kernel ports
+    C->>G: fetch open-architecture/REPO (or REPO--BRANCH)?
     alt branch exists
-        C->>K: restore specs from the branch
+        C->>K: restore specs from that branch's architecture
     else no branch
         C->>K: apply Repository (index + summarize)
         S->>K: SystemContexts with specs
     end
-    S->>G: commit open-architecture/REPO
+    S->>G: commit open-architecture/REPO (or REPO--BRANCH)
     D->>A: change how X works
     A->>K: arch_outline, arch_context, arch_edit
     S->>A: SpecToCode: realize the delta
@@ -1251,8 +1265,8 @@ impl/scriptedagent   the deterministic agent: drafts and realize steps from a sc
 impl/realize         one spec -> code unit of work: worktree, agent, verify gate, commit, land, re-ingest
 impl/oagit           git plumbing for the orphan branch: temp index, changed blobs only, CAS ref update
 impl/persist         kcp <-> open-architecture/<repository>: persist, adopt a branch edit, restore
-impl/kcpproc         one kcp + kine per repository on kernel-assigned ports
-impl/session         the per-repository session record specctl up writes in the state dir
+impl/kcpproc         one kcp + kine per (checkout, branch) on kernel-assigned ports
+impl/session         the per-(checkout, branch) session record specctl up writes in the state dir
 impl/statedir        $SPECD_STATE_DIR, the CLM document dir
 impl/schemagen       CustomResourceDefinition -> APIResourceSchema, the drift test and the generator
 impl/archkcp         arch.yaml <-> SystemContext objects on a kcp workspace
@@ -1317,6 +1331,14 @@ make test-live SPECD_BOLT_BACKEND=hydradb   # the same, graph checks on HydraDB 
 
 # the multi workspace end to end: two tenants, one export mode controller
 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase9TwoTenantsOneExportController -count=1 -v
+
+# one kcp per (checkout, branch): up on main, up on a feature branch, the
+# feature restores from main's architecture and persists to its own, main's
+# specs and kcp stay untouched, switching back adopts main's instance
+SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase14OneInstancePerBranch -count=1 -v
+
+# two git worktrees on two branches with their specds running at the same time
+SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase14TwoWorktreesRunAtTheSameTime -count=1 -v
 
 # the effectiveness harness, with no cluster in it: every scenario's realize
 # steps are applied to a copy of its fixture and its own tests must pass
@@ -1450,6 +1472,19 @@ bin/specctl kcp endpoint --root .kcp-specd   # the bound ports as JSON
 bin/specctl kcp endpoint --root .kcp-specd -o sh   # or as export lines
 make kcp-down                                # specctl kcp stop --root .kcp-specd
 ```
+
+Each `specctl up` keeps its own state under
+`$SPECD_STATE_DIR/repos/<repository>-<hash of the checkout path>/<branch>/`, so
+one checkout's two branches, and every other checkout, never share a kcp. The
+commands that work on the current checkout (`status`, `env`, `down`, `arch`,
+`retry`, `sync`) resolve the branch that is checked out; `specctl ls` lists
+every instance with its repository, path, branch, kcp url, ready state and
+whether its specd runs. A session record written before this keying lives at
+`$SPECD_STATE_DIR/sessions/<name>-<hash>.json`; on the default branch `specctl`
+reads it once, rewrites it as that branch's record and removes the old file, so
+an existing session keeps resolving — its kcp root stays where it was, because a
+running kcp cannot move. On any other branch `up` starts that branch's own
+instance instead.
 
 State stays in `.kcp-specd/` (gitignored) unless `ROOT` names another
 directory. An eval run keeps its objects in `root:specs-eval` and clones a
