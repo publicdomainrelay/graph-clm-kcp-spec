@@ -321,18 +321,10 @@ func isChangePath(path string) bool {
 }
 
 // PreserveChanges keeps every change file the branch already carries. changes/
-// is the branch's attempt history; kcp holds only the changes of the branch it
-// is watching, so a feature branch must not delete the records it inherited.
+// is the branch's attempt history and is append-only: kcp holds only the
+// changes of the branch it is watching, so a re-render from a smaller kcp - a
+// restore, a superseded attempt - must not delete what the branch recorded.
 func PreserveChanges(files map[string][]byte, previous map[string][]byte) {
-	covered := map[string]bool{}
-	for path, data := range files {
-		if !isChangePath(path) {
-			continue
-		}
-		if change, ok := parseChangeDoc(data); ok {
-			covered[spec.EpisodeBase(change)] = true
-		}
-	}
 	for path, data := range previous {
 		if !isChangePath(path) {
 			continue
@@ -340,22 +332,8 @@ func PreserveChanges(files map[string][]byte, previous map[string][]byte) {
 		if _, written := files[path]; written {
 			continue
 		}
-		if change, ok := parseChangeDoc(data); ok && covered[spec.EpisodeBase(change)] {
-			continue
-		}
 		files[path] = data
 	}
-}
-
-func parseChangeDoc(data []byte) (spec.SpecChange, bool) {
-	doc := changeDoc{}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return spec.SpecChange{}, false
-	}
-	if doc.Spec.SystemContext == "" {
-		return spec.SpecChange{}, false
-	}
-	return spec.SpecChange{Spec: doc.Spec, Status: doc.Status}, true
 }
 
 func changesDocument(snapshot Snapshot) string {
