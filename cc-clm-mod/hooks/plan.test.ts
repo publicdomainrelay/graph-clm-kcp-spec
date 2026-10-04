@@ -16,6 +16,9 @@ import {
   renderArgv,
   reportArgv,
   touchedPath,
+  ARCH_TOOLS,
+  ARCH_TOOL_PREFIX,
+  archInvocation,
 } from "./plan";
 
 test("only a file tool's call names a file", () => {
@@ -65,4 +68,23 @@ test("the report line is read, not guessed", () => {
   expect(parseReport("calc-s2c-abc progress=3 recorded=true\n")).toEqual({ progress: 3, recorded: true });
   expect(parseReport("calc-s2c-abc progress=1 recorded=false\n")).toEqual({ progress: 1, recorded: false });
   expect(parseReport("")).toEqual({ progress: 0, recorded: false });
+});
+
+test("the architecture tools map to specctl, and the edit carries the document on stdin", () => {
+  expect(ARCH_TOOLS.map((tool) => tool.name)).toEqual(["arch_outline", "arch_context", "arch_edit", "arch_changes"]);
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_outline`, {})).toEqual({ argv: ["specctl", "arch", "outline"] });
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_context`, { context: "calc" })).toEqual({
+    argv: ["specctl", "clm", "render", "--context", "calc"],
+  });
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_edit`, { context: "calc", document: "# Context: calc\n" })).toEqual({
+    argv: ["specctl", "clm", "apply", "--context", "calc"],
+    stdin: "# Context: calc\n",
+  });
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_changes`, {})).toEqual({ argv: ["specctl", "get", "specchanges"] });
+});
+
+test("an architecture tool call without what it needs is answered, not run", () => {
+  expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_context`, {})).toBe("string");
+  expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_edit`, { context: "calc", document: "  " })).toBe("string");
+  expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_nothing`, {})).toBe("string");
 });

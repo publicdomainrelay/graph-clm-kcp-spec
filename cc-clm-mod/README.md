@@ -95,6 +95,22 @@ Set by specd on the model it launches:
 | `SPECD_WORKSPACE`, `SPECD_NAMESPACE` | the logical cluster and namespace (defaults `root:specs`, `default`) |
 | `SPECD_BOLT_*` | the graph endpoint; unset means the report goes to kcp alone |
 
+## Interactive sessions: inspect and edit the architecture through kcp
+
+In a repository where `specctl up` ran, a plain `claude --plugin-dir cc-clm-mod`
+session (no `SPECD_CLM_CONTEXT`) finds that repository's kcp through
+`specctl env` and registers four tools the model can call:
+
+| tool | does |
+| --- | --- |
+| `mcp__cc-clm-mod__arch_outline` | every system context kcp holds: upstream, overlay, orchestrator, intent, interfaces, files, sync conditions |
+| `mcp__cc-clm-mod__arch_context` | one context as its context document (prose intent, fenced `yaml spec` block, resolved refs) |
+| `mcp__cc-clm-mod__arch_edit` | send the edited document back; kcp records the delta and specd opens a `SpecToCode` change that realizes it, gated by the tests |
+| `mcp__cc-clm-mod__arch_changes` | the SpecChanges and their phase, to follow an edit until its code lands |
+
+The spec never sits in the project tree: the tools read and write kcp, and kcp
+persists to the orphan branch `open-architecture/<repository>`.
+
 ## Developing
 
 ```

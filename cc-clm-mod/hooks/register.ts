@@ -23,6 +23,9 @@ import {
   type StateBridge,
 } from "./vendor/core.js";
 import {
+  ARCH_TOOL_PREFIX,
+  ARCH_TOOLS,
+  archInvocation,
   applyArgv,
   contextSection,
   guardDenial,
@@ -50,6 +53,9 @@ interface Engine {
     ): Promise<{ exitCode: number; stdout: string; stderr: string }>;
   };
   env: { get(name: string): Promise<string | undefined> };
+  tool: {
+    register(tool: { name: string; description: string; inputSchema?: Record<string, unknown> }): Promise<unknown>;
+  };
   ui: {
     status(text: string | undefined): void;
     log(text: string, options?: { to?: "debug" }): void;
@@ -67,6 +73,8 @@ interface Session {
   root?: string;
   rootRead?: boolean;
   doc?: string;
+  archSpecctl?: string;
+  archCwd?: string;
 }
 
 /** Where a path lands, through the engine's own file system. */
@@ -220,6 +228,28 @@ async function settle($: Engine, session: Session): Promise<void> {
   }
 }
 
+async function offerArchTools($: Engine, session: Session, cwd: string): Promise<void> {
+  const specctl = (await $.env.get("SPECD_SPECCTL"))?.trim() || "specctl";
+  const found = await $.process.run([specctl, "env", "--repo", cwd, "-o", "json"], { cwd, timeoutMs: 10_000 }).catch(() => undefined);
+  if (!found || found.exitCode !== 0) return;
+  for (const tool of ARCH_TOOLS) {
+    await $.tool.register({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema });
+  }
+  session.archSpecctl = specctl;
+  session.archCwd = cwd;
+  $.ui.status("clm: arch tools on (specctl up session)");
+}
+
+async function runArchTool($: Engine, session: Session, tool: string, input: Record<string, unknown>): Promise<string> {
+  const invocation = archInvocation(session.archSpecctl ?? "specctl", tool, input);
+  if (typeof invocation === "string") return invocation;
+  const ran = await $.process
+    .run(invocation.argv, { cwd: session.archCwd, stdin: invocation.stdin, timeoutMs: 60_000 })
+    .catch((error: unknown) => ({ exitCode: 1, stdout: "", stderr: describe(error) }));
+  const text = `${ran.stdout}${ran.stderr ? `\n${ran.stderr}` : ""}`.trim();
+  return ran.exitCode === 0 ? text || "(no output)" : `failed (exit ${ran.exitCode}): ${text}`;
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -233,7 +263,15 @@ export const register: Register = (on) => {
     } catch (error) {
       $.ui.log(`clm: ${describe(error)}`, { to: "debug" });
     }
-    return next(e);
+    const started = await next(e);
+    if (!session.host) {
+      try {
+        await offerArchTools($ as Engine, session, e.cwd);
+      } catch (error) {
+        $.ui.log(`clm: ${describe(error)}`, { to: "debug" });
+      }
+    }
+    return started;
   });
 
   // The context document is one more system section, added last: it is session
@@ -247,6 +285,9 @@ export const register: Register = (on) => {
   });
 
   on("tool.call", async ($, e, next) => {
+    if (session.archSpecctl && String(e.tool).startsWith(ARCH_TOOL_PREFIX)) {
+      return { result: await runArchTool($ as Engine, session, String(e.tool), e as unknown as Record<string, unknown>) };
+    }
     // The scope guard runs before anything beneath: a path outside the root
     // must not be read, listed or written even once, so the call never reaches
     // the tool. The refusal is the model's, as an error result it can learn

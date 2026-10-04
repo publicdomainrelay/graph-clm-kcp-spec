@@ -331,3 +331,75 @@ export function parseReport(stdout: string): { progress: number; recorded: boole
   const match = /progress=(\d+) recorded=(true|false)/.exec(stdout);
   return { progress: match ? Number(match[1]) : 0, recorded: match?.[2] === "true" };
 }
+
+export const ARCH_TOOL_PREFIX = "mcp__cc-clm-mod__";
+
+export interface ArchTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export const ARCH_TOOLS: readonly ArchTool[] = [
+  {
+    name: "arch_outline",
+    description:
+      "List the architecture kcp holds for this repository: every system context with its upstream, overlay, orchestrator, intent, declared interfaces, observed files and sync conditions. Start here before changing the architecture.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "arch_context",
+    description:
+      "Read one system context as its context document: prose intent and a fenced `yaml spec` block (requirements with levels and codeRefs, interfaces) above a managed zone of resolved code references. Edit the prose and the spec block, then send the whole document to arch_edit.",
+    inputSchema: {
+      type: "object",
+      properties: { context: { type: "string", description: "SystemContext name, as arch_outline lists it" } },
+      required: ["context"],
+    },
+  },
+  {
+    name: "arch_edit",
+    description:
+      "Change the spec of one system context in kcp: pass the whole context document as arch_context returned it, with the prose and the spec block edited. kcp records the structured delta and specd opens a SpecToCode change that edits the code to match, gated by the repository's tests. Returns the delta kcp recorded.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        context: { type: "string", description: "SystemContext name" },
+        document: { type: "string", description: "the edited context document" },
+      },
+      required: ["context", "document"],
+    },
+  },
+  {
+    name: "arch_changes",
+    description:
+      "List the SpecChanges in kcp: each change's direction (SpecToCode or CodeToSpec), phase, and the commit it produced. Use it to follow an arch_edit until its code lands.",
+    inputSchema: { type: "object", properties: {} },
+  },
+];
+
+export interface ArchInvocation {
+  argv: string[];
+  stdin?: string;
+}
+
+export function archInvocation(specctl: string, tool: string, input: Record<string, unknown>): ArchInvocation | string {
+  const name = tool.startsWith(ARCH_TOOL_PREFIX) ? tool.slice(ARCH_TOOL_PREFIX.length) : tool;
+  const context = typeof input.context === "string" ? input.context.trim() : "";
+  switch (name) {
+    case "arch_outline":
+      return { argv: [specctl, "arch", "outline"] };
+    case "arch_context":
+      if (!context) return "arch_context needs a context name; call arch_outline for the list";
+      return { argv: [specctl, "clm", "render", "--context", context] };
+    case "arch_edit": {
+      const document = typeof input.document === "string" ? input.document : "";
+      if (!context) return "arch_edit needs a context name";
+      if (!document.trim()) return "arch_edit needs the edited context document";
+      return { argv: [specctl, "clm", "apply", "--context", context], stdin: document };
+    }
+    case "arch_changes":
+      return { argv: [specctl, "get", "specchanges"] };
+  }
+  return `unknown architecture tool ${tool}`;
+}
