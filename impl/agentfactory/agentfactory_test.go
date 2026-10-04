@@ -3,6 +3,7 @@ package agentfactory
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -152,6 +153,24 @@ func TestARepositoryKindWinsOverTheController(t *testing.T) {
 		Agent: &spec.AgentSpec{Kind: ClaudeMod},
 	}}, "/tmp/calc"); err == nil {
 		t.Error("the mod kind with no --clm-mod folder must be refused")
+	}
+}
+
+// pi discovers an extension from a settings file, so a controller that was
+// given a folder has to hand it to the command too; otherwise the CLM path
+// asks the model to edit a document nothing applies.
+func TestPiKindLoadsTheExtensionFolder(t *testing.T) {
+	got := piArgs([]string{"--yes", piagent.Package, "-p"}, "/tmp/pi-hydradb-clm")
+	want := []string{"--yes", piagent.Package, "-p", "--extension", "/tmp/pi-hydradb-clm"}
+	if !slices.Equal(got, want) {
+		t.Errorf("args = %v, want %v", got, want)
+	}
+	named := []string{"--yes", piagent.Package, "-p", "--extension", "/other"}
+	if got := piArgs(named, "/tmp/pi-hydradb-clm"); !slices.Equal(got, named) {
+		t.Errorf("a caller that named an extension was overridden: %v", got)
+	}
+	if got := piArgs([]string{"-p"}, ""); !slices.Equal(got, []string{"-p"}) {
+		t.Errorf("no folder must add nothing: %v", got)
 	}
 }
 

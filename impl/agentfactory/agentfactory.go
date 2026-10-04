@@ -221,9 +221,12 @@ func (f *Factory) Agent(repository *spec.Repository, dir string) (agent.Agent, e
 		}
 		return scriptedagent.New(scenario), nil
 	case kind == Pi:
+		if len(args) == 0 {
+			args = piagent.DefaultArgs()
+		}
 		return piagent.New(piagent.Options{
 			Command:   command,
-			Args:      args,
+			Args:      piArgs(args, f.options.PiExtension),
 			Dir:       dir,
 			Timeout:   f.options.Timeout,
 			Env:       f.options.Env,
@@ -271,4 +274,21 @@ func modArgs(args []string, folder string) []string {
 		return out
 	}
 	return append(out, "--plugin-dir", folder)
+}
+
+// piArgs adds the extension folder to the model arguments, unless the caller
+// already named one. pi discovers an extension from a settings file, not from
+// the folder holding it, so a controller that was given one has to hand it to
+// the command as well: without this the CLM path would ask the model to edit a
+// document nothing applies, and the scenario would fail for the harness's
+// reason rather than the model's.
+func piArgs(args []string, folder string) []string {
+	if folder == "" {
+		return args
+	}
+	out := append([]string{}, args...)
+	if slices.Contains(out, "--extension") || slices.Contains(out, "-e") {
+		return out
+	}
+	return append(out, "--extension", folder)
 }

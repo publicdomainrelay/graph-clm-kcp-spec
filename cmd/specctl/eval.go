@@ -18,7 +18,24 @@ import (
 // evalWorkspace is where an eval run keeps its state. It is deliberately not
 // the workspace the live tests own: an eval run creates, changes and deletes
 // whole repositories, and it must never disturb another suite's objects.
-const evalWorkspace = "root:specs-eval"
+//
+// EnvEvalWorkspace names a different one, so two checkouts of this repository
+// can each run an eval against their own kcp without measuring one another's
+// objects. It fills the workspace only when --workspace is not given.
+const (
+	evalWorkspace    = "root:specs-eval"
+	EnvEvalWorkspace = "SPECD_EVAL_WORKSPACE"
+)
+
+// defaultEvalWorkspace is the workspace an eval run keeps its state in when the
+// caller names none: the environment's override when there is one, the default
+// otherwise.
+func defaultEvalWorkspace() string {
+	if fromEnv := strings.TrimSpace(os.Getenv(EnvEvalWorkspace)); fromEnv != "" {
+		return fromEnv
+	}
+	return evalWorkspace
+}
 
 func runEval(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("specctl eval", flag.ContinueOnError)
@@ -60,7 +77,7 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	if !flagSet(fs, "workspace") {
-		options.workspace = evalWorkspace
+		options.workspace = defaultEvalWorkspace()
 	}
 
 	ctx := context.Background()

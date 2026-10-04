@@ -357,8 +357,10 @@ usage:
       [--scenarios <glob>] [--out docs/eval/run-<date>.md]
       one Repository manifest per fixture, then one spec edit per scenario
       graded by hidden acceptance tests; empty --agent is the scripted
-      baseline. Defaults to the workspace root:specs-eval, so it never
-      disturbs the objects another suite owns.
+      baseline. Defaults to the workspace root:specs-eval, or to
+      $SPECD_EVAL_WORKSPACE when that is set, so a second checkout can name
+      a workspace of its own and never disturb the objects another suite
+      owns.
 
 kinds:
   repository, systemcontext, specchange

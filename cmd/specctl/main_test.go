@@ -193,6 +193,24 @@ func TestDefaultKubeconfigFallsBackToTheRepositoryState(t *testing.T) {
 	}
 }
 
+// Two checkouts of this repository share nothing but the machine, so an eval
+// run has to be able to name a workspace of its own. The environment fills the
+// default and the flag still wins.
+func TestEvalWorkspaceComesFromTheEnvironment(t *testing.T) {
+	t.Setenv(EnvEvalWorkspace, "")
+	if got := defaultEvalWorkspace(); got != evalWorkspace {
+		t.Errorf("workspace = %q, want %q", got, evalWorkspace)
+	}
+	t.Setenv(EnvEvalWorkspace, "root:specs-eval-p11")
+	if got := defaultEvalWorkspace(); got != "root:specs-eval-p11" {
+		t.Errorf("workspace = %q, want the environment's", got)
+	}
+	t.Setenv(EnvEvalWorkspace, "  ")
+	if got := defaultEvalWorkspace(); got != evalWorkspace {
+		t.Errorf("a blank override must not win: %q", got)
+	}
+}
+
 // `clm render --context <name>` names a SystemContext, and the global --context
 // names a kubeconfig context: the subcommand must not register the same flag
 // twice, which would panic, and must not read the wrong one.
