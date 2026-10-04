@@ -470,7 +470,7 @@ func readme(repository string) string {
 		"| `specs/<context>.yaml` | each context's declared spec; edit here to change kcp |\n" +
 		"| `status/<context>.yaml` | observed code facts and conditions |\n" +
 		"| `context/<context>.md` | the context's prose and resolved code references; the spec lives in `specs/` |\n" +
-		"| `changes/<name>.yaml` | each SpecChange: direction, delta, progress, outcome |\n" +
+		"| `changes/<name>.yaml` | each SpecChange: direction, a delta summary (counts and ids), progress, outcome |\n" +
 		"| `CHANGES.md` | on a feature branch: the requirement delta against the default branch |\n" +
 		"| `graph/*.jsonl` | the context graph, one vertex or edge per line |\n"
 }
