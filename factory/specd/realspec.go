@@ -227,9 +227,14 @@ func (c *Controller) realizeWork(ctx context.Context, namespace string, reposito
 		if failure == nil {
 			return result, nil
 		}
-		if attempt == 0 && c.siblingLanded(ctx, namespace, repository, options.Base, changeNames(members)) {
-			c.log.Info("a sibling change landed since the base; retrying once on the new base",
-				"repository", repository.Name, "base", options.Base, "changes", len(members))
+		moved, sibling := c.movedSinceBase(ctx, namespace, repository, options.Base, changeNames(members))
+		if attempt == 0 && moved {
+			kind := "the branch moved"
+			if sibling {
+				kind = "a sibling change landed"
+			}
+			c.log.Info("retrying once on the new base",
+				"repository", repository.Name, "reason", kind, "base", options.Base, "changes", len(members))
 			continue
 		}
 		return result, failure
@@ -237,24 +242,24 @@ func (c *Controller) realizeWork(ctx context.Context, namespace string, reposito
 	return result, failure
 }
 
-func (c *Controller) siblingLanded(ctx context.Context, namespace string, repository *spec.Repository, base string, members []string) bool {
+func (c *Controller) movedSinceBase(ctx context.Context, namespace string, repository *spec.Repository, base string, members []string) (bool, bool) {
 	repoPath, err := filepath.Abs(repository.WorkPath())
 	if err != nil {
-		return false
+		return false, false
 	}
 	head, err := gitrepo.Head(ctx, repoPath)
-	if err != nil {
-		return false
+	if err != nil || head == "" || head == base {
+		return false, false
 	}
 	changes, err := c.allChanges(ctx, namespace)
 	if err != nil {
-		return false
+		return true, false
 	}
 	refs, err := c.changeRefs(ctx, namespace, changes)
 	if err != nil {
-		return false
+		return true, false
 	}
-	return specsync.SiblingLanded(refs, repository.Name, base, head, members)
+	return true, specsync.SiblingLanded(refs, repository.Name, base, head, members)
 }
 
 func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, repository *spec.Repository, members []*spec.SpecChange, result realize.Result) {

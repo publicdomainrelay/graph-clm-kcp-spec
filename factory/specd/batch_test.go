@@ -172,19 +172,20 @@ func TestSiblingLandedSeesACommitAnotherChangeRecorded(t *testing.T) {
 	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
 		systemContext.Spec.Repository = "calc"
 	}))
-	sibling := pendingChange("calc-s2c-1", "calc", time.Unix(100, 0))
-	sibling.Status.Phase = specapi.PhaseSucceeded
-	sibling.Status.Commit = head
-	apply(t, cluster, sibling)
+	landed := pendingChange("calc-s2c-1", "calc", time.Unix(100, 0))
+	landed.Status.Phase = specapi.PhaseSucceeded
+	landed.Status.Commit = head
+	apply(t, cluster, landed)
 	controller := testController(cluster)
 
-	if !controller.siblingLanded(context.Background(), specapi.DefaultNamespace, readRepository(t, cluster, "calc"), "base", nil) {
-		t.Error("a sibling that landed HEAD was not seen")
+	moved, recorded := controller.movedSinceBase(context.Background(), specapi.DefaultNamespace, readRepository(t, cluster, "calc"), "base", nil)
+	if !moved || !recorded {
+		t.Errorf("moved, recorded = %v, %v, want the branch moved by a recorded sibling", moved, recorded)
 	}
-	if controller.siblingLanded(context.Background(), specapi.DefaultNamespace, readRepository(t, cluster, "calc"), "base", []string{"calc-s2c-1"}) {
-		t.Error("the batch's own change counted as a sibling")
+	if moved, recorded := controller.movedSinceBase(context.Background(), specapi.DefaultNamespace, readRepository(t, cluster, "calc"), "base", []string{"calc-s2c-1"}); !moved || recorded {
+		t.Errorf("moved, recorded = %v, %v, want the batch's own change not counted as a sibling", moved, recorded)
 	}
-	if controller.siblingLanded(context.Background(), specapi.DefaultNamespace, readRepository(t, cluster, "calc"), head, nil) {
-		t.Error("a branch that did not move counted as a sibling landing")
+	if moved, _ := controller.movedSinceBase(context.Background(), specapi.DefaultNamespace, readRepository(t, cluster, "calc"), head, nil); moved {
+		t.Error("a branch that did not move was reported as moved")
 	}
 }

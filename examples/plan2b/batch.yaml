@@ -1,0 +1,97 @@
+# The deterministic agent of the batching example. One spec edit touches two
+# contexts of one repository: the calc package gains Subtract, and the command
+# line front end gains a test that calls it. The second context's file only
+# compiles once the first context's file is there, so the two have to land as
+# one change: one worktree, one agent run, one verify, one commit.
+contexts:
+  calc:
+    summary: |
+      The calc package does arithmetic on two integers: Add and Multiply.
+    intent: |
+      Arithmetic on two integers, as a library the command line front end
+      wraps.
+    requirements:
+      - id: r.add
+        level: MUST
+        text: Add returns the sum of two integers.
+        codeRefs: ["Add", "file:calc/calc.go"]
+      - id: r.multiply
+        level: MUST
+        text: Multiply returns the product of two integers.
+        codeRefs: ["Multiply", "file:calc/calc.go"]
+    interfaces:
+      - name: Add
+        kind: function
+        signature: "func Add(a, b int) int"
+        file: calc/calc.go
+      - name: Multiply
+        kind: function
+        signature: "func Multiply(a, b int) int"
+        file: calc/calc.go
+  cmd-calc:
+    summary: |
+      The calc command line front end reads two operands and an operator and
+      prints the result.
+    intent: |
+      A command line front end over the calc package.
+    requirements:
+      - id: r.read-two-operands
+        level: MUST
+        text: The CLI reads two integers and an operator from the arguments.
+        codeRefs: ["file:cmd/calc/main.go"]
+    interfaces: []
+  plan2b-calc:
+    summary: |
+      The module root of the calc example.
+    intent: |
+      A module root that carries no code of its own.
+    requirements: []
+    interfaces: []
+realize:
+  calc:
+    - patch:
+        path: calc/calc.go
+        find: |
+          // Multiply returns the product of two integers.
+          func Multiply(a, b int) int {
+          	return a * b
+          }
+        replace: |
+          // Multiply returns the product of two integers.
+          func Multiply(a, b int) int {
+          	return a * b
+          }
+
+          // Subtract returns the difference of two integers.
+          func Subtract(a, b int) int {
+          	return a - b
+          }
+    - write:
+        path: calc/subtract_test.go
+        contents: |
+          package calc
+
+          import "testing"
+
+          func TestSubtract(t *testing.T) {
+          	if got := Subtract(5, 3); got != 2 {
+          		t.Fatalf("Subtract(5, 3) = %d, want 2", got)
+          	}
+          }
+  cmd-calc:
+    - write:
+        path: cmd/calc/subtract_test.go
+        contents: |
+          package main
+
+          import (
+          	"testing"
+
+          	"example.com/calc/calc"
+          )
+
+          func TestSubtractFromTheCommandLine(t *testing.T) {
+          	if got := calc.Subtract(7, 4); got != 3 {
+          		t.Fatalf("Subtract(7, 4) = %d, want 3", got)
+          	}
+          }
