@@ -132,6 +132,12 @@ spec:
                     summarize:
                       type: boolean
                       description: Send a model over every new context, one CodeToSpec change per context.
+                    arch:
+                      type: string
+                      description: Path of the in-repo architecture document whose facts seed the generated contexts; empty uses .tools/open-architecture/arch.yaml when it is there.
+                    root:
+                      type: boolean
+                      description: Add a context for the repository root (the files at the top level and docs/); the other contexts depend on it.
                     agent:
                       type: object
                       description: Agent of the populate step; it wins over spec.agent and the controller's --agent for code to spec.

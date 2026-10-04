@@ -1,7 +1,7 @@
 apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
-  name: v1alpha1-4.systemcontexts.specs.publicdomainrelay.dev
+  name: v1alpha1-5.systemcontexts.specs.publicdomainrelay.dev
 spec:
   group: specs.publicdomainrelay.dev
   names:
@@ -197,6 +197,13 @@ spec:
                   x-kubernetes-list-map-keys:
                   - name
                   x-kubernetes-list-type: map
+                treeFiles:
+                  description: Tracked files under this context that the code index
+                    does not cover; a file code ref resolves against these too.
+                  items:
+                    type: string
+                  type: array
+                  x-kubernetes-list-type: set
               type: object
             observedCommit:
               type: string
@@ -328,6 +335,13 @@ spec:
                   x-kubernetes-list-map-keys:
                   - name
                   x-kubernetes-list-type: map
+                treeFiles:
+                  description: Tracked files under this context that the code index
+                    does not cover; a file code ref resolves against these too.
+                  items:
+                    type: string
+                  type: array
+                  x-kubernetes-list-type: set
               type: object
           type: object
       required:
