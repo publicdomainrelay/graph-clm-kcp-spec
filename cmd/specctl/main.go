@@ -169,6 +169,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runDown(rest, stdout, stderr)
 	case "status":
 		return runStatus(rest, stdout, stderr)
+	case "ls":
+		return runLs(rest, stdout, stderr)
 	case "env":
 		return runEnv(rest, stdout, stderr)
 	case "arch":
@@ -383,18 +385,25 @@ usage:
   specctl sync|persist [--repo <path>] [--repository <name>] [--remote <git remote>]
       writes kcp to the orphan branch open-architecture/<repository> and merges
       a reviewed edit on that branch back into kcp; never touches the tree
-  specctl up [--repo .] [--repository <name>] [--summarize=true] [--agent <kind>] [--remote origin] [--push]
-      in a cloned repository: start this repository's own kcp and kine on
-      kernel-assigned ports (state outside the tree; many repositories run
-      side by side; --out <file> writes the bound ports and urls as JSON),
-      restore the architecture from open-architecture/<repository> when the
-      clone or its remote has it, else index the code and build the specs,
-      then run specd; every later specctl call in the repo finds this session
+  specctl up [--repo .] [--repository <name>] [--summarize=true] [--agent <kind>] [--remote origin] [--push] [--stop-others]
+      in a cloned repository: start the instance of the checkout's current
+      branch, kcp and kine on kernel-assigned ports (state outside the tree,
+      one instance per (checkout, branch); --out <file> writes the bound ports
+      and urls as JSON), restore the architecture from
+      open-architecture/<repository>--<branch> when it exists, else from the
+      default branch's, else index the code and build the specs, then run
+      specd; the specd of the branch the checkout left is stopped (its kcp
+      keeps running unless --stop-others); every later specctl call in the
+      repo finds the current branch's session
   specctl arch outline [--repository <name>] [-o text|json]
   specctl retry <systemcontext>
       clear a context's failed SpecChanges after the attempt cap, so specd tries again
   specctl down [--repo .] [--keep-kcp]
+      stop the current branch's specd and kcp
   specctl status [--repo .]
+  specctl ls [-o table|json]
+      every instance on this machine: repository, path, branch, kcp url,
+      ready, specd running
   specctl env [--repo .] [-o sh|json|server]
   specctl restore [--repo <path>] [--repository <name>] [--remote origin]
       rebuilds kcp from open-architecture/<repository>, fetching it if needed

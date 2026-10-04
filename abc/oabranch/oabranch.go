@@ -74,6 +74,10 @@ func RefFor(repository, codeBranch, defaultBranch string) string {
 }
 
 func branchSuffix(codeBranch string) string {
+	return Slug(codeBranch)
+}
+
+func Slug(codeBranch string) string {
 	builder := strings.Builder{}
 	for _, char := range codeBranch {
 		switch {
