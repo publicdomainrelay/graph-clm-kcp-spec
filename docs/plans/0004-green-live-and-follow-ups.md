@@ -25,6 +25,40 @@ and the live acceptance (`gate: true` once it can pass). Done when
 `specctl accept` is green on the PR branch twice in a row, the commits are
 pushed, and PR #1 states the dependency on kcp-libs#1 and shows the green table.
 
+**Status: not done -- two of the four red items are fixed and landed, two are
+outside deno-kcp.** The full run, the tables and the evidence are in
+`docs/examples/deno-kcp-pr.md` (Plan 0004 D).
+
+- **Items 1 and 2 are one defect, and it is fixed.** The provider's wildcard
+  informer store keys objects by namespace and name with no workspace, so the
+  `default/pds` this branch adds to `root:bob` evicted `root:alice`'s: alice's
+  PDS was never re-probed (0 probes in 35 s against 54-97 for the other four
+  pods), never `ready`, and absent from every pod's `KCP_DNS_TABLE` -- which is
+  the verifier's `pds.default.alice.svc.kcp.local is not in the table` error.
+  Requirements `r.watch-cache-keys-every-workspace` and
+  `r.watch-cache-keys-every-workspace-test` in `internal-provider`; realized as
+  `3749680`.
+- **Item 2's fixed wait and item 4 are fixed.** `r.verifier-waits-for-its-peers`
+  (apply.sh waits, bounded, for alice's PDS to report `Running` and `ready`
+  before creating the verifier) and `r.acceptance-survives-a-stalled-provider`
+  (accept.sh detects a provider that reconciled nothing, restarts it while no
+  workload exists, and re-runs apply.sh, up to three attempts) in
+  `deploy-examples-atproto-market`; both realized as `89cee50`.
+- **The acceptance is red on two checks, both outside deno-kcp.** The bidder
+  crash-loops on a 404 from its PLC genesis `POST`; the client, `hono-plc` and
+  the kcpdns shim all succeed standalone and through the shim, so the 404 exists
+  only in the cluster topology and needs the PLC's request log. The verifier now
+  creates the account, resolves the DID and makes both writes (all 200) and
+  fails only on `relayFrames: 0` / `relaySawCommit: timeout` -- the
+  PDS-to-relay `subscribeRepos` path.
+- Environment facts: the acceptance needs siblings that carry the TLS support
+  (the clones handed to the run predate it; `ORG_ROOT` is now on the step), and
+  its scratch must not be on the 24 GB `/tmp` tmpfs (`TMPDIR` is now on the
+  step), because a crash-looping pod writes ~14 MB per restart.
+- The gate is back to `gate: true` while red. The two fixes above had to land
+  with it relaxed to `gate: false` by hand; part C's stated escape
+  (`specctl accept --override`) still does not exist.
+
 ## E - hydradb follow-ups
 
 1. `impl/kcpproc` cannot restart kcp on a root it used: `Start` deletes

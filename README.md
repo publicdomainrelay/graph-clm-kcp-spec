@@ -320,6 +320,30 @@ in, on three defects that are in the example or the provider and not in kcp-libs
 Details, both pass/fail tables and the root cause:
 [`docs/examples/deno-kcp-pr.md`](docs/examples/deno-kcp-pr.md#live-acceptance).
 
+Plan 0004 D then worked those defects through the same flow. Two of the four red
+items turned out to be one provider defect: the wildcard informer's store keys
+objects by namespace and name with no workspace, so the `default/pds` this branch
+adds to `root:bob` evicted `root:alice`'s from the cache -- alice's PDS ran and
+served but was never re-probed, never became `ready`, and was missing from every
+pod's virtual DNS table, which is exactly the verifier's
+`pds.default.alice.svc.kcp.local is not in the table` error. A `MUST`
+requirement (`r.watch-cache-keys-every-workspace`) and its test requirement went
+into the `internal-provider` context through `specctl clm apply`, and specd's
+realize agent landed `3749680`, keying the cache by workspace as well as
+namespace and name. The fixed `sleep 10` before the verifier and the provider's
+intermittent "reconciles nothing" start went in as two more `MUST` requirements
+and landed as `89cee50`: `apply.sh` waits on the provider's own verdict that
+alice's PDS is ready, and `accept.sh` detects a provider that reconciled nothing
+and restarts it while no workload exists. The acceptance is much closer and
+still red: `apply.sh` exits 0 on its first attempt and every ready-and-serving
+check is green, including alice's PDS and all four long-running pods. What is
+left is outside this repository -- the bidder's PLC registration `POST` comes
+back 404 only inside the cluster (the client, the PLC and the shim all pass
+standalone), and the verifier's `subscribeRepos` WebSocket receives no frame, so
+`relaySawCommit` times out on the PDS-to-relay path. Both want the running
+topology's own logs. The full table, each requirement's commit and the two open
+items: [`docs/examples/deno-kcp-pr.md`](docs/examples/deno-kcp-pr.md#plan-0004-d-the-same-acceptance-three-fixes-in-and-the-two-that-are-left).
+
 ## Status
 
 All ten phases are done: **kcp holds specs, code becomes facts in `status`
