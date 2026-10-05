@@ -1,7 +1,7 @@
 apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
-  name: v1alpha1-5.systemcontexts.specs.publicdomainrelay.dev
+  name: v1alpha1-6.systemcontexts.specs.publicdomainrelay.dev
 spec:
   group: specs.publicdomainrelay.dev
   names:
@@ -57,6 +57,50 @@ spec:
             intent:
               description: One paragraph of what this context is and why.
               type: string
+            interactions:
+              description: Declared flows with a peer, keyed by id. peer names a role
+                from policies.yaml or a SystemContext the binding gives a role; initiator
+                is self or peer; carries lists payload classes or event:<class>. A
+                flow marked forbidden is a declared must-never, kept in the ArchitectureModel
+                as a declared-forbidden entry.
+              items:
+                properties:
+                  carries:
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: set
+                  channel:
+                    type: string
+                  forbidden:
+                    type: boolean
+                  id:
+                    type: string
+                  initiator:
+                    enum:
+                    - self
+                    - peer
+                    type: string
+                  level:
+                    default: SHOULD
+                    enum:
+                    - MUST
+                    - SHOULD
+                    - MAY
+                    type: string
+                  peer:
+                    type: string
+                  purpose:
+                    type: string
+                required:
+                - id
+                - peer
+                - initiator
+                type: object
+              type: array
+              x-kubernetes-list-map-keys:
+              - id
+              x-kubernetes-list-type: map
             interfaces:
               description: Declared public surface, keyed by name. A method is keyed
                 by its qualified name, Type.Method (the Go receiver type or the TypeScript
@@ -229,6 +273,45 @@ spec:
                   x-kubernetes-list-type: set
                 intent:
                   type: string
+                interactions:
+                  items:
+                    properties:
+                      carries:
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
+                      channel:
+                        type: string
+                      forbidden:
+                        type: boolean
+                      id:
+                        type: string
+                      initiator:
+                        enum:
+                        - self
+                        - peer
+                        type: string
+                      level:
+                        default: SHOULD
+                        enum:
+                        - MUST
+                        - SHOULD
+                        - MAY
+                        type: string
+                      peer:
+                        type: string
+                      purpose:
+                        type: string
+                    required:
+                    - id
+                    - peer
+                    - initiator
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                  - id
+                  x-kubernetes-list-type: map
                 interfaces:
                   items:
                     properties:

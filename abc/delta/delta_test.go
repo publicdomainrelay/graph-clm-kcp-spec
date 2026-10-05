@@ -112,6 +112,27 @@ func methodObservedNext() spec.ObservedFacts {
 	return next
 }
 
+func marketSpec() spec.SystemContextSpec {
+	return spec.SystemContextSpec{
+		Repository: "greenfield-market",
+		Upstream:   spec.RefSelf,
+		Intent:     "A market guest that reports its own network information.",
+		Interactions: []spec.Interaction{
+			{ID: "i.report", Peer: "host", Initiator: spec.InitiatorSelf, Channel: "relay", Carries: []string{"network-info"}, Purpose: "network-discovery", Level: spec.LevelMust},
+			{ID: "i.no-reach-in", Peer: "host", Initiator: spec.InitiatorPeer, Channel: "relay", Carries: []string{"network-info"}, Purpose: "network-discovery", Level: spec.LevelMust, Forbidden: true},
+		},
+	}
+}
+
+func marketSpecNext() spec.SystemContextSpec {
+	next := marketSpec()
+	next.Interactions = []spec.Interaction{
+		{ID: "i.no-reach-in", Peer: "host", Initiator: spec.InitiatorPeer, Channel: "relay", Carries: []string{"network-info"}, Purpose: "network-discovery", Level: spec.LevelMust, Forbidden: true},
+		{ID: "i.report", Peer: "host", Initiator: spec.InitiatorSelf, Channel: "relay", Carries: []string{"network-info"}, Purpose: "network-discovery", Level: spec.LevelShould},
+	}
+	return next
+}
+
 func TestDeltaGolden(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -121,6 +142,7 @@ func TestDeltaGolden(t *testing.T) {
 		{"observed-edit", delta.DiffObserved(calcObserved(), subtractObserved())},
 		{"method-edit", delta.Diff(methodSpec(), methodSpecNext())},
 		{"method-observed-edit", delta.DiffObserved(methodObserved(), methodObservedNext())},
+		{"interactions-edit", delta.Diff(marketSpec(), marketSpecNext())},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

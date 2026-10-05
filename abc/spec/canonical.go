@@ -53,6 +53,27 @@ func CanonicalInterfaces(interfaces []Interface) []Interface {
 	return out
 }
 
+func CanonicalInteraction(interaction Interaction) Interaction {
+	out := interaction
+	out.Carries = CanonicalSet(interaction.Carries)
+	if out.Level == "" {
+		out.Level = DefaultInteractionLevel
+	}
+	return out
+}
+
+func CanonicalInteractions(interactions []Interaction) []Interaction {
+	if len(interactions) == 0 {
+		return nil
+	}
+	out := make([]Interaction, 0, len(interactions))
+	for _, interaction := range interactions {
+		out = append(out, CanonicalInteraction(interaction))
+	}
+	sort.Slice(out, func(left, right int) bool { return out[left].ID < out[right].ID })
+	return out
+}
+
 func CanonicalObserved(observed ObservedFacts) ObservedFacts {
 	out := observed
 	out.Files = CanonicalSet(observed.Files)
@@ -79,6 +100,7 @@ func Canonicalize(in SystemContextSpec) SystemContextSpec {
 	out := in
 	out.Requirements = CanonicalRequirements(in.Requirements)
 	out.Interfaces = CanonicalInterfaces(in.Interfaces)
+	out.Interactions = CanonicalInteractions(in.Interactions)
 	out.CodeRefs = CanonicalSet(in.CodeRefs)
 	out.Overlay = CanonicalSet(in.Overlay)
 	out.DependsOn = CanonicalSet(in.DependsOn)

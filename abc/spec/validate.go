@@ -175,6 +175,7 @@ func ValidateSystemContext(context *SystemContext) Result {
 
 	b.checkRequirements(context.Spec.Requirements)
 	b.checkInterfaces(context.Spec.Interfaces)
+	b.checkInteractions(context.Spec.Interactions)
 	b.checkCodeRefs("spec.codeRefs", context.Spec.CodeRefs)
 	b.checkArch(context.Spec.Arch)
 
@@ -332,6 +333,34 @@ func (b *builder) checkInterfaces(interfaces []Interface) {
 			b.add(path+".name", "%q is not unique", declared.Name)
 		} else {
 			seen[declared.Name] = true
+		}
+	}
+}
+
+func (b *builder) checkInteractions(interactions []Interaction) {
+	seen := map[string]bool{}
+	for index, interaction := range interactions {
+		path := fmt.Sprintf("spec.interactions[%d]", index)
+		if interaction.ID == "" {
+			b.add(path+".id", "is required")
+		} else if seen[interaction.ID] {
+			b.add(path+".id", "%q is not unique", interaction.ID)
+		} else {
+			seen[interaction.ID] = true
+		}
+		if interaction.Peer == "" {
+			b.add(path+".peer", "is required")
+		}
+		if !slices.Contains(Initiators(), interaction.Initiator) {
+			b.add(path+".initiator", "%q is not self or peer", interaction.Initiator)
+		}
+		if interaction.Level != "" && !slices.Contains(Levels(), interaction.Level) {
+			b.add(path+".level", "%q is not MUST, SHOULD or MAY", interaction.Level)
+		}
+		for refIndex, carried := range interaction.Carries {
+			if strings.TrimSpace(carried) == "" {
+				b.add(fmt.Sprintf("%s.carries[%d]", path, refIndex), "is empty")
+			}
 		}
 	}
 }

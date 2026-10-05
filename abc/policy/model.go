@@ -44,6 +44,14 @@ type ModelFlow struct {
 
 	Purpose string `json:"purpose,omitempty"`
 
+	// Level is the declared MUST, SHOULD or MAY of the interaction this flow
+	// came from. An observed-only flow carries none.
+	Level string `json:"level,omitempty"`
+
+	// Forbidden marks a declared "must never" flow. A matching declared or
+	// observed flow is the conformance violation.
+	Forbidden bool `json:"forbidden,omitempty"`
+
 	Source ModelSource `json:"source"`
 
 	Evidence []string `json:"evidence,omitempty"`
@@ -190,4 +198,33 @@ func Declared(flow ModelFlow) bool {
 
 func Observed(flow ModelFlow) bool {
 	return flow.Source == SourceObserved || flow.Source == SourceBoth
+}
+
+func Forbidden(flow ModelFlow) bool {
+	return flow.Forbidden
+}
+
+// SameShape reports whether two flows are the same directed shape: the same
+// initiator, the same role it acts on, the same channel and the same purpose.
+// The level, the forbidden marker, the carried payloads, the source and the
+// evidence are not part of it. It is what a forbidden marker is matched
+// against, and it is the Go twin of lib.specd's same_flow.
+func SameShape(left, right ModelFlow) bool {
+	return left.Initiator == right.Initiator &&
+		actedOn(left) == actedOn(right) &&
+		left.Channel == right.Channel &&
+		left.Purpose == right.Purpose
+}
+
+// actedOn names the endpoint a flow acts on: the one that is not the initiator.
+// A flow's from is the context that declared it and its to is the peer, so the
+// acted-on role is not always the same endpoint.
+func actedOn(flow ModelFlow) string {
+	switch flow.Initiator {
+	case flow.From:
+		return flow.To
+	case flow.To:
+		return flow.From
+	}
+	return ""
 }

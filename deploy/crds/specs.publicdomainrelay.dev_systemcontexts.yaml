@@ -121,6 +121,37 @@ spec:
                         type: string
                       file:
                         type: string
+                interactions:
+                  type: array
+                  description: "Declared flows with a peer, keyed by id. peer names a role from policies.yaml or a SystemContext the binding gives a role; initiator is self or peer; carries lists payload classes or event:<class>. A flow marked forbidden is a declared must-never, kept in the ArchitectureModel as a declared-forbidden entry."
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [id]
+                  items:
+                    type: object
+                    required: [id, peer, initiator]
+                    properties:
+                      id:
+                        type: string
+                      peer:
+                        type: string
+                      initiator:
+                        type: string
+                        enum: [self, peer]
+                      channel:
+                        type: string
+                      carries:
+                        type: array
+                        x-kubernetes-list-type: set
+                        items:
+                          type: string
+                      purpose:
+                        type: string
+                      level:
+                        type: string
+                        enum: [MUST, SHOULD, MAY]
+                        default: SHOULD
+                      forbidden:
+                        type: boolean
             status:
               type: object
               properties:
@@ -283,6 +314,36 @@ spec:
                             type: string
                           file:
                             type: string
+                    interactions:
+                      type: array
+                      x-kubernetes-list-type: map
+                      x-kubernetes-list-map-keys: [id]
+                      items:
+                        type: object
+                        required: [id, peer, initiator]
+                        properties:
+                          id:
+                            type: string
+                          peer:
+                            type: string
+                          initiator:
+                            type: string
+                            enum: [self, peer]
+                          channel:
+                            type: string
+                          carries:
+                            type: array
+                            x-kubernetes-list-type: set
+                            items:
+                              type: string
+                          purpose:
+                            type: string
+                          level:
+                            type: string
+                            enum: [MUST, SHOULD, MAY]
+                            default: SHOULD
+                          forbidden:
+                            type: boolean
                 conditions:
                   type: array
                   x-kubernetes-list-type: map

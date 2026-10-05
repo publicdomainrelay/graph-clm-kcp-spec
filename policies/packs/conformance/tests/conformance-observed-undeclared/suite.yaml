@@ -1,0 +1,21 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: conformance-observed-undeclared
+tests:
+  - name: conformance-observed-undeclared
+    template: ../../dist/conformance-observed-undeclared.yaml
+    constraint: ../../constraints/conformance-observed-undeclared.yaml
+    cases:
+      - name: allowed
+        object: inventory/model-allowed.yaml
+        inventory:
+          - inventory/model-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-observed-with-no-declaration
+        object: inventory/model-denied.yaml
+        inventory:
+          - inventory/model-denied.yaml
+        assertions:
+          - violations: 1

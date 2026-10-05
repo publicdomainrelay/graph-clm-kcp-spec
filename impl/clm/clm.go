@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -195,8 +196,9 @@ func writeDetails(writer io.Writer, change spec.Delta) {
 // purpose; the operator has to say which, by listing the id in the document's
 // `removed:` marker or passing it to --allow-remove.
 func refuseImplicitRemoval(systemContext string, change spec.Delta, declared, allowed []string) error {
-	removed := delta.RemovedRequirementIDs(change)
-	if len(removed) == 0 {
+	removedRequirements := delta.RemovedRequirementIDs(change)
+	removedInteractions := delta.RemovedInteractionIDs(change)
+	if len(removedRequirements) == 0 && len(removedInteractions) == 0 {
 		return nil
 	}
 	permitted := map[string]bool{}
@@ -207,7 +209,12 @@ func refuseImplicitRemoval(systemContext string, change spec.Delta, declared, al
 		permitted[strings.TrimSpace(id)] = true
 	}
 	unlisted := []string{}
-	for _, id := range removed {
+	for _, id := range removedRequirements {
+		if !permitted[id] {
+			unlisted = append(unlisted, id)
+		}
+	}
+	for _, id := range removedInteractions {
 		if !permitted[id] {
 			unlisted = append(unlisted, id)
 		}
@@ -215,7 +222,8 @@ func refuseImplicitRemoval(systemContext string, change spec.Delta, declared, al
 	if len(unlisted) == 0 {
 		return nil
 	}
-	return fmt.Errorf("clm: the model zone of %s removes requirement(s) %s; list each id under `removed:` in the spec block or pass --allow-remove to remove them on purpose",
+	sort.Strings(unlisted)
+	return fmt.Errorf("clm: the model zone of %s removes requirement(s) or interaction(s) %s; list each id under `removed:` in the spec block or pass --allow-remove to remove them on purpose",
 		systemContext, strings.Join(unlisted, ", "))
 }
 

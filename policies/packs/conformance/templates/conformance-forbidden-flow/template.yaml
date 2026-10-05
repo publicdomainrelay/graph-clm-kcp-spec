@@ -1,0 +1,16 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: conformanceforbiddenflow
+  annotations:
+    specs.publicdomainrelay.dev/title: "no flow matches a declared must-never"
+    specs.publicdomainrelay.dev/level: MUST
+    specs.publicdomainrelay.dev/origin: "plan 0009 G3 conformance pack"
+    specs.publicdomainrelay.dev/calibration: "a declared interaction with forbidden: true is a must-never; a declared or observed flow of the same shape is denied at spec time and after realize"
+spec:
+  crd:
+    spec:
+      names:
+        kind: ConformanceForbiddenFlow
+  targets:
+    - target: admission.k8s.gatekeeper.sh

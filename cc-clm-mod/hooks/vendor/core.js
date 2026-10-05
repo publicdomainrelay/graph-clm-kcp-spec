@@ -56,6 +56,7 @@ function piMemoryId(title) {
 }
 
 // ../clm/core/canonical.ts
+var DEFAULT_INTERACTION_LEVEL = "SHOULD";
 function canonicalSet(values) {
   return [...new Set(values)].sort();
 }
@@ -65,10 +66,21 @@ function canonicalRequirements(requirements) {
 function canonicalInterfaces(interfaces) {
   return [...interfaces].sort((left, right) => left.name < right.name ? -1 : 1);
 }
+function canonicalInteraction(interaction) {
+  return {
+    ...interaction,
+    carries: canonicalSet(interaction.carries ?? []),
+    level: interaction.level ?? DEFAULT_INTERACTION_LEVEL
+  };
+}
+function canonicalInteractions(interactions) {
+  return [...interactions].map(canonicalInteraction).sort((left, right) => left.id < right.id ? -1 : 1);
+}
 function canonicalSpec(inSpec) {
   const out = { ...inSpec };
   out.requirements = canonicalRequirements(inSpec.requirements ?? []);
   out.interfaces = canonicalInterfaces(inSpec.interfaces ?? []);
+  out.interactions = canonicalInteractions(inSpec.interactions ?? []);
   out.codeRefs = canonicalSet(inSpec.codeRefs ?? []);
   out.overlay = canonicalSet(inSpec.overlay ?? []);
   out.dependsOn = canonicalSet(inSpec.dependsOn ?? []);
@@ -6370,7 +6382,8 @@ function declared(inSpec) {
     intent: inSpec.intent ?? "",
     upstream: inSpec.upstream ?? "",
     requirements: canonicalRequirements(inSpec.requirements ?? []),
-    interfaces: canonicalInterfaces(inSpec.interfaces ?? [])
+    interfaces: canonicalInterfaces(inSpec.interfaces ?? []),
+    interactions: canonicalInteractions(inSpec.interactions ?? [])
   };
   if (inSpec.overlay?.length) out.overlay = canonicalSet(inSpec.overlay);
   if (inSpec.orchestrator) out.orchestrator = inSpec.orchestrator;
@@ -6388,6 +6401,7 @@ function mergeDeclared(base, declaredSpec) {
   out.introduces = declaredSpec.introduces;
   out.requirements = declaredSpec.requirements;
   out.interfaces = declaredSpec.interfaces;
+  out.interactions = declaredSpec.interactions;
   return canonicalSpec(out);
 }
 function renderModelZone(context, repository, inSpec) {
@@ -6465,7 +6479,8 @@ function renderBlock(spec) {
     dependsOn: spec.dependsOn?.length ? spec.dependsOn : void 0,
     introduces: spec.introduces?.length ? spec.introduces : void 0,
     requirements: spec.requirements?.length ? spec.requirements : void 0,
-    interfaces: spec.interfaces?.length ? spec.interfaces : void 0
+    interfaces: spec.interfaces?.length ? spec.interfaces : void 0,
+    interactions: spec.interactions?.length ? spec.interactions : void 0
   });
 }
 function parseBlock(body) {
@@ -6483,6 +6498,7 @@ function parseBlock(body) {
   if (Array.isArray(block.introduces)) out.introduces = block.introduces.map(String);
   if (Array.isArray(block.requirements)) out.requirements = block.requirements;
   if (Array.isArray(block.interfaces)) out.interfaces = block.interfaces;
+  if (Array.isArray(block.interactions)) out.interactions = block.interactions;
   return out;
 }
 function parseIntent(prose) {
@@ -6515,6 +6531,8 @@ function diff(oldSpec, newSpec) {
   if (requirements.length) out.requirements = requirements;
   const interfaces = diffInterfaces(oldSpec.interfaces ?? [], newSpec.interfaces ?? []);
   if (interfaces.length) out.interfaces = interfaces;
+  const interactions = diffInteractions(oldSpec.interactions ?? [], newSpec.interactions ?? []);
+  if (interactions.length) out.interactions = interactions;
   return out;
 }
 function diffObserved(oldFacts, newFacts) {
@@ -6539,6 +6557,7 @@ function apply(base, change) {
   if (change.codeRefs) out.codeRefs = applySet(base.codeRefs ?? [], change.codeRefs);
   if (change.requirements?.length) out.requirements = applyRequirements(base.requirements ?? [], change.requirements);
   if (change.interfaces?.length) out.interfaces = applyInterfaces(base.interfaces ?? [], change.interfaces);
+  if (change.interactions?.length) out.interactions = applyInteractions(base.interactions ?? [], change.interactions);
   return canonicalSpec(out);
 }
 function applyObserved(base, change) {
@@ -6556,7 +6575,7 @@ function deltaEmpty(change) {
   if (!emptySet(change.overlay) || !emptySet(change.dependsOn) || !emptySet(change.introduces) || !emptySet(change.codeRefs)) {
     return false;
   }
-  if (change.requirements?.length || change.interfaces?.length) return false;
+  if (change.requirements?.length || change.interfaces?.length || change.interactions?.length) return false;
   if (change.observed) {
     if (!emptySet(change.observed.files) || change.observed.interfaces?.length || change.observed.fingerprint) return false;
   }
@@ -6572,6 +6591,7 @@ function count(change) {
   }
   for (const entry of change.requirements ?? []) tally(counts, entry.op);
   for (const entry of change.interfaces ?? []) tally(counts, entry.op);
+  for (const entry of change.interactions ?? []) tally(counts, entry.op);
   if (change.observed) {
     counts.added += change.observed.files?.added?.length ?? 0;
     counts.removed += change.observed.files?.removed?.length ?? 0;
@@ -6684,6 +6704,51 @@ function applyInterfaces(base, change) {
     else if (entry.to) entries.set(entry.name, entry.to);
   }
   return canonicalInterfaces([...entries.values()]);
+}
+function diffInteractions(oldList, newList) {
+  const before = index(oldList, (entry) => entry.id);
+  const after = index(newList, (entry) => entry.id);
+  const out = [];
+  for (const id of unionKeys(before, after)) {
+    const from = before.get(id);
+    const to = after.get(id);
+    if (!from) {
+      out.push({ op: OP_ADDED, id, to: canonicalInteractions([to])[0] });
+    } else if (!to) {
+      out.push({ op: OP_REMOVED, id, from: canonicalInteractions([from])[0] });
+    } else {
+      const canonicalFrom = canonicalInteractions([from])[0];
+      const canonicalTo = canonicalInteractions([to])[0];
+      if (same(canonicalFrom, canonicalTo)) continue;
+      out.push({
+        op: OP_CHANGED,
+        id,
+        from: canonicalFrom,
+        to: canonicalTo,
+        fields: changedInteractionFields(canonicalFrom, canonicalTo)
+      });
+    }
+  }
+  return out;
+}
+function applyInteractions(base, change) {
+  const entries = index(base, (entry) => entry.id);
+  for (const entry of change) {
+    if (entry.op === OP_REMOVED) entries.delete(entry.id);
+    else if (entry.to) entries.set(entry.id, entry.to);
+  }
+  return canonicalInteractions([...entries.values()]);
+}
+function changedInteractionFields(from, to) {
+  const fields = [];
+  if (from.peer !== to.peer) fields.push("peer");
+  if (from.initiator !== to.initiator) fields.push("initiator");
+  if (from.channel !== to.channel) fields.push("channel");
+  if (!same(from.carries ?? [], to.carries ?? [])) fields.push("carries");
+  if (from.purpose !== to.purpose) fields.push("purpose");
+  if (from.level !== to.level) fields.push("level");
+  if ((from.forbidden ?? false) !== (to.forbidden ?? false)) fields.push("forbidden");
+  return fields.sort();
 }
 function changedInterfaceFields(from, to) {
   const fields = [];
@@ -7002,6 +7067,7 @@ function extractReferences(text) {
 }
 export {
   ClmHost,
+  DEFAULT_INTERACTION_LEVEL,
   DEFAULT_MANAGED_BUDGET,
   EDGES,
   EMPTY_INTENT,
@@ -7021,6 +7087,8 @@ export {
   VERTEX_PROPERTIES,
   apply,
   applyObserved,
+  canonicalInteraction,
+  canonicalInteractions,
   canonicalInterfaces,
   canonicalObserved,
   canonicalObservedInterfaces,

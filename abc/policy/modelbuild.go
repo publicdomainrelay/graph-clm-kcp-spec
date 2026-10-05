@@ -8,6 +8,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
 
 const DefaultMaxReach = 4096
@@ -36,6 +38,8 @@ type ModelContext struct {
 	Name string
 
 	Labels map[string]string
+
+	Interactions []DeclaredInteraction
 }
 
 type DeclaredInteraction struct {
@@ -50,6 +54,10 @@ type DeclaredInteraction struct {
 	Carries []string `json:"carries,omitempty"`
 
 	Purpose string `json:"purpose,omitempty"`
+
+	Level string `json:"level,omitempty"`
+
+	Forbidden bool `json:"forbidden,omitempty"`
 }
 
 type ModelInput struct {
@@ -217,7 +225,7 @@ func BuildModel(input ModelInput) (ArchitectureModel, error) {
 	model := ArchitectureModel{
 		APIVersion: APIVersion,
 		Kind:       ArchitectureModelKind,
-		Metadata:   ObjectMeta{Name: input.Repository},
+		Metadata:   ObjectMeta{Name: input.Repository, Namespace: specapi.DefaultNamespace},
 		Spec: ArchitectureModelSpec{
 			Repository: input.Repository,
 			Components: components,
@@ -227,10 +235,27 @@ func BuildModel(input ModelInput) (ArchitectureModel, error) {
 		},
 	}
 	model.Spec.Flows = observedFlows(model, graph, rolesOf, input.Binding)
-	model.Spec.Flows = mergeDeclaredFlows(model.Spec.Flows, input.Interactions, rolesOf)
+	model.Spec.Flows = mergeDeclaredFlows(model.Spec.Flows, declaredInteractions(input), rolesOf)
 	model.Spec.Triggers = effectTriggers(graph, normalized, input.TriggerEdgeKinds, input.MaxReach, input.MaxReachHops)
 	model.Sort()
 	return model, nil
+}
+
+// declaredInteractions is every interaction the model was given: the ones
+// passed for the whole model, plus each context's own. A per-context
+// interaction inherits the context as its self, so a spec author writes
+// `interactions` on the context and the peer alone.
+func declaredInteractions(input ModelInput) []DeclaredInteraction {
+	out := append([]DeclaredInteraction{}, input.Interactions...)
+	for _, context := range input.Contexts {
+		for _, interaction := range context.Interactions {
+			if interaction.Self == "" {
+				interaction.Self = context.Name
+			}
+			out = append(out, interaction)
+		}
+	}
+	return out
 }
 
 func assignComponents(graph CodeGraph, roles []compiledRole) map[string]string {
@@ -641,6 +666,8 @@ func mergeDeclaredFlows(observed []ModelFlow, interactions []DeclaredInteraction
 					Channel:   interaction.Channel,
 					Carries:   interaction.Carries,
 					Purpose:   interaction.Purpose,
+					Level:     interaction.Level,
+					Forbidden: interaction.Forbidden,
 					Source:    SourceDeclared,
 				}
 				out = append(out, flow)
@@ -654,7 +681,9 @@ func dedupeFlows(flows []ModelFlow) []ModelFlow {
 	index := map[string]int{}
 	out := []ModelFlow{}
 	for _, flow := range flows {
-		key := flowKey(flow)
+		// A forbidden marker never merges with a flow that is not forbidden:
+		// the marker is what the conformance rule matches a real flow against.
+		key := dedupeKey(flow)
 		if position, ok := index[key]; ok {
 			merged := out[position]
 			merged.Evidence = dedupeStrings(append(merged.Evidence, flow.Evidence...))
@@ -664,6 +693,7 @@ func dedupeFlows(flows []ModelFlow) []ModelFlow {
 			if len(merged.Carries) == 0 {
 				merged.Carries = flow.Carries
 			}
+			merged.Level = strongerLevel(merged.Level, flow.Level)
 			out[position] = merged
 			continue
 		}
@@ -672,9 +702,36 @@ func dedupeFlows(flows []ModelFlow) []ModelFlow {
 		out = append(out, flow)
 	}
 	sort.SliceStable(out, func(left, right int) bool {
-		return flowKey(out[left]) < flowKey(out[right])
+		return dedupeKey(out[left]) < dedupeKey(out[right])
 	})
 	return out
+}
+
+func dedupeKey(flow ModelFlow) string {
+	key := flowKey(flow)
+	if flow.Forbidden {
+		return key + "\x00forbidden"
+	}
+	return key
+}
+
+func strongerLevel(left, right string) string {
+	if levelRank(right) > levelRank(left) {
+		return right
+	}
+	return left
+}
+
+func levelRank(level string) int {
+	switch level {
+	case "MUST":
+		return 3
+	case "SHOULD":
+		return 2
+	case "MAY":
+		return 1
+	}
+	return 0
 }
 
 func dedupeStrings(values []string) []string {

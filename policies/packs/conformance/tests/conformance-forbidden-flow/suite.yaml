@@ -1,0 +1,21 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: conformance-forbidden-flow
+tests:
+  - name: conformance-forbidden-flow
+    template: ../../dist/conformance-forbidden-flow.yaml
+    constraint: ../../constraints/conformance-forbidden-flow.yaml
+    cases:
+      - name: allowed
+        object: inventory/model-allowed.yaml
+        inventory:
+          - inventory/model-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-flow-matches-a-declared-must-never
+        object: inventory/model-denied.yaml
+        inventory:
+          - inventory/model-denied.yaml
+        assertions:
+          - violations: 1

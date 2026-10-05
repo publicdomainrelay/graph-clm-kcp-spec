@@ -136,6 +136,19 @@ func (c *Controller) runBatch(ctx context.Context, namespace string, repository 
 		return 0, nil
 	}
 
+	gated, err := c.specGate(ctx, namespace, repository, members)
+	if err != nil {
+		c.recordPolicyGateError(ctx, namespace, members, err)
+		return 0, nil
+	}
+	if gated != nil && gated.Decision.Blocked {
+		c.recordPolicyDenied(ctx, namespace, members, gated)
+		return 0, nil
+	}
+	if gated != nil {
+		c.clearPolicyDenial(ctx, namespace, members)
+	}
+
 	for _, member := range members {
 		if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, member.Name, map[string]any{
 			"phase":   specapi.PhaseRunning,

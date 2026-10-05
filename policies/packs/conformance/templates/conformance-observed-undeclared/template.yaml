@@ -1,0 +1,16 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: conformanceobservedundeclared
+  annotations:
+    specs.publicdomainrelay.dev/title: "every observed flow is declared by an interaction"
+    specs.publicdomainrelay.dev/level: SHOULD
+    specs.publicdomainrelay.dev/origin: "plan 0009 G3 conformance pack"
+    specs.publicdomainrelay.dev/calibration: "the declared flows of a SystemContext's interactions; an observed flow with no declared flow of the same shape is reported, never blocked"
+spec:
+  crd:
+    spec:
+      names:
+        kind: ConformanceObservedUndeclared
+  targets:
+    - target: admission.k8s.gatekeeper.sh

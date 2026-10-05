@@ -141,6 +141,64 @@ func gatorBinaryPath() string {
 	return ""
 }
 
+func TestConformancePackIsCurrentAndGreen(t *testing.T) {
+	dir := filepath.Join(root, "policies", "packs", "conformance")
+	library, err := policyeval.Load(dir)
+	if err != nil {
+		t.Fatalf("%s: %v", dir, err)
+	}
+	if len(library.Templates) != 3 {
+		t.Fatalf("%s: templates = %d, want 3", dir, len(library.Templates))
+	}
+	dist, err := policyeval.Dist(library)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range dist {
+		onDisk, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(path)))
+		if err != nil {
+			t.Errorf("%s: %s is missing; run specctl policy build --dir %s", dir, path, dir)
+			continue
+		}
+		if string(onDisk) != string(want) {
+			t.Errorf("%s: %s is stale; run specctl policy build --dir %s", dir, path, dir)
+		}
+	}
+	catalogue, err := os.ReadFile(filepath.Join(dir, policy.CataloguePath))
+	if err != nil {
+		t.Errorf("%s: %s is missing", dir, policy.CataloguePath)
+	} else if string(catalogue) != string(policyeval.Catalogue(library)) {
+		t.Errorf("%s: %s is stale", dir, policy.CataloguePath)
+	}
+	lib, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(policy.LibPath)))
+	if err != nil {
+		t.Errorf("%s: %s is missing", dir, policy.LibPath)
+	} else if string(lib) != policyeval.Lib() {
+		t.Errorf("%s: %s is stale; the pack must carry the shared library", dir, policy.LibPath)
+	}
+
+	suites, err := filepath.Glob(filepath.Join(dir, policy.TestsDir, "*", policy.SuiteName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(suites) == 0 {
+		t.Fatalf("%s: no suites", dir)
+	}
+	for _, suite := range suites {
+		relative, err := filepath.Rel(root, suite)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := policyeval.RunSuite(context.Background(), os.DirFS(root), filepath.ToSlash(relative))
+		if err != nil {
+			t.Fatalf("%s: %v", relative, err)
+		}
+		if !result.Passed() {
+			t.Errorf("%s did not pass: %+v", relative, result)
+		}
+	}
+}
+
 func TestExampleDistAndCatalogueAreCurrent(t *testing.T) {
 	libraries := []string{}
 	for _, pattern := range []string{

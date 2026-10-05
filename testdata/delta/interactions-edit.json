@@ -1,0 +1,33 @@
+{
+  "interactions": [
+    {
+      "op": "changed",
+      "id": "i.report",
+      "from": {
+        "id": "i.report",
+        "peer": "host",
+        "initiator": "self",
+        "channel": "relay",
+        "carries": [
+          "network-info"
+        ],
+        "purpose": "network-discovery",
+        "level": "MUST"
+      },
+      "to": {
+        "id": "i.report",
+        "peer": "host",
+        "initiator": "self",
+        "channel": "relay",
+        "carries": [
+          "network-info"
+        ],
+        "purpose": "network-discovery",
+        "level": "SHOULD"
+      },
+      "fields": [
+        "level"
+      ]
+    }
+  ]
+}

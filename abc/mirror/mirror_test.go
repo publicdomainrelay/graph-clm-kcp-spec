@@ -16,6 +16,10 @@ func TestRenderAndParseRoundTrip(t *testing.T) {
 			{ID: "r.mul", Level: "MUST", Text: "multiply", CodeRefs: []string{"function:Multiply"}},
 			{ID: "r.add", Level: "MUST", Text: "add"},
 		},
+		Interactions: []spec.Interaction{
+			{ID: "i.report", Peer: "host", Initiator: spec.InitiatorSelf, Channel: "relay", Carries: []string{"network-info"}, Purpose: "network-discovery", Level: spec.LevelMust},
+			{ID: "i.no-reach-in", Peer: "host", Initiator: spec.InitiatorPeer, Level: spec.LevelMust, Forbidden: true},
+		},
 		CodeRefs: []string{"file:calc/calc.go"},
 	}
 	data, err := Render("calc", "default", context)
@@ -46,6 +50,15 @@ func TestRenderAndParseRoundTrip(t *testing.T) {
 	}
 	if parsed.Spec.Intent != "a calculator" || len(parsed.Spec.Requirements) != 2 {
 		t.Fatalf("parsed = %+v", parsed.Spec)
+	}
+	if len(parsed.Spec.Interactions) != 2 || parsed.Spec.Interactions[0].ID != "i.no-reach-in" {
+		t.Fatalf("interactions did not survive the round trip: %+v", parsed.Spec.Interactions)
+	}
+	if !parsed.Spec.Interactions[0].Forbidden || parsed.Spec.Interactions[0].Level != spec.LevelMust {
+		t.Errorf("the forbidden marker or level was dropped: %+v", parsed.Spec.Interactions[0])
+	}
+	if parsed.Spec.Interactions[1].Channel != "relay" || len(parsed.Spec.Interactions[1].Carries) != 1 {
+		t.Errorf("the channel or carries were dropped: %+v", parsed.Spec.Interactions[1])
 	}
 	second, err := Render("calc", "default", parsed.Spec)
 	if err != nil {

@@ -281,6 +281,68 @@ func TestApplyRemovesRequirementsTheFlagAllows(t *testing.T) {
 	}
 }
 
+func TestApplyRefusesAnImplicitInteractionRemoval(t *testing.T) {
+	cluster := fixture(t)
+	systemContext := contextOf(t, cluster)
+	systemContext.Spec.Interactions = []spec.Interaction{
+		{ID: "i.report", Peer: "host", Initiator: spec.InitiatorSelf, Channel: "relay", Purpose: "network-discovery", Level: spec.LevelMust},
+	}
+	applyObject(t, cluster, systemContext)
+
+	edited := editZone(t, cluster, func(parsed *spec.SystemContextSpec) {
+		parsed.Interactions = nil
+	})
+	_, err := Apply(context.Background(), Options{Cluster: cluster, Context: "calc"}, edited)
+	if err == nil {
+		t.Fatal("a model zone that lost an interaction applied silently")
+	}
+	if !strings.Contains(err.Error(), "i.report") || !strings.Contains(err.Error(), "removed:") {
+		t.Errorf("err = %q, want the removed id and the marker", err)
+	}
+	if current := contextOf(t, cluster); len(current.Spec.Interactions) != 1 {
+		t.Errorf("the refused apply moved the spec: %+v", current.Spec.Interactions)
+	}
+
+	marked := withRemovedMarker(edited, "i.report")
+	result, err := Apply(context.Background(), Options{Cluster: cluster, Context: "calc"}, marked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Applied {
+		t.Fatal("a marked interaction removal did not apply")
+	}
+	if current := contextOf(t, cluster); len(current.Spec.Interactions) != 0 {
+		t.Errorf("interactions = %+v, want none", current.Spec.Interactions)
+	}
+}
+
+func TestApplyWritesADeclaredInteraction(t *testing.T) {
+	cluster := fixture(t)
+	edited := editZone(t, cluster, func(parsed *spec.SystemContextSpec) {
+		parsed.Interactions = []spec.Interaction{
+			{ID: "i.report", Peer: "host", Initiator: spec.InitiatorSelf, Channel: "relay", Carries: []string{"network-info"}, Purpose: "network-discovery", Level: spec.LevelMust},
+		}
+	})
+	summary := &strings.Builder{}
+	result, err := Apply(context.Background(), Options{Cluster: cluster, Context: "calc", Summary: summary}, edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Applied {
+		t.Fatal("a declared interaction did not apply")
+	}
+	if !strings.Contains(summary.String(), "+ interaction i.report") {
+		t.Errorf("summary = %q, want the interaction named before it lands", summary.String())
+	}
+	current := contextOf(t, cluster)
+	if len(current.Spec.Interactions) != 1 || current.Spec.Interactions[0].ID != "i.report" {
+		t.Fatalf("interactions = %+v", current.Spec.Interactions)
+	}
+	if current.Spec.Interactions[0].Level != spec.LevelMust {
+		t.Errorf("level = %q, want MUST", current.Spec.Interactions[0].Level)
+	}
+}
+
 func TestApplyPrintsTheDeltaByIDBeforeItApplies(t *testing.T) {
 	cluster := fixture(t)
 	summary := &strings.Builder{}

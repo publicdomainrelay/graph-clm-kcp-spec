@@ -28,8 +28,8 @@ const (
 	ManagedNotice = "_The resolved code references are regenerated on every run. " +
 		"Cite the ids above rather than writing them here._"
 
-	RemovalHint = "# removed: [r.id, ...] names the requirements this document deletes; " +
-		"the tool refuses a removal that is not listed here or passed to --allow-remove"
+	RemovalHint = "# removed: [r.id, i.id, ...] names the requirements and interactions this " +
+		"document deletes; the tool refuses a removal that is not listed here or passed to --allow-remove"
 )
 
 type specBlock struct {
@@ -46,6 +46,8 @@ type specBlock struct {
 	Requirements []spec.Requirement `json:"requirements,omitempty"`
 
 	Interfaces []spec.Interface `json:"interfaces,omitempty"`
+
+	Interactions []spec.Interaction `json:"interactions,omitempty"`
 
 	Removed []string `json:"removed,omitempty"`
 }
@@ -70,6 +72,7 @@ func blockOf(in spec.SystemContextSpec) specBlock {
 		Introduces:   declared.Introduces,
 		Requirements: declared.Requirements,
 		Interfaces:   declared.Interfaces,
+		Interactions: declared.Interactions,
 	}
 }
 
@@ -91,6 +94,7 @@ func MergeDeclared(base, declared spec.SystemContextSpec) spec.SystemContextSpec
 	out.Introduces = declared.Introduces
 	out.Requirements = declared.Requirements
 	out.Interfaces = declared.Interfaces
+	out.Interactions = declared.Interactions
 	return spec.Canonicalize(out)
 }
 
@@ -173,6 +177,7 @@ func ParseDocument(text string) (Parsed, error) {
 		Introduces:   block.Introduces,
 		Requirements: block.Requirements,
 		Interfaces:   block.Interfaces,
+		Interactions: block.Interactions,
 	}
 	return Parsed{Declared: Declared(out), Removed: spec.CanonicalSet(block.Removed)}, nil
 }

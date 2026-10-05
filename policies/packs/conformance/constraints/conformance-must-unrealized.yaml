@@ -1,0 +1,12 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: ConformanceMustUnrealized
+metadata:
+  name: conformance-must-unrealized
+spec:
+  enforcementAction: warn
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - ArchitectureModel

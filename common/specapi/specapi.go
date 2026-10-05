@@ -68,6 +68,8 @@ const (
 	ConditionAcceptanceOverridden = "AcceptanceOverridden"
 
 	ConditionFilesOutsideContext = "FilesOutsideContext"
+
+	ConditionPolicyValid = "PolicyValid"
 )
 
 const (
@@ -104,6 +106,12 @@ const (
 	ReasonAcceptanceOverridden = "AcceptanceOverridden"
 
 	ReasonFilesOutsideContext = "FilesOutsideContext"
+
+	ReasonPolicyDeniedAtSpec = "PolicyDeniedAtSpec"
+
+	ReasonPolicyAllowed = "PolicyAllowed"
+
+	ReasonPolicyGateError = "PolicyGateError"
 )
 
 const (

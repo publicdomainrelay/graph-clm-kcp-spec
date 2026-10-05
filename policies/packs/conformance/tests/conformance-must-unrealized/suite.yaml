@@ -1,0 +1,21 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: conformance-must-unrealized
+tests:
+  - name: conformance-must-unrealized
+    template: ../../dist/conformance-must-unrealized.yaml
+    constraint: ../../constraints/conformance-must-unrealized.yaml
+    cases:
+      - name: allowed
+        object: inventory/model-allowed.yaml
+        inventory:
+          - inventory/model-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-declared-must-without-evidence
+        object: inventory/model-denied.yaml
+        inventory:
+          - inventory/model-denied.yaml
+        assertions:
+          - violations: 1
