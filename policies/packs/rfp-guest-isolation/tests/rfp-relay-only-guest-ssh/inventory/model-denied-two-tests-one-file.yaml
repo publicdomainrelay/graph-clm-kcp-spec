@@ -1,0 +1,59 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  roles:
+  - guest
+  - requester
+  - test
+  vocabulary:
+    channels:
+      relay:
+      - websocat
+      - dumbpipe
+  components:
+  - name: test
+    roles:
+    - test
+    source: observed
+  - name: guest
+    roles:
+    - guest
+    source: observed
+  effects:
+  - id: directSsh
+    kind: ssh.connect
+    component: test
+    attrs:
+      argv0: ssh
+      host: 10.0.0.7
+    file: test/bidder_test.ts
+    line: 12
+    node: file:test/bidder_test.ts
+  - id: relayedSsh
+    kind: ssh.connect
+    component: test
+    attrs:
+      argv0: ssh
+      proxyCommand: websocat --binary
+    file: test/bidder_test.ts
+    line: 30
+    node: file:test/bidder_test.ts
+  flows:
+  - from: test
+    to: guest
+    initiator: test
+    source: observed
+    evidence:
+    - directSsh
+  - from: test
+    to: guest
+    initiator: test
+    channel: relay
+    source: observed
+    evidence:
+    - relayedSsh
+  triggers: []

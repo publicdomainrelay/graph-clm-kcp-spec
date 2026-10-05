@@ -1,7 +1,7 @@
 imports:
-- files: 49
+- files: 51
   pack: rfp-guest-isolation
-  sha256: 7e14615f8dffb726e6f3a6e53eb356d6be0b731804e7f5171e12ce9cdd3b950e
+  sha256: e23fbd799c492448219694ad8b4ae33ebe0571b16b4b598a4418bf90e8599c22
   source: embedded
   version: v1
 members:
