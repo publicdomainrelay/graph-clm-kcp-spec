@@ -1098,8 +1098,10 @@ reports_out {
 
 ## Testing
 
-`specctl policy test --dir D` builds the library (writing `dist/`, refreshing
-`lib/specd.rego`, rendering `CATALOGUE.md`), then runs:
+`specctl policy test --dir D` is read-only: it renders `dist/`, `lib/specd.rego`
+and `CATALOGUE.md` into a scratch copy of `D` and runs the suites there, leaving
+`D` exactly as it was. `specctl policy build` is the command that writes those
+files. The test runs:
 
 - the opa unit tests of the library and of every template, in process;
 - every `tests/*/suite.yaml` through the built-in Gatekeeper client.

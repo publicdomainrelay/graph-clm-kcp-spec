@@ -90,6 +90,11 @@ type RepositoryPolicySpec struct {
 	Enforcement string `json:"enforcement,omitempty"`
 
 	Disabled bool `json:"disabled,omitempty"`
+
+	// Baseline scopes both gates to the change: a violation the base already
+	// carried is reported and does not block. "none" gates the whole
+	// repository.
+	Baseline string `json:"baseline,omitempty"`
 }
 
 // PolicyViolation is one policy finding as the status records it: the report
@@ -415,11 +420,16 @@ type PolicyGateStatus struct {
 
 	Capped []PolicyViolation `json:"capped,omitempty"`
 
+	// Inherited are the violations the base already carried: reported as warn,
+	// never blocking a change-scoped gate.
+	Inherited []PolicyViolation `json:"inherited,omitempty"`
+
 	Message string `json:"message,omitempty"`
 }
 
 func (s *PolicyGateStatus) Empty() bool {
-	return s == nil || (len(s.Denied) == 0 && len(s.Warned) == 0 && len(s.DryRun) == 0 && len(s.Waived) == 0)
+	return s == nil || (len(s.Denied) == 0 && len(s.Warned) == 0 && len(s.DryRun) == 0 &&
+		len(s.Waived) == 0 && len(s.Inherited) == 0)
 }
 
 type SpecChangeStatus struct {

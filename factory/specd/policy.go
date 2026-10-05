@@ -37,14 +37,20 @@ func policyBranchOf(repository *spec.Repository) string {
 	return repository.Name
 }
 
-func repositoryPolicy(repository *spec.Repository) policy.RepositoryPolicy {
+// repositoryPolicy is the repository's policy cap. --no-baseline disables the
+// change scope for every repository; a repository's own baseline setting wins
+// when it names one.
+func (c *Controller) repositoryPolicy(repository *spec.Repository) policy.RepositoryPolicy {
 	out := policy.RepositoryPolicy{}
-	if repository.Spec.Policy == nil {
-		return out
+	if repository.Spec.Policy != nil {
+		out.Branch = repository.Spec.Policy.Branch
+		out.Enforcement = policy.Enforcement(repository.Spec.Policy.Enforcement)
+		out.Disabled = repository.Spec.Policy.Disabled
+		out.Baseline = repository.Spec.Policy.Baseline
 	}
-	out.Branch = repository.Spec.Policy.Branch
-	out.Enforcement = policy.Enforcement(repository.Spec.Policy.Enforcement)
-	out.Disabled = repository.Spec.Policy.Disabled
+	if c.opts.NoBaseline && out.Baseline == "" {
+		out.Baseline = "none"
+	}
 	return out
 }
 
@@ -80,7 +86,7 @@ func (c *Controller) loadPolicyGate(ctx context.Context, repository *spec.Reposi
 	}
 	gate := &PolicyGate{
 		Library:    library,
-		Repository: repositoryPolicy(repository),
+		Repository: c.repositoryPolicy(repository),
 		Commit:     commit,
 		Branch:     repository.Spec.Branch,
 	}

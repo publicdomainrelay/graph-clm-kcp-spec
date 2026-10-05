@@ -145,6 +145,10 @@ spec:
                     disabled:
                       type: boolean
                       description: Turn every violation into a dryrun without editing the templates.
+                    baseline:
+                      type: string
+                      enum: ["", none]
+                      description: Change-scoped gating; "none" gates the whole repository instead of only the violations the change introduced.
                 populate:
                   type: object
                   description: What the controller does with the tree once it has one.

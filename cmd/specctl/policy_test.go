@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,4 +211,66 @@ func TestDefaultSlugIsKebabAndBounded(t *testing.T) {
 	if given := defaultSlug("relay-only-ssh", "anything"); given != "relay-only-ssh" {
 		t.Errorf("an explicit slug became %q", given)
 	}
+}
+
+// TestPolicyTestLeavesThePolicyDirectoryAlone pins that `policy test` reads:
+// the dist, the catalogue and the lock are rendered into a scratch copy, so
+// the tree the test judges is exactly as it was before the run.
+func TestPolicyTestLeavesThePolicyDirectoryAlone(t *testing.T) {
+	dir := t.TempDir()
+	if code, _, stderr := runWith("policy", "init", "--dir", dir, "--repo", "calc", "--with-library"); code != exitOK {
+		t.Fatalf("init: code %d, stderr %q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, policy.DistDir)); !os.IsNotExist(err) {
+		t.Fatalf("init wrote dist/ before the test ran: %v", err)
+	}
+	before := treeFingerprint(t, dir)
+
+	code, stdout, stderr := runWith("policy", "test", "--dir", dir)
+	if code != exitOK {
+		t.Fatalf("policy test: code %d, stderr %q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, policy.DistDir)); !os.IsNotExist(err) {
+		t.Errorf("policy test wrote dist/ into the policy directory: %v", err)
+	}
+	if !strings.Contains(stdout, "suites: ") {
+		t.Errorf("policy test ran no suites: %q", stdout)
+	}
+	after := treeFingerprint(t, dir)
+	for name, stamp := range after {
+		if before[name] != stamp {
+			t.Errorf("policy test rewrote %s", name)
+		}
+	}
+	for name := range before {
+		if _, ok := after[name]; !ok {
+			t.Errorf("policy test removed %s", name)
+		}
+	}
+}
+
+// treeFingerprint records every file under dir with its size and modification
+// time, so a rewrite that leaves identical content still shows.
+func treeFingerprint(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		out[relative] = fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }

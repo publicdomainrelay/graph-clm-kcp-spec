@@ -129,6 +129,13 @@ spec:
                 can downgrade a deny to warn, and disabled turns every violation into
                 a dryrun, during a migration.
               properties:
+                baseline:
+                  description: Change-scoped gating; "none" gates the whole repository
+                    instead of only the violations the change introduced.
+                  enum:
+                  - ""
+                  - none
+                  type: string
                 branch:
                   description: Override of the policy branch name; empty resolves
                     open-policy/<repository> with the usual code branch fallback.
