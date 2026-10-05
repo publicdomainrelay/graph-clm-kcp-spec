@@ -494,6 +494,78 @@ globs and target hints, and the same vocabulary (`channels/relay`
 in that the harness also wrote `defaultEnforcement: deny` and the same
 `testGlobs`.
 
+## The bind, measured again (plan 0010 D1)
+
+That run does not support the claim above, and the review said why. The harness
+was given the binding in the prompt, and the branch it read already carried the
+hand-written `policies.yaml`, so the import resolved. It copied rather than
+derived: the run's transcript shows it reading
+`/home/johnandersen777/src/publicdomainrelay-kcp/hydradb/examples/policies/atproto-market/policies.yaml`
+and diffing its own output against it.
+
+Three things changed for the re-run:
+
+- **The prompt carries no binding.** Bind mode builds the model with an empty
+  binding and strips the roles, the globs and the vocabulary from the rendered
+  model (`renderBindModel`), so the harness sees components, effects, flows and
+  triggers only.
+- **The branch carries no binding.** The re-run seeds
+  `open-policy/atproto-market` from a manifest that holds the pack import and
+  nothing else. Before this change that branch could not even be read -- the
+  pack requires roles and vocabulary, so the resolution failed -- which is why
+  the only runnable bind was one against the answer. `policygit.ReadRaw` reads
+  a draft's branch unresolved; the roles the harness writes are the declaration
+  the resolution expects.
+- **The harness cannot reach a copy.** specd does not confine the harness (see
+  the limit in `docs/policies.md`), so the run wraps it: the repository's
+  `spec.agent.command` is a `bwrap` wrapper that hides every hydradb checkout,
+  `/tmp`, the kcp store and the agent's own state, and binds only the scratch
+  directory. The first re-run, without that masking, found the hand-written
+  file again -- through a copy of it in the agent's own earlier transcript.
+
+The masked re-run, on the same fresh clone at `7a2e9d9`:
+
+```bash
+bin/specctl policy bind --repo atproto-market --pack rfp-guest-isolation --wait
+# policychange/atproto-market-bind-rfp-guest-isolation  Evaluated  mode=bind
+# attempts: 1
+#   ok   manifest
+#   ok   binding: 5 role(s), 4/5 classes matched; no effect and no spec term
+#        speaks these vocabulary classes yet: routes/report
+#   ok   suites: 14 case(s)
+#   ok   mutation: denies host-reaches-in, guest-report-dropped, unrelayed-ssh,
+#        test-dials-the-guest
+#   ok   head evaluation: 3 violation(s) against 7a2e9d98
+```
+
+Field by field against `examples/policies/atproto-market/policies.yaml`:
+
+| field | generated | hand-written | equal |
+| --- | --- | --- | --- |
+| `repository` | `atproto-market` | `atproto-market` | yes |
+| `imports` | `rfp-guest-isolation@v1 embedded` | same | yes |
+| `defaultEnforcement` | `deny` | `deny` | yes |
+| `version`, `testGlobs` | `"1"`, `[test/**]` | same | yes |
+| `roles.guest` | `declared`, `globs [lib/common/cloud-init-common/**]`, `targets.attrs [getNodeId]`, `targets.routes [/v1/on-network]` | same | yes |
+| `roles.host` | 14 globs (`hono-bidder/**` … `lib/trust-graph-tangled-graph/**`), `symbols [createMarketBidder]`, `targets.symbols [registerIdentity, vm.onNetwork]` | same | yes |
+| `roles.relay` | `globs [lib/did-key-ingress-proxy/**, lib/hono-factory-did-plc-directory/**, lib/did-plc/**]` | same | yes |
+| `roles.requester` | `globs [lib/requester-xrpc/**, request-vm-ssh/**]`, `symbols [createRequesterPDS]`, `targets.routes [/v1/on-network]`, `targets.symbols [reportUrl, _url_path, requester, REPORT_PATH]` | same | yes |
+| `roles.test` | `globs [test/**]` | same | yes |
+| `vocabulary` | all five classes, term for term | same | yes |
+
+The whole file is byte-identical to the hand-written binding.
+
+Honest reading: the harness wrote the identical manifest on the first attempt
+with no access to it. It read the repository's own code -- the module cache of
+the checkout holds the compiled sources, and the prompt's model names every
+component and every effect site -- and the hand-written binding is the reading
+of that code. Two caveats keep this from being a stronger claim than it is:
+the masking is the run's, not specd's, so a harness that is not sandboxed can
+still copy (the first re-run proves it); and the derivation was not observed
+directly, because the CLI cannot write a transcript inside the sandbox, so
+"could not have copied" rests on the masks, not on a trace. The masks were
+checked from inside: with them, no file on the machine holds the manifest text.
+
 ## What landed on the branch
 
 ```

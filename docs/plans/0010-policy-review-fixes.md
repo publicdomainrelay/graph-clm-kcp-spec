@@ -128,51 +128,39 @@ catalogue or the lock, and it does not commit when run against a branch.
 
 ## Track D: generation honesty, packaging, docs, style
 
+Status: done. Commits `02af779` (code fixes), `ce480b1` (layering, derived
+CRDs, docs digest), `c2744a4` (a bind draft reads the branch unresolved),
+`a5a6c86` (comments), `079a64d` (limits), and the re-run written into
+`docs/examples/atproto-market-policies.md`.
+
 D1. **Bind does not see the answer.**
 - Bind mode prompts carry the model built **without** the branch's existing
-  binding: no vocabulary, globs or roles from it.
+  binding: no vocabulary, globs or roles from it. `02af779`.
 - The harness runs in a scratch directory that does not contain hydradb's
-  `examples/`.
+  `examples/`. `02af779`; the run is masked further because specd does not
+  confine the harness -- recorded as a limit in `docs/policies.md`.
 - Re-run the DeepSeek bind on atproto-market and report honestly how close
   the result is to the hand-written binding, field by field (0003 D1, D2).
+  Run at `7a2e9d9`, first attempt, byte-identical; `c2744a4` was needed for a
+  branch that holds only the pack import to be readable at all. The run found
+  two further copies of the answer (the main checkout, then the agent's own
+  earlier transcript) before the masks closed them.
 
-D2. **Stronger generated-policy checks.**
-- `ForbiddenIdentifiers` also bans classifier file names and the binding's
-  `targets.attrs` values.
-- A test proves that a generated rule reading `getNodeId` is refused
-  (0003 D3; 0004 next-step 7).
+D2. **Stronger generated-policy checks.** `02af779`.
 
-D3. **Pack format everywhere.**
-- `policies/packs/conformance` gets a `pack.yaml` and is imported like the
-  rfp pack.
-- A freshness test walks `policies/packs/*` (`dist/`, `CATALOGUE.md`).
-- Tests cover `git:` and `oci:` pack sources (a local bare repository, and an
-  oras OCI layout) (0004 untested 1, 2, 4).
+D3. **Pack format everywhere.** `02af779`, `079a64d` (the git test pulls from a
+bare repository).
 
-D4. **Docs and examples.**
-- Fix the stale digest at `docs/policies.md`.
-- greenfield `--gator` with 0 suites must say so, not PASS silently.
-- `--propose-interactions` drops `peer: unknown` entries or comments them out.
-- Remove the duplicate `vm.onNetwork` in the hono-compute-provider binding.
-- Fix the dead `draft.summary`, so a first-attempt success records its
-  agentLog.
-- Repository inference is relative to the worktree, not the CWD
-  (0004 bugs 3 to 5).
-- `docs/examples/portable-policies.md` states that two cross-repo bindings
-  also need a classifier file, until R3/R4 make that unnecessary.
+D4. **Docs and examples.** `02af779` (propose-interactions, `--gator` with no
+suites, the worktree repository inference, the duplicate `vm.onNetwork`, the
+dead `draft.summary`, the classifier note), `ce480b1` (the stale digest).
 
-D5. **Style and layering.**
-- Remove the code comments in `abc/policy` and the other new packages (org
-  no-comments rule; fixtures excepted) (0003 f).
-- Move what `impl/policykcp` needs from `impl/policyeval` into `abc/policy`,
-  or into a factory, so that impl packages do not import each other where a
-  shared abc type would do.
+D5. **Style and layering.** `ce480b1` (the kcp writer takes a
+`policy.ConstraintCRDBuilder`; `policy.Unstructured` moves to `abc/policy`),
+`a5a6c86` (375 comment lines removed from `abc/policy`, `impl/policyeval` and
+`impl/policykcp`). Limit: the pack Rego keeps its comments.
 
-D6. **Real Gatekeeper parity.**
-- Document that CodeGraph, CodeDiff and ArchitectureModel are evaluated by
-  specd, not by in-cluster Gatekeeper.
-- Provide an optional `deploy/crds/derived/` set of CRDs for these kinds, so
-  `gator` and a real cluster can at least hold them (0003 A2).
+D6. **Real Gatekeeper parity.** `ce480b1`.
 
 ## Order
 

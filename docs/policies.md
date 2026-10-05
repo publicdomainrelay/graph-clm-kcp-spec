@@ -1106,7 +1106,10 @@ reports_out {
 
 Add `--gator` (or `SPECD_GATOR`) to also shell out to the real
 `bin/gator verify`. `scripts/install-policy-tools.sh` installs pinned `opa` and
-`gator` binaries into `bin/` by sha256.
+`gator` binaries into `bin/` by sha256. A `--gator` run over a directory with
+no `tests/*/suite.yaml` says so and fails: a gate that verified nothing must
+not report success. Without `--gator` such a directory still passes, because
+the opa unit tests are the whole check there.
 
 Opa unit tests run in Rego v0 syntax:
 
