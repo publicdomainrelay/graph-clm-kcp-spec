@@ -253,6 +253,12 @@ type changeStatusDoc struct {
 
 	Message string `json:"message,omitempty"`
 
+	Attempt int `json:"attempt,omitempty"`
+
+	RetryReason string `json:"retryReason,omitempty"`
+
+	RetryBy string `json:"retryBy,omitempty"`
+
 	Acceptance []spec.AcceptanceResult `json:"acceptance,omitempty"`
 
 	RequirementCoverage []spec.RequirementVerdict `json:"requirementCoverage,omitempty"`
@@ -289,6 +295,9 @@ func changeStatusDocOf(status spec.SpecChangeStatus) changeStatusDoc {
 		FilesTouched:        status.FilesTouched,
 		AgentLog:            status.AgentLog,
 		Message:             status.Message,
+		Attempt:             status.Attempt,
+		RetryReason:         status.RetryReason,
+		RetryBy:             status.RetryBy,
 		Acceptance:          status.Acceptance,
 		RequirementCoverage: status.RequirementCoverage,
 		Progress:            progressSummary(status.Progress),
@@ -304,6 +313,9 @@ func (s changeStatusDoc) specChangeStatus() spec.SpecChangeStatus {
 		FilesTouched:        s.FilesTouched,
 		AgentLog:            s.AgentLog,
 		Message:             s.Message,
+		Attempt:             s.Attempt,
+		RetryReason:         s.RetryReason,
+		RetryBy:             s.RetryBy,
 		Acceptance:          s.Acceptance,
 		RequirementCoverage: s.RequirementCoverage,
 	}

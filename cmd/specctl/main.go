@@ -404,7 +404,7 @@ usage:
       keeps running unless --stop-others); every later specctl call in the
       repo finds the current branch's session
   specctl arch outline [--repository <name>] [-o text|json]
-  specctl retry <systemcontext>
+  specctl retry [--reason <text>] [--by <user>] <systemcontext>
       clear a context's failed SpecChanges after the attempt cap, so specd tries again
   specctl accept [--repo .] [--name <step>]
       run the acceptance steps of the current branch's Repository against the

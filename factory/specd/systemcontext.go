@@ -201,6 +201,16 @@ func episodeBase(change *spec.SpecChange) string {
 	return spec.EpisodeBase(*change)
 }
 
+// withinAttemptCap reports whether a change may run. A change that records a
+// retryReason was created by an operator on purpose after the cap was reached,
+// so the cap does not apply to it; an automatic attempt still obeys it.
+func withinAttemptCap(change *spec.SpecChange, attempts, maxAttempts int) bool {
+	if maxAttempts <= 0 || change.Status.RetryReason != "" {
+		return true
+	}
+	return attempts <= maxAttempts
+}
+
 func (c *Controller) attemptsTaken(ctx context.Context, namespace string, change *spec.SpecChange) int {
 	changes, err := c.changesFor(ctx, namespace, change.Spec.SystemContext)
 	if err != nil {

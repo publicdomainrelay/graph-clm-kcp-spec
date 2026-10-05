@@ -278,6 +278,41 @@ func TestCodeToSpecStopsAtTheAttemptCap(t *testing.T) {
 	}
 }
 
+func TestAManualRetryRunsPastTheAttemptCap(t *testing.T) {
+	cluster := newFakeCluster()
+	driftedCalc(t, cluster)
+	for _, name := range []string{"calc-c2s-c1-c2", "calc-c2s-c1-c2-a2", "calc-c2s-c1-c2-a3"} {
+		apply(t, cluster, &spec.SpecChange{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: specapi.DefaultNamespace},
+			Spec: spec.SpecChangeSpec{
+				SystemContext: "calc", Direction: specapi.DirectionCodeToSpec, FromCommit: "c1", ToCommit: "c2",
+			},
+			Status: spec.SpecChangeStatus{Phase: specapi.PhaseFailed},
+		})
+	}
+	apply(t, cluster, &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-c1-c2-a4", Namespace: specapi.DefaultNamespace},
+		Spec: spec.SpecChangeSpec{
+			SystemContext: "calc", Direction: specapi.DirectionCodeToSpec, FromCommit: "c1", ToCommit: "c2",
+		},
+		Status: spec.SpecChangeStatus{
+			Phase:       specapi.PhasePending,
+			Attempt:     4,
+			RetryReason: "the provider is fixed now",
+			RetryBy:     "operator",
+		},
+	})
+	controller := agentController(t, cluster, calcScenario)
+
+	if _, err := controller.reconcileSpecChange(context.Background(), specapi.DefaultNamespace, "calc-c2s-c1-c2-a4"); err != nil {
+		t.Fatal(err)
+	}
+	change := readChange(t, cluster, "calc-c2s-c1-c2-a4")
+	if change.Status.Phase != specapi.PhaseSucceeded {
+		t.Fatalf("phase = %q, want the deliberate retry to run past the cap: %s", change.Status.Phase, change.Status.Message)
+	}
+}
+
 func TestCodeToSpecWaitsForTheBackoff(t *testing.T) {
 	cluster := newFakeCluster()
 	driftedCalc(t, cluster)

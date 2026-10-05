@@ -354,6 +354,10 @@ spec:
               x-kubernetes-list-type: map
             agentLog:
               type: string
+            attempt:
+              description: which attempt of the episode this change is; a manual retry
+                records the number it took
+              type: integer
             branch:
               type: string
             commit:
@@ -439,6 +443,13 @@ spec:
               x-kubernetes-list-map-keys:
               - id
               x-kubernetes-list-type: map
+            retryBy:
+              description: who asked for the retry
+              type: string
+            retryReason:
+              description: why an operator retried the episode; its presence makes
+                this a deliberate attempt the attempt cap does not apply to
+              type: string
             verifyExitCode:
               type: integer
           type: object

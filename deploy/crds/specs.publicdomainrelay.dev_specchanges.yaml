@@ -317,6 +317,15 @@ spec:
                   type: string
                 message:
                   type: string
+                attempt:
+                  type: integer
+                  description: which attempt of the episode this change is; a manual retry records the number it took
+                retryReason:
+                  type: string
+                  description: why an operator retried the episode; its presence makes this a deliberate attempt the attempt cap does not apply to
+                retryBy:
+                  type: string
+                  description: who asked for the retry
                 acceptance:
                   type: array
                   description: the acceptance steps the realize ran after verify, one entry per step, on every member of the batch

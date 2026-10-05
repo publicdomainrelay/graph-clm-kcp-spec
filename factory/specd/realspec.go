@@ -178,7 +178,7 @@ func (c *Controller) underTheAttemptCap(ctx context.Context, namespace string, m
 	}
 	kept := make([]*spec.SpecChange, 0, len(members))
 	for _, member := range members {
-		if c.attemptsTaken(ctx, namespace, member) > c.opts.MaxAttempts {
+		if !withinAttemptCap(member, c.attemptsTaken(ctx, namespace, member), c.opts.MaxAttempts) {
 			c.failChange(ctx, namespace, member, fmt.Sprintf("attempt cap: %s already has %d attempts", episodeBase(member), c.opts.MaxAttempts))
 			continue
 		}

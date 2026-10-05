@@ -95,7 +95,7 @@ func printTable(out io.Writer, items []unstructured.Unstructured) error {
 	case specapi.RepositoryKind:
 		fmt.Fprintln(table, "NAME\tSOURCE\tPHASE\tCONTEXTS\tHEADCOMMIT")
 	case specapi.SpecChangeKind:
-		fmt.Fprintln(table, "NAME\tCONTEXT\tDIRECTION\tPHASE\tDELTA\tCOMMIT\tCOVERAGE")
+		fmt.Fprintln(table, "NAME\tCONTEXT\tDIRECTION\tPHASE\tATTEMPT\tDELTA\tCOMMIT\tCOVERAGE")
 	}
 	for _, item := range items {
 		row, err := tableRow(item)
@@ -137,11 +137,17 @@ func tableRow(item unstructured.Unstructured) ([]string, error) {
 			truncate(nestedString(item, "status", "headCommit"), 12),
 		}, nil
 	case specapi.SpecChangeKind:
+		attempt, _, _ := unstructured.NestedInt64(item.Object, "status", "attempt")
+		attemptText := "-"
+		if attempt > 0 {
+			attemptText = fmt.Sprint(attempt)
+		}
 		return []string{
 			item.GetName(),
 			nestedString(item, "spec", "systemContext"),
 			nestedString(item, "spec", "direction"),
 			nestedString(item, "status", "phase"),
+			attemptText,
 			deltaSummary(item),
 			truncate(nestedString(item, "status", "commit"), 12),
 			coverageSummary(item),

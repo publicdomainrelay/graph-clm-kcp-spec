@@ -36,7 +36,7 @@ func (c *Controller) reconcileCodeToSpec(ctx context.Context, namespace, name st
 		return 0, nil
 	}
 
-	if c.attemptsTaken(ctx, namespace, change) > c.opts.MaxAttempts && c.opts.MaxAttempts > 0 {
+	if !withinAttemptCap(change, c.attemptsTaken(ctx, namespace, change), c.opts.MaxAttempts) {
 		c.failChange(ctx, namespace, change, fmt.Sprintf("attempt cap: %s already has %d attempts", episodeBase(change), c.opts.MaxAttempts))
 		return 0, nil
 	}

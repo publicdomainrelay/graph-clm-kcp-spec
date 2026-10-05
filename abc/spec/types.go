@@ -298,6 +298,12 @@ type SpecChangeStatus struct {
 
 	RequirementCoverage []RequirementVerdict `json:"requirementCoverage,omitempty"`
 
+	Attempt int `json:"attempt,omitempty"`
+
+	RetryReason string `json:"retryReason,omitempty"`
+
+	RetryBy string `json:"retryBy,omitempty"`
+
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
