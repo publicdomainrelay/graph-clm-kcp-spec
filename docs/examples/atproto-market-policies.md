@@ -565,7 +565,16 @@ Field by field against `examples/policies/atproto-market/policies.yaml`:
 | `roles.test` | `globs [test/**]` | same | yes |
 | `vocabulary` | all five classes, term for term | same | yes |
 
-The whole file is byte-identical to the hand-written binding.
+The whole file is byte-identical to the hand-written binding -- as that file
+stood at the run. Plan 0010 track R landed afterwards and extended it: the
+reach-in rule now denies an unknown target by default, so the requester role
+names four more target symbols (`getPdsEndpoint`, `serviceEndpoint`,
+`com.atproto.repo`, `callService`) that keep the host's own xrpc calls out of
+the report, and `market-mini` names `vocabulary.reachInExceptions`. The
+generated binding predates that reading and does not carry them, so the two
+files differ now, in the requester role only. A bind re-run after the merge is
+what would judge the merged rules; the plan's Order section puts that with the
+other post-merge re-runs.
 
 Honest reading: the harness wrote the identical manifest on the first attempt
 with no access to it. It read the repository's own code -- the module cache of

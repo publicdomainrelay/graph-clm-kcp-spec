@@ -473,14 +473,14 @@ bin/specctl policy build --dir examples/policies/atproto-market
 # dist/rfp-relay-only-guest-ssh.yaml
 # lib/specd.rego
 # policies.lock
-# pack rfp-guest-isolation@v1 93dd9ea2d6d5 embedded
+# pack rfp-guest-isolation@v1 e23fbd799c49 embedded
 ```
 
 ```yaml
 imports:
-- files: 44
+- files: 51
   pack: rfp-guest-isolation
-  sha256: 93dd9ea2d6d555c35b6a5257a8dde03600302ca01af2dfece5eb0ab77a7dcd41
+  sha256: e23fbd799c492448219694ad8b4ae33ebe0571b16b4b598a4418bf90e8599c22
   source: embedded
   version: v1
 ```
@@ -490,7 +490,7 @@ version bump; `--relock` rewrites the lock:
 
 ```
 specctl policy build: policyeval: pack rfp-guest-isolation@v1 resolves to
-93dd9ea2d6d5..., policies.lock pins 0032a10e2157...; bump the version or run
+e23fbd799c49..., policies.lock pins 0032a10e2157...; bump the version or run
 specctl policy build --relock
 ```
 
