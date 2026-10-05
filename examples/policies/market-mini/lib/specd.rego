@@ -84,6 +84,83 @@ nodes_qualified(pattern) = out {
 	out := [node | node := code_graph.spec.nodes[_]; re_match(pattern, node.qualifiedName)]
 }
 
+tests_matching_text(globs, pattern) = out {
+	out := [file | file := tests_matching(globs)[_]; re_match(pattern, code_graph.spec.texts[file.path])]
+}
+
+node(id) = out {
+	out := code_graph.spec.nodes[_]
+	out.id == id
+}
+
+file_node(path) = out {
+	out := code_graph.spec.nodes[_]
+	out.kind == "file"
+	out.file == path
+}
+
+nodes_with_id(ids) = out {
+	out := [node | node := code_graph.spec.nodes[_]; ids[node.id]]
+}
+
+nodes_matching_text(pattern) = out {
+	out := [node | node := code_graph.spec.nodes[_]; re_match(pattern, node.text)]
+}
+
+identified(node, pattern) {
+	re_match(pattern, node.text)
+}
+
+identified(node, pattern) {
+	re_match(pattern, node.name)
+}
+
+identified(node, pattern) {
+	re_match(pattern, node.qualifiedName)
+}
+
+nodes_identified(pattern) = out {
+	out := {node | node := code_graph.spec.nodes[_]; identified(node, pattern)}
+}
+
+nodes_matching_globs(globs, pattern) = out {
+	out := [node |
+		node := code_graph.spec.nodes[_]
+		globs_match(globs, node.file)
+		re_match(pattern, node.text)
+	]
+}
+
+nodes_reachable_from(ids, kinds, pattern) = out {
+	out := [node |
+		reached := reachable_from(ids, kinds)
+		node := nodes_with_id(reached)[_]
+		re_match(pattern, node.text)
+	]
+}
+
+node_match_line(node, pattern) = out {
+	node.startLine > 0
+	lines := split(node.text, "\n")
+	found := {line | line := node.startLine + index; re_match(pattern, lines[index])}
+	out := sort(found)[0]
+}
+
+first_line(path, pattern) = out {
+	lines := split(code_graph.spec.texts[path], "\n")
+	found := {line | line := index + 1; re_match(pattern, lines[index])}
+	out := sort(found)[0]
+}
+
+matches_globs(globs, path) {
+	globs_match(globs, path)
+}
+
+definition_node(node) {
+	node.kind != "file"
+	node.kind != "import"
+}
+
 edge_kinds = ["calls", "imports", "contains", "references", "instantiates", "implements", "extends"]
 
 calls_from(id) = out {
@@ -125,6 +202,14 @@ reachable_from(ids, kinds) = out {
 
 reaching(ids, kinds) = out {
 	out := graph.reachable(reverse_adjacency(kinds), ids)
+}
+
+closure_from(ids, kinds) = out {
+	out := reachable_from(ids, kinds) | {id | id := ids[_]}
+}
+
+closure_reaching(ids, kinds) = out {
+	out := reaching(ids, kinds) | {id | id := ids[_]}
 }
 
 paths_between(ids, kinds) = out {

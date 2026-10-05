@@ -1,0 +1,21 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: guest-report-cloud-init
+tests:
+  - name: guest-report-cloud-init
+    template: ../../dist/guest-report-cloud-init.yaml
+    constraint: ../../constraints/guest-report-cloud-init.yaml
+    cases:
+      - name: allowed
+        object: inventory/codegraph-allowed.yaml
+        inventory:
+          - inventory/codegraph-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-no-report
+        object: inventory/codegraph-denied.yaml
+        inventory:
+          - inventory/codegraph-denied.yaml
+        assertions:
+          - violations: 1

@@ -1,0 +1,5 @@
+defaultEnforcement: deny
+repository: atproto-market
+testGlobs:
+- test/**
+version: "1"

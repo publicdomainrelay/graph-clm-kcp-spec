@@ -1,0 +1,21 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeGraph
+metadata:
+  name: market
+  namespace: default
+spec:
+  repository: market
+  commit: "0000000000000000000000000000000000000000"
+  files:
+  - path: lib/market-bidder/mod.ts
+  nodes:
+  - id: "fn:emit"
+    kind: function
+    name: emitOnNetwork
+    qualifiedName: emitOnNetwork
+    file: lib/market-bidder/mod.ts
+    startLine: 5
+    text: |
+      return { type: ON_NETWORK_EVENT, address: report.address }
+  edges: []
+  texts: {}

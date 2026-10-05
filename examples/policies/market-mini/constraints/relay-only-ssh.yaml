@@ -1,0 +1,37 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RelayOnlySsh
+metadata:
+  name: relay-only-ssh
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - CodeGraph
+  parameters:
+    testGlobs:
+    - test/**
+    driverIdentifiers: createBidder|runComputeContract
+    sshPattern: new Deno\.Command\(\s*"ssh"
+    proxyCommandPattern: ProxyCommand
+    allowedTransports:
+    - relay-subscriber
+    - websocat
+    - fedproxy
+    - dumbpipe connect
+    - iroh connect
+    directDialPatterns:
+    - Deno\.connect\(\{[^}]*guest
+    - '["'']-p["'']\s*,\s*String\('
+    - new Deno\.Command\(\s*["'']nc["'']
+    - curl[^\n]*guest
+    edgeKinds:
+    - calls
+    - imports
+    - references
+    - contains
+    - instantiates
+    - implements
+    - extends

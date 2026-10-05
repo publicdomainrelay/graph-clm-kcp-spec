@@ -2,7 +2,9 @@ package policyeval
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
 
 	constraintclient "github.com/open-policy-agent/frameworks/constraint/pkg/client"
 	"github.com/open-policy-agent/frameworks/constraint/pkg/client/drivers/rego"
@@ -265,6 +267,17 @@ func intOf(value any) int {
 		return int(typed)
 	case uint64:
 		return int(typed)
+	case json.Number:
+		if parsed, err := typed.Int64(); err == nil {
+			return int(parsed)
+		}
+		if parsed, err := typed.Float64(); err == nil {
+			return int(parsed)
+		}
+	case string:
+		if parsed, err := strconv.Atoi(typed); err == nil {
+			return parsed
+		}
 	}
 	return 0
 }

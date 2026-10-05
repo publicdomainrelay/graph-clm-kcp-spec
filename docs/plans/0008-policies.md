@@ -358,30 +358,63 @@ are pushed.
 
 ### B. The two example policies and the real run
 
-1. `examples/policies/atproto-market/` holds:
+1. **Done** (`a213d68`, `ae3a91c`). `examples/policies/atproto-market/` holds:
    - `relay-only-ssh` (P-relay);
-   - `guest-initiated-network-report` (P-guest-reports, as a set: a deny for
-     reach-in from the emitter's reachable set, a deny for emission not
-     reachable from an inbound guest report handler, and a require that a
-     cloud-init module reports out);
+   - P-guest-reports as a set of three templates: `guest-report-reach-in` (a
+     deny for a reach-in from the network emitter's reachable set),
+     `guest-report-driven-emission` (a deny when the network identity emitter
+     is not reachable from an inbound guest report handler) and
+     `guest-report-cloud-init` (a require that a cloud-init module publishes
+     the guest's address or routing outbound);
    - each with src, unit tests, template, constraint with parameters (globs,
-     identifiers and patterns, so another repository can reuse it by changing
-     only parameters), and a gator suite.
-2. Run them with `specctl policy eval` against a fresh clone of
-   atproto-market at:
-   - `master` 7a2e9d9: expect P-guest-reports violations naming the bidder
-     emitter and `getNodeId`;
-   - `pre-iroh`;
-   - `spec/iroh-dumbpipe-20261004141803`: expect P-guest-reports to pass.
+     identifiers and patterns, so another repository reuses it by changing
+     only parameters), and a gator suite with allowed and denied cases.
 
-   Record the real output. A rule that is wrong on real code gets fixed by
-   calibration, not by changing the expectation. Wrong means a false positive
-   on compliant code, or a miss on the known violation.
-3. `docs/policies.md`: concepts, data model, `lib.specd` reference, writing a
-   policy step by step, testing, enforcement, generation, troubleshooting.
-4. `docs/examples/atproto-market-policies.md`: the copy-paste run with real
-   output. `scripts/example-policies.sh` (REPO, REF, POLICY_DIR, ...) does the
-   whole run.
+   `lib.specd` gained the helpers the policies need
+   (`tests_matching_text`, `file_node`, `nodes_with_id`,
+   `nodes_matching_globs`, `nodes_identified`, `nodes_reachable_from`,
+   `closure_from`/`closure_reaching`, `node_match_line`, `first_line`,
+   `definition_node`, `matches_globs`) with opa unit tests, and
+   `impl/policyeval` now reads `json.Number` detail lines so a violation
+   carries a real `file:line` instead of 0. A gatekeeper-specific quirk
+   surfaced during calibration: the TypeScript indexer emits one node per
+   declaration, so an interface method call (`provider.getNodeId(...)`) has no
+   resolved edge and a closure must be paired with a text pattern; and a
+   ConstraintTemplate name must be `lower(kind)`, hence the slug/kind split.
+2. **Done** (`ae3a91c`, `docs/examples/atproto-market-policies.md`). Run with
+   `specctl policy eval` against a fresh clone (`scripts/example-policies.sh`),
+   `master` `7a2e9d9` / `pre-iroh` `d20070c` /
+   `spec/iroh-dumbpipe-20261004141803` `ffac22e`:
+
+   | ref | commit | result |
+   | --- | --- | --- |
+   | `master` | 7a2e9d9 | 2 deny: `guest-report-reach-in` (`lib/market-bidder-compute/mod.ts:282`, the `getNodeId` reach-in) and `guest-report-driven-emission` (`:284`, the `registerIdentity` emission from `providerIdPromise.then`) |
+   | `pre-iroh` | d20070c | 0 |
+   | `spec/iroh-dumbpipe-20261004141803` | ffac22e | 0 |
+
+   Both master violations were read in the source and confirmed. `pre-iroh`
+   and the spec branch were read too: they emit no host-derived identity and
+   the guest reports itself (the spec branch reports its dumbpipe ticket to
+   the requester's `/v1/on-network` handler). `relay-only-ssh` passes at all
+   three refs; a run with an impossible transport allowlist proved it reaches
+   the ssh nodes (`lib/requester-xrpc/mod.ts:691` at master, `:979`/`:1012` at
+   the spec branch) rather than passing vacuously.
+3. **Done** (`docs/policies.md`): concepts, the CodeGraph/CodeDiff and
+   inventory data model, the `open-policy/` layout, the `lib.specd` reference,
+   writing a policy step by step, testing (opa v0 unit tests, gator suites,
+   `--gator`, conformance), evaluating, enforcement and troubleshooting.
+4. **Done** (`docs/examples/atproto-market-policies.md`): the copy-paste run
+   with real output at each ref, the results table, what each violation means,
+   and the reachability proof. `scripts/example-policies.sh` (REPO, REFS,
+   LIBRARY, WORK, OUT) does the whole run and writes the text and JSON reports
+   plus a summary.
+
+   The fixture twin is `examples/policies/market-mini`; the fast test
+   `impl/policyeval/example_fixture_test.go` evaluates it over
+   `fixtures/market-mini/{compliant,violating}` with the real codegraph (0
+   deny on compliant, both policy groups deny on violating), and every suite
+   runs through the built-in engine and the real gator in
+   `impl/policyeval/conformance_test.go`.
 
 ### C. kcp integration and the gate
 

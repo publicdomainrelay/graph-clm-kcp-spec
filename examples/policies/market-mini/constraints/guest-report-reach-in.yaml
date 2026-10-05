@@ -1,0 +1,29 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: GuestReportReachIn
+metadata:
+  name: guest-report-reach-in
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - CodeGraph
+  parameters:
+    hostGlobs:
+    - hono-bidder/**
+    - lib/compute-provider/**
+    emitterPatterns: ON_NETWORK_EVENT|emitVmOnNetwork
+    reachInPatterns:
+    - \.getNodeId\s*\(
+    - Deno\.connect\(\{[^}]*guest
+    - guest-agent
+    edgeKinds:
+    - calls
+    - imports
+    - references
+    - contains
+    - instantiates
+    - implements
+    - extends

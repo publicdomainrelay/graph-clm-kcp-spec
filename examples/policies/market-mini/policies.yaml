@@ -1,3 +1,5 @@
-defaultEnforcement: dryrun
+defaultEnforcement: deny
 repository: market-mini
+testGlobs:
+- test/**
 version: "1"

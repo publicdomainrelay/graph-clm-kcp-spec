@@ -1,0 +1,33 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeGraph
+metadata:
+  name: market-mini
+  namespace: default
+spec:
+  repository: market-mini
+  commit: "0000000000000000000000000000000000000000"
+  files:
+  - path: hono-bidder/mod.ts
+  nodes:
+  - id: "fn:emit"
+    kind: function
+    name: emitVmOnNetwork
+    qualifiedName: emitVmOnNetwork
+    file: hono-bidder/mod.ts
+    startLine: 16
+    text: |
+      return { type: ON_NETWORK_EVENT, vmId: report.vmId, address: report.address }
+  - id: "fn:handler"
+    kind: function
+    name: handleOnNetworkReport
+    qualifiedName: handleOnNetworkReport
+    file: hono-bidder/mod.ts
+    startLine: 26
+    text: |
+      return emitVmOnNetwork(report)
+  edges:
+  - source: "fn:handler"
+    target: "fn:emit"
+    kind: calls
+    line: 27
+  texts: {}

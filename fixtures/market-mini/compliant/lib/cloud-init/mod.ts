@@ -61,9 +61,24 @@ export function createAuthorizedKeysModule(key: string): UserDataModule {
   };
 }
 
+// The guest reaches out and reports its address and transport to the host's
+// report endpoint. It is the only source of the vm.onNetwork event.
+export function createGuestReportModule(): UserDataModule {
+  return {
+    name: "guest-report",
+    render(ctx) {
+      return [
+        "runcmd:",
+        `  - curl -sf -X POST ${ctx.reportUrl} -d "vm=${ctx.vmName}&address=relay://${relayServiceName(ctx.vmName)}"`,
+      ].join("\n");
+    },
+  };
+}
+
 export function createDefaultRegistry(): UserDataRegistry {
   const registry = new UserDataRegistry();
   registry.register(createRelayTransport().module);
+  registry.register(createGuestReportModule());
   registry.register(createAuthorizedKeysModule("ssh-ed25519 AAAA fixture"));
   return registry;
 }
