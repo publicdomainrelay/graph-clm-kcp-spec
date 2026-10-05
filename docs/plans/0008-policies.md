@@ -546,6 +546,82 @@ CodeGraph identifiers. See `docs/plans/0009-portable-policies.md`.
 - Opus review of `open-policy/atproto-market*` and the hydradb diff.
 - Fix what they find.
 
+### H. Retry deno-kcp#1 under policies, as a new PR
+
+The user asked whether the policies improve
+https://github.com/publicdomainrelay/deno-kcp/pull/1. PR #1 was built before
+any policy existed. Phase H measures it, then runs the same request again
+with the gate on. The result is a new pull request; #1 stays as it is.
+
+1. **Baseline.**
+   - Bind the policy library and the portable rules to deno-kcp, as
+     `policies.yaml` roles and vocabulary:
+     - host = the DenoPod provider;
+     - guest = the DenoPod workloads;
+     - requester = the example's market requester;
+     - relay = kcp-libs dnsshim / the relay listener.
+   - Evaluate PR #1's head against `main`:
+     `specctl policy eval --diff-base main`, using the library and the
+     binding.
+   - Record every violation, and read each one to label it real or false
+     positive. Known false positive: `kubectl --validate=false` read as
+     disabled TLS verification. Fix it in `policies/library`.
+2. **Retry.**
+   - `scripts/example-deno-kcp-pr.sh` with the same PROMPT and BRIEF, and
+     `open-policy/deno-kcp` seeded from the bound library.
+   - Real-run constraints are deny: TLS verification and provisioning.
+     Style and quality constraints are warn.
+   - The realize gate feeds deny messages back to the agent.
+   - Live acceptance runs as before.
+3. **Publish** as a new PR against deno-kcp (`spec/bidder-and-bob-pds-policy-<date>`),
+   with a body that compares it to #1:
+   - violations in #1 vs violations in the new PR;
+   - gate denials during realize, with the attempts it took;
+   - the acceptance result;
+   - the spec and diff size.
+4. **Record.** `docs/examples/deno-kcp-pr.md` gets a "with policies" round
+   holding the commands, the timings and the table.
+
+Order: after phase C's gate is fixed and merged (`policy-cm`).
+
+### I. Retry atproto-market#1 under policies, as a new PR
+
+https://github.com/publicdomainrelay/atproto-market/pull/1 (iroh/dumbpipe, head
+`spec/iroh-dumbpipe-20261004141803`) fails the strict P-guest-reports rule
+`guest-report-driven-onnetwork`. B2 measured this. The bidder emits
+`vm.onNetwork` from `providerIdPromise.then(...)`, not from the guest's report.
+
+1. **Baseline.** The phase B/B2 results for #1 are the baseline:
+   - 1 deny (`onnetwork` at `lib/market-bidder-compute/mod.ts:313`);
+   - `relay-only-ssh` clean;
+   - the model view from G2.
+
+   Add the plan 0009 portable pack results once G4 lands.
+2. **Retry.**
+   - `scripts/example-atproto-market-iroh-pr.sh` with the same PROMPT and a
+     fresh clone, on the `pre-iroh` base.
+   - `open-policy/atproto-market` is seeded from
+     `examples/policies/atproto-market` plus the library.
+   - P-relay and P-guest-reports are deny. Library code-safety and TLS rules
+     are deny. Quality rules are warn.
+   - The spec-time gate (0009 G3) and the realize gate both run.
+   - Live acceptance (`SSH_OK_VIA_IROH` through runComputeContract) gates as
+     in #1.
+3. **Publish** as a new PR on atproto-market. Its body compares it to #1:
+   - violations before vs after;
+   - gate denials and the agent's corrections;
+   - where `vm.onNetwork` is now emitted (from the guest-report handler);
+   - acceptance;
+   - the spec and diff size.
+4. **Record.** `docs/examples/atproto-market-iroh-pr.md` gets a "with
+   policies" round.
+5. **When the 0009 G5 multi-repository model lands,** also bind
+   `hono-compute-provider` and report the `inspectIp` / `pollSshExec`
+   reach-in. That fix belongs to a PR in that repository, not to this one.
+
+Order: after `policy-cm` and 0009 G3 are merged, and after phase H (deno-kcp)
+has proved the gate on a real run.
+
 ## Not in scope
 
 - Running the real Gatekeeper admission webhook inside kcp.
