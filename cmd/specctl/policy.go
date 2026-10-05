@@ -160,8 +160,8 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	target.resolveRepo()
-	if target.repo == "" {
-		fmt.Fprintln(stderr, "specctl policy init: --repo is required when --path has no name")
+	if target.onBranch() && !flagSet(fs, "repo") {
+		fmt.Fprintln(stderr, "specctl policy init: --repo is required when writing a policy branch")
 		return exitUsage
 	}
 
@@ -247,6 +247,10 @@ func runPolicyNew(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	target.resolveRepo()
+	if target.onBranch() && !flagSet(fs, "repo") {
+		fmt.Fprintln(stderr, "specctl policy new: --repo is required when writing a policy branch")
+		return exitUsage
+	}
 	selected := []string(globs)
 	if len(selected) == 0 {
 		selected = []string{"**/*.ts"}
@@ -325,6 +329,10 @@ func runPolicyBuild(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	target.resolveRepo()
+	if target.onBranch() && !flagSet(fs, "repo") {
+		fmt.Fprintln(stderr, "specctl policy build: --repo is required when writing a policy branch")
+		return exitUsage
+	}
 	return buildTarget(context.Background(), target, stdout, stderr)
 }
 
