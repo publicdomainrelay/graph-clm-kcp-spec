@@ -225,6 +225,72 @@ spec:
                             x-kubernetes-list-type: set
                             items:
                               type: string
+                    interactions:
+                      type: array
+                      x-kubernetes-list-type: map
+                      x-kubernetes-list-map-keys: [id]
+                      items:
+                        type: object
+                        required: [op, id]
+                        properties:
+                          op:
+                            type: string
+                            enum: [added, removed, changed]
+                          id:
+                            type: string
+                          from:
+                            type: object
+                            required: [id, peer, initiator]
+                            properties:
+                              id:
+                                type: string
+                              peer:
+                                type: string
+                              initiator:
+                                type: string
+                              channel:
+                                type: string
+                              carries:
+                                type: array
+                                x-kubernetes-list-type: set
+                                items:
+                                  type: string
+                              purpose:
+                                type: string
+                              level:
+                                type: string
+                                enum: [MUST, SHOULD, MAY]
+                              forbidden:
+                                type: boolean
+                          to:
+                            type: object
+                            required: [id, peer, initiator]
+                            properties:
+                              id:
+                                type: string
+                              peer:
+                                type: string
+                              initiator:
+                                type: string
+                              channel:
+                                type: string
+                              carries:
+                                type: array
+                                x-kubernetes-list-type: set
+                                items:
+                                  type: string
+                              purpose:
+                                type: string
+                              level:
+                                type: string
+                                enum: [MUST, SHOULD, MAY]
+                              forbidden:
+                                type: boolean
+                          fields:
+                            type: array
+                            x-kubernetes-list-type: set
+                            items:
+                              type: string
                     observed:
                       type: object
                       properties:

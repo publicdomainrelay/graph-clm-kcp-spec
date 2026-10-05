@@ -604,6 +604,10 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 			return exitError
 		}
+		store := oagit.Store{Repo: *path}
+		if tip, tipErr := store.Tip(ctx, oabranch.RefFor(*repository, *branch, *defaultBranch)); tipErr == nil {
+			result.Report.Commit = tip
+		}
 		if *output == "json" {
 			encoded, err := json.MarshalIndent(result.Report, "", "  ")
 			if err != nil {

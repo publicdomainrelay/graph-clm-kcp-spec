@@ -207,7 +207,7 @@ spec:
   repository: atproto-market
   components: [{name, roles: [...], context, source: declared|observed|both}]
   effects:    [{id, kind, component, context, attrs, file, line, node}]
-  flows:      [{from, to, initiator, channel, carries: [...], purpose, source, evidence: [effect ids]}]
+  flows:      [{from, to, initiator, channel, carries: [...], purpose, level, forbidden, source, evidence: [effect ids]}]
   triggers:   [{from: effect id, to: effect id}]
 ```
 
@@ -233,9 +233,17 @@ spec:
   text or attributes (`proxyCommand`, `argv0`, `url`, ...); `carries` are the
   payload classes whose terms appear there; `purpose` is the first matching
   purpose class. Matching is case-insensitive.
-- Declared interactions (plan 0009 G3, not yet in the SystemContext schema)
-  are accepted by the builder as `ModelInput.Interactions`. A declared flow
-  that matches an observed one is merged and its `source` becomes `both`.
+- **declared** flows come from the `interactions` of the SystemContexts
+  (`ModelInput.Interactions`, and every context's own list, with the context as
+  its self). A declared flow that matches an observed one is merged and its
+  `source` becomes `both`; a declared `forbidden` flow stays its own entry, so
+  a policy can match a real flow against it. An interaction's `initiator` is
+  `self` or `peer` and is resolved to the role that initiates, so `from` is the
+  context that declared the interaction and `to` is the peer; the role the
+  initiator acts on is whichever endpoint is not the initiator. That directed
+  shape (initiator, acted-on role, channel, purpose) is what
+  `lib.specd.same_flow`, `specd.forbidden_matches` and Go's
+  `policy.SameShape` compare.
 - **triggers** are call-graph reachability between effect sites: for each
   effect of kind `http.handle`, `event.receive`, `proc.exec`, `container.exec`
   or `http.request`, every initiating effect within
@@ -245,6 +253,92 @@ spec:
   a node, and a method call on an interface value has no edge. A pack that
   needs "this emitter runs from that handler" must read the trigger's `from`
   effect and its kind, not merely its presence.
+
+### Declared interactions and the spec-time gate
+
+`SystemContext.spec.interactions` declares a flow before any code exists, so
+the decision "who talks to whom, who initiates, over which channel" is
+reviewable at the spec:
+
+```yaml
+interactions:
+  - id: i.report
+    peer: host
+    initiator: self
+    channel: relay
+    carries: [network-info]
+    purpose: network-discovery
+    level: MUST
+  - id: i.no-reach-in
+    peer: host
+    initiator: peer
+    channel: relay
+    carries: [network-info]
+    purpose: network-discovery
+    level: MUST
+    forbidden: true
+```
+
+- the list is keyed by `id`, so a server side apply edits one interaction and
+  leaves the rest of the list, and the spec hash covers it: a change to the
+  interactions is a real spec change that raises a `SpecToCode` change.
+- `peer` is a role name from `policies.yaml`, or a SystemContext name the
+  binding gives a role.
+- `initiator` is `self` or `peer`; `level` is `MUST`, `SHOULD` or `MAY`
+  (unset means `SHOULD`).
+- `forbidden: true` declares a must-never. It is kept in the model as its own
+  declared entry, and a declared or observed flow of the same directed shape
+  is a violation.
+- The CLM context document renders and parses the block; `specctl clm apply`
+  refuses a removal the document does not name under `removed:` in the spec
+  block or pass to `--allow-remove`, exactly as for requirements.
+
+`specctl policy model --propose-interactions` prints a pasteable block per
+context from the observed flows, so an existing repository gets its
+interactions filled in:
+
+```bash
+bin/specctl policy model --repo market-mini --worktree fixtures/market-mini/compliant \
+  --library examples/policies/market-mini --propose-interactions
+```
+
+The **spec-time gate** evaluates a `SpecToCode` change before the agent runs.
+`specd --policy-library DIR` builds the ArchitectureModel from the post-delta
+specs alone (declared facts, no code, no effects) and evaluates the library. A
+`deny` violation is recorded on the change as `phase: Failed`, the message
+names the constraints, and the condition `PolicyValid=False` carries
+`reason: PolicyDeniedAtSpec`; nothing is realized, no worktree branch is
+opened. Fixing the spec raises a new change (a new hash) that passes the gate
+and realizes. `specctl retry` works as for any other failed change.
+
+The same check runs offline, with no kcp:
+
+```bash
+bin/specctl policy eval --repo greenfield-market --specs-only \
+  --path <a clone with the open-architecture branch> \
+  --library policies/packs/conformance
+```
+
+`--specs-only` reads the `SystemContext`s from `specs/*.yaml` on the
+`open-architecture/<repository>` branch, builds the declared model and
+evaluates the library; `--strict` exits 1 on a deny. It is the offline twin of
+the controller's gate and the fast way to iterate on a spec before applying it.
+
+### The conformance pack
+
+`policies/packs/conformance/` is the first portable pack: three templates over
+the ArchitectureModel, parameterized by nothing but the model.
+
+| template | enforcement | fires when |
+| --- | --- | --- |
+| `ConformanceObservedUndeclared` | warn | an observed flow has no declared interaction of the same directed shape |
+| `ConformanceMustUnrealized` | warn | a declared `MUST` flow has no observed evidence and the model carries effects (code exists) |
+| `ConformanceForbiddenFlow` | deny | a declared or observed flow matches a declared `forbidden` must-never |
+
+The pack carries its own `policies.yaml`, `constraints/`, `dist/` and gator
+suites; `impl/policyeval` has a test that fails when `dist/` or `CATALOGUE.md`
+is stale and that runs every suite. A repository binds it by copying it, or by
+adding the pack to its own tree until pack imports land (plan 0009 G4).
 
 ### Inventory
 

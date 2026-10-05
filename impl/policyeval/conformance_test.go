@@ -29,6 +29,7 @@ func suites(t *testing.T) []string {
 	for _, pattern := range []string{
 		filepath.Join(root, "examples", "policies", "*", policy.TestsDir, "*", policy.SuiteName),
 		filepath.Join(root, "policies", "*", policy.TestsDir, "*", policy.SuiteName),
+		filepath.Join(root, "policies", "packs", "*", policy.TestsDir, "*", policy.SuiteName),
 		filepath.Join(root, "testdata", "*", policy.TestsDir, "*", policy.SuiteName),
 	} {
 		matches, err := filepath.Glob(pattern)
