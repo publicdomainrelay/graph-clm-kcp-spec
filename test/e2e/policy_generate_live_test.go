@@ -261,7 +261,7 @@ func TestPolicyGenerateLive(t *testing.T) {
 
 	// kcp holds the constraint, and the spec says which policy guards it.
 	waitForState(t, ctx, "the generated constraint in kcp", func() bool {
-		held, err := policykcp.Read(ctx, client)
+		held, err := policykcp.Read(ctx, client, policykcp.ReadOptions{})
 		if err != nil {
 			return false
 		}

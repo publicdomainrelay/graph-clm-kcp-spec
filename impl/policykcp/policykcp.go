@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/yaml"
@@ -161,16 +162,28 @@ func ParseConstraintObject(object *unstructured.Unstructured, templateName strin
 	return constraint, nil
 }
 
-// Read loads the templates and constraints kcp holds. A constraint list that
-// answers "no such resource" means the CRD has not been created yet, so the
-// kind simply has no constraints.
-func Read(ctx context.Context, cluster Cluster) (policy.Library, error) {
+type ReadOptions struct {
+	// Repository selects one repository's objects by their label. Empty reads
+	// every repository's objects, the way `policy ls` shows the whole cluster.
+	Repository string
+}
+
+// Read loads the templates and constraints kcp holds. With a repository it
+// returns that repository's objects only, so a shared kcp never lends another
+// repository's policies to a branch. A constraint list that answers "no such
+// resource" means the CRD has not been created yet, so the kind simply has no
+// constraints; any other error aborts the read rather than returning a short
+// library that a sync would mistake for a deletion.
+func Read(ctx context.Context, cluster Cluster, options ReadOptions) (policy.Library, error) {
 	library := policy.Library{}
 	listed, err := cluster.ListCluster(ctx, policy.ConstraintTemplateGVR())
 	if err != nil {
 		return library, fmt.Errorf("policykcp: list constraint templates: %w", err)
 	}
 	for index := range listed.Items {
+		if !ownedBy(&listed.Items[index], options.Repository) {
+			continue
+		}
 		template, err := ParseTemplateObject(&listed.Items[index])
 		if err != nil {
 			return library, err
@@ -179,11 +192,14 @@ func Read(ctx context.Context, cluster Cluster) (policy.Library, error) {
 	}
 	library.Sort()
 	for _, template := range library.Templates {
-		listed, err := cluster.ListCluster(ctx, policy.ConstraintGVR(template.Kind))
+		listed, err := listConstraints(ctx, cluster, template.Kind)
 		if err != nil {
-			continue
+			return policy.Library{}, fmt.Errorf("policykcp: list the %s constraints: %w", template.Kind, err)
 		}
 		for index := range listed.Items {
+			if !ownedBy(&listed.Items[index], options.Repository) {
+				continue
+			}
 			constraint, err := ParseConstraintObject(&listed.Items[index], template.Name)
 			if err != nil {
 				return library, err
@@ -197,8 +213,58 @@ func Read(ctx context.Context, cluster Cluster) (policy.Library, error) {
 	return library, nil
 }
 
+// listConstraints retries a transient list error once, then reports it. A
+// constraint kind whose CRD is not established yet is not an error: the kind
+// has no constraints.
+func listConstraints(ctx context.Context, cluster Cluster, kind string) (*unstructured.UnstructuredList, error) {
+	gvr := policy.ConstraintGVR(kind)
+	listed, err := cluster.ListCluster(ctx, gvr)
+	if err == nil || isNotFound(err) {
+		if err != nil {
+			return &unstructured.UnstructuredList{}, nil
+		}
+		return listed, nil
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(100 * time.Millisecond):
+	}
+	listed, err = cluster.ListCluster(ctx, gvr)
+	if err != nil && isNotFound(err) {
+		return &unstructured.UnstructuredList{}, nil
+	}
+	return listed, err
+}
+
+// isNotFound reports whether a list failed because the resource is not served,
+// which a constraint CRD that has not been established yet answers.
+func isNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	if apierrors.IsNotFound(err) {
+		return true
+	}
+	message := err.Error()
+	return strings.Contains(message, "not found") ||
+		strings.Contains(message, "could not find the requested resource") ||
+		strings.Contains(message, "no matches for kind")
+}
+
+func ownedBy(object *unstructured.Unstructured, repository string) bool {
+	if repository == "" {
+		return true
+	}
+	return object.GetLabels()[policy.RepositoryLabel] == repository
+}
+
 type ApplyOptions struct {
 	Prune bool
+
+	// Repository labels every object written with the repository that owns it,
+	// so a read and a prune can tell one repository's policies from another's.
+	Repository string
 }
 
 // Apply writes the library into kcp: each ConstraintTemplate, the constraint
@@ -227,6 +293,7 @@ func Apply(ctx context.Context, cluster Cluster, library policy.Library, options
 			failures = append(failures, fmt.Errorf("policykcp: template %s: %w", template.Name, err))
 			continue
 		}
+		labelRepository(object, options.Repository)
 		if _, err := cluster.ApplyCluster(ctx, object); err != nil {
 			failures = append(failures, fmt.Errorf("policykcp: apply template %s: %w", template.Name, err))
 			failures = appendStatus(failures, recordTemplateStatus(ctx, cluster, template.Name, false, err))
@@ -249,6 +316,7 @@ func Apply(ctx context.Context, cluster Cluster, library policy.Library, options
 	for _, constraint := range library.Constraints {
 		object, err := ConstraintObject(constraint)
 		if err == nil {
+			labelRepository(object, options.Repository)
 			_, err = cluster.ApplyCluster(ctx, object)
 		}
 		if err != nil {
@@ -256,11 +324,25 @@ func Apply(ctx context.Context, cluster Cluster, library policy.Library, options
 		}
 	}
 	if options.Prune {
-		if err := prune(ctx, cluster, library, wanted); err != nil {
+		if err := prune(ctx, cluster, library, options.Repository, wanted); err != nil {
 			failures = append(failures, fmt.Errorf("policykcp: prune: %w", err))
 		}
 	}
 	return errors.Join(failures...)
+}
+
+// labelRepository stamps the repository that owns an object, so a read and a
+// prune of one repository's policies never touch another's.
+func labelRepository(object *unstructured.Unstructured, repository string) {
+	if repository == "" {
+		return
+	}
+	labels := object.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	labels[policy.RepositoryLabel] = repository
+	object.SetLabels(labels)
 }
 
 // recordTemplateStatus writes the simplified byPod status Gatekeeper reports,
@@ -317,12 +399,18 @@ func constraintTemplateStatus(created bool, failure error) map[string]any {
 	return map[string]any{"created": created, "byPod": []any{byPod}}
 }
 
-func prune(ctx context.Context, cluster Cluster, library policy.Library, wantedTemplates map[string]bool) error {
+// prune deletes the templates and constraints of one repository that the
+// library no longer covers. An object of another repository, or an unlabelled
+// one, is never touched: kcp serves every repository's policies.
+func prune(ctx context.Context, cluster Cluster, library policy.Library, repository string, wantedTemplates map[string]bool) error {
 	listed, err := cluster.ListCluster(ctx, policy.ConstraintTemplateGVR())
 	if err != nil {
 		return err
 	}
 	for index := range listed.Items {
+		if !ownedBy(&listed.Items[index], repository) {
+			continue
+		}
 		name := listed.Items[index].GetName()
 		if wantedTemplates[name] {
 			continue
@@ -339,11 +427,14 @@ func prune(ctx context.Context, cluster Cluster, library policy.Library, wantedT
 		wantedConstraints[constraint.Kind][constraint.Name] = true
 	}
 	for _, template := range library.Templates {
-		listed, err := cluster.ListCluster(ctx, policy.ConstraintGVR(template.Kind))
+		listed, err := listConstraints(ctx, cluster, template.Kind)
 		if err != nil {
-			continue
+			return err
 		}
 		for index := range listed.Items {
+			if !ownedBy(&listed.Items[index], repository) {
+				continue
+			}
 			name := listed.Items[index].GetName()
 			if wantedConstraints[template.Kind][name] {
 				continue

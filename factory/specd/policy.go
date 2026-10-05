@@ -249,14 +249,14 @@ func (c *Controller) reconcileRepositoryPolicy(ctx context.Context, namespace st
 		// repository's library would delete another's, and the restore reads the
 		// branch before an apply that may land while it runs, so a prune would
 		// delete the policy that apply just wrote.
-		if err := policykcp.Apply(ctx, cluster, library, policykcp.ApplyOptions{}); err != nil {
+		if err := policykcp.Apply(ctx, cluster, library, policykcp.ApplyOptions{Repository: repository.Name}); err != nil {
 			c.log.Error("policy restore failed", "repository", repository.Name, "branch", ref, "err", err)
 			c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid,
 				"restore from "+ref+": "+err.Error())
 			return
 		}
 		c.log.Info("policy restored from the branch", "repository", repository.Name, "branch", ref, "commit", shortenHash(policyCommit))
-	} else if kcpLibrary, err := policykcp.Read(ctx, cluster); err == nil && policykcp.Distinct(kcpLibrary, library) {
+	} else if kcpLibrary, err := policykcp.Read(ctx, cluster, policykcp.ReadOptions{Repository: repository.Name}); err == nil && policykcp.Distinct(kcpLibrary, library) {
 		if err := c.persistPolicy(ctx, store, ref, repository, kcpLibrary, library); err != nil {
 			c.log.Error("policy persist failed", "repository", repository.Name, "branch", ref, "err", err)
 			c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid,
