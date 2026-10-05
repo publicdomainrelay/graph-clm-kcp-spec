@@ -335,6 +335,8 @@ Remaining, honestly:
 - `argv0` from a variable (`new Deno.Command(cmd, ...)`) is `proc.exec` with
   no `argv0`; a `container.exec` verb that is computed, not literal, is not
   extracted.
+- A file bigger than the CodeGraph text cap (256 KiB) is classified over its
+  first 256 KiB. No file in either corpus reaches the cap.
 - `specctl policy effects` reports an empty context when the checkout has no
   SystemContexts; G2 maps components and roles onto that field.
 
