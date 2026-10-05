@@ -123,6 +123,12 @@ type PolicyLibrary struct {
 	TestGlobs []string `json:"testGlobs,omitempty"`
 
 	DefaultEnforcement Enforcement `json:"defaultEnforcement,omitempty"`
+
+	Roles map[string]RoleBinding `json:"roles,omitempty"`
+
+	Vocabulary *Vocabulary `json:"vocabulary,omitempty"`
+
+	Imports []PackImport `json:"imports,omitempty"`
 }
 
 func (l PolicyLibrary) EnforcementFallback() Enforcement {

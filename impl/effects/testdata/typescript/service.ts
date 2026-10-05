@@ -44,3 +44,16 @@ export function listen() {
   const socket = new WebSocket("wss://relay.example/tunnel");
   return { listener, direct, socket };
 }
+
+export function cloudInitReport(url: string) {
+  const lines = [
+    "# report the ticket to the requester",
+    `curl -fsS -m 10 -X POST "${url}" -d '{"address":"1.2.3.4"}'`,
+  ];
+  return lines.join("\n");
+}
+
+export async function reachIntoGuest(provider: { getNodeId?: (id: string) => Promise<string> }) {
+  const nodeId = await provider.getNodeId("provider-1");
+  return nodeId;
+}

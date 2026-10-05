@@ -245,3 +245,97 @@ test_missing_inventory_is_empty_not_undefined {
 	all := contexts with input as code_graph_input with data.inventory as {}
 	count(all) == 0
 }
+
+model_inventory := {
+	"namespace": {"default": {"specs.publicdomainrelay.dev/v1alpha1": {
+		"Repository": {"market": {"metadata": {"name": "market", "namespace": "default"}, "spec": {"branch": "main"}}},
+		"ArchitectureModel": {"market": {
+			"metadata": {"name": "market", "namespace": "default"},
+			"spec": {
+				"components": [
+					{"name": "bidder", "roles": ["host"], "context": "bidder", "source": "both"},
+					{"name": "guest", "roles": ["guest"], "context": "", "source": "observed"},
+					{"name": "requester", "roles": ["requester"], "context": "requester", "source": "declared"},
+				],
+				"effects": [
+					{"id": "m1", "kind": "container.exec", "component": "bidder", "file": "lib/bidder/mod.ts", "line": 20, "node": "fn:emit"},
+				],
+				"flows": [
+					{"from": "guest", "to": "requester", "initiator": "guest", "channel": "relay", "carries": ["network-info"], "purpose": "network-discovery", "source": "both", "evidence": ["e9"]},
+					{"from": "bidder", "to": "guest", "initiator": "bidder", "carries": ["network-info"], "purpose": "network-discovery", "source": "observed", "evidence": ["m1"]},
+					{"from": "guest", "to": "bidder", "initiator": "peer", "channel": "relay", "carries": ["network-info"], "purpose": "network-report", "source": "declared", "evidence": []},
+				],
+				"triggers": [
+					{"from": "h1", "to": "m1"},
+					{"from": "l1", "to": "m1"},
+				],
+			},
+		}},
+	}}},
+}
+
+model_input := {"review": {"kind": {"kind": "CodeGraph"}, "object": {"metadata": {"name": "market", "namespace": "default"}, "spec": {"repository": "market"}}}}
+
+test_architecture_model_resolves_and_is_empty_by_default {
+	model := architecture_model with input as model_input with data.inventory as model_inventory
+	model.spec.components[0].name == "bidder"
+	empty := architecture_model with input as model_input with data.inventory as {}
+	count(empty.spec.flows) == 0
+}
+
+test_components_with_role {
+	guests := components_with_role("guest") with input as model_input with data.inventory as model_inventory
+	count(guests) == 1
+	guests[0].name == "guest"
+	hosts := components_with_role("host") with input as model_input with data.inventory as model_inventory
+	count(hosts) == 1
+	hosts[0].context == "bidder"
+	none := components_with_role("relay") with input as model_input with data.inventory as model_inventory
+	count(none) == 0
+}
+
+test_roles_of_a_component {
+	roles := roles_of("guest") with input as model_input with data.inventory as model_inventory
+	roles == ["guest"]
+	none := roles_of("absent") with input as model_input with data.inventory as model_inventory
+	count(none) == 0
+}
+
+test_flows_where_matches_role_pairs {
+	flows := flows_where({"from": "guest", "to": "requester"}) with input as model_input with data.inventory as model_inventory
+	count(flows) == 1
+	flows[0].initiator == "guest"
+}
+
+test_flows_where_carries_accepts_a_string_or_an_array {
+	byString := flows_where({"carries": "network-info"}) with input as model_input with data.inventory as model_inventory
+	count(byString) == 3
+	byArray := flows_where({"carries": ["network-info", "other"]}) with input as model_input with data.inventory as model_inventory
+	count(byArray) == 3
+	miss := flows_where({"carries": "absent"}) with input as model_input with data.inventory as model_inventory
+	count(miss) == 0
+}
+
+test_flows_where_empty_filter_matches_everything {
+	all := flows_where({}) with input as model_input with data.inventory as model_inventory
+	count(all) == 3
+	reaching := flows_where({"initiator": "bidder"}) with input as model_input with data.inventory as model_inventory
+	count(reaching) == 1
+}
+
+test_triggered_by_reads_the_target_effect {
+	triggers := triggered_by("m1") with input as model_input with data.inventory as model_inventory
+	count(triggers) == 2
+	triggers[0].from == "h1"
+	none := triggered_by("absent") with input as model_input with data.inventory as model_inventory
+	count(none) == 0
+}
+
+test_declared_and_observed_cover_both {
+	both := [flow | flow := model_flows[_]; declared(flow); observed(flow)] with input as model_input with data.inventory as model_inventory
+	count(both) == 1
+	declaredOnly := [flow | flow := model_flows[_]; declared(flow); not observed(flow)] with input as model_input with data.inventory as model_inventory
+	count(declaredOnly) == 1
+	observedOnly := [flow | flow := model_flows[_]; observed(flow); not declared(flow)] with input as model_input with data.inventory as model_inventory
+	count(observedOnly) == 1
+}

@@ -111,7 +111,31 @@ spec:
       effect.component == component]\n}\n\neffects_in(globs) = out {\n\tpaths := {path
       | path := files_matching(globs)[_].path}\n\tout := [effect | effect := effects[_];
       paths[effect.file]]\n}\n\neffect_targets(kind) = out {\n\tout := [target |\n\t\teffect
-      := effects_of(kind)[_]\n\t\ttarget := effect.attrs.target\n\t\ttarget != \"\"\n\t]\n}\n\nlocation(file,
+      := effects_of(kind)[_]\n\t\ttarget := effect.attrs.target\n\t\ttarget != \"\"\n\t]\n}\n\ndefault
+      architecture_model = {\"spec\": {\"components\": [], \"effects\": [], \"flows\":
+      [], \"triggers\": []}}\n\narchitecture_model = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"ArchitectureModel\"][repository_name]\n}\n\ndefault
+      model_components = []\n\nmodel_components = out {\n\tout := architecture_model.spec.components\n}\n\ndefault
+      model_flows = []\n\nmodel_flows = out {\n\tout := architecture_model.spec.flows\n}\n\ndefault
+      model_triggers = []\n\nmodel_triggers = out {\n\tout := architecture_model.spec.triggers\n}\n\ncomponents_with_role(role)
+      = out {\n\tout := [component | component := model_components[_]; component.roles[_]
+      == role]\n}\n\nroles_of(component) = out {\n\tout := [role | entry := model_components[_];
+      entry.name == component; role := entry.roles[_]]\n}\n\nflows_where(filter) =
+      out {\n\tout := [flow | flow := model_flows[_]; flow_filter_matches(flow, filter)]\n}\n\nflow_filter_matches(flow,
+      filter) {\n\tnot flow_filter_key_fails(flow, filter)\n}\n\nflow_filter_key_fails(flow,
+      filter) {\n\tkey := [name | _ = filter[name]][_]\n\tnot flow_filter_key_matches(flow,
+      filter, key)\n}\n\nflow_filter_key_matches(flow, filter, \"from\") {\n\tflow.from
+      == filter.from\n}\n\nflow_filter_key_matches(flow, filter, \"to\") {\n\tflow.to
+      == filter.to\n}\n\nflow_filter_key_matches(flow, filter, \"initiator\") {\n\tflow.initiator
+      == filter.initiator\n}\n\nflow_filter_key_matches(flow, filter, \"channel\")
+      {\n\tflow.channel == filter.channel\n}\n\nflow_filter_key_matches(flow, filter,
+      \"purpose\") {\n\tflow.purpose == filter.purpose\n}\n\nflow_filter_key_matches(flow,
+      filter, \"source\") {\n\tflow.source == filter.source\n}\n\nflow_filter_key_matches(flow,
+      filter, \"carries\") {\n\tis_string(filter.carries)\n\tflow.carries[_] == filter.carries\n}\n\nflow_filter_key_matches(flow,
+      filter, \"carries\") {\n\tis_array(filter.carries)\n\twanted := filter.carries[_]\n\tflow.carries[_]
+      == wanted\n}\n\ntriggered_by(effect_id) = out {\n\tout := [trigger | trigger
+      := model_triggers[_]; trigger.to == effect_id]\n}\n\ndeclared(flow) {\n\tflow.source
+      == \"declared\"\n}\n\ndeclared(flow) {\n\tflow.source == \"both\"\n}\n\nobserved(flow)
+      {\n\tflow.source == \"observed\"\n}\n\nobserved(flow) {\n\tflow.source == \"both\"\n}\n\nlocation(file,
       line) = {\"file\": file, \"line\": line}\n\nviolation(msg, details) = result
       {\n\tresult := {\"msg\": msg, \"details\": details}\n}\n\nglobs_match(globs,
       path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [], path)\n}\n"

@@ -1,0 +1,85 @@
+repository: atproto-market
+ref: master
+commit: 7a2e9d9
+scope: >-
+  Hand labels read from the source, not from the classifier. A true site is one
+  a reader attributes to an effect kind the vocabulary covers (net.dial,
+  http.request, http.handle, ssh.connect, container.exec, proc.exec,
+  event.emit, event.receive, net.listen) for the four files below. A label
+  counts as found when the classifier reports the same kind within one line.
+  Shell commands written inside TypeScript strings are labelled per line only
+  for curl and ssh; the other shell commands there are counted in gaps.
+clean:
+  - kind: http.request
+    note: Deno fetch calls, the XRPC helpers and the curl inside cloud-init strings.
+  - kind: http.handle
+    note: Hono app route registrations, including the serve.app.route mount.
+  - kind: ssh.connect
+    note: new Deno.Command("ssh") sites; the systemd unit name ssh is not one.
+  - kind: event.emit
+    note: createRepoRecord, createSignedRepoRecord and applyWrites sites.
+  - kind: event.receive
+    note: getRecord sites.
+  - kind: proc.exec
+    note: ssh-keygen, which and the browser opener.
+files:
+  - path: lib/requester-xrpc/mod.ts
+    sites:
+      - {line: 99, kind: http.request}
+      - {line: 173, kind: http.request}
+      - {line: 200, kind: http.request}
+      - {line: 444, kind: http.handle}
+      - {line: 492, kind: http.handle}
+      - {line: 495, kind: http.handle}
+      - {line: 512, kind: event.emit}
+      - {line: 532, kind: http.handle}
+      - {line: 542, kind: event.emit}
+      - {line: 543, kind: event.receive}
+      - {line: 557, kind: event.emit}
+      - {line: 558, kind: event.receive}
+      - {line: 598, kind: http.request}
+      - {line: 668, kind: proc.exec}
+      - {line: 691, kind: ssh.connect}
+      - {line: 734, kind: ssh.connect}
+      - {line: 765, kind: proc.exec}
+      - {line: 790, kind: http.request}
+      - {line: 869, kind: http.request}
+      - {line: 992, kind: event.emit}
+      - {line: 1020, kind: event.emit}
+      - {line: 1029, kind: event.emit}
+      - {line: 1192, kind: event.emit}
+      - {line: 1232, kind: event.emit}
+      - {line: 1396, kind: event.emit}
+      - {line: 1407, kind: event.emit}
+      - {line: 1574, kind: http.request}
+    missed:
+      - {line: 1522, kind: http.request, note: s.fetchHandler, an alias for the PDS fetch handler}
+      - {line: 1539, kind: http.request, note: s.fetchHandler, an alias for the PDS fetch handler}
+    gaps:
+      - {kind: net.dial, count: 1, note: serve.addRelay dials the relay websocket inside the serve module}
+  - path: lib/market-bidder-compute/mod.ts
+    sites:
+      - {line: 102, kind: event.emit}
+      - {line: 115, kind: event.emit}
+      - {line: 124, kind: http.request}
+      - {line: 230, kind: event.emit}
+      - {line: 257, kind: event.emit}
+      - {line: 261, kind: event.emit}
+      - {line: 267, kind: http.request}
+      - {line: 282, kind: container.exec}
+      - {line: 284, kind: event.emit}
+      - {line: 289, kind: event.emit}
+      - {line: 297, kind: http.request}
+  - path: lib/common/cloud-init-common/mod.ts
+    sites:
+      - {line: 88, kind: http.request}
+      - {line: 92, kind: http.request}
+      - {line: 376, kind: http.request}
+    gaps:
+      - {kind: proc.exec, count: 40, note: shell commands inside the user_data template strings, which the classifier does not attempt}
+  - path: request-vm-ssh/mod.ts
+    sites:
+      - {line: 144, kind: proc.exec}
+    missed:
+      - {line: 45, kind: http.request, note: realFetch, an alias of the patched global fetch}
+      - {line: 47, kind: http.request, note: realFetch, an alias of the patched global fetch}

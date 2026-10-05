@@ -51,6 +51,8 @@ func runPolicy(args []string, stdout, stderr io.Writer) int {
 		return runPolicyEval(rest, stdout, stderr)
 	case "effects":
 		return runPolicyEffects(rest, stdout, stderr)
+	case "model":
+		return runPolicyModel(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, policyUsage)
 		return exitOK
@@ -93,6 +95,11 @@ usage:
       proc.exec, http.handle, ...) and print the effects grouped by
       context and file. Classifier packs ship with specctl; a repository adds
       its own in <worktree>/classifiers/*.yaml or in --classifiers DIR
+  specctl policy model [--worktree P | --commit C] [--repo X] [--path <git repo>]
+      [--library D] [--classifiers DIR] [--test-glob G] [-o text|json]
+      build the ArchitectureModel (components, roles, effects, flows, triggers)
+      from the CodeGraph, the effects, the SystemContexts and the roles and
+      vocabulary of policies.yaml
 
 gator suite paths: a suite in <dir>/tests/<name>/suite.yaml references the
 built template as ../../dist/<name>.yaml, so run 'policy build' before
@@ -569,27 +576,10 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 	}
 
 	ctx := context.Background()
-	var library policy.Library
-	var err error
-	if *libraryDir != "" {
-		library, err = policyeval.Load(*libraryDir)
-	} else {
-		store := oagit.Store{Repo: *path}
-		library, _, err = policygit.Read(ctx, store, policy.RefFor(*repository, *branch, *defaultBranch))
-	}
+	library, err := loadLibrary(ctx, *repository, *libraryDir, *path, *branch, *defaultBranch)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 		return exitError
-	}
-	if len(library.Templates) == 0 && *libraryDir == "" {
-		fallback := filepath.Join("examples", "policies", *repository)
-		if _, statErr := os.Stat(filepath.Join(fallback, policy.PoliciesPath)); statErr == nil {
-			library, err = policyeval.Load(fallback)
-			if err != nil {
-				fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
-				return exitError
-			}
-		}
 	}
 	if len(library.Templates) == 0 {
 		fmt.Fprintf(stderr, "specctl policy eval: no policies for %s; run specctl policy init --repo %s\n", *repository, *repository)
@@ -632,10 +622,11 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 		return exitError
 	}
-	if _, err := effects.Apply(&graph, effects.Options{
+	computed, err := effects.Apply(&graph, effects.Options{
 		ClassifiersDirs: classifierDirs(codeDir, nil),
 		IncludeExtras:   true,
-	}); err != nil {
+	})
+	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 		return exitError
 	}
@@ -666,6 +657,25 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		reviewed = append(reviewed, diffObject)
 		inventory = append(inventory, diffObject)
 	}
+
+	model, err := policy.BuildModel(policy.ModelInput{
+		Repository: *repository,
+		Graph:      graph,
+		Effects:    computed,
+		Contexts:   modelContexts(contexts),
+		Binding:    library.Manifest.Binding(),
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
+		return exitError
+	}
+	modelObject, err := policyeval.Unstructured(marshalObject(model))
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
+		return exitError
+	}
+	inventory = append(inventory, modelObject)
+	reviewed = append(reviewed, modelObject)
 	for _, context := range contexts {
 		object, err := policyeval.Unstructured(marshalObject(context))
 		if err != nil {
@@ -804,6 +814,25 @@ func runPolicyEffects(args []string, stdout, stderr io.Writer) int {
 	}
 	printEffects(stdout, *repository, resolved, computed)
 	return exitOK
+}
+
+func loadLibrary(ctx context.Context, repository, libraryDir, path, branch, defaultBranch string) (policy.Library, error) {
+	if libraryDir != "" {
+		return policyeval.Load(libraryDir)
+	}
+	store := oagit.Store{Repo: path}
+	library, _, err := policygit.Read(ctx, store, policy.RefFor(repository, branch, defaultBranch))
+	if err != nil {
+		return policy.Library{}, err
+	}
+	if len(library.Templates) > 0 || repository == "" {
+		return library, nil
+	}
+	fallback := filepath.Join("examples", "policies", repository)
+	if _, statErr := os.Stat(filepath.Join(fallback, policy.PoliciesPath)); statErr == nil {
+		return policyeval.Load(fallback)
+	}
+	return library, nil
 }
 
 func classifierDirs(worktree string, explicit []string) []string {

@@ -35,6 +35,8 @@ type EffectRule struct {
 
 	Extra bool `json:"extra,omitempty"`
 
+	InStrings bool `json:"inStrings,omitempty"`
+
 	Target string `json:"target,omitempty"`
 
 	Attrs map[string]string `json:"attrs,omitempty"`
@@ -60,6 +62,8 @@ type CallRule struct {
 	Name string `json:"name"`
 
 	Member bool `json:"member,omitempty"`
+
+	Any bool `json:"any,omitempty"`
 
 	New bool `json:"new,omitempty"`
 
@@ -122,6 +126,7 @@ type compiledRule struct {
 	id             string
 	kind           EffectKind
 	extra          bool
+	inStrings      bool
 	attrs          map[string]string
 	target         string
 	extract        []compiledExtract
@@ -176,11 +181,12 @@ func compilePack(pack ClassifierPack) (compiledPack, error) {
 
 func compileRule(rule EffectRule) (compiledRule, error) {
 	out := compiledRule{
-		id:     rule.ID,
-		kind:   rule.Kind,
-		extra:  rule.Extra,
-		attrs:  rule.Attrs,
-		target: rule.Target,
+		id:        rule.ID,
+		kind:      rule.Kind,
+		extra:     rule.Extra,
+		inStrings: rule.InStrings,
+		attrs:     rule.Attrs,
+		target:    rule.Target,
 	}
 	if !KnownEffectKind(rule.Kind) {
 		return out, fmt.Errorf("effects: rule %s: unknown effect kind %q", rule.ID, rule.Kind)
@@ -208,13 +214,15 @@ func compileRule(rule EffectRule) (compiledRule, error) {
 			pattern = `\.` + regexp.QuoteMeta(lastSegment(name)) + `\s*\(`
 		case rule.Call.New:
 			pattern = `\bnew\s+` + regexp.QuoteMeta(name) + `\s*\(`
+		case rule.Call.Any:
+			pattern = `\b` + regexp.QuoteMeta(lastSegment(name)) + `\s*\(`
 		}
 		regex, err := regexp.Compile(pattern)
 		if err != nil {
 			return out, fmt.Errorf("effects: rule %s: %w", rule.ID, err)
 		}
 		out.call = regex
-		out.member = rule.Call.Member
+		out.member = rule.Call.Member || rule.Call.Any
 		out.targetArg = rule.Call.TargetArg
 		if len(rule.Call.Argv0) > 0 {
 			out.argv0 = map[string]bool{}
@@ -228,7 +236,7 @@ func compileRule(rule EffectRule) (compiledRule, error) {
 		if name == "" {
 			return out, fmt.Errorf("effects: rule %s: command has no name", rule.ID)
 		}
-		regex, err := regexp.Compile(`(?:^|[\s;&|(])(` + name + `)(?:\s|$)`)
+		regex, err := regexp.Compile(`(?:^|[\s;&|('"\x60])(` + name + `)(?:\s|$)`)
 		if err != nil {
 			return out, fmt.Errorf("effects: rule %s: command: %w", rule.ID, err)
 		}
@@ -588,10 +596,18 @@ type effectSite struct {
 	specifier string
 }
 
+type maskClass uint8
+
+const (
+	maskQuoted maskClass = iota
+	maskCode
+	maskComment
+)
+
 type scanner struct {
 	source string
 	family string
-	mask   []bool
+	mask   []maskClass
 }
 
 func newScanner(source, family string) *scanner {
@@ -616,15 +632,19 @@ func (s *scanner) commandSites(rule *compiledRule, claimed map[int]bool) []effec
 	out := []effectSite{}
 	for _, loc := range rule.command.FindAllStringSubmatchIndex(s.source, -1) {
 		wordStart, wordEnd := loc[2], loc[3]
-		if claimed[wordStart] || !s.isCode(wordStart) {
+		if claimed[wordStart] || !s.allowed(wordStart, rule.inStrings) {
 			continue
 		}
 		if len(rule.verbs) > 0 && !rule.verbs[nextCommandWord(s.source[loc[1]:])] {
 			continue
 		}
-		claimed[wordStart] = true
 		line := lineAt(s.source, wordStart)
-		out = append(out, effectSite{line: line, args: lineText(s.source, line), argv0: s.source[wordStart:wordEnd]})
+		text := lineText(s.source, line)
+		if rule.args != nil && !rule.args.MatchString(text) {
+			continue
+		}
+		claimed[wordStart] = true
+		out = append(out, effectSite{line: line, args: text, argv0: s.source[wordStart:wordEnd]})
 	}
 	return out
 }
@@ -665,7 +685,7 @@ func (s *scanner) callSites(rule *compiledRule, claimed map[int]bool) []effectSi
 	out := []effectSite{}
 	for _, loc := range rule.call.FindAllStringIndex(s.source, -1) {
 		start, end := loc[0], loc[1]
-		if claimed[start] || !s.isCode(start) {
+		if claimed[start] || !s.allowed(start, rule.inStrings) {
 			continue
 		}
 		if !rule.member && !s.notMember(start) {
@@ -688,7 +708,7 @@ func (s *scanner) routeSites(rule *compiledRule, claimed map[int]bool) []effectS
 	out := []effectSite{}
 	for _, loc := range rule.route.FindAllStringSubmatchIndex(s.source, -1) {
 		start, end := loc[0], loc[1]
-		if claimed[start] || !s.isCode(start) {
+		if claimed[start] || !s.allowed(start, rule.inStrings) {
 			continue
 		}
 		method := strings.ToLower(s.source[loc[2]:loc[3]])
@@ -781,7 +801,22 @@ func (rule *compiledRule) matchesArgs(args string) bool {
 }
 
 func (s *scanner) isCode(offset int) bool {
-	return offset >= 0 && offset < len(s.mask) && s.mask[offset]
+	return s.classAt(offset) == maskCode
+}
+
+func (s *scanner) classAt(offset int) maskClass {
+	if offset < 0 || offset >= len(s.mask) {
+		return maskComment
+	}
+	return s.mask[offset]
+}
+
+func (s *scanner) allowed(offset int, inStrings bool) bool {
+	class := s.classAt(offset)
+	if inStrings {
+		return class == maskQuoted
+	}
+	return class == maskCode
 }
 
 func (s *scanner) notMember(offset int) bool {
@@ -897,25 +932,31 @@ func skipString(source string, open int) int {
 	return len(source) - 1
 }
 
-func codeMask(source, family string) []bool {
+func codeMask(source, family string) []maskClass {
 	if family == "shell" {
 		return shellMask(source)
 	}
-	mask := make([]bool, len(source))
+	mask := make([]maskClass, len(source))
 	index := 0
 	for index < len(source) {
 		char := source[index]
 		switch {
 		case char == '/' && index+1 < len(source) && source[index+1] == '/':
 			for index < len(source) && source[index] != '\n' {
+				mask[index] = maskComment
 				index++
 			}
 		case char == '/' && index+1 < len(source) && source[index+1] == '*':
+			mask[index] = maskComment
+			mask[index+1] = maskComment
 			index += 2
 			for index < len(source) && !(source[index] == '*' && index+1 < len(source) && source[index+1] == '/') {
+				mask[index] = maskComment
 				index++
 			}
 			if index < len(source) {
+				mask[index] = maskComment
+				mask[index+1] = maskComment
 				index += 2
 			}
 		case family == "typescript" && char == '/' && regexCanStart(mask, source, index):
@@ -923,26 +964,27 @@ func codeMask(source, family string) []bool {
 				index = close + 1
 				continue
 			}
-			mask[index] = true
+			mask[index] = maskCode
 			index++
 		case char == '"' || char == '\'' || char == '`':
 			index = skipString(source, index) + 1
 		default:
-			mask[index] = true
+			mask[index] = maskCode
 			index++
 		}
 	}
 	return mask
 }
 
-func shellMask(source string) []bool {
-	mask := make([]bool, len(source))
+func shellMask(source string) []maskClass {
+	mask := make([]maskClass, len(source))
 	index := 0
 	for index < len(source) {
 		char := source[index]
 		switch {
 		case char == '#' && (index == 0 || source[index-1] == ' ' || source[index-1] == '\t' || source[index-1] == '\n'):
 			for index < len(source) && source[index] != '\n' {
+				mask[index] = maskComment
 				index++
 			}
 		case char == '\'':
@@ -954,14 +996,14 @@ func shellMask(source string) []bool {
 		case char == '\\':
 			index += 2
 		default:
-			mask[index] = true
+			mask[index] = maskCode
 			index++
 		}
 	}
 	return mask
 }
 
-func regexCanStart(mask []bool, source string, index int) bool {
+func regexCanStart(mask []maskClass, source string, index int) bool {
 	previous := index - 1
 	for previous >= 0 && isSpaceByte(source[previous]) {
 		previous--
@@ -969,7 +1011,7 @@ func regexCanStart(mask []bool, source string, index int) bool {
 	if previous < 0 {
 		return true
 	}
-	if !mask[previous] {
+	if mask[previous] != maskCode {
 		return false
 	}
 	switch source[previous] {
@@ -1020,7 +1062,7 @@ func isIdentifierByte(char byte) bool {
 		(char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9')
 }
 
-func markSubstitutions(source string, from, to int, mask []bool) {
+func markSubstitutions(source string, from, to int, mask []maskClass) {
 	for index := from; index+1 < to; index++ {
 		if source[index] != '$' || source[index+1] != '(' {
 			continue
@@ -1038,7 +1080,7 @@ func markSubstitutions(source string, from, to int, mask []bool) {
 			cursor++
 		}
 		for mark := start; mark < cursor-1 && mark < len(mask); mark++ {
-			mask[mark] = true
+			mask[mark] = maskCode
 		}
 		index = cursor - 1
 	}

@@ -815,7 +815,17 @@ bin/specctl policy eval --worktree fixtures/market-mini/compliant
 bin/specctl policy eval --worktree fixtures/market-mini/violating -o json
 bin/specctl policy eval --repo deno-kcp --commit 0f1078d --path <clone> \
   --diff-base 0f1078d^ --library policies/library    # CodeDiff rules need --diff-base
+bin/specctl policy effects --worktree fixtures/market-mini/compliant
+bin/specctl policy model --worktree fixtures/market-mini/compliant
 ```
+
+`policy effects` classifies the code into the fixed effect vocabulary
+(`net.dial`, `http.request`, `ssh.connect`, `container.exec`, ...) with the
+packs in `impl/effects/packs`; `policy model` builds the `ArchitectureModel`
+from that graph, the effects, the SystemContexts and the `roles` and
+`vocabulary` of `policies.yaml`, and prints the components, roles, flows and
+triggers. `eval` reviews the model as well, so a constraint can select it with
+`spec.kinds: [ArchitectureModel]`. `docs/policies.md` documents both.
 
 `policy eval` on `fixtures/market-mini/compliant` prints `violations: 0` and
 `clean`; the `violating` variant is denied by both example policies -- seven

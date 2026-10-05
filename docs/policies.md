@@ -47,12 +47,53 @@ from deno-kcp's `opa-first-stab` and embedded in `specctl`; see
 | `SpecChange` | specd CRD | yes |
 | `CodeGraph` | derived per evaluation | no |
 | `CodeDiff` | derived for a change | no |
+| `ArchitectureModel` | derived per evaluation, from the CodeGraph, the effects, the SystemContexts and the binding | no |
 
 A policy selects what it reviews with `spec.match.kinds`. Almost every code
 policy reviews `CodeGraph`, because that is where the call graph is. A policy
 that is about *the change* rather than the resulting tree reviews `CodeDiff`,
 which `specctl policy eval --diff-base REF` derives from a commit range (see
 [Evaluating](#evaluating)); the gate derives the same object for a `SpecChange`.
+
+### The binding: roles and vocabulary
+
+`policies.yaml` carries the per-repository binding next to the manifest fields.
+Only this file changes from project to project.
+
+```yaml
+roles:
+  host:
+    contexts: [market-bidder-compute, hono-bidder]
+    globs: ["lib/market-bidder*/**"]
+    labels: {tier: bidder}
+    symbols: ["createMarketBidder"]
+    targets:
+      routes: ["/v1/on-network"]
+      hosts: ["*.bidder.local"]
+      nsids: ["com.publicdomainrelay.temp.market.*"]
+      symbols: ["vm.onNetwork", "registerIdentity"]
+  guest:
+    globs: ["lib/common/cloud-init-common/**"]
+    declared: true
+    targets: {symbols: ["getNodeId"]}
+vocabulary:
+  events:   {network-report: [com.publicdomainrelay.temp.compute.events.vm.onNetwork]}
+  channels: {relay: [websocat, fedproxy, dumbpipe, "iroh connect"]}
+  payloads: {network-info: [address, nodeId, ticket]}
+  purposes: {network-discovery: [getNodeId, nodeId, ticket]}
+imports:
+  - {pack: rfp-guest-isolation, version: v1, source: embedded}
+```
+
+- `roles.<name>.contexts|labels|globs|symbols` select components (see the model
+  section above). `declared: true` marks a role that may come from specs alone.
+- `roles.<name>.targets` are the hints that resolve a connection *to* that
+  role: `routes`, `hosts`, `nsids` (glob-matched against a path, a host or an
+  NSID of the initiating effect) and `symbols` (a regex over the effect's node
+  text). They are reviewed knowledge, not derived facts, so keep them narrow.
+- `vocabulary` maps project names to the abstract classes the model uses.
+- `imports` is the plan-0009 G4 pack import list; it is parsed and carried but
+  not yet resolved.
 
 ### Policy metadata
 
@@ -120,6 +161,91 @@ resolved edge. Reachability is therefore used to bound *where* a pattern is
 looked for, and a regex over the text of the reachable nodes carries the
 detail. See "Writing a policy" below.
 
+### Effect classifier packs
+
+`impl/effects` turns the graph into the effect vocabulary with YAML packs
+(`packs/typescript.yaml`, `go.yaml`, `shell.yaml`, plus any `classifiers/*.yaml`
+in the checkout or `--classifiers DIR`). A rule matches a qualified call
+(`call.name`), a shell command (`command.name`, optional `verbs`), an import
+specifier, a route node, or string arguments, and may require an import
+(`requiresImport`) or an extra pack opt-in (`extra`, disabled by
+`--no-extras`).
+
+Four matchers matter for the guest side:
+
+- `call.any: true` matches a bare call and a member call (`createRepoRecord(`
+  and `pds.createRepoRecord(`).
+- `args.regex` must match the argument text of a call, or the whole line of a
+  command. It is how a rule tells a call from a declaration: `createRepoRecord(`
+  also starts `async function createRepoRecord(collection: string, ...)`, and
+  the argument regex requires a literal or an expression, not `name: Type`.
+- `command.args.regex` does the same for commands, so `curl` matches a real
+  invocation and not a `- curl` package entry.
+- `inStrings: true` matches inside string literals only. The cloud-init
+  `user_data` is a TypeScript template string, so the guest's report is a
+  `curl` inside a string: `ts-string-curl` and `ts-string-ssh` classify it as
+  an `http.request` or an `ssh.connect` attributed to the guest role (the
+  component of the file, through the binding's globs). Comments are still
+  skipped, and an identifier named `ssh` is not a match. The rules stay narrow
+  on purpose: other shell commands written in TypeScript strings are not
+  effects (see the recall note in `docs/plans/0009-portable-policies.md`).
+
+### The ArchitectureModel
+
+`ArchitectureModel` is the portable view of one repository: who the components
+are, which roles they play, which effects they perform, how they flow into each
+other and what triggers what. A portable policy reads it instead of file names
+and identifiers; only the per-repository binding changes. It is built by
+`policy.BuildModel` from the CodeGraph (with the effects already on it), the
+SystemContexts and the `roles` and `vocabulary` sections of `policies.yaml`.
+
+```yaml
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata: {name: atproto-market}
+spec:
+  repository: atproto-market
+  components: [{name, roles: [...], context, source: declared|observed|both}]
+  effects:    [{id, kind, component, context, attrs, file, line, node}]
+  flows:      [{from, to, initiator, channel, carries: [...], purpose, source, evidence: [effect ids]}]
+  triggers:   [{from: effect id, to: effect id}]
+```
+
+- A **component** is a SystemContext when the specs declare one, and otherwise
+  the role whose glob owns the file: the longest matching glob wins, then the
+  role name. `source` is `declared` when only the specs know it, `observed`
+  when only the code does, `both` when both do.
+- `roles` are attached by the binding selectors: `contexts` (the component's
+  SystemContext name), `labels` (an exact label subset), `globs` (any file of
+  the component) and `symbols` (a regex over the qualified names of the
+  component's nodes). The label `specs.publicdomainrelay.dev/role` on a
+  SystemContext names one role directly, which is how a greenfield project
+  declares a role before any code exists.
+- **flows** come from the observed effects first. An initiating effect
+  (`net.dial`, `http.request`, `ssh.connect`, `container.exec`, `event.emit`)
+  resolves its target role through, in order: the `http.handle` effects that
+  serve its path or NSID, the target hints of the roles, then a symbol hint
+  matched against the effect's node text. `from`, `to` and `initiator` are
+  roles; the evidence is the effect ids. An unresolved target is the role
+  `unknown`, which is visible but matches nothing a policy expects. A
+  component that would flow to itself is dropped.
+- `channel` is the vocabulary channel whose terms appear in the effect's node
+  text or attributes (`proxyCommand`, `argv0`, `url`, ...); `carries` are the
+  payload classes whose terms appear there; `purpose` is the first matching
+  purpose class. Matching is case-insensitive.
+- Declared interactions (plan 0009 G3, not yet in the SystemContext schema)
+  are accepted by the builder as `ModelInput.Interactions`. A declared flow
+  that matches an observed one is merged and its `source` becomes `both`.
+- **triggers** are call-graph reachability between effect sites: for each
+  effect of kind `http.handle`, `event.receive`, `proc.exec`, `container.exec`
+  or `http.request`, every initiating effect within
+  `DefaultMaxReachHops` (3) `calls`/`instantiates` edges. Same-site and
+  over-long walks are dropped. The relation is coarse: the TypeScript indexer
+  emits one node per declaration, so a callback and its enclosing handler share
+  a node, and a method call on an interface value has no edge. A pack that
+  needs "this emitter runs from that handler" must read the trigger's `from`
+  effect and its kind, not merely its presence.
+
 ### Inventory
 
 Every evaluation loads the referential data Gatekeeper keys as
@@ -128,8 +254,12 @@ Every evaluation loads the referential data Gatekeeper keys as
 - the `Repository`;
 - all `SystemContext`s;
 - the `CodeGraph`;
+- the `ArchitectureModel`;
 - the arch (`Architecture`);
 - for a gate, the `SpecChange` and its `CodeDiff`.
+
+`eval` reviews both the `CodeGraph` and the `ArchitectureModel`, so a
+constraint may select either with `spec.match.kinds`.
 
 A policy that reviews a `SystemContext` can therefore read the code, and a
 policy that reviews the `CodeGraph` can read the specs. `lib.specd` hides the
@@ -323,6 +453,36 @@ violation[specd.violation(msg, details)] {
 	target := specd.nodes_reachable_from({"fn:emit"}, ["calls"], "\\.getNodeId\\s*\\(")[_]
 	msg := sprintf("%s reaches into the guest", [target.qualifiedName])
 	details := specd.location(target.file, specd.node_match_line(target, "\\.getNodeId\\s*\\("))
+}
+```
+
+### Effects and the model
+
+| helper | returns |
+| --- | --- |
+| `specd.effects` | every effect of the reviewed graph |
+| `specd.effects_of(kind)` | the effects of one kind |
+| `specd.effects_of_component(component, kind)` | the effects of one component and kind |
+| `specd.effects_in(globs)` | the effects whose file matches |
+| `specd.effect_targets(kind)` | the `target` attribute of every effect of that kind |
+| `specd.architecture_model` | the reviewed `ArchitectureModel` spec, or an empty one |
+| `specd.model_components` / `specd.model_flows` / `specd.model_triggers` | the model's lists |
+| `specd.components_with_role(role)` | the components carrying a role |
+| `specd.roles_of(component)` | the roles of one component |
+| `specd.flows_where(filter)` | the flows matching every key of the filter |
+| `specd.triggered_by(effect_id)` | the triggers whose `to` is that effect |
+| `specd.declared(flow)` / `specd.observed(flow)` | the flow source is declared, observed or both |
+
+`flows_where` takes an object; every key must match. Keys are `from`, `to`,
+`initiator`, `channel`, `purpose`, `source` and `carries`; `carries` accepts
+one class or a list of classes. An empty filter matches every flow.
+
+```rego
+violation[specd.violation(msg, details)] {
+	flow := specd.flows_where({"from": "host", "to": "guest", "purpose": "network-discovery"})[_]
+	effect := specd.effects_of_component(specd.components_with_role("host")[0].name, "container.exec")[_]
+	msg := sprintf("host reaches into the guest: %s", [effect.file])
+	details := specd.location(effect.file, effect.line)
 }
 ```
 
@@ -526,6 +686,20 @@ bin/specctl policy eval --repo atproto-market --commit 7a2e9d9 \
 bin/specctl policy eval --repo deno-kcp --commit 0f1078d --path ~/clones/deno-kcp \
   --diff-base 0f1078d^ --library policies/library
 ```
+
+The model behind an evaluation is one command:
+
+```bash
+bin/specctl policy model --worktree fixtures/market-mini/compliant
+bin/specctl policy effects --worktree fixtures/market-mini/compliant --kind ssh.connect
+bin/specctl policy model --repo atproto-market --worktree ~/clones/atproto-market \
+  --library examples/policies/atproto-market -o json
+```
+
+`policy model` takes the same selection flags as `policy eval`
+(`--worktree`/`--commit`/`--path`/`--branch`/`--test-glob`) plus `--library`
+and `--classifiers`. It prints the components with their roles, the flows and
+the triggers; `-o json` prints the `ArchitectureModel` object.
 
 - `--worktree P` indexes a checkout; `--commit C --path R` exports that commit
   to a temporary directory and indexes it (the clone is never touched).
