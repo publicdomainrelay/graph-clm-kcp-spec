@@ -25,17 +25,17 @@ What shipped, item by item:
 Tests: unit tests for every item, and live tests
 `TestRestoreRebuildsTheChangeHistoryLive` and
 `TestReanchorKeepsUntouchedRequirementsCodeSyncedLive`. `gofmt`, `go vet ./...`
-and the offline `go test ./...` are green; the live suite is green except
-`TestPhase2IngestAndGraph/hydradb`, which fails on this machine because the
-shared HydraDB instance lost its SlateDB objects during the session (see the
-session report, not this plan). ArcadeDB, the default backend, and every other
-live test pass.
+and every package's tests are green, offline and live, except
+`TestPhase2IngestAndGraph/hydradb` on this machine: the shared HydraDB instance
+lost its SlateDB objects during the session (a stray `rm` of `/tmp/hdb` while
+freeing tmpfs space; the token file was restored), so its reads fail with
+`object store error ... .sst not found`. ArcadeDB, the default backend, passes,
+and so does every other live test.
 
 Source: the follow-ups left open by plans 0002, 0004, 0005 and 0006, each named
-there with evidence and never closed. Every item ships with tests, and the whole
-suite - `gofmt`, `go vet ./...`, `go test ./...` and
-`SPECD_REQUIRE_LIVE=1 go test ./... -count=1` with `TMPDIR` on a real disk - is
-green at the end.
+there with evidence and never closed. Every item ships with tests; `gofmt`,
+`go vet ./...`, the offline `go test ./...` and the live suite with `TMPDIR` on
+a real disk are green, except the one HydraDB subtest named above.
 
 ## 1 - `get -o json|yaml` returns the object, `apply` takes a `List`
 

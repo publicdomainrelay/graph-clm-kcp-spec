@@ -2004,11 +2004,15 @@ the state directory of that mode.
 
 ## What is next
 
-Plans 0001 through 0004, 0006 and 0007 are done; plan 0003 is done; plan 0005's
-follow-ups are closed by plan 0007 (the `List`-shaped get and apply, retry that
-records its attempt and reason, a batch ordered by `dependsOn` and files outside
-the context flagged, `specctl accept --override`, a restore that rebuilds the
-`SpecChange` history, and re-anchoring proven on a live Go and TypeScript edit).
+Plans 0001 through 0007 are done: plan 0001 (phases 1-14, 13b and 13c), 0002
+(one kcp per branch, a spec edit as one change, the live acceptance), 0003 (the
+architecture branch's quality), 0004 (deno-kcp#1 green live and its follow-ups),
+0006 (the atproto-market review fixes) and 0007 (the loose ends the final
+analysis found). Plan 0005's follow-ups are closed by plan 0007: the
+`List`-shaped get and apply, retry that records its attempt and reason, a batch
+ordered by `dependsOn` and files outside the context flagged, `specctl accept
+--override`, a restore that rebuilds the `SpecChange` history, and re-anchoring
+proven on a live Go and TypeScript edit.
 There is no open plan. What the eval reports as still weak is the honest place
 to start: the measures that fall short of 100% on the live runs in
 `docs/eval/` (drift and removals are the weakest), and the graph's share of the
