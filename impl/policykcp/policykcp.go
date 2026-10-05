@@ -363,6 +363,9 @@ func Files(library policy.Library) (map[string][]byte, error) {
 	add := map[string][]byte{}
 	for _, template := range library.Templates {
 		slug := policy.TemplateSlug(template)
+		if library.ImportedFrom(slug) != "" {
+			continue
+		}
 		stripped := template
 		stripped.Rego = ""
 		stripped.Libs = nil
@@ -376,6 +379,9 @@ func Files(library policy.Library) (map[string][]byte, error) {
 		add[policy.TemplateSourcePath(slug)] = []byte(template.Rego)
 	}
 	for _, constraint := range library.Constraints {
+		if library.ImportedFrom(constraint.Name) != "" {
+			continue
+		}
 		document, err := constraint.Document()
 		if err != nil {
 			return nil, fmt.Errorf("policykcp: constraint %s: %w", constraint.Name, err)

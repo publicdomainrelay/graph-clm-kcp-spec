@@ -1,0 +1,28 @@
+name: rfp-guest-isolation
+version: v1
+description: >-
+  The RFP flow's guest isolation invariants, written over the ArchitectureModel:
+  the host never reaches into the guest, the guest reports its own network
+  information and that report drives the host's emission, and every ssh to a
+  guest goes through the relay. The templates read components, roles, effects,
+  flows and triggers; only the binding's roles and vocabulary change per
+  repository.
+roles:
+- guest
+- host
+- test
+vocabulary:
+- channels/relay
+- events/network-report
+- payloads/network-info
+- purposes/network-discovery
+- routes/report
+parameters:
+  guestRole: guest
+  hostRole: host
+  testRole: test
+  relayClass: relay
+  networkInfoClass: network-info
+  networkDiscoveryClass: network-discovery
+  networkEventClass: network-report
+  reportRouteClass: report

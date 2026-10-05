@@ -1,0 +1,52 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  roles:
+  - guest
+  - host
+  vocabulary:
+    channels:
+      relay:
+      - websocat
+    payloads:
+      network-info:
+      - address
+    purposes:
+      network-discovery:
+      - onNetwork
+    routes:
+      report:
+      - /v1/on-network
+  components:
+  - name: host
+    roles:
+    - host
+    source: observed
+  - name: guest
+    roles:
+    - guest
+    source: observed
+  effects:
+  - id: r1
+    kind: http.request
+    component: guest
+    attrs:
+      argv0: curl
+    file: lib/cloud-init/mod.ts
+    line: 449
+  flows:
+  - from: guest
+    to: host
+    initiator: guest
+    channel: relay
+    carries:
+    - network-info
+    purpose: network-discovery
+    source: observed
+    evidence:
+    - r1
+  triggers: []

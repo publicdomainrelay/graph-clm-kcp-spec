@@ -1,0 +1,18 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RfpGuestReportsNetwork
+metadata:
+  name: rfp-guest-reports-network
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - ArchitectureModel
+  parameters:
+    hostRole: host
+    guestRole: guest
+    networkInfoClass: network-info
+    networkEventClass: network-report
+    reportRouteClass: report

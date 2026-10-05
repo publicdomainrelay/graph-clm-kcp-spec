@@ -1,0 +1,38 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: rfpguesttransportprovenance
+  annotations:
+    specs.publicdomainrelay.dev/title: "a guest transport is installed by the guest's user_data, not hand-assembled elsewhere"
+    specs.publicdomainrelay.dev/level: MUST
+    specs.publicdomainrelay.dev/origin: "plan 0009 G4, pack rfp-guest-isolation v1"
+    specs.publicdomainrelay.dev/calibration: "the model-form replacement for the library's provisioning-new-guest-transport CodeDiff rule: an added line that names a transport is denied only when an executing or writing effect starts there and the file's component is not the guest role, so a selector, a lexicon description, a test name, a probe such as `which dumbpipe` or the guest's own user_data is not a violation"
+spec:
+  crd:
+    spec:
+      names:
+        kind: RfpGuestTransportProvenance
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            guestRole:
+              type: string
+            transportPatterns:
+              type: array
+              items:
+                type: string
+            installPatterns:
+              type: array
+              items:
+                type: string
+            executedKinds:
+              type: array
+              items:
+                type: string
+            ignoredPaths:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh

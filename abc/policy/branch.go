@@ -141,6 +141,15 @@ func (l PolicyLibrary) EnforcementFallback() Enforcement {
 type Library struct {
 	Manifest PolicyLibrary
 
+	// Pack is the pack a directory declares in pack.yaml, when it is one.
+	Pack *PackManifest
+
+	// Imported names what an import contributed, keyed by a template's slug or
+	// a constraint's name: value is the pack reference. An imported template
+	// lives in the pack, not in the repository, so the branch and the kcp sync
+	// carry the repository's own templates only.
+	Imported map[string]string
+
 	Templates []Template
 
 	Constraints []Constraint
@@ -148,6 +157,20 @@ type Library struct {
 	Lib string
 
 	Files map[string][]byte
+}
+
+// ImportedFrom names the pack a template slug or a constraint name came from.
+func (l Library) ImportedFrom(key string) string {
+	return l.Imported[key]
+}
+
+func (l Library) Constraint(name string) (Constraint, bool) {
+	for _, constraint := range l.Constraints {
+		if constraint.Name == name {
+			return constraint, true
+		}
+	}
+	return Constraint{}, false
 }
 
 func (l *Library) Sort() {

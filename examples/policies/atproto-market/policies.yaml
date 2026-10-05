@@ -1,4 +1,8 @@
 defaultEnforcement: deny
+imports:
+- pack: rfp-guest-isolation
+  source: embedded
+  version: v1
 repository: atproto-market
 roles:
   guest:
@@ -6,10 +10,10 @@ roles:
     globs:
     - lib/common/cloud-init-common/**
     targets:
+      attrs:
+      - getNodeId
       routes:
       - /v1/on-network
-      symbols:
-      - getNodeId
   host:
     globs:
     - hono-bidder/**
@@ -69,6 +73,7 @@ vocabulary:
     network-report:
     - com.publicdomainrelay.temp.compute.events.vm.onNetwork
     - COMPUTE_EVENTS_VM_ONNETWORK_NSID
+    - COMPUTE_EVENTS_VM_REGISTER_IDENTITY_NSID
     - registerIdentity
   payloads:
     network-info:
@@ -85,3 +90,6 @@ vocabulary:
     - nodeId
     - onNetwork
     - ticket
+  routes:
+    report:
+    - /v1/on-network

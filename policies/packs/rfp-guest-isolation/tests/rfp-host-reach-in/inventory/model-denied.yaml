@@ -1,0 +1,53 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  roles:
+  - guest
+  - host
+  vocabulary:
+    channels:
+      relay:
+      - websocat
+    payloads:
+      network-info:
+      - address
+    purposes:
+      network-discovery:
+      - onNetwork
+    routes:
+      report:
+      - /v1/on-network
+  components:
+  - name: host
+    roles:
+    - host
+    source: observed
+  - name: guest
+    roles:
+    - guest
+    source: observed
+  effects:
+  - id: reachIn
+    kind: container.exec
+    component: host
+    attrs:
+      runtime: compute-provider
+      verb: getNodeId
+    file: lib/market-bidder-compute/mod.ts
+    line: 282
+  flows:
+  - from: host
+    to: guest
+    initiator: host
+    channel: relay
+    carries:
+    - network-info
+    purpose: network-discovery
+    source: observed
+    evidence:
+    - reachIn
+  triggers: []

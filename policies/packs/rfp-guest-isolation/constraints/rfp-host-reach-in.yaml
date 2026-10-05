@@ -1,0 +1,20 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RfpHostReachIn
+metadata:
+  name: rfp-host-reach-in
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - ArchitectureModel
+  parameters:
+    hostRole: host
+    guestRole: guest
+    networkInfoClass: network-info
+    networkDiscoveryClass: network-discovery
+    reachInKinds:
+    - container.exec
+    - ssh.connect

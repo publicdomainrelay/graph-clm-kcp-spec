@@ -1,0 +1,27 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: rfp-host-reach-in
+tests:
+- name: rfp-host-reach-in
+  template: ../../dist/rfp-host-reach-in.yaml
+  constraint: ../../constraints/rfp-host-reach-in.yaml
+  cases:
+  - name: allowed-guest-report-only
+    object: inventory/model-allowed.yaml
+    inventory:
+    - inventory/model-allowed.yaml
+    assertions:
+    - violations: 0
+  - name: denied-host-initiated-network-flow
+    object: inventory/model-denied.yaml
+    inventory:
+    - inventory/model-denied.yaml
+    assertions:
+    - violations: 1
+  - name: denied-host-ssh-into-the-guest
+    object: inventory/model-denied-effect.yaml
+    inventory:
+    - inventory/model-denied-effect.yaml
+    assertions:
+    - violations: 1

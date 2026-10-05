@@ -1,0 +1,17 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RfpKeyMaterialProvenance
+metadata:
+  name: rfp-key-material-provenance
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - CodeDiff
+  parameters:
+    guestRole: guest
+    writtenKinds:
+    - proc.exec
+    - file.write

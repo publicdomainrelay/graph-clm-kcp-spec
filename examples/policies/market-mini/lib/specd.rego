@@ -27,6 +27,13 @@ repository_name = name {
 	name := context.spec.repository
 }
 
+# A CodeDiff carries no repository field: the diff of a repository is named
+# after it, so a rule that reads the diff can still resolve the code graph.
+repository_name = name {
+	input.review.kind.kind == "CodeDiff"
+	name := input.review.object.metadata.name
+}
+
 default repository = {}
 
 repository = obj {
@@ -341,6 +348,104 @@ flow_filter_key_matches(flow, filter, "carries") {
 
 triggered_by(effect_id) = out {
 	out := [trigger | trigger := model_triggers[_]; trigger.to == effect_id]
+}
+
+default model_effects = []
+
+model_effects = out {
+	out := architecture_model.spec.effects
+}
+
+model_effect(id) = out {
+	out := model_effects[_]
+	out.id == id
+}
+
+default model_vocabulary = {}
+
+model_vocabulary = obj {
+	obj := object.get(architecture_model.spec, "vocabulary", {})
+}
+
+default model_roles = []
+
+model_roles = out {
+	out := object.get(architecture_model.spec, "roles", [])
+}
+
+# vocabulary_terms names the concrete terms a binding wrote for one class of
+# one group: vocabulary_terms("events", "network-report").
+vocabulary_terms(group, class) = out {
+	out := object.get(object.get(model_vocabulary, group, {}), class, [])
+}
+
+# component_in_role is the role of a component, by the roles the model gave it
+# or by its name when the model named it after the role alone.
+component_in_role(component, role) {
+	roles_of(component)[_] == role
+}
+
+component_in_role(component, role) {
+	component == role
+}
+
+initiator_in_role(flow, role) {
+	initiator_of(flow) == role
+}
+
+initiator_in_role(flow, role) {
+	entry := model_components[_]
+	entry.name == initiator_of(flow)
+	entry.roles[_] == role
+}
+
+acted_on_in_role(flow, role) {
+	acted_on(flow) == role
+}
+
+acted_on_in_role(flow, role) {
+	entry := model_components[_]
+	entry.name == acted_on(flow)
+	entry.roles[_] == role
+}
+
+# file_in_role says whose file a path is: a component that carries the role
+# owns it when one of the globs the binding gave that role matches the path. It
+# is how a rule that reads a CodeDiff tells the guest's files from the rest.
+file_in_role(path, role) {
+	component := model_components[_]
+	component.roles[_] == role
+	pattern := object.get(component, "globs", [])[_]
+	glob.match(pattern, [], path)
+}
+
+# event_class is an event.emit whose emitted type is one of the terms the
+# binding wrote for an event class. The comparison is case-insensitive and one
+# way: the emitted type carries the vocabulary term, as a constant name carries
+# the NSID it stands for.
+event_class(effect, class) {
+	effect.kind == "event.emit"
+	emitted := object.get(object.get(effect, "attrs", {}), "type", "")
+	emitted != ""
+	term := vocabulary_terms("events", class)[_]
+	contains(lower(emitted), lower(term))
+}
+
+# route_class is an http.handle on a route the binding wrote for a route class.
+route_class(effect, class) {
+	effect.kind == "http.handle"
+	route := object.get(object.get(effect, "attrs", {}), "path", "")
+	route != ""
+	term := vocabulary_terms("routes", class)[_]
+	term == route
+}
+
+route_class(effect, class) {
+	effect.kind == "http.handle"
+	route := object.get(object.get(effect, "attrs", {}), "path", "")
+	route != ""
+	term := vocabulary_terms("routes", class)[_]
+	glob.match(term, [], route)
 }
 
 declared(flow) {

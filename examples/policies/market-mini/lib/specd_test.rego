@@ -386,3 +386,94 @@ test_flow_level_reads_the_declared_level {
 	none := [flow | flow := model_flows[_]; flow_level(flow, "MAY")] with input as marker_input with data.inventory as marker_inventory
 	count(none) == 0
 }
+
+roles_inventory := {"namespace": {"default": {"specs.publicdomainrelay.dev/v1alpha1": {
+	"ArchitectureModel": {"roles": {
+		"metadata": {"name": "roles", "namespace": "default"},
+		"spec": {
+			"repository": "roles",
+			"roles": ["guest", "host"],
+			"vocabulary": {
+				"events": {"network-report": ["com.example.vm.onNetwork", "VM_ONNETWORK_NSID"]},
+				"routes": {"report": ["/v1/on-network"]},
+			},
+			"components": [
+				{"name": "host", "roles": ["host"], "source": "observed"},
+				{"name": "hono-bidder", "roles": ["host"], "source": "observed"},
+				{"name": "guest", "roles": ["guest"], "source": "observed"},
+			],
+			"effects": [
+				{"id": "m1", "kind": "event.emit", "component": "host", "attrs": {"type": "VM_ONNETWORK_NSID"}, "file": "a.ts", "line": 1},
+				{"id": "m2", "kind": "event.emit", "component": "host", "attrs": {"type": "ACCEPT_NSID"}, "file": "a.ts", "line": 2},
+				{"id": "m3", "kind": "http.handle", "component": "host", "attrs": {"method": "POST", "path": "/v1/on-network"}, "file": "a.ts", "line": 3},
+				{"id": "m4", "kind": "http.handle", "component": "host", "attrs": {"method": "GET", "path": "/health"}, "file": "a.ts", "line": 4},
+			],
+			"flows": [
+				{"from": "host", "to": "guest", "initiator": "host", "channel": "relay", "purpose": "network-discovery", "source": "observed", "evidence": ["m1"]},
+				{"from": "guest", "to": "hono-bidder", "initiator": "guest", "channel": "relay", "source": "observed", "evidence": ["m2"]},
+			],
+			"triggers": [],
+		},
+	}},
+}}}}
+
+roles_input := {"review": {"kind": {"kind": "CodeGraph"}, "object": {"metadata": {"name": "roles", "namespace": "default"}, "spec": {"repository": "roles"}}}}
+
+test_model_roles_and_effects_are_read_from_the_model {
+	roles := model_roles with input as roles_input with data.inventory as roles_inventory
+	count(roles) == 2
+	emits := [effect | effect := model_effects[_]; effect.kind == "event.emit"] with input as roles_input with data.inventory as roles_inventory
+	count(emits) == 2
+	found := model_effect("m3") with input as roles_input with data.inventory as roles_inventory
+	found.attrs.path == "/v1/on-network"
+}
+
+test_vocabulary_terms_reads_a_class {
+	terms := vocabulary_terms("events", "network-report") with input as roles_input with data.inventory as roles_inventory
+	count(terms) == 2
+	missing := vocabulary_terms("events", "absent") with input as roles_input with data.inventory as roles_inventory
+	count(missing) == 0
+}
+
+test_component_in_role_reads_roles_and_names {
+	component_in_role("hono-bidder", "host") with input as roles_input with data.inventory as roles_inventory
+	component_in_role("host", "host") with input as roles_input with data.inventory as roles_inventory
+	not component_in_role("guest", "host") with input as roles_input with data.inventory as roles_inventory
+}
+
+test_initiator_and_acted_on_in_role {
+	flow := model_flows[0] with input as roles_input with data.inventory as roles_inventory
+	initiator_in_role(flow, "host") with input as roles_input with data.inventory as roles_inventory
+	acted_on_in_role(flow, "guest") with input as roles_input with data.inventory as roles_inventory
+	host_acted := model_flows[1] with input as roles_input with data.inventory as roles_inventory
+	acted_on_in_role(host_acted, "host") with input as roles_input with data.inventory as roles_inventory
+}
+
+test_event_class_matches_the_emitted_type_case_insensitively {
+	effect := model_effect("m1") with input as roles_input with data.inventory as roles_inventory
+	event_class(effect, "network-report") with input as roles_input with data.inventory as roles_inventory
+	other := model_effect("m2") with input as roles_input with data.inventory as roles_inventory
+	not event_class(other, "network-report") with input as roles_input with data.inventory as roles_inventory
+}
+
+test_route_class_matches_the_route_path {
+	handler := model_effect("m3") with input as roles_input with data.inventory as roles_inventory
+	route_class(handler, "report") with input as roles_input with data.inventory as roles_inventory
+	other := model_effect("m4") with input as roles_input with data.inventory as roles_inventory
+	not route_class(other, "report") with input as roles_input with data.inventory as roles_inventory
+}
+
+codediff_inventory := {"namespace": {"default": {"specs.publicdomainrelay.dev/v1alpha1": {
+	"CodeGraph": {"market": {"metadata": {"name": "market", "namespace": "default"}, "spec": {"repository": "market", "effects": [
+		{"id": "e1", "kind": "proc.exec", "file": "scripts/bring-up.sh", "line": 21},
+	]}}},
+}}}}
+
+codediff_input := {"review": {"kind": {"kind": "CodeDiff"}, "object": {"metadata": {"name": "market", "namespace": "default"}, "spec": {"base": "a", "head": "b", "files": []}}}}
+
+test_a_codediff_review_resolves_the_repository_graph {
+	name := repository_name with input as codediff_input with data.inventory as codediff_inventory
+	name == "market"
+	graph := code_graph with input as codediff_input with data.inventory as codediff_inventory
+	count(graph.spec.effects) == 1
+}

@@ -77,16 +77,22 @@ rules:
     extra: true
     call: {name: createRepoRecord, any: true}
     args: {regex: '^\s*(?:"|\x27|\x60|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*[,)])'}
+    extract:
+      - {attr: type, regex: '^\s*["\x27\x60]?([A-Za-z_$][\w$.]*)'}
   - id: atproto-create-signed-record
     kind: event.emit
     extra: true
     call: {name: createSignedRepoRecord, any: true}
     args: {regex: '^\s*(?:"|\x27|\x60|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*[,)])'}
+    extract:
+      - {attr: type, regex: '^\s*["\x27\x60]?([A-Za-z_$][\w$.]*)'}
   - id: atproto-put-record
     kind: event.emit
     extra: true
     call: {name: putRecord, any: true}
     args: {regex: '^\s*(?:"|\x27|\x60|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*[,)])'}
+    extract:
+      - {attr: type, regex: '^\s*["\x27\x60]?([A-Za-z_$][\w$.]*)'}
   - id: atproto-get-record
     kind: event.receive
     extra: true

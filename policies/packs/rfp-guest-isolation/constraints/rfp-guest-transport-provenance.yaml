@@ -1,0 +1,26 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RfpGuestTransportProvenance
+metadata:
+  name: rfp-guest-transport-provenance
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - CodeDiff
+  parameters:
+    guestRole: guest
+    installPatterns:
+    - \b(?:docker|podman|container|nerdctl)\s+(?:run|exec|create)\b
+    - \b(?:curl|wget)\b
+    - \btar\s+-?[xz]
+    - \b(?:cp|mv|install|mount)\s
+    - \bchmod\s
+    - \bsystemctl\s+(?:enable|start)
+    executedKinds:
+    - proc.exec
+    - container.exec
+    - net.listen
+    - file.write

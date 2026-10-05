@@ -1,0 +1,27 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeGraph
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  files: []
+  nodes: []
+  edges: []
+  texts: {}
+  effects:
+  - id: cloudinitFail
+    kind: proc.exec
+    component: guest
+    attrs:
+      argv0: curl
+    file: lib/common/cloud-init-common/mod.ts
+    line: 88
+  - id: handAssembled
+    kind: container.exec
+    component: unknown
+    attrs:
+      runtime: docker
+      verb: run
+    file: scripts/bring-up-guest.sh
+    line: 21

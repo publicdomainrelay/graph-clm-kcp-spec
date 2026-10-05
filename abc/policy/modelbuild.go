@@ -16,6 +16,10 @@ const DefaultMaxReach = 4096
 
 const DefaultMaxReachHops = 3
 
+const defaultHintHops = 3
+
+const defaultHintNodes = 256
+
 var initiatingEffectKinds = []EffectKind{
 	EffectNetDial,
 	EffectHTTPRequest,
@@ -98,6 +102,8 @@ type compiledRole struct {
 	hintRoutes []string
 
 	hintSymbols []*regexp.Regexp
+
+	hintAttrs []*regexp.Regexp
 }
 
 func compileRoles(binding Binding) ([]compiledRole, error) {
@@ -127,6 +133,13 @@ func compileRoles(binding Binding) ([]compiledRole, error) {
 					return nil, fmt.Errorf("policy: role %s: target symbol %q: %w", name, pattern, err)
 				}
 				compiled.hintSymbols = append(compiled.hintSymbols, regex)
+			}
+			for _, pattern := range role.Targets.Attrs {
+				regex, err := regexp.Compile(pattern)
+				if err != nil {
+					return nil, fmt.Errorf("policy: role %s: target attr %q: %w", name, pattern, err)
+				}
+				compiled.hintAttrs = append(compiled.hintAttrs, regex)
 			}
 		}
 		out = append(out, compiled)
@@ -209,6 +222,7 @@ func BuildModel(input ModelInput) (ArchitectureModel, error) {
 		components = append(components, ModelComponent{
 			Name:    name,
 			Roles:   selected,
+			Globs:   globsOfRoles(selected, roles),
 			Context: context,
 			Source:  source,
 		})
@@ -228,6 +242,8 @@ func BuildModel(input ModelInput) (ArchitectureModel, error) {
 		Metadata:   ObjectMeta{Name: input.Repository, Namespace: specapi.DefaultNamespace},
 		Spec: ArchitectureModelSpec{
 			Repository: input.Repository,
+			Roles:      input.Binding.RoleNames(),
+			Vocabulary: input.Binding.Vocabulary,
 			Components: components,
 			Effects:    normalized,
 			Flows:      []ModelFlow{},
@@ -305,6 +321,18 @@ func selectRoles(name string, files []string, labels map[string]string, nodesByF
 	return out
 }
 
+func globsOfRoles(selected []string, roles []compiledRole) []string {
+	out := []string{}
+	for _, role := range roles {
+		if !slices.Contains(selected, role.name) {
+			continue
+		}
+		out = append(out, role.globs...)
+	}
+	sort.Strings(out)
+	return slices.Compact(out)
+}
+
 func labelsMatch(wanted, labels map[string]string) bool {
 	if len(wanted) == 0 {
 		return false
@@ -351,6 +379,10 @@ type flowIndex struct {
 	purposes map[string][]string
 
 	nodeText map[string]string
+
+	adjacency map[string][]string
+
+	neighborhoods map[string]string
 }
 
 func newFlowIndex(graph CodeGraph, model ArchitectureModel, rolesOf map[string][]string, binding Binding) *flowIndex {
@@ -362,11 +394,19 @@ func newFlowIndex(graph CodeGraph, model ArchitectureModel, rolesOf map[string][
 		payloads:      binding.Vocabulary.Payloads,
 		purposes:      binding.Vocabulary.Purposes,
 		nodeText:      map[string]string{},
+		adjacency:     map[string][]string{},
+		neighborhoods: map[string]string{},
 	}
 	for _, node := range graph.Spec.Nodes {
 		if node.ID != "" {
 			index.nodeText[node.ID] = node.Text
 		}
+	}
+	for _, edge := range graph.Spec.Edges {
+		if edge.Kind != "calls" {
+			continue
+		}
+		index.adjacency[edge.Source] = append(index.adjacency[edge.Source], edge.Target)
 	}
 	for _, effect := range model.Spec.Effects {
 		if effect.Kind != EffectHTTPHandle {
@@ -428,7 +468,7 @@ func componentRoles(component string, rolesOf map[string][]string) []string {
 }
 
 func (i *flowIndex) targetRoles(effect Effect, from []string) []string {
-	text := i.hintText(effect)
+	text := i.siteText(effect)
 	host, effectPath, nsid := effectTarget(effect)
 
 	if effectPath != "" {
@@ -449,11 +489,18 @@ func (i *flowIndex) targetRoles(effect Effect, from []string) []string {
 		if slices.Contains(from, role.name) {
 			continue
 		}
+		matched := false
 		for _, regex := range role.hintSymbols {
 			if regex.MatchString(text) {
-				bySymbol = append(bySymbol, role.name)
+				matched = true
 				break
 			}
+		}
+		if !matched {
+			matched = matchesAnyAttr(role.hintAttrs, effect.Attrs)
+		}
+		if matched {
+			bySymbol = append(bySymbol, role.name)
 		}
 	}
 	if len(bySymbol) > 0 {
@@ -517,6 +564,22 @@ func (i *flowIndex) hintRoles(host, effectPath, nsid string, from []string) []st
 	return slices.Compact(out)
 }
 
+func matchesAnyAttr(patterns []*regexp.Regexp, attrs map[string]string) bool {
+	values := make([]string, 0, len(attrs))
+	for key := range attrs {
+		values = append(values, attrs[key])
+	}
+	sort.Strings(values)
+	for _, pattern := range patterns {
+		for _, value := range values {
+			if pattern.MatchString(value) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func matchesAnyPattern(patterns []string, value string) bool {
 	for _, pattern := range patterns {
 		if pattern == value {
@@ -529,7 +592,19 @@ func matchesAnyPattern(patterns []string, value string) bool {
 	return false
 }
 
+// hintText is the text a vocabulary term is looked for in: the effect's site,
+// its attributes and the declarations its site calls. A channel or a payload
+// class is often not written at the site itself -- an ssh site builds its
+// ProxyCommand through one helper that calls another -- so the vocabulary
+// resolves a delegated channel.
 func (i *flowIndex) hintText(effect Effect) string {
+	return i.siteText(effect) + "\n" + i.neighborhood(effect.Node)
+}
+
+// siteText is the effect's own site and attributes. It is what a role's target
+// symbol hint is matched against: a hint names something the caller says, not
+// something a declaration it happens to call says.
+func (i *flowIndex) siteText(effect Effect) string {
 	parts := []string{i.nodeText[effect.Node]}
 	keys := make([]string, 0, len(effect.Attrs))
 	for key := range effect.Attrs {
@@ -540,6 +615,48 @@ func (i *flowIndex) hintText(effect Effect) string {
 		parts = append(parts, effect.Attrs[key])
 	}
 	return strings.Join(parts, "\n")
+}
+
+// neighborhood is the text of the effect's site and of the declarations it
+// calls, a few hops out. A channel or a payload class is often not written at
+// the site itself: an ssh site builds its ProxyCommand through one helper that
+// calls another. The walk is bounded in hops and nodes, and it is what makes
+// the vocabulary resolve a delegated channel.
+func (i *flowIndex) neighborhood(node string) string {
+	if node == "" {
+		return ""
+	}
+	if cached, ok := i.neighborhoods[node]; ok {
+		return cached
+	}
+	seen := map[string]bool{node: true}
+	depth := map[string]int{node: 0}
+	queue := []string{node}
+	parts := []string{}
+	for len(queue) > 0 && len(seen) < defaultHintNodes {
+		current := queue[0]
+		queue = queue[1:]
+		if text := i.nodeText[current]; text != "" {
+			parts = append(parts, text)
+		}
+		if depth[current] >= defaultHintHops {
+			continue
+		}
+		for _, next := range i.adjacency[current] {
+			if seen[next] {
+				continue
+			}
+			seen[next] = true
+			depth[next] = depth[current] + 1
+			queue = append(queue, next)
+			if len(seen) >= defaultHintNodes {
+				break
+			}
+		}
+	}
+	out := strings.Join(parts, "\n")
+	i.neighborhoods[node] = out
+	return out
 }
 
 func effectTarget(effect Effect) (host, effectPath, nsid string) {

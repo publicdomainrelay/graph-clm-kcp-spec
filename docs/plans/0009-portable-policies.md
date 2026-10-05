@@ -562,22 +562,217 @@ Checked by hand too: the same two runs through `specctl policy eval
 
 Remaining, honestly:
 
-- Pack import (`imports: [{pack: ...}]`), pinning and `policy bind` are G4/G6;
-  the conformance pack is a directory a repository copies, and the binding is
-  the repository's own `policies.yaml` (the e2e runs the pack with an empty
-  binding, where a context name is its own role).
+- Pack import (`imports: [{pack: ...}]`) and pinning landed in G4;
+  `policy bind` is G6. The conformance pack is still a directory a repository
+  copies -- it has no `pack.yaml`, so it is not importable yet -- and the
+  binding is the repository's own `policies.yaml` (the e2e runs the pack with
+  an empty binding, where a context name is its own role).
 - The drafting prompt does not yet receive the observed flows (G6, above).
 - `interactions` are not seeded from an open architecture document and
   `specctl export --format arch` does not carry them (the arch node body is
   free-form, so nothing is lost).
 
-### G4. Packs
+### G4. Packs -- done
 
-- Pack format, import and pin.
-- `rfp-guest-isolation` with gator suites over ArchitectureModel fixtures.
-- Bindings for atproto-market and market-mini. They must reproduce
-  plan-0008 phase B's real-run verdicts at each atproto-market ref, so any
-  difference is explained.
+What is built:
+
+- **The pack format.** `policies/packs/<name>/` with `pack.yaml` (`name`,
+  `version`, `description`, the required `roles` and `vocabulary` classes, the
+  parameter defaults), `templates/<slug>/`, `constraints/`, `tests/`, and the
+  generated `lib/`, `dist/` and `CATALOGUE.md`. `policyeval.LoadRaw` reads a
+  directory with a `pack.yaml` as a pack (its `Repository` is the pack name,
+  its roles and vocabulary stay empty) and `Load`/`LoadFS` read either.
+  `policy.PackManifest.Missing(binding)` names the roles and classes a binding
+  does not declare, and a build fails on them.
+- **Import and pin.** `policies.yaml` gained the real `imports` list
+  (`{pack, version, source}`); `source` is `embedded`, `git:<url>@<ref>` or
+  `oci:<ref>`. `impl/policyeval/packs.go` resolves each one
+  (`packSourceFS`; embedded from `policies/packs`' `go:embed` registry, git by
+  clone + checkout with the pack at `<repo>/policies/packs/<name>` or the
+  repository root, oci by an oras pull whose layers are laid out by their
+  `org.opencontainers.image.title`), merges the pack's templates and
+  constraints into the importing library (a name or kind collision fails), and
+  digests the pack's *sources* (`pack.yaml`, `templates/`, `constraints/`,
+  `tests/` -- never the generated `dist/`, so a build does not break its own
+  pin) with sha256. `specctl policy build` writes `policies.lock`, and a later
+  build whose pack resolves to a different digest fails until the version is
+  bumped or `--relock` is passed. Verified by hand: bumping one hex digit of
+  the pinned sha256 makes the next build refuse.
+- **`policies/packs/rfp-guest-isolation` v1**, five templates over the
+  ArchitectureModel and the binding's vocabulary: `RfpHostReachIn`,
+  `RfpGuestReportsNetwork`, `RfpRelayOnlyGuestSsh` (the user's two rules,
+  P-relay included), and the two model-form replacements
+  `RfpGuestTransportProvenance` and `RfpKeyMaterialProvenance`. Each has a
+  gator suite with allowed and denied ArchitectureModel (or CodeDiff)
+  fixtures, and opa unit tests: `specctl policy test --dir
+  policies/packs/rfp-guest-isolation --gator` is 81/81 unit tests and 13/13
+  suite cases, and the built-in engine and the real gator agree case for case.
+  The fixture library `fixtures/market-mini` runs the pack too:
+  `TestExamplePoliciesOverFixtures` builds the ArchitectureModel over the
+  fixture and the compliant variant is clean under the pack, the violating one
+  trips `rfp-host-reach-in` and `rfp-guest-reports-network`.
+- **The rules read only the model.** New shared helpers in `lib.specd`:
+  `model_effects`/`model_effect`, `model_roles`, `model_vocabulary`/
+  `vocabulary_terms`, `component_in_role`, `initiator_in_role`,
+  `acted_on_in_role`, `event_class`, `route_class`, `file_in_role`, with 15 new
+  opa unit tests. `lib.specd`'s `repository_name` also resolves for a
+  `CodeDiff` review (a diff carries no repository field; it is named after the
+  repository), so a rule that reads a diff still resolves the code graph.
+- **Bindings.** `examples/policies/atproto-market`, `market-mini` and
+  `deno-kcp` import the pack; their `policies.yaml` roles and vocabulary are
+  the only per-repository input, and each carries its own `policies.lock`.
+  atproto-market and market-mini both need the `guest.targets.attrs:
+  [getNodeId]` hint for their `container.exec verb=getNodeId` reach-in; without
+  it the target role resolves to `unknown` and the reach-in is invisible to the
+  pack. `policykcp.Files` and the import both know which templates came from a
+  pack (`Library.Imported`), so the repository's policy branch and the kcp sync
+  carry the repository's own templates while kcp receives the resolved set: the
+  live policy suite holds 9 templates and 10 constraints in kcp with 4 of them
+  the repository's own.
+  The require of `RfpGuestReportsNetwork` fires once the model carries effects,
+  so a repository whose specs declare no interaction yet is not denied at spec
+  time -- the reach-in rule guards the declared shape until the first realize.
+  Measured on the live suite: before that guard, the spec-time gate denied
+  every market-mini spec edit and four e2e tests failed; after it, all pass.
+
+#### Model and classifier work the pack needed
+
+Four changes, each because a rule could not be written honestly without it:
+
+- **`RoleTargets.attrs`.** A hint matched against the *values* of an effect's
+  attributes, not against the text around its site. `guest.targets.attrs:
+  [getNodeId]` is what master's `container.exec verb=getNodeId` reach-in needs.
+  With the old `symbols: [getNodeId]` the spec branch resolved a `host ->
+  guest` flow from the word `getNodeId` inside a *comment* ("getNodeId is not
+  part of the pinned ComputeProvider contract"), which the pack would have
+  reported as a reach-in that does not exist. `hintSymbols` now match the
+  site's own text and attributes; the rule is documented at the field.
+- **`event.emit` carries its type.** The TypeScript pack extracts the first
+  argument of `createRepoRecord`/`createSignedRepoRecord`/`putRecord` as
+  `attrs.type` (the plan's effect vocabulary always said `type`, e.g. an
+  NSID). Without it the pack cannot tell the `vm.onNetwork` emit from the
+  `market.bid` one, because the vocabulary is resolved into flow attributes
+  that a merged flow shares across many evidence effects.
+- **The model carries the binding.** `ArchitectureModelSpec` gained `roles`
+  and `vocabulary`, and `ModelComponent` gained `globs`, so a template reads
+  the classes its pack declares and can tell whose file a path is.
+- **Two-hop vocabulary lookup.** `flowIndex.hintText` now also reads the
+  declarations the effect's site calls (bounded at 3 hops and 256 nodes,
+  cached). On the spec branch the ssh `ProxyCommand` is
+  `defaultProxyCommand(target, transport)` whose body holds `dumbpipe` and
+  `websocat`; without the walk the ssh effect resolved no channel and
+  `RfpRelayOnlyGuestSsh` would have reported the relayed ssh as unrelayed.
+  Target resolution keeps reading the site alone, so the flow set does not
+  drift.
+
+Effects are unchanged in count at all three refs (203 / 189 / 202); the flow
+sets change only in their attributes and their dedupe (master 15 flows,
+pre-iroh 14, spec 16 -- G2 recorded 15/15/17, the difference being the
+attribute hints that no longer merge two flows into one).
+
+#### The pack against plan-0008 phase B/B2
+
+`bin/specctl policy eval --repo atproto-market`, fresh clone under
+`/home/johnandersen777/policy-g4-work/atproto-market`, never edited or pushed.
+The `library` column is the concrete plan-0008 library as it stands on this
+branch; `pack` is `rfp-guest-isolation` bound to the same repository.
+
+| ref | commit | library (concrete) | pack | same sites? |
+| --- | --- | --- | --- | --- |
+| `master` | `7a2e9d9` | 3 deny: `guest-report-reach-in` `:282`, `guest-report-driven-emission` `:284`, `guest-report-driven-onnetwork` `:257` | 3 deny: `RfpHostReachIn` (the `host -> guest` flow, evidence `container.exec` `:282`), `RfpGuestReportsNetwork` `:257` and `:284` | yes, site for site |
+| `pre-iroh` | `d20070c` | 1 deny: `guest-report-driven-onnetwork` `:304` | 1 deny: `RfpGuestReportsNetwork` `:304` | yes |
+| `spec/iroh-dumbpipe-20261004141803` | `ffac22e` | 1 deny: `guest-report-driven-onnetwork` `:313` | 1 deny: `RfpGuestReportsNetwork` `:313` | yes |
+
+Every difference from the concrete policies:
+
+| difference | why |
+| --- | --- |
+| The pack reports the master reach-in from the *flow* (`host -> guest`, initiator `host`, purpose `network-discovery`, carries `network-info`), not from a `getNodeId` regex over the emitter's reachable set. | The flow is the same fact derived from the effect's target role instead of from a name pattern. The separate effect rule (`container.exec`/`ssh.connect` in a host component reaching the guest) stays as the backstop for an effect whose flow has no network purpose or payload; it is suppressed for a flow the first rule already reported, so master is 1 violation and not 2. |
+| `guest-reports-network`'s require is "the guest initiates toward another role carrying `network-info`", not "guest -> host". | At master and `pre-iroh` the observed report flow resolves to `guest -> unknown` and on the spec branch to `guest -> requester`; the handler that receives it lives in `lib/market-bidder` (host). The strict "guest -> host" reading would deny at refs phase B accepts. The constraint takes an optional `reportPeerRoles` list for a repository that wants the narrow form. |
+| The emission rule requires the trigger root to be an `http.handle` **on the `routes/report` route**, not any `http.handle`. | The model's triggers are coarse (one node per declaration): on master the emits in `lib/market-bidder-compute` are reachable from `hono-bidder/mod.ts:428` (the bidder's own route) and from test-file route registrations, so "triggered by some http.handle" is satisfied at every ref and would deny nothing. Naming the report route is what distinguishes `lib/market-bidder/mod.ts:475` (`POST /v1/on-network`) from the bidder's `/oauth-client-metadata.json`. |
+| `relay-only-guest-ssh` checks every `ssh.connect` effect outside the guest role, not only those reachable from a test that uses the requester, and it accepts an ssh whose channel does not resolve when the effect carries a `proxyCommand`. | "Reachable from a test" is not in the model: a test file is file and import nodes, so an ssh inside a test body is a file-level effect whose component is the test role and whose flow target is unresolved. The rule is the generalization (any ssh outside the guest must be tunneled, and the relay when the vocabulary names the tunnel) plus the file-level catch. The `proxyCommand` clause is what keeps the compliant market-mini fixture clean: its requester builds `ProxyCommand=${transport.proxyCommand()}`, an injected transport object, so neither the site nor the call walk names a relay term. A tunneled ssh whose transport the vocabulary does not name is therefore out of the rule's reach; a direct ssh, which is the regression the rule guards, is not. |
+| Three constraints instead of five concrete templates. | `guest-report-driven-emission` and `guest-report-driven-onnetwork` are one rule (the network-report event class) reported per emit site, so master is 2 violations from one constraint rather than 1+1 from two. |
+
+#### Gap (a): an ssh inside a Deno.test body
+
+`test/...` is file and import nodes only, so `new Deno.Command("ssh", ...)`
+inside a `Deno.test` body has no declaration node: the classifier attaches the
+effect to the file node (its `node` is `file:...`), its component is the `test`
+role component and its only flow is `test -> unknown` with no channel.
+`RfpRelayOnlyGuestSsh` denies it because it is an ssh outside the guest role
+carried by no relay-channel flow -- no reachability from the test is needed.
+Proved twice: the suite case `denied-ssh-inside-a-test-body`
+(`tests/rfp-relay-only-guest-ssh/inventory/model-denied-file-level-ssh.yaml`,
+whose effect carries `node: file:test/bidder_test.ts`) and the unit test
+`test_violation_when_a_test_body_spawns_ssh_as_a_file_level_effect`.
+
+#### Gap (b): the transport and key-material rules, without the false denies
+
+The library's `provisioning-new-guest-transport` and
+`provisioning-manual-key-material` read added CodeDiff lines against globs and
+regexes. On atproto-market PR #1 (`ffac22e`, base `d20070c`) they report **21
+denies, all false**: transport names in selectors
+(`transport === "iroh" ? "dumbpipe" : "websocat"`), a lexicon description of
+the legacy `websocat` ProxyCommand, test names, test assertions on
+`authorized_keys`, and the `authorized_keys` the guest's own `user_data`
+writes.
+
+The pack's replacements read effects and roles:
+
+- `RfpGuestTransportProvenance` denies an added line that names a transport
+  *and* has an executing effect (a `proc.exec`, `container.exec`, `net.listen`
+  or `file.write` starts on that line) *and* reads like an installation
+  (`installPatterns`), in a file that no guest-role component owns
+  (`file_in_role` over the binding globs).
+- `RfpKeyMaterialProvenance` denies an added line that names key material
+  (`authorized_keys`, `ssh-keygen`, a private-key header) and is executed or
+  written, in a file that no guest-role component owns.
+
+Measured on PR #1 head with the library and the pack:
+
+```
+library alone                    21 deny (19 false)
+library + pack                    2 deny -- one real violation, named by both
+                                  guest-report-driven-onnetwork and
+                                  RfpGuestReportsNetwork at
+                                  lib/market-bidder-compute/mod.ts:313
+library + pack at pre-iroh       2 deny -- the same one violation, at :304
+                                  (library alone over that diff: 52 deny)
+```
+
+So the one deny left is the strict-reading violation phase B2 found, and the
+transport rules contribute none. The `which dumbpipe` probe is what the
+`installPatterns` list is for: `ensureDumbpipe` checks for the binary and
+downloads it, and a probe names the transport without installing one.
+
+#### Gap (c): the spec-time gate reads the same library as the realize gate
+
+`Controller.specGate` no longer requires `--policy-library`. `specGateLibrary`
+uses the flag as an override and otherwise calls the same `loadPolicyGate` the
+realize gate uses (the repository's `open-policy/<repo>` branch, else kcp), so
+an audit, a realize and a spec-time deny can no longer disagree about which
+policies are in force. A repository with no policy branch gets no gate, as
+before.
+
+Remaining, honestly:
+
+- The pack is bound to atproto-market, market-mini and deno-kcp but only
+  atproto-market is measured against a real run; market-mini is exercised by
+  the fixture library and deno-kcp by its own suites. G5 is where deno-kcp gets
+  a real run.
+- `git:` and `oci:` pack sources are implemented and compile, but only
+  `embedded` is exercised: no test pulls a pack from a repository or a
+  registry. The oras path has no unit test of its layout.
+- The pack's `RfpGuestReportsNetwork` require is satisfied on atproto-market by
+  a flow whose target role is `unknown` at two refs; a repository that wants
+  the report to reach a named role must set `reportPeerRoles`.
+- An `inherits`/`override` relation between a repository template and a pack
+  template does not exist: a collision is an error and the repository must
+  rename.
+- Effects still do not see the guest's shell: a transport installed by a
+  `user_data` string is not an effect, so
+  `RfpGuestTransportProvenance` treats the guest role's files as allowed
+  wholesale rather than checking that the transport is a `UserDataModule`.
 
 ### G5. Cross-project and greenfield proof
 
