@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -232,8 +233,11 @@ func TestPolicyGenerateLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if commit != applied.Status.PolicyCommit {
-		t.Errorf("the branch is at %s, the change says %s", commit, applied.Status.PolicyCommit)
+	// The branch may move on after the apply (the sync and the audit report
+	// commit), so the change's commit is an ancestor of the tip, not the tip.
+	if err := exec.Command("git", "-C", repoPath, "merge-base", "--is-ancestor",
+		applied.Status.PolicyCommit, commit).Run(); err != nil {
+		t.Errorf("the branch at %s does not carry the change's commit %s: %v", commit, applied.Status.PolicyCommit, err)
 	}
 	if _, ok := library.Files[policy.TemplateSourcePath("relay-only")]; !ok {
 		t.Error("the branch carries no templates/relay-only/src.rego")
