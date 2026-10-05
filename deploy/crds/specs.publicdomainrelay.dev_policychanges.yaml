@@ -1,0 +1,130 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: policychanges.specs.publicdomainrelay.dev
+spec:
+  group: specs.publicdomainrelay.dev
+  scope: Namespaced
+  names:
+    kind: PolicyChange
+    listKind: PolicyChangeList
+    plural: policychanges
+    singular: policychange
+    shortNames: [pchange]
+    categories: [specs]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Repository
+          type: string
+          jsonPath: .spec.repository
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Template
+          type: string
+          jsonPath: .status.template
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [repository]
+              properties:
+                repository:
+                  type: string
+                  description: The Repository whose policy branch the change writes.
+                branch:
+                  type: string
+                  description: The code branch whose policy branch to use; empty is the repository default.
+                prompt:
+                  type: string
+                  description: The natural language the generator turns into a policy.
+                requirements:
+                  type: array
+                  description: The requirements the generated policy enforces, as ctx#id.
+                  x-kubernetes-list-type: set
+                  items:
+                    type: string
+                contexts:
+                  type: array
+                  description: The SystemContexts the change was given.
+                  x-kubernetes-list-type: set
+                  items:
+                    type: string
+                enforcementAction:
+                  type: string
+                  enum: [deny, warn, dryrun]
+                  default: dryrun
+                apply:
+                  type: boolean
+                  description: Commit and apply the policy when the checks pass.
+                  default: false
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Drafting, Testing, Evaluated, Applied, Failed]
+                template:
+                  type: string
+                constraints:
+                  type: array
+                  items:
+                    type: string
+                tests:
+                  type: object
+                  properties:
+                    passed:
+                      type: integer
+                    failed:
+                      type: integer
+                    output:
+                      type: string
+                violations:
+                  type: array
+                  description: The violations the generated policy finds against the head CodeGraph.
+                  x-kubernetes-preserve-unknown-fields: true
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                attempt:
+                  type: integer
+                agentLog:
+                  type: string
+                policyCommit:
+                  type: string
+                message:
+                  type: string
+                conditions:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      observedGeneration:
+                        type: integer
+                        format: int64

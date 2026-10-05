@@ -131,6 +131,20 @@ spec:
                       type: array
                       items:
                         type: string
+                policy:
+                  type: object
+                  description: The policy branch of this repository. The enforcement cap can downgrade a deny to warn, and disabled turns every violation into a dryrun, during a migration.
+                  properties:
+                    branch:
+                      type: string
+                      description: Override of the policy branch name; empty resolves open-policy/<repository> with the usual code branch fallback.
+                    enforcement:
+                      type: string
+                      enum: [deny, warn, dryrun]
+                      description: The strongest action a policy of this repository may take; a template's deny is capped to it.
+                    disabled:
+                      type: boolean
+                      description: Turn every violation into a dryrun without editing the templates.
                 populate:
                   type: object
                   description: What the controller does with the tree once it has one.
@@ -201,6 +215,41 @@ spec:
                       type: array
                       items:
                         type: string
+                policy:
+                  type: object
+                  description: What the last audit found, being the policy branch commit it read, the code commit it evaluated and the first fifty violations.
+                  properties:
+                    policyCommit:
+                      type: string
+                    evaluatedCommit:
+                      type: string
+                    totals:
+                      type: object
+                      additionalProperties:
+                        type: integer
+                    violations:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          policy:
+                            type: string
+                          constraint:
+                            type: string
+                          enforcementAction:
+                            type: string
+                          severity:
+                            type: string
+                          msg:
+                            type: string
+                          object:
+                            type: string
+                          file:
+                            type: string
+                          line:
+                            type: integer
+                    message:
+                      type: string
                 phase:
                   type: string
                   enum: [Cloning, Indexing, Populating, Populated, Failed]

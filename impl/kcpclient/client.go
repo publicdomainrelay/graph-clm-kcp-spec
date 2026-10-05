@@ -144,6 +144,74 @@ func (c *Client) List(ctx context.Context, gvr schema.GroupVersionResource, name
 	return listed, nil
 }
 
+// GetCluster reads a cluster scoped object such as a ConstraintTemplate or a
+// constraint; the namespace aware methods cannot, because the request would
+// carry a namespace the resource does not have.
+func (c *Client) GetCluster(ctx context.Context, gvr schema.GroupVersionResource, name string) (*unstructured.Unstructured, error) {
+	found, err := c.dynamic.Resource(gvr).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("kcpclient: get %s %s: %w", gvr.Resource, name, err)
+	}
+	return found, nil
+}
+
+func (c *Client) ListCluster(ctx context.Context, gvr schema.GroupVersionResource) (*unstructured.UnstructuredList, error) {
+	listed, err := c.dynamic.Resource(gvr).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("kcpclient: list %s: %w", gvr.Resource, err)
+	}
+	return listed, nil
+}
+
+func (c *Client) CreateCluster(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	created, err := c.dynamic.Resource(gvrOf(object)).Create(ctx, object, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("kcpclient: create %s %s: %w", object.GetKind(), object.GetName(), err)
+	}
+	return created, nil
+}
+
+func (c *Client) UpdateCluster(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	updated, err := c.dynamic.Resource(gvrOf(object)).Update(ctx, object, metav1.UpdateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("kcpclient: update %s %s: %w", object.GetKind(), object.GetName(), err)
+	}
+	return updated, nil
+}
+
+func (c *Client) ApplyCluster(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	current, err := c.GetCluster(ctx, gvrOf(object), object.GetName())
+	if err != nil {
+		if IsNotFound(err) {
+			return c.CreateCluster(ctx, object)
+		}
+		return nil, err
+	}
+	object.SetResourceVersion(current.GetResourceVersion())
+	return c.UpdateCluster(ctx, object)
+}
+
+func (c *Client) DeleteCluster(ctx context.Context, gvr schema.GroupVersionResource, name string) error {
+	err := c.dynamic.Resource(gvr).Delete(ctx, name, metav1.DeleteOptions{PropagationPolicy: propagationBackground()})
+	if err != nil && !IsNotFound(err) {
+		return fmt.Errorf("kcpclient: delete %s %s: %w", gvr.Resource, name, err)
+	}
+	return nil
+}
+
+func (c *Client) PatchStatusCluster(ctx context.Context, gvr schema.GroupVersionResource, name string, status map[string]any) (*unstructured.Unstructured, error) {
+	patch, err := json.Marshal(map[string]any{"status": status})
+	if err != nil {
+		return nil, fmt.Errorf("kcpclient: encode status patch: %w", err)
+	}
+	updated, err := c.dynamic.Resource(gvr).
+		Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{}, "status")
+	if err != nil {
+		return nil, fmt.Errorf("kcpclient: patch %s %s status: %w", gvr.Resource, name, err)
+	}
+	return updated, nil
+}
+
 func (c *Client) ListAll(ctx context.Context, gvr schema.GroupVersionResource) (*unstructured.UnstructuredList, error) {
 	listed, err := c.dynamic.Resource(gvr).List(ctx, metav1.ListOptions{})
 	if err != nil {

@@ -8,6 +8,7 @@ require (
 	github.com/open-policy-agent/gatekeeper/v3 v3.23.1
 	github.com/open-policy-agent/opa v1.21.0
 	github.com/opencontainers/image-spec v1.1.1
+	k8s.io/apiextensions-apiserver v0.36.4
 	k8s.io/apimachinery v0.36.4
 	k8s.io/client-go v0.36.4
 	modernc.org/sqlite v1.60.1
@@ -95,7 +96,6 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	k8s.io/api v0.36.4 // indirect
-	k8s.io/apiextensions-apiserver v0.36.4 // indirect
 	k8s.io/apiserver v0.36.4 // indirect
 	k8s.io/component-base v0.36.4 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.34.0 // indirect

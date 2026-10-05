@@ -18,18 +18,21 @@ const (
 	RepositoryKind    = "Repository"
 	SystemContextKind = "SystemContext"
 	SpecChangeKind    = "SpecChange"
+	PolicyChangeKind  = "PolicyChange"
 )
 
 const (
 	RepositoryResource    = "repositories"
 	SystemContextResource = "systemcontexts"
 	SpecChangeResource    = "specchanges"
+	PolicyChangeResource  = "policychanges"
 )
 
 const (
 	RepositoryListKind    = "RepositoryList"
 	SystemContextListKind = "SystemContextList"
 	SpecChangeListKind    = "SpecChangeList"
+	PolicyChangeListKind  = "PolicyChangeList"
 )
 
 const DefaultNamespace = "default"
@@ -68,6 +71,8 @@ const (
 	ConditionAcceptanceOverridden = "AcceptanceOverridden"
 
 	ConditionFilesOutsideContext = "FilesOutsideContext"
+
+	ConditionPolicyCompliant = "PolicyCompliant"
 )
 
 const (
@@ -104,6 +109,12 @@ const (
 	ReasonAcceptanceOverridden = "AcceptanceOverridden"
 
 	ReasonFilesOutsideContext = "FilesOutsideContext"
+
+	ReasonPolicyCompliant  = "PolicyCompliant"
+	ReasonPolicyViolations = "PolicyViolations"
+	ReasonPolicyDenied     = "PolicyDenied"
+	ReasonPolicyRestored   = "PolicyRestored"
+	ReasonPolicyInvalid    = "PolicyInvalid"
 )
 
 const (
@@ -128,6 +139,9 @@ var (
 	SpecChangeGVR = schema.GroupVersionResource{
 		Group: Group, Version: Version, Resource: SpecChangeResource,
 	}
+	PolicyChangeGVR = schema.GroupVersionResource{
+		Group: Group, Version: Version, Resource: PolicyChangeResource,
+	}
 )
 
 func RepositoryGVK() schema.GroupVersionKind {
@@ -142,6 +156,10 @@ func SpecChangeGVK() schema.GroupVersionKind {
 	return schema.GroupVersionKind{Group: Group, Version: Version, Kind: SpecChangeKind}
 }
 
+func PolicyChangeGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{Group: Group, Version: Version, Kind: PolicyChangeKind}
+}
+
 func GVRForKind(kind string) (schema.GroupVersionResource, error) {
 	switch kind {
 	case RepositoryKind, RepositoryResource:
@@ -150,6 +168,8 @@ func GVRForKind(kind string) (schema.GroupVersionResource, error) {
 		return SystemContextGVR, nil
 	case SpecChangeKind, SpecChangeResource:
 		return SpecChangeGVR, nil
+	case PolicyChangeKind, PolicyChangeResource:
+		return PolicyChangeGVR, nil
 	}
 	return schema.GroupVersionResource{}, fmt.Errorf("specapi: unknown kind %q", kind)
 }
@@ -162,6 +182,8 @@ func KindForArg(arg string) (string, error) {
 		return SystemContextKind, nil
 	case "specchange", "specchanges", "change", "changes":
 		return SpecChangeKind, nil
+	case "policychange", "policychanges", "policy", "policies":
+		return PolicyChangeKind, nil
 	}
 	return "", fmt.Errorf("specapi: unknown kind %q", arg)
 }
@@ -182,6 +204,8 @@ func KindForResource(resource string) (string, error) {
 		return SystemContextKind, nil
 	case SpecChangeResource:
 		return SpecChangeKind, nil
+	case PolicyChangeResource:
+		return PolicyChangeKind, nil
 	}
 	return "", fmt.Errorf("specapi: unknown resource %q", resource)
 }

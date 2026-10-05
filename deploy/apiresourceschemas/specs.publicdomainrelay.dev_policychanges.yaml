@@ -1,0 +1,149 @@
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  name: v1alpha1-6.policychanges.specs.publicdomainrelay.dev
+spec:
+  group: specs.publicdomainrelay.dev
+  names:
+    categories:
+    - specs
+    kind: PolicyChange
+    listKind: PolicyChangeList
+    plural: policychanges
+    shortNames:
+    - pchange
+    singular: policychange
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.repository
+      name: Repository
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.template
+      name: Template
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      properties:
+        spec:
+          properties:
+            apply:
+              default: false
+              description: Commit and apply the policy when the checks pass.
+              type: boolean
+            branch:
+              description: The code branch whose policy branch to use; empty is the
+                repository default.
+              type: string
+            contexts:
+              description: The SystemContexts the change was given.
+              items:
+                type: string
+              type: array
+              x-kubernetes-list-type: set
+            enforcementAction:
+              default: dryrun
+              enum:
+              - deny
+              - warn
+              - dryrun
+              type: string
+            prompt:
+              description: The natural language the generator turns into a policy.
+              type: string
+            repository:
+              description: The Repository whose policy branch the change writes.
+              type: string
+            requirements:
+              description: The requirements the generated policy enforces, as ctx#id.
+              items:
+                type: string
+              type: array
+              x-kubernetes-list-type: set
+          required:
+          - repository
+          type: object
+        status:
+          properties:
+            agentLog:
+              type: string
+            attempt:
+              type: integer
+            conditions:
+              items:
+                properties:
+                  lastTransitionTime:
+                    format: date-time
+                    type: string
+                  message:
+                    type: string
+                  observedGeneration:
+                    format: int64
+                    type: integer
+                  reason:
+                    type: string
+                  status:
+                    enum:
+                    - "True"
+                    - "False"
+                    - Unknown
+                    type: string
+                  type:
+                    type: string
+                required:
+                - type
+                - status
+                type: object
+              type: array
+              x-kubernetes-list-map-keys:
+              - type
+              x-kubernetes-list-type: map
+            constraints:
+              items:
+                type: string
+              type: array
+            message:
+              type: string
+            phase:
+              enum:
+              - Drafting
+              - Testing
+              - Evaluated
+              - Applied
+              - Failed
+              type: string
+            policyCommit:
+              type: string
+            template:
+              type: string
+            tests:
+              properties:
+                failed:
+                  type: integer
+                output:
+                  type: string
+                passed:
+                  type: integer
+              type: object
+            violations:
+              description: The violations the generated policy finds against the head
+                CodeGraph.
+              items:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              type: array
+              x-kubernetes-preserve-unknown-fields: true
+          type: object
+      required:
+      - spec
+      type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

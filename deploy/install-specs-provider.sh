@@ -60,6 +60,11 @@ while true; do
   for schema in "$DEPLOY_DIR"/apiresourceschemas/*.yaml; do
     W apply --validate=false -f "$schema" >/dev/null 2>&1 || applied=false
   done
+  # The policy half of the API is Gatekeeper's: the ConstraintTemplate CRD is
+  # vendored, and specd creates the constraint CRD of every template.
+  for crd in "$DEPLOY_DIR"/crds/gatekeeper/*.yaml; do
+    W apply --validate=false -f "$crd" >/dev/null 2>&1 || applied=false
+  done
   if [ "$applied" = true ] && W apply --validate=false -f "$DEPLOY_DIR/specs-apiexport.yaml" >/dev/null 2>&1; then
     # Only the identity is required here. The endpoint slice stays empty until a
     # tenant binds the export, so waiting for it belongs to the binding side
