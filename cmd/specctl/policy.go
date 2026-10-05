@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -75,12 +76,15 @@ the spec objects and the code.
 
 usage:
   specctl policy init [--repo X] [--dir D | --path <git repo>] [--branch B] [--default-branch main]
-      [--with-library]
+      [--with-library | --from DIR]
       create the policy tree: policies.yaml, lib/specd.rego, lib/specd_test.rego.
       --dir writes a plain directory; --path writes the orphan branch
       open-policy/X[--<branch slug>]; --with-library also copies the embedded
       policy library: the ported change-integrity, spec-structure, provisioning
-      and disabled-verification templates with their constraints and gator suites
+      and disabled-verification templates with their constraints and gator suites;
+      --from DIR seeds the tree from an existing policy directory instead: its
+      templates, constraints and suites are copied, the manifest takes --repo as
+      its repository, and lib/, dist/ and CATALOGUE.md are rebuilt
   specctl policy new <name> --kind <Kind> [--title T] [--level MUST] [--pattern P]
       [--dir D | --path <git repo>] [--repo X]
       scaffold src.rego, src_test.rego, template.yaml, the constraint and a
@@ -246,6 +250,7 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 	testGlobs := stringsFlag{}
 	fs.Var(&testGlobs, "test-glob", "test file glob for the manifest; repeatable")
 	withLibrary := fs.Bool("with-library", false, "copy the embedded policy library into the new policy tree")
+	from := fs.String("from", "", "seed the new policy tree from an existing policy directory")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -272,19 +277,30 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 		TestGlobs:          testGlobs,
 		DefaultEnforcement: policy.EnforcementDryRun,
 	}
-	doc, err := yaml.Marshal(manifest)
-	if err != nil {
-		fmt.Fprintf(stderr, "specctl policy init: %v\n", err)
-		return exitError
-	}
-	add := map[string][]byte{
-		policy.PoliciesPath:      doc,
-		policy.LibPath:           []byte(policyeval.Lib()),
-		policy.LibTestPath:       []byte(policyeval.LibTest()),
-		policy.GitAttributesPath: []byte(policygit.GitAttributes),
-	}
+	add := map[string][]byte{}
 	copied := 0
-	if *withLibrary {
+	seeded := policy.Library{}
+	switch {
+	case *from != "":
+		seeded, err = policyeval.Load(*from)
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl policy init: read %s: %v\n", *from, err)
+			return exitError
+		}
+		if len(seeded.Templates) == 0 {
+			fmt.Fprintf(stderr, "specctl policy init: %s holds no template\n", *from)
+			return exitError
+		}
+		add, err = policyFiles(*from)
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl policy init: %v\n", err)
+			return exitError
+		}
+		copied = len(add)
+		manifest = seeded.Manifest
+		manifest.Repository = target.repo
+		seeded.Manifest = manifest
+	case *withLibrary:
 		files, err := specdlib.Files()
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl policy init: %v\n", err)
@@ -292,6 +308,24 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 		}
 		maps.Copy(add, files)
 		copied = len(files)
+	}
+	doc, err := yaml.Marshal(manifest)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy init: %v\n", err)
+		return exitError
+	}
+	add[policy.PoliciesPath] = doc
+	add[policy.LibPath] = []byte(policyeval.Lib())
+	add[policy.LibTestPath] = []byte(policyeval.LibTest())
+	add[policy.GitAttributesPath] = []byte(policygit.GitAttributes)
+	if len(seeded.Templates) > 0 {
+		dist, err := policyeval.Dist(seeded)
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl policy init: %v\n", err)
+			return exitError
+		}
+		maps.Copy(add, dist)
+		add[policy.CataloguePath] = policyeval.Catalogue(seeded)
 	}
 	message := fmt.Sprintf("policy(%s): init\n", target.repo)
 	commit, err := target.apply(ctx, add, nil, message)
@@ -307,10 +341,51 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprintf(stdout, "%s ready\n", target.dir)
 	}
-	if *withLibrary {
+	if *from != "" {
+		fmt.Fprintf(stdout, "seeded from %s: %d files copied; dist/ and CATALOGUE.md are rendered\n", *from, copied)
+	} else if *withLibrary {
 		fmt.Fprintf(stdout, "library: %d files copied; run specctl policy build to render dist/ and CATALOGUE.md\n", copied)
 	}
 	return exitOK
+}
+
+// policyFiles reads a policy directory: every file a user authored, and none
+// of the generated ones. lib/, dist/, CATALOGUE.md, .gitattributes and the
+// manifest are written by the caller, so an imported tree is rebuilt the same
+// way specctl policy build would rebuild it.
+func policyFiles(dir string) (map[string][]byte, error) {
+	add := map[string][]byte{}
+	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		switch {
+		case strings.HasPrefix(rel, policy.DistDir+"/"), strings.HasPrefix(rel, policy.ReportsDir+"/"):
+			return nil
+		case rel == policy.CataloguePath, rel == policy.GitAttributesPath:
+			return nil
+		case rel == policy.PoliciesPath, rel == policy.LibPath, rel == policy.LibTestPath:
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		add[rel] = data
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return add, nil
 }
 
 func runPolicyNew(args []string, stdout, stderr io.Writer) int {
