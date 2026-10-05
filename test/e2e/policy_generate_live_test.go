@@ -339,7 +339,7 @@ func TestPolicyBindLive(t *testing.T) {
 			Repository:  repository,
 			Slug:        "rfp-guest-isolation",
 			Pack:        "rfp-guest-isolation",
-			PackVersion: "v1",
+			PackVersion: "v2",
 			Prompt:      "bind the pack to the repository",
 		},
 	}

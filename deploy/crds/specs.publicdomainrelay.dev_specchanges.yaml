@@ -403,6 +403,8 @@ spec:
                           object: {type: string}
                           file: {type: string}
                           line: {type: integer}
+                          waived: {type: boolean}
+                          key: {type: string}
                     warned:
                       type: array
                       items:
@@ -416,6 +418,8 @@ spec:
                           object: {type: string}
                           file: {type: string}
                           line: {type: integer}
+                          waived: {type: boolean}
+                          key: {type: string}
                     dryRun:
                       type: array
                       items:
@@ -429,6 +433,8 @@ spec:
                           object: {type: string}
                           file: {type: string}
                           line: {type: integer}
+                          waived: {type: boolean}
+                          key: {type: string}
                     waived:
                       type: array
                       items:
@@ -442,6 +448,8 @@ spec:
                           object: {type: string}
                           file: {type: string}
                           line: {type: integer}
+                          waived: {type: boolean}
+                          key: {type: string}
                     capped:
                       type: array
                       items:
@@ -455,6 +463,8 @@ spec:
                           object: {type: string}
                           file: {type: string}
                           line: {type: integer}
+                          waived: {type: boolean}
+                          key: {type: string}
                     inherited:
                       type: array
                       description: violations the base already carried; reported, never blocking
@@ -469,6 +479,8 @@ spec:
                           object: {type: string}
                           file: {type: string}
                           line: {type: integer}
+                          waived: {type: boolean}
+                          key: {type: string}
                     message:
                       type: string
                 retryReason:

@@ -570,6 +570,12 @@ Field by field against `examples/policies/atproto-market/policies.yaml`:
 | `roles.test` | `globs [test/**]` | same | yes |
 | `vocabulary` | all five classes, term for term | same | yes |
 
+The run above resolved `rfp-guest-isolation@v1`, which is what the branch
+carried then. The pack is `v2` now (plan 0010 U1 moved the two provisioning
+provenance templates to the opt-in `rfp-provisioning-provenance`), so a re-run
+of the same bind reports `@v2`; the binding's roles and vocabulary are
+unchanged, and `channels/relay` is optional in v2 rather than required.
+
 The whole file is byte-identical to the hand-written binding -- as that file
 stood at the run. Plan 0010 track R landed afterwards and extended it: the
 reach-in rule now denies an unknown target by default, so the requester role

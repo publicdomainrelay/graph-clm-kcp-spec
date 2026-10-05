@@ -513,6 +513,8 @@ spec:
                         type: string
                       file:
                         type: string
+                      key:
+                        type: string
                       line:
                         type: integer
                       msg:
@@ -523,6 +525,8 @@ spec:
                         type: string
                       severity:
                         type: string
+                      waived:
+                        type: boolean
                     type: object
                   type: array
                 denied:
@@ -534,6 +538,8 @@ spec:
                         type: string
                       file:
                         type: string
+                      key:
+                        type: string
                       line:
                         type: integer
                       msg:
@@ -544,6 +550,8 @@ spec:
                         type: string
                       severity:
                         type: string
+                      waived:
+                        type: boolean
                     type: object
                   type: array
                 dryRun:
@@ -555,6 +563,8 @@ spec:
                         type: string
                       file:
                         type: string
+                      key:
+                        type: string
                       line:
                         type: integer
                       msg:
@@ -565,6 +575,8 @@ spec:
                         type: string
                       severity:
                         type: string
+                      waived:
+                        type: boolean
                     type: object
                   type: array
                 inherited:
@@ -578,6 +590,8 @@ spec:
                         type: string
                       file:
                         type: string
+                      key:
+                        type: string
                       line:
                         type: integer
                       msg:
@@ -588,6 +602,8 @@ spec:
                         type: string
                       severity:
                         type: string
+                      waived:
+                        type: boolean
                     type: object
                   type: array
                 message:
@@ -601,6 +617,8 @@ spec:
                         type: string
                       file:
                         type: string
+                      key:
+                        type: string
                       line:
                         type: integer
                       msg:
@@ -611,6 +629,8 @@ spec:
                         type: string
                       severity:
                         type: string
+                      waived:
+                        type: boolean
                     type: object
                   type: array
                 warned:
@@ -622,6 +642,8 @@ spec:
                         type: string
                       file:
                         type: string
+                      key:
+                        type: string
                       line:
                         type: integer
                       msg:
@@ -632,6 +654,8 @@ spec:
                         type: string
                       severity:
                         type: string
+                      waived:
+                        type: boolean
                     type: object
                   type: array
               type: object

@@ -254,6 +254,10 @@ spec:
                             type: string
                           line:
                             type: integer
+                          waived:
+                            type: boolean
+                          key:
+                            type: string
                     message:
                       type: string
                 phase:

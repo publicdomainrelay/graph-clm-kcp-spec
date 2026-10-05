@@ -326,6 +326,8 @@ spec:
                         type: string
                       file:
                         type: string
+                      key:
+                        type: string
                       line:
                         type: integer
                       msg:
@@ -336,6 +338,8 @@ spec:
                         type: string
                       severity:
                         type: string
+                      waived:
+                        type: boolean
                     type: object
                   type: array
               type: object
