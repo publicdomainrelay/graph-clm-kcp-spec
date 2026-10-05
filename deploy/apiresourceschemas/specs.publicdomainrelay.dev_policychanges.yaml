@@ -1,7 +1,7 @@
 apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
-  name: v1alpha1-7.policychanges.specs.publicdomainrelay.dev
+  name: v1alpha1-8.policychanges.specs.publicdomainrelay.dev
 spec:
   group: specs.publicdomainrelay.dev
   names:
@@ -54,6 +54,14 @@ spec:
               - warn
               - dryrun
               type: string
+            pack:
+              description: Names a pack; the harness then proposes the roles and the
+                vocabulary of policies.yaml for it instead of a rule.
+              type: string
+            packVersion:
+              description: The pack version the binding targets; empty takes the version
+                the repository imports.
+              type: string
             prompt:
               description: The natural language the generator turns into a policy.
               type: string
@@ -66,6 +74,10 @@ spec:
                 type: string
               type: array
               x-kubernetes-list-type: set
+            slug:
+              description: The template the change authors; its directory, kind and
+                constraint. Empty falls back to the change name.
+              type: string
           required:
           - repository
           type: object
@@ -75,6 +87,25 @@ spec:
               type: string
             attempt:
               type: integer
+            binding:
+              description: The roles and vocabulary a bind change proposed.
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+            checks:
+              description: What each validation said on the accepted attempt.
+              items:
+                properties:
+                  message:
+                    type: string
+                  name:
+                    type: string
+                  passed:
+                    type: boolean
+                required:
+                - name
+                - passed
+                type: object
+              type: array
             conditions:
               items:
                 properties:
@@ -110,6 +141,9 @@ spec:
               type: array
             message:
               type: string
+            mode:
+              description: Policy or bind; what the change authored.
+              type: string
             phase:
               enum:
               - Drafting
@@ -119,6 +153,8 @@ spec:
               - Failed
               type: string
             policyCommit:
+              type: string
+            slug:
               type: string
             template:
               type: string

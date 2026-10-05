@@ -347,7 +347,12 @@ type SystemContextStatus struct {
 	SyncedObserved     ObservedFacts      `json:"syncedObserved,omitempty"`
 	RealizedSpecHash   string             `json:"realizedSpecHash,omitempty"`
 	RealizedSpec       *SystemContextSpec `json:"realizedSpec,omitempty"`
-	Conditions         []metav1.Condition `json:"conditions,omitempty"`
+
+	// EnforcedBy names the constraint templates whose requirements annotation
+	// enforces a requirement of this context.
+	EnforcedBy []string `json:"enforcedBy,omitempty"`
+
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type SystemContext struct {

@@ -3,7 +3,9 @@ package policyeval
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -171,6 +173,235 @@ func CheckGenerated(ctx context.Context, input GeneratedInput) (GeneratedResult,
 	result.Checks = append(result.Checks, policy.Check{Name: "head evaluation", Passed: true,
 		Message: fmt.Sprintf("%d violation(s) against %s", len(report.Violations), shortCommit(input.Commit))})
 	return result, nil
+}
+
+// BindingInput is one generated binding: the policies.yaml the harness wrote,
+// the pack it binds, the model the binding has to make readable and the branch
+// manifest it must keep.
+type BindingInput struct {
+	Dir string
+
+	Repository string
+
+	Pack *policy.PackManifest
+
+	PackLibrary policy.Library
+
+	PackFS fs.FS
+
+	Branch policy.PolicyLibrary
+
+	Model policy.ArchitectureModel
+
+	Terms []string
+
+	Commit string
+
+	Reviewed []*unstructured.Unstructured
+
+	Inventory []*unstructured.Unstructured
+}
+
+// BindingResult is what the binding checks found: the manifest the harness
+// wrote, one record per check and the pack's violations against the model.
+type BindingResult struct {
+	Manifest policy.PolicyLibrary
+
+	Checks []policy.Check
+
+	Report policy.Report
+}
+
+func (r BindingResult) Passed() bool {
+	for _, check := range r.Checks {
+		if !check.Passed {
+			return false
+		}
+	}
+	return len(r.Checks) > 0
+}
+
+func (r BindingResult) Failures() []string {
+	out := []string{}
+	for _, check := range r.Checks {
+		if !check.Passed {
+			out = append(out, check.Name+": "+check.Message)
+		}
+	}
+	return out
+}
+
+// CheckGeneratedBinding checks a generated binding: the manifest keeps the
+// pack import, every role the pack requires selects a component, every
+// vocabulary class matches an effect or a spec term, the pack's own suites
+// pass, the pack denies a model derived from the bound model, and the pack
+// evaluates against the model without an engine error.
+func CheckGeneratedBinding(ctx context.Context, input BindingInput) (BindingResult, error) {
+	result := BindingResult{}
+	data, err := os.ReadFile(filepath.Join(input.Dir, filepath.FromSlash(policy.PoliciesPath)))
+	if err != nil {
+		result.Checks = append(result.Checks, failCheck("manifest", "the harness wrote no "+policy.PoliciesPath))
+		return result, nil
+	}
+	manifest := policy.PolicyLibrary{}
+	if err := yaml.Unmarshal(data, &manifest); err != nil {
+		result.Checks = append(result.Checks, failCheck("manifest", err.Error()))
+		return result, nil
+	}
+	result.Manifest = manifest
+	if input.Repository != "" && manifest.Repository != "" && manifest.Repository != input.Repository {
+		result.Checks = append(result.Checks, failCheck("manifest",
+			fmt.Sprintf("the manifest names the repository %q, want %q", manifest.Repository, input.Repository)))
+		return result, nil
+	}
+	if missing := missingImports(input.Branch.Imports, manifest.Imports); len(missing) > 0 {
+		result.Checks = append(result.Checks, failCheck("manifest",
+			"the binding drops the pack import "+strings.Join(missing, ", ")))
+		return result, nil
+	}
+	result.Checks = append(result.Checks, policy.Check{Name: "manifest", Passed: true})
+
+	binding := manifest.Binding()
+	if len(binding.Roles) == 0 && len(binding.Vocabulary.Classes()) == 0 {
+		result.Checks = append(result.Checks, failCheck("binding", "the manifest declares no role and no vocabulary"))
+		return result, nil
+	}
+	report := policy.CheckBinding(input.Model, binding, input.Pack, input.Terms)
+	if !report.OK() {
+		result.Checks = append(result.Checks, failCheck("binding", strings.Join(report.Messages(), "; ")))
+	} else {
+		result.Checks = append(result.Checks, policy.Check{Name: "binding", Passed: true,
+			Message: fmt.Sprintf("%d role(s), %d classes", len(binding.Roles), len(binding.Vocabulary.Classes()))})
+	}
+
+	suites, err := runPackSuites(ctx, input.PackFS)
+	if err != nil {
+		result.Checks = append(result.Checks, failCheck("suites", err.Error()))
+	} else {
+		result.Checks = append(result.Checks, suites)
+	}
+
+	result.Checks = append(result.Checks, bindingMutationCheck(ctx, input, binding))
+
+	head, err := Evaluate(ctx, Evaluation{
+		Library:    input.PackLibrary,
+		Repository: input.Repository,
+		Commit:     input.Commit,
+		Reviewed:   input.Reviewed,
+		Inventory:  input.Inventory,
+	})
+	if err != nil {
+		result.Checks = append(result.Checks, failCheck("head evaluation", err.Error()))
+		return result, nil
+	}
+	result.Report = head
+	result.Checks = append(result.Checks, policy.Check{Name: "head evaluation", Passed: true,
+		Message: fmt.Sprintf("%d violation(s) against %s", len(head.Violations), shortCommit(input.Commit))})
+	return result, nil
+}
+
+func missingImports(wanted, have []policy.PackImport) []string {
+	out := []string{}
+	for _, imp := range wanted {
+		found := false
+		for _, existing := range have {
+			if existing.Pack == imp.Pack && existing.Version == imp.Version {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, policy.ImportReference(imp))
+		}
+	}
+	return out
+}
+
+func runPackSuites(ctx context.Context, fsys fs.FS) (policy.Check, error) {
+	if fsys == nil {
+		return policy.Check{Name: "suites", Passed: true,
+			Message: "the pack is not embedded, so its own suites were not run"}, nil
+	}
+	suites, err := fs.Glob(fsys, path.Join(policy.TestsDir, "*", policy.SuiteName))
+	if err != nil {
+		return policy.Check{}, err
+	}
+	if len(suites) == 0 {
+		return failCheck("suites", "the pack carries no gator suite"), nil
+	}
+	sort.Strings(suites)
+	cases := 0
+	for _, suite := range suites {
+		result, err := RunSuite(ctx, fsys, suite)
+		if err != nil {
+			return policy.Check{}, fmt.Errorf("%s: %w", suite, err)
+		}
+		cases += result.Cases()
+		if !result.Passed() {
+			return failCheck("suites", suiteFailure(result)), nil
+		}
+	}
+	return policy.Check{Name: "suites", Passed: true, Message: fmt.Sprintf("%d case(s)", cases)}, nil
+}
+
+// bindingMutationCheck mutates the model the binding produced: a binding that
+// leaves the pack's invariants unreadable fails here, because no derived case
+// denies.
+func bindingMutationCheck(ctx context.Context, input BindingInput, binding policy.Binding) policy.Check {
+	var roles []string
+	if input.Pack != nil {
+		roles = input.Pack.Roles
+	}
+	mutations := policy.Mutations(input.Model, policy.MutationVocabularyOf(binding, roles))
+	if len(mutations) == 0 {
+		return failCheck("mutation", "the bound model carries no role the pack names, so no derived case applies")
+	}
+	engine, err := NewEngine(ctx, input.PackLibrary, nil)
+	if err != nil {
+		return failCheck("mutation", err.Error())
+	}
+	denied := []string{}
+	tried := []string{}
+	for _, mutation := range mutations {
+		tried = append(tried, mutation.Name)
+		object, err := modelObject(mutation.Model)
+		if err != nil {
+			return failCheck("mutation", err.Error())
+		}
+		if err := engine.AddInventory(ctx, []*unstructured.Unstructured{object}); err != nil {
+			return failCheck("mutation", err.Error())
+		}
+		violations, err := engine.Review(ctx, object)
+		if err != nil {
+			return failCheck("mutation", err.Error())
+		}
+		if len(violations) > 0 {
+			denied = append(denied, mutation.Name)
+		}
+	}
+	if len(denied) == 0 {
+		return failCheck("mutation", "the pack denies none of the cases derived from the bound model: "+strings.Join(tried, ", "))
+	}
+	return policy.Check{Name: "mutation", Passed: true, Message: "denies " + strings.Join(denied, ", ")}
+}
+
+// EmbeddedPack resolves one embedded pack to its library and its tree, so a
+// checker can run the pack's own suites.
+func EmbeddedPack(name, version string) (policy.Library, fs.FS, error) {
+	imp := policy.PackImport{Pack: name, Version: version, Source: policy.SourceEmbedded}
+	fsys, cleanup, err := packSourceFS(imp, policy.PackSource{Kind: policy.SourceEmbedded}, ImportOptions{})
+	if err != nil {
+		return policy.Library{}, nil, err
+	}
+	defer cleanup()
+	library, err := LoadRaw(fsys)
+	if err != nil {
+		return policy.Library{}, nil, err
+	}
+	if library.Pack == nil {
+		return policy.Library{}, nil, fmt.Errorf("policyeval: the pack %s has no %s", name, policy.PackManifestPath)
+	}
+	return library, fsys, nil
 }
 
 // AnnotateGenerated writes the annotations the request demands into the

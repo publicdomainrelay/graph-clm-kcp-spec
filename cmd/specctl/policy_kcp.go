@@ -200,6 +200,11 @@ func runPolicyLs(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "%-32s %-24s %-8s %s\n",
 			template.Name, template.Kind, template.Level, strings.Join(names, ", "))
 	}
+	changes, err := listPolicyChanges(ctx, client, options.namespace, "")
+	if err == nil && len(changes) > 0 {
+		fmt.Fprintln(stdout)
+		printPolicyChanges(stdout, stderr, changes, "table")
+	}
 	return exitOK
 }
 

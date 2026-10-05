@@ -1,7 +1,7 @@
 apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
-  name: v1alpha1-7.systemcontexts.specs.publicdomainrelay.dev
+  name: v1alpha1-8.systemcontexts.specs.publicdomainrelay.dev
 spec:
   group: specs.publicdomainrelay.dev
   names:
@@ -207,6 +207,13 @@ spec:
               x-kubernetes-list-map-keys:
               - type
               x-kubernetes-list-type: map
+            enforcedBy:
+              description: The constraint templates whose requirements annotation
+                enforces a requirement of this context.
+              items:
+                type: string
+              type: array
+              x-kubernetes-list-type: set
             observed:
               description: 'The code facts the index reports, deterministic. Interfaces
                 are keyed the same way the declared surface is: a method by its qualified

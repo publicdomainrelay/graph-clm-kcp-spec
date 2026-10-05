@@ -313,7 +313,7 @@ func (c *Controller) auditRepositoryPolicy(
 		map[string]any{"policy": status}); err != nil {
 		return err
 	}
-	if err := c.updateContextConditions(ctx, namespace, contexts, report); err != nil {
+	if err := c.updateContextConditions(ctx, namespace, contexts, report, library); err != nil {
 		return err
 	}
 
@@ -356,8 +356,10 @@ func (c *Controller) repositoryContexts(ctx context.Context, namespace, reposito
 
 // updateContextConditions marks every SystemContext of the repository: a deny
 // or warn violation that names the context or a file it owns makes it False,
-// with the count and the first messages.
-func (c *Controller) updateContextConditions(ctx context.Context, namespace string, contexts []spec.SystemContext, report policy.Report) error {
+// with the count and the first messages. The same pass records which templates
+// enforce a requirement of the context, so a requirement a policy guards says
+// so in the spec.
+func (c *Controller) updateContextConditions(ctx context.Context, namespace string, contexts []spec.SystemContext, report policy.Report, library policy.Library) error {
 	for index := range contexts {
 		systemContext := contexts[index]
 		violations := contextViolations(systemContext, report)
@@ -369,11 +371,14 @@ func (c *Controller) updateContextConditions(ctx context.Context, namespace stri
 			condition.Set(&conditions, systemContext.GetGeneration(), metav1.ConditionFalse,
 				specapi.ConditionPolicyCompliant, specapi.ReasonPolicyViolations, violationsMessage(violations))
 		}
-		if specapi.StatusMatches(systemContext.Status, map[string]any{"conditions": conditions}) {
+		status := map[string]any{"conditions": conditions}
+		if enforcedBy := policy.TemplatesForRequirement(library, systemContext.Name); len(enforcedBy) > 0 {
+			status["enforcedBy"] = enforcedBy
+		}
+		if specapi.StatusMatches(systemContext.Status, status) {
 			continue
 		}
-		if _, err := c.client.PatchStatus(ctx, specapi.SystemContextGVR, namespace, systemContext.Name,
-			map[string]any{"conditions": conditions}); err != nil {
+		if _, err := c.client.PatchStatus(ctx, specapi.SystemContextGVR, namespace, systemContext.Name, status); err != nil {
 			return err
 		}
 	}

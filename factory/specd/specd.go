@@ -178,6 +178,7 @@ func Resources() []watch.Resource {
 		{Kind: specapi.RepositoryKind, GVR: specapi.RepositoryGVR},
 		{Kind: specapi.SystemContextKind, GVR: specapi.SystemContextGVR},
 		{Kind: specapi.SpecChangeKind, GVR: specapi.SpecChangeGVR},
+		{Kind: specapi.PolicyChangeKind, GVR: specapi.PolicyChangeGVR},
 	}
 }
 
@@ -432,6 +433,8 @@ func (c *Controller) reconcile(ctx context.Context, item key) (time.Duration, er
 		requeue, err = c.reconcileSystemContext(ctx, namespace, item.Name)
 	case specapi.SpecChangeKind:
 		requeue, err = c.reconcileSpecChange(ctx, namespace, item.Name)
+	case specapi.PolicyChangeKind:
+		requeue, err = c.reconcilePolicyChange(ctx, namespace, item.Name)
 	case PersistKind:
 		return c.reconcilePersist(ctx, namespace, item.Name)
 	default:

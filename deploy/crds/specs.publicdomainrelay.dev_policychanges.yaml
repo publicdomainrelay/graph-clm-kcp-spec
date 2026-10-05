@@ -46,6 +46,9 @@ spec:
                 branch:
                   type: string
                   description: The code branch whose policy branch to use; empty is the repository default.
+                slug:
+                  type: string
+                  description: The template the change authors; its directory, kind and constraint. Empty falls back to the change name.
                 prompt:
                   type: string
                   description: The natural language the generator turns into a policy.
@@ -61,6 +64,12 @@ spec:
                   x-kubernetes-list-type: set
                   items:
                     type: string
+                pack:
+                  type: string
+                  description: Names a pack; the harness then proposes the roles and the vocabulary of policies.yaml for it instead of a rule.
+                packVersion:
+                  type: string
+                  description: The pack version the binding targets; empty takes the version the repository imports.
                 enforcementAction:
                   type: string
                   enum: [deny, warn, dryrun]
@@ -75,8 +84,30 @@ spec:
                 phase:
                   type: string
                   enum: [Drafting, Testing, Evaluated, Applied, Failed]
+                mode:
+                  type: string
+                  description: Policy or bind; what the change authored.
+                slug:
+                  type: string
                 template:
                   type: string
+                checks:
+                  type: array
+                  description: What each validation said on the accepted attempt.
+                  items:
+                    type: object
+                    required: [name, passed]
+                    properties:
+                      name:
+                        type: string
+                      passed:
+                        type: boolean
+                      message:
+                        type: string
+                binding:
+                  type: object
+                  description: The roles and vocabulary a bind change proposed.
+                  x-kubernetes-preserve-unknown-fields: true
                 constraints:
                   type: array
                   items:

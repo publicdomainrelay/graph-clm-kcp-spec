@@ -50,25 +50,63 @@ type PolicyChangeSpec struct {
 
 	Branch string `json:"branch,omitempty"`
 
+	// Slug names the template the change authors: its directory, its kind and
+	// its constraint. Empty falls back to the change name.
+	Slug string `json:"slug,omitempty"`
+
 	Prompt string `json:"prompt,omitempty"`
 
 	Requirements []string `json:"requirements,omitempty"`
 
 	Contexts []string `json:"contexts,omitempty"`
 
+	// Pack makes the change a binding: the harness proposes the roles and the
+	// vocabulary of policies.yaml for this pack instead of a rule.
+	Pack string `json:"pack,omitempty"`
+
+	PackVersion string `json:"packVersion,omitempty"`
+
 	EnforcementAction Enforcement `json:"enforcementAction,omitempty"`
 
 	Apply bool `json:"apply,omitempty"`
 }
 
+// Mode names what the change authors: a policy, or the binding of one pack.
+func (s PolicyChangeSpec) Mode() string {
+	if s.Pack != "" {
+		return GenerateModeBind
+	}
+	return GenerateModePolicy
+}
+
+// TemplateSlug is the slug the generated template carries.
+func (s PolicyChangeSpec) TemplateSlug() string {
+	if s.Slug != "" {
+		return s.Slug
+	}
+	return s.Repository
+}
+
 type PolicyChangeStatus struct {
 	Phase string `json:"phase,omitempty"`
+
+	// Mode is policy or bind: what the change authored.
+	Mode string `json:"mode,omitempty"`
+
+	// Slug is the template or the pack the change authored.
+	Slug string `json:"slug,omitempty"`
 
 	Template string `json:"template,omitempty"`
 
 	Constraints []string `json:"constraints,omitempty"`
 
 	Tests *PolicyTestResult `json:"tests,omitempty"`
+
+	// Checks records what each validation said on the accepted attempt.
+	Checks []Check `json:"checks,omitempty"`
+
+	// Binding is the roles and vocabulary a bind change proposed.
+	Binding *Binding `json:"binding,omitempty"`
 
 	Violations []Violation `json:"violations,omitempty"`
 

@@ -3,6 +3,7 @@ package oabranch
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -407,7 +408,7 @@ func changesDocument(snapshot Snapshot) string {
 	builder := strings.Builder{}
 	fmt.Fprintf(&builder, "# Changes on `%s`\n\n", snapshot.branch())
 	fmt.Fprintf(&builder, "The requirement-level delta against `%s`, and what this branch realized.\n", base.branch(snapshot.Repository.Name))
-	requirements := requirementDelta(base.Contexts, snapshot.Contexts)
+	requirements := requirementDelta(base.Contexts, snapshot.Contexts, snapshot.Guarded)
 	builder.WriteString("\n## Requirements\n")
 	if len(requirements) == 0 {
 		builder.WriteString("\n_None: this branch declares the same requirements as the default branch._\n")
@@ -536,7 +537,7 @@ func acceptanceSummary(change spec.SpecChange) string {
 	return strings.Join(parts, ", ")
 }
 
-func requirementDelta(baseline, current []spec.SystemContext) map[string][]string {
+func requirementDelta(baseline, current []spec.SystemContext, guarded map[string][]string) map[string][]string {
 	before := map[string]spec.SystemContextSpec{}
 	for _, context := range baseline {
 		before[context.Name] = context.Spec
@@ -553,7 +554,7 @@ func requirementDelta(baseline, current []spec.SystemContext) map[string][]strin
 			lines = append(lines, fmt.Sprintf("intent: %s -> %s", quote(change.Intent.From), quote(change.Intent.To)))
 		}
 		for _, requirement := range change.Requirements {
-			lines = append(lines, requirementLine(requirement))
+			lines = append(lines, requirementLine(requirement, guarded[context.Name]))
 		}
 		for _, interaction := range change.Interactions {
 			lines = append(lines, interactionLine(interaction))
@@ -565,18 +566,22 @@ func requirementDelta(baseline, current []spec.SystemContext) map[string][]strin
 	return out
 }
 
-func requirementLine(change spec.RequirementDelta) string {
+func requirementLine(change spec.RequirementDelta, guarded []string) string {
+	suffix := ""
+	if slices.Contains(guarded, change.ID) {
+		suffix = " (policy-guarded)"
+	}
 	switch change.Op {
 	case spec.OpAdded:
-		return fmt.Sprintf("added `%s` (%s): %s", change.ID, levelOf(change.To), textOf(change.To))
+		return fmt.Sprintf("added `%s` (%s): %s%s", change.ID, levelOf(change.To), textOf(change.To), suffix)
 	case spec.OpRemoved:
-		return fmt.Sprintf("removed `%s` (%s)", change.ID, levelOf(change.From))
+		return fmt.Sprintf("removed `%s` (%s)%s", change.ID, levelOf(change.From), suffix)
 	}
 	fields := strings.Join(change.Fields, ", ")
 	if change.From != nil && change.To != nil && change.From.Level != change.To.Level {
 		fields = fmt.Sprintf("%s -> %s", change.From.Level, change.To.Level)
 	}
-	return fmt.Sprintf("changed `%s` (%s): %s", change.ID, fields, textOf(change.To))
+	return fmt.Sprintf("changed `%s` (%s): %s%s", change.ID, fields, textOf(change.To), suffix)
 }
 
 func interactionLine(change spec.InteractionDelta) string {

@@ -53,6 +53,14 @@ func runPolicy(args []string, stdout, stderr io.Writer) int {
 		return runPolicyEffects(rest, stdout, stderr)
 	case "model":
 		return runPolicyModel(rest, stdout, stderr)
+	case "generate":
+		return runPolicyGenerate(rest, stdout, stderr)
+	case "bind":
+		return runPolicyBind(rest, stdout, stderr)
+	case "accept":
+		return runPolicyAccept(rest, stdout, stderr)
+	case "changes":
+		return runPolicyChanges(rest, stdout, stderr)
 	case "apply":
 		return runPolicyApply(rest, stdout, stderr)
 	case "ls":
@@ -119,8 +127,25 @@ usage:
   specctl policy restore --repo X [--path <git repo>] [--branch B] [--prune]
       load the policy branch open-policy/X[--<branch slug>] into kcp; specd
       does the same when a Repository is created
+  specctl policy generate --repo X --prompt "..." [--requirement ctx#id] [--context C]
+      [--enforcement deny|warn|dryrun] [--slug S] [--apply] [--wait] [--timeout D]
+      create a PolicyChange: specd's harness authors a template over the
+      ArchitectureModel, checks it (compile, opa tests, gator suite, mutation
+      check, head evaluation) and records it as Evaluated. --apply commits it to
+      the open-policy branch and applies it to kcp
+  specctl policy bind --repo X --pack P [--pack-version V] [--context C]
+      [--apply] [--wait] [--timeout D]
+      create a PolicyChange in bind mode: the harness proposes the roles and the
+      vocabulary of policies.yaml for the pack, and specd checks that every
+      required role selects a component, that every vocabulary class matches an
+      effect or a spec term, that the pack's suites pass and that the pack
+      denies a case derived from the bound model
+  specctl policy accept <policychange> [--wait] [--timeout D]
+      set apply on an evaluated PolicyChange; specd commits and applies it
+  specctl policy changes [--repo X] [-o table|json|name]
+      the PolicyChanges kcp holds
   specctl policy ls [-o table|json|name]
-      the templates and constraints kcp holds
+      the templates and constraints kcp holds, and the PolicyChanges
   specctl policy report --repo X [-o text|json]
       the last audit: the policy commit, the evaluated commit, the totals and
       the first violations of Repository.status.policy

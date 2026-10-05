@@ -630,6 +630,26 @@ func RequirementRefs(refs []string) ([]RequirementRef, error) {
 	return out, nil
 }
 
+// GuardedByContext names the requirement ids a library enforces, by the context
+// whose spec declares them.
+func GuardedByContext(library Library) map[string][]string {
+	out := map[string][]string{}
+	for _, template := range library.Templates {
+		for _, requirement := range template.Requirements {
+			parsed, err := ParseRequirement(requirement)
+			if err != nil {
+				continue
+			}
+			out[parsed.Context] = append(out[parsed.Context], parsed.ID)
+		}
+	}
+	for context := range out {
+		slices.Sort(out[context])
+		out[context] = dedupeStrings(out[context])
+	}
+	return out
+}
+
 // TemplatesForRequirement names the templates whose requirements annotation
 // enforces a requirement of one context. It is what a SystemContext's
 // status.enforcedBy carries.

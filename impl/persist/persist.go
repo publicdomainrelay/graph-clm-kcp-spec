@@ -386,6 +386,7 @@ func read(ctx context.Context, options Options) (state, error) {
 	if current.repoPath == "" {
 		return state{}, fmt.Errorf("persist: repository %s has no working tree yet", options.Repository)
 	}
+	current.snapshot.Guarded = guardedRequirements(ctx, oagit.Store{Repo: current.repoPath}, repository)
 
 	contexts, err := options.Cluster.List(ctx, specapi.SystemContextGVR, namespace)
 	if err != nil {

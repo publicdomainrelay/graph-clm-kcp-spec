@@ -134,6 +134,11 @@ type Snapshot struct {
 	// feature branch. It is what CHANGES.md measures the requirement delta
 	// against and which changes it reports as this branch's outcome.
 	Baseline *Baseline
+
+	// Guarded names the requirement ids a constraint template enforces, by the
+	// context whose spec declares them. CHANGES.md marks them, so a reader sees
+	// which requirements a policy guards.
+	Guarded map[string][]string
 }
 
 type Baseline struct {

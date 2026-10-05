@@ -344,6 +344,12 @@ spec:
                             default: SHOULD
                           forbidden:
                             type: boolean
+                enforcedBy:
+                  type: array
+                  description: The constraint templates whose requirements annotation enforces a requirement of this context.
+                  x-kubernetes-list-type: set
+                  items:
+                    type: string
                 conditions:
                   type: array
                   x-kubernetes-list-type: map
