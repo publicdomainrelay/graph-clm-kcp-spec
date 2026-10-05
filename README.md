@@ -362,6 +362,31 @@ fixed ports free. The full green table, the cause with its decisive commands and
 what is left as follow-ups in kcp-libs and `hono-pds`:
 [`docs/examples/deno-kcp-pr.md`](docs/examples/deno-kcp-pr.md#plan-0004-d-the-same-acceptance-seven-fixes-in-and-all-16-checks-green).
 
+Plan 0004 G then closed the three follow-ups, each through its owner's own flow.
+The provider's intermittent "reconciles nothing" first start is cured rather than
+detected: two `MUST` requirements in deno-kcp's `internal-provider` context
+bounded the wait for an informer's cache to sync and turned a list that never
+ends into a retry with fresh informers, realized as `dc4c717e`, so `apply.sh` no
+longer needs the restart `accept.sh` keeps as a guard. The kcpdns shim's
+discovery fallback can now succeed: `servicenames.Resolver.Tokens` keyed
+`KCP_TOKENS` by the raw cluster id while the shim looks the token up by the
+cluster it parses out of the service name, and the token set covered only the
+workspaces the pod's start-time table already named -- requirements in
+`factory-servicenames` and `impl-assets` made the keys agree and added an
+`Options.Workspaces` source that widens the set, realized as `14dcfd7`,
+`d751fc2`, `51a1c3e` on
+[kcp-libs#1](https://github.com/publicdomainrelay/kcp-libs/pull/1). And
+`hono-pds` now retries a crawler that answers non-2xx, which used to be permanent
+for the PDS process: `r.crawler-announce-requires-a-2xx` and its test, realized
+as `e756842` on
+[hono-pds#1](https://github.com/publicdomainrelay/hono-pds/pull/1). The
+acceptance was then run twice with the fixed siblings and reports `accept: pass`
+both times with `apply.sh PASS exit=0 attempts=1 0` -- one attempt, no provider
+restart, ports 2583-2587 free between the runs. deno-kcp#1 now lists both
+dependency pull requests. The run, the requirements, the realize commits and the
+one incidental change (a token memo no requirement asked for) are in
+[`docs/examples/deno-kcp-pr.md`](docs/examples/deno-kcp-pr.md#plan-0004-g-the-three-follow-ups-and-a-first-start-that-needs-no-restart).
+
 ### atproto-market: the guest SSH transport moves to iroh / dumbpipe
 
 The same flow, second repository, a TypeScript one this time:
