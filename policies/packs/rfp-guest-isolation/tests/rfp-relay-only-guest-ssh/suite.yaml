@@ -55,3 +55,15 @@ tests:
     - inventory/model-denied-two-tests-one-file.yaml
     assertions:
     - violations: 1
+  - name: denied-a-direct-ssh-beside-an-unused-relay-callee
+    object: inventory/model-denied-relay-callee.yaml
+    inventory:
+    - inventory/model-denied-relay-callee.yaml
+    assertions:
+    - violations: 1
+  - name: denied-a-direct-test-ssh-under-a-relay-comment
+    object: inventory/model-denied-relay-comment.yaml
+    inventory:
+    - inventory/model-denied-relay-comment.yaml
+    assertions:
+    - violations: 1
