@@ -416,6 +416,118 @@ spec:
               - Succeeded
               - Failed
               type: string
+            policy:
+              description: What the realize policy gate recorded, bucketed by the
+                action the repository cap and the operator's overrides left.
+              properties:
+                capped:
+                  items:
+                    properties:
+                      constraint:
+                        type: string
+                      enforcementAction:
+                        type: string
+                      file:
+                        type: string
+                      line:
+                        type: integer
+                      msg:
+                        type: string
+                      object:
+                        type: string
+                      policy:
+                        type: string
+                      severity:
+                        type: string
+                    type: object
+                  type: array
+                denied:
+                  items:
+                    properties:
+                      constraint:
+                        type: string
+                      enforcementAction:
+                        type: string
+                      file:
+                        type: string
+                      line:
+                        type: integer
+                      msg:
+                        type: string
+                      object:
+                        type: string
+                      policy:
+                        type: string
+                      severity:
+                        type: string
+                    type: object
+                  type: array
+                dryRun:
+                  items:
+                    properties:
+                      constraint:
+                        type: string
+                      enforcementAction:
+                        type: string
+                      file:
+                        type: string
+                      line:
+                        type: integer
+                      msg:
+                        type: string
+                      object:
+                        type: string
+                      policy:
+                        type: string
+                      severity:
+                        type: string
+                    type: object
+                  type: array
+                message:
+                  type: string
+                waived:
+                  items:
+                    properties:
+                      constraint:
+                        type: string
+                      enforcementAction:
+                        type: string
+                      file:
+                        type: string
+                      line:
+                        type: integer
+                      msg:
+                        type: string
+                      object:
+                        type: string
+                      policy:
+                        type: string
+                      severity:
+                        type: string
+                    type: object
+                  type: array
+                warned:
+                  items:
+                    properties:
+                      constraint:
+                        type: string
+                      enforcementAction:
+                        type: string
+                      file:
+                        type: string
+                      line:
+                        type: integer
+                      msg:
+                        type: string
+                      object:
+                        type: string
+                      policy:
+                        type: string
+                      severity:
+                        type: string
+                    type: object
+                  type: array
+              type: object
             progress:
               description: what the host running the change reported while it ran
               items:

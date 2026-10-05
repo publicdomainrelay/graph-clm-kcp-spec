@@ -63,9 +63,14 @@ type AcceptanceStep struct {
 	Env map[string]string `json:"env,omitempty"`
 }
 
+// PolicyOverridePrefix marks an acceptance override that waives a policy
+// constraint for one change rather than an acceptance step.
+const PolicyOverridePrefix = "policy:"
+
 // AcceptanceOverride lets an operator land one commit past a red gating
-// acceptance step. It is one shot: specd removes the entry it consumed after
-// the commit lands, so the next realization is gated again.
+// acceptance step, or past one policy constraint. It is one shot: specd
+// removes the entry it consumed after the commit lands, so the next
+// realization is gated again.
 type AcceptanceOverride struct {
 	Step string `json:"step"`
 

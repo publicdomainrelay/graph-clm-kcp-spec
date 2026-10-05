@@ -90,6 +90,8 @@ type Options struct {
 
 	Instruction string
 
+	Attempt int
+
 	Tool string
 
 	VerifyTimeout time.Duration
@@ -265,6 +267,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		ContextDoc:  targets[0].contextDoc,
 		Verify:      options.Repository.Spec.Verify,
 		Instruction: options.Instruction,
+		Attempt:     options.Attempt,
 		Budget:      options.Budget,
 	}
 	for _, entry := range targets {

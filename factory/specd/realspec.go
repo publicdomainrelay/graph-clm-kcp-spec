@@ -509,6 +509,7 @@ func (c *Controller) batchOptions(ctx context.Context, namespace string, reposit
 		Branch:        realizeBranch(leader.Spec.SystemContext, leader.Spec.ToSpecHash),
 		Base:          base,
 		Instruction:   c.retryInstruction(ctx, namespace, leader),
+		Attempt:       c.attemptsTaken(ctx, namespace, leader),
 		Tool:          c.opts.Tool,
 		Coverage:      c.coverageJudge(repository, repoPath),
 	}

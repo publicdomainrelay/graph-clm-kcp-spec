@@ -199,16 +199,11 @@ func Apply(ctx context.Context, cluster Cluster, library policy.Library, options
 			_, err = cluster.ApplyCluster(ctx, crd)
 		}
 		if err != nil {
-			cluster.PatchStatusCluster(ctx, policy.ConstraintTemplateGVR(), template.Name, map[string]any{
-				"created": false,
-				"errors":  []any{err.Error()},
-			})
+			cluster.PatchStatusCluster(ctx, policy.ConstraintTemplateGVR(), template.Name, constraintTemplateStatus(false, err))
 			return fmt.Errorf("policykcp: constraint CRD for %s: %w", template.Kind, err)
 		}
-		if _, statusErr := cluster.PatchStatusCluster(ctx, policy.ConstraintTemplateGVR(), template.Name, map[string]any{
-			"created": true,
-			"errors":  []any{},
-		}); statusErr != nil {
+		if _, statusErr := cluster.PatchStatusCluster(ctx, policy.ConstraintTemplateGVR(), template.Name,
+			constraintTemplateStatus(true, nil)); statusErr != nil {
 			return fmt.Errorf("policykcp: record the constraint CRD of %s: %w", template.Name, statusErr)
 		}
 	}
@@ -227,6 +222,18 @@ func Apply(ctx context.Context, cluster Cluster, library policy.Library, options
 		}
 	}
 	return nil
+}
+
+// constraintTemplateStatus is the simplified byPod status Gatekeeper reports:
+// whether specd created the constraint CRD, and why not when it could not.
+func constraintTemplateStatus(created bool, failure error) map[string]any {
+	byPod := map[string]any{"id": "specd"}
+	errors := []any{}
+	if failure != nil {
+		errors = append(errors, map[string]any{"code": "CreateCRDError", "message": failure.Error()})
+	}
+	byPod["errors"] = errors
+	return map[string]any{"created": created, "byPod": []any{byPod}}
 }
 
 func prune(ctx context.Context, cluster Cluster, library policy.Library, wantedTemplates map[string]bool) error {

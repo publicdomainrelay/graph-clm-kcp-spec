@@ -3,6 +3,8 @@ package realize
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -59,17 +61,9 @@ func (e *PolicyError) Error() string {
 // and it is in inventory, so a policy may read it.
 func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Decision, policy.Report, error) {
 	gate := options.Policy
-	graph, err := codegraphfacts.Build(ctx, dir, codegraphfacts.Options{
-		Repository: options.Repository.Name,
-		Branch:     options.Branch,
-		Commit:     options.Base,
-		Namespace:  options.Namespace,
-		TestGlobs:  gate.TestGlobs,
-		Contexts:   gate.Contexts,
-		Tool:       options.Tool,
-	})
+	graph, err := buildGateGraph(ctx, options, dir)
 	if err != nil {
-		return policy.Decision{}, policy.Report{}, fmt.Errorf("realize: index the worktree for the policy gate: %w", err)
+		return policy.Decision{}, policy.Report{}, err
 	}
 	patch, err := gitrepo.DiffWorktree(ctx, dir, options.Base)
 	if err != nil {
@@ -106,6 +100,31 @@ func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Dec
 	}
 	decision := policy.Decide(report, gate.Repository, gate.Overrides)
 	return decision, report, nil
+}
+
+// buildGateGraph indexes the worktree head. The index lives in a .codegraph
+// directory the gate removes again when it created it, so a policy never lands
+// an artefact in the change it judges.
+func buildGateGraph(ctx context.Context, options Options, dir string) (policy.CodeGraph, error) {
+	indexDir := filepath.Join(dir, ".codegraph")
+	_, statErr := os.Stat(indexDir)
+	created := os.IsNotExist(statErr)
+	graph, err := codegraphfacts.Build(ctx, dir, codegraphfacts.Options{
+		Repository: options.Repository.Name,
+		Branch:     options.Branch,
+		Commit:     options.Base,
+		Namespace:  options.Namespace,
+		TestGlobs:  options.Policy.TestGlobs,
+		Contexts:   options.Policy.Contexts,
+		Tool:       options.Tool,
+	})
+	if created {
+		_ = os.RemoveAll(indexDir)
+	}
+	if err != nil {
+		return policy.CodeGraph{}, fmt.Errorf("realize: index the worktree for the policy gate: %w", err)
+	}
+	return graph, nil
 }
 
 func policyObject(value any) (*unstructured.Unstructured, error) {

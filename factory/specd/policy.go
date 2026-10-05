@@ -205,6 +205,7 @@ func (c *Controller) reconcileRepositoryPolicy(ctx context.Context, namespace st
 		return
 	}
 	if err := c.auditRepositoryPolicy(ctx, namespace, repository, path, commit, policyCommit, ref, store, library); err != nil {
+		c.log.Error("policy audit failed", "repository", repository.Name, "commit", shortenHash(commit), "err", err)
 		c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid, err.Error())
 		return
 	}
