@@ -134,11 +134,11 @@ func (c *Controller) cleanupRealizeWorktree(ctx context.Context, namespace strin
 	if !gitrepo.IsRepo(ctx, repoPath) {
 		return
 	}
-	if err := gitrepo.PruneWorktrees(ctx, repoPath); err != nil {
-		c.log.Warn("could not prune the stale realize worktrees",
-			"repository", repository.Name, "err", err)
-	}
 	branch := realizeBranch(change.Spec.SystemContext, change.Spec.ToSpecHash)
+	if err := gitrepo.PruneWorktrees(ctx, repoPath, branch); err != nil {
+		c.log.Warn("could not prune the stale realize worktrees",
+			"repository", repository.Name, "branch", branch, "err", err)
+	}
 	if err := gitrepo.DeleteBranchIfExists(ctx, repoPath, branch); err != nil {
 		c.log.Warn("could not delete the stale realize branch",
 			"repository", repository.Name, "branch", branch, "err", err)

@@ -510,49 +510,86 @@ func staleWorktree(t *testing.T, repo, branch string) string {
 	return worktree
 }
 
-func TestWorktreesListsTheRegisteredWorktrees(t *testing.T) {
+func worktreeOn(t *testing.T, worktrees []Worktree, branch string) (Worktree, bool) {
+	t.Helper()
+	for _, worktree := range worktrees {
+		if worktree.Branch == branch {
+			return worktree, true
+		}
+	}
+	return Worktree{}, false
+}
+
+func TestWorktreesListsPathAndBranch(t *testing.T) {
 	ctx := context.Background()
 	repo := tempRepo(t)
-	if worktrees, err := Worktrees(ctx, repo); err != nil || len(worktrees) != 1 || worktrees[0] != repo {
-		t.Fatalf("worktrees = %v (%v), want the repository alone", worktrees, err)
-	}
-	worktree := staleWorktree(t, repo, "spec/calc/abcdef12")
 	worktrees, err := Worktrees(ctx, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(worktrees) != 2 || worktrees[1] != worktree {
-		t.Fatalf("worktrees = %v, want the repository and %s", worktrees, worktree)
+	if len(worktrees) != 1 || worktrees[0].Path != repo || worktrees[0].Branch != "main" {
+		t.Fatalf("worktrees = %v, want the repository on main", worktrees)
+	}
+	worktree := staleWorktree(t, repo, "spec/calc/abcdef12")
+	worktrees, err = Worktrees(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, ok := worktreeOn(t, worktrees, "spec/calc/abcdef12")
+	if !ok || found.Path != worktree {
+		t.Fatalf("worktrees = %v, want %s on its branch", worktrees, worktree)
 	}
 }
 
-func TestPruneWorktreesRemovesOnlyTheSpecdOnes(t *testing.T) {
+func TestPruneWorktreesRemovesOnlyTheStaleWorktreeOfThatBranch(t *testing.T) {
 	ctx := context.Background()
 	repo := tempRepo(t)
 	stale := staleWorktree(t, repo, "spec/calc/abcdef12")
 	other := filepath.Join(t.TempDir(), "operator-worktree")
 	git(t, repo, "worktree", "add", "--force", "-B", "operator/branch", other, "HEAD")
+	live := staleWorktree(t, repo, "spec/calc/99999999")
 
-	if err := PruneWorktrees(ctx, repo); err != nil {
+	if err := PruneWorktrees(ctx, repo, "spec/calc/abcdef12"); err != nil {
 		t.Fatalf("prune: %v", err)
 	}
 
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
-		t.Errorf("the specd worktree %s survived", stale)
+		t.Errorf("the stale worktree %s survived", stale)
 	}
-	if _, err := os.Stat(other); err != nil {
-		t.Errorf("another tool's worktree was removed: %v", err)
-	}
-	worktrees, err := Worktrees(ctx, repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(worktrees) != 2 || worktrees[1] != other {
-		t.Fatalf("worktrees = %v, want the repository and the operator's", worktrees)
+	for _, kept := range []string{other, live} {
+		if _, err := os.Stat(kept); err != nil {
+			t.Errorf("a worktree that was not on the stale branch was removed: %v", err)
+		}
 	}
 	// The branch the stale worktree held is free again.
 	if err := WorktreeAdd(ctx, repo, filepath.Join(t.TempDir(), "next"), "spec/calc/abcdef12", "HEAD"); err != nil {
 		t.Fatalf("worktree add on the freed branch: %v", err)
+	}
+}
+
+func TestPruneWorktreesNeverRemovesTheRepositoryItself(t *testing.T) {
+	ctx := context.Background()
+	repo := filepath.Join(t.TempDir(), worktreePrefix+"operator-name", "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(t, repo, "init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "precious.txt"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, repo, "add", "-A")
+	git(t, repo, "-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-qm", "first")
+
+	// The repository sits in a directory that looks like a specd worktree root,
+	// on the branch a recovery would name.
+	if err := PruneWorktrees(ctx, repo, "main"); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "precious.txt")); err != nil {
+		t.Fatalf("the repository itself was removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git")); err != nil {
+		t.Fatalf("the repository's git dir was removed: %v", err)
 	}
 }
 

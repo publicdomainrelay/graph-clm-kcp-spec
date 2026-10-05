@@ -129,40 +129,77 @@ func WorktreeRemove(ctx context.Context, repo, dir string) error {
 
 const worktreePrefix = "specd-worktree-"
 
+// Worktree is one entry of git's worktree list.
+type Worktree struct {
+	Path string
+
+	Branch string
+}
+
 // Worktrees lists the worktrees git records for the repository.
-func Worktrees(ctx context.Context, repo string) ([]string, error) {
+func Worktrees(ctx context.Context, repo string) ([]Worktree, error) {
 	output, err := run(ctx, repo, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, err
 	}
-	out := []string{}
+	out := []Worktree{}
+	entry := Worktree{}
+	flush := func() {
+		if entry.Path != "" {
+			out = append(out, entry)
+		}
+		entry = Worktree{}
+	}
 	for _, line := range strings.Split(output, "\n") {
-		path, found := strings.CutPrefix(line, "worktree ")
-		if found && path != "" {
-			out = append(out, path)
+		if path, found := strings.CutPrefix(line, "worktree "); found {
+			flush()
+			entry.Path = path
+			continue
+		}
+		if branch, found := strings.CutPrefix(line, "branch refs/heads/"); found {
+			entry.Branch = branch
 		}
 	}
+	flush()
 	return out, nil
 }
 
-// PruneWorktrees removes the realize worktrees a killed specd left behind: the
-// ones under a specd-worktree-* temporary directory, which are the only
-// worktrees this controller creates. A registered worktree that still holds the
-// realize branch makes the next worktree add fail with "cannot force update the
-// branch ... used by worktree", so it has to go before a change is re-driven.
-// Worktrees anywhere else, another tool's or an operator's, are left alone.
-func PruneWorktrees(ctx context.Context, repo string) error {
-	paths, err := Worktrees(ctx, repo)
+// PruneWorktrees removes the realize worktrees a killed specd left behind that
+// hold this branch: the ones under a specd-worktree-* directory inside the
+// system temporary directory, which is where SiblingView creates them and the
+// only worktrees this controller makes. A registered worktree that still holds
+// the realize branch makes the next worktree add fail with "cannot force update
+// the branch ... used by worktree", so it has to go before a change is
+// re-driven.
+//
+// Anything else is left alone: the repository itself, another branch's
+// worktree, a worktree under a specd-worktree-* name that an operator happened
+// to choose, and any worktree outside the temporary directory. Removing a
+// worktree falls back to deleting its directory, so a wrong match would destroy
+// the tree it names.
+func PruneWorktrees(ctx context.Context, repo, branch string) error {
+	worktrees, err := Worktrees(ctx, repo)
 	if err != nil {
 		return err
 	}
+	repository := resolvePath(repo)
+	temp := resolvePath(os.TempDir())
 	roots := map[string]bool{}
-	for _, path := range paths {
-		root := filepath.Dir(path)
+	for _, worktree := range worktrees {
+		if worktree.Branch != branch {
+			continue
+		}
+		root := filepath.Dir(worktree.Path)
+		if resolvePath(worktree.Path) == repository {
+			continue
+		}
 		if !strings.HasPrefix(filepath.Base(root), worktreePrefix) {
 			continue
 		}
-		if err := WorktreeRemove(ctx, repo, path); err != nil {
+		if !within(resolvePath(root), temp) {
+			continue
+		}
+		if err := WorktreeRemove(ctx, repo, worktree.Path); err != nil {
 			return err
 		}
 		roots[root] = true
@@ -173,6 +210,25 @@ func PruneWorktrees(ctx context.Context, repo string) error {
 		}
 	}
 	return nil
+}
+
+func resolvePath(path string) string {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	if resolved, err := filepath.EvalSymlinks(absolute); err == nil {
+		return resolved
+	}
+	return absolute
+}
+
+func within(path, dir string) bool {
+	relative, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 // DeleteBranchIfExists deletes a branch, and reports no error when there is

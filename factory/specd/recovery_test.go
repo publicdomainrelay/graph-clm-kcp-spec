@@ -241,7 +241,7 @@ func TestRecoveringPrunesTheStaleWorktreeAndBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(worktrees) != 1 || worktrees[0] != repo {
+	if len(worktrees) != 1 || worktrees[0].Path != repo {
 		t.Fatalf("worktrees = %v, want only %s: the stale realize worktree has to go", worktrees, repo)
 	}
 	if out, err := exec.Command("git", "-C", repo, "rev-parse", "--verify", "refs/heads/"+branch).CombinedOutput(); err == nil {
