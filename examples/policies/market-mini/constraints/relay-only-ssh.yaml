@@ -25,6 +25,8 @@ spec:
     directDialPatterns:
     - Deno\.connect\(\{[^}]*guest
     - '["'']-p["'']\s*,\s*String\('
+    - new Deno\.Command\(\s*["'']nc["'']
+    - curl[^\n]*guest
     edgeKinds:
     - calls
     - imports
