@@ -363,7 +363,7 @@ func policyState(t *testing.T, ctx context.Context, client *kcpclient.Client, re
 			parts = append(parts, fmt.Sprintf("repository %s: %v", repository, err))
 		}
 	}
-	library, err := policykcp.Read(ctx, client)
+	library, err := policykcp.Read(ctx, client, policykcp.ReadOptions{})
 	if err != nil {
 		parts = append(parts, fmt.Sprintf("kcp library: %v", err))
 		return strings.Join(parts, "; ")
@@ -440,13 +440,13 @@ func TestPolicyRestoreAndAudit(t *testing.T) {
 
 	library := examplePolicyLibrary(t)
 	waitForState(t, ctx, "the policy branch to be restored into kcp", func() bool {
-		held, err := policykcp.Read(ctx, client)
+		held, err := policykcp.Read(ctx, client, policykcp.ReadOptions{})
 		if err != nil {
 			return false
 		}
 		return len(held.Templates) == len(library.Templates) && len(held.Constraints) == len(library.Constraints)
 	}, func() string { return policyState(t, ctx, client, repository) })
-	held, err := policykcp.Read(ctx, client)
+	held, err := policykcp.Read(ctx, client, policykcp.ReadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -972,7 +972,7 @@ func TestPolicyCliDrivesKcp(t *testing.T) {
 		len(example.Templates), len(example.Constraints))) {
 		t.Errorf("policy apply = %q", applied)
 	}
-	library, err := policykcp.Read(ctx, client)
+	library, err := policykcp.Read(ctx, client, policykcp.ReadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1048,7 +1048,7 @@ func TestPolicyLibrariesApplyWholeIntoKcp(t *testing.T) {
 				t.Errorf("%s: template %s reports created=%v: %v", dir, template.Name, created, status)
 			}
 		}
-		held, err := policykcp.Read(ctx, client)
+		held, err := policykcp.Read(ctx, client, policykcp.ReadOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -103,6 +103,8 @@ type config struct {
 	batchWindow time.Duration
 
 	policyLibrary string
+
+	noBaseline bool
 }
 
 func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, error) {
@@ -148,6 +150,7 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	fs.DurationVar(&config.retryBackoff, "retry-backoff", specd.DefaultRetryBackoff, "wait before the second attempt at an episode")
 	fs.DurationVar(&config.batchWindow, "batch-window", specd.DefaultBatchWindow, "how long the oldest pending spec to code change of a repository waits for siblings before its batch starts")
 	fs.StringVar(&config.policyLibrary, "policy-library", os.Getenv("SPECD_POLICY_LIBRARY"), "directory of the policy tree the spec-time gate reads; empty reads the repository policy branch, the same source the realize gate and the audit read")
+	fs.BoolVar(&config.noBaseline, "no-baseline", os.Getenv("SPECD_NO_BASELINE") == "1", "gate the whole repository: every policy violation blocks, not only the ones the change introduced")
 	bolt := boltflags.Add(fs)
 	if err := fs.Parse(args); err != nil {
 		return config, bolt, err
@@ -247,6 +250,7 @@ func (c config) options(writer graph.Writer, bolt *boltflags.Options, log *slog.
 		RetryBackoff:           c.retryBackoff,
 		BatchWindow:            c.batchWindow,
 		PolicyLibrary:          c.policyLibrary,
+		NoBaseline:             c.noBaseline,
 		Log:                    log,
 	}, nil
 }

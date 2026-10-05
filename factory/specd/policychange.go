@@ -510,7 +510,7 @@ func (c *Controller) applyPolicyLibrary(ctx context.Context, cluster policykcp.C
 	if len(generated.Templates) == 0 {
 		return nil
 	}
-	return policykcp.Apply(ctx, cluster, generated, policykcp.ApplyOptions{})
+	return policykcp.Apply(ctx, cluster, generated, policykcp.ApplyOptions{Repository: change.Spec.Repository})
 }
 
 // policyBranchLibrary reads the repository's policy branch, resolved: the

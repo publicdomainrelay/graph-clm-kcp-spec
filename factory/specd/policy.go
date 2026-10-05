@@ -2,9 +2,11 @@ package specd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -35,14 +37,20 @@ func policyBranchOf(repository *spec.Repository) string {
 	return repository.Name
 }
 
-func repositoryPolicy(repository *spec.Repository) policy.RepositoryPolicy {
+// repositoryPolicy is the repository's policy cap. --no-baseline disables the
+// change scope for every repository; a repository's own baseline setting wins
+// when it names one.
+func (c *Controller) repositoryPolicy(repository *spec.Repository) policy.RepositoryPolicy {
 	out := policy.RepositoryPolicy{}
-	if repository.Spec.Policy == nil {
-		return out
+	if repository.Spec.Policy != nil {
+		out.Branch = repository.Spec.Policy.Branch
+		out.Enforcement = policy.Enforcement(repository.Spec.Policy.Enforcement)
+		out.Disabled = repository.Spec.Policy.Disabled
+		out.Baseline = repository.Spec.Policy.Baseline
 	}
-	out.Branch = repository.Spec.Policy.Branch
-	out.Enforcement = policy.Enforcement(repository.Spec.Policy.Enforcement)
-	out.Disabled = repository.Spec.Policy.Disabled
+	if c.opts.NoBaseline && out.Baseline == "" {
+		out.Baseline = "none"
+	}
 	return out
 }
 
@@ -78,7 +86,7 @@ func (c *Controller) loadPolicyGate(ctx context.Context, repository *spec.Reposi
 	}
 	gate := &PolicyGate{
 		Library:    library,
-		Repository: repositoryPolicy(repository),
+		Repository: c.repositoryPolicy(repository),
 		Commit:     commit,
 		Branch:     repository.Spec.Branch,
 	}
@@ -243,20 +251,39 @@ func (c *Controller) reconcileRepositoryPolicy(ctx context.Context, namespace st
 	if policyCommit == "" {
 		return
 	}
+	kcpLibrary, err := policykcp.Read(ctx, cluster, policykcp.ReadOptions{Repository: repository.Name})
+	if err != nil {
+		c.log.Error("kcp could not be read for the policy sync", "repository", repository.Name, "err", err)
+		c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid, err.Error())
+		return
+	}
 
-	if repository.Status.Policy == nil || repository.Status.Policy.PolicyCommit == "" {
-		// No prune: kcp serves every repository's policies, so pruning to one
-		// repository's library would delete another's, and the restore reads the
-		// branch before an apply that may land while it runs, so a prune would
-		// delete the policy that apply just wrote.
-		if err := policykcp.Apply(ctx, cluster, library, policykcp.ApplyOptions{}); err != nil {
+	state := repository.Status.Policy
+	action := policySyncAction(state, policyCommit, policykcp.Fingerprint(library), policykcp.Fingerprint(kcpLibrary))
+	policyFingerprint := policykcp.Fingerprint(kcpLibrary)
+	switch action {
+	case syncConflict:
+		message := fmt.Sprintf("the branch is at %s and kcp moved too since the last sync at %s; resolve by hand",
+			shortenHash(policyCommit), shortenHash(baseCommit(state)))
+		c.log.Error("the policy branch and kcp both moved", "repository", repository.Name, "branch", ref)
+		c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyConflict, message)
+		return
+	case syncBranchToKcp:
+		if err := policykcp.Apply(ctx, cluster, library, policykcp.ApplyOptions{Repository: repository.Name}); err != nil {
 			c.log.Error("policy restore failed", "repository", repository.Name, "branch", ref, "err", err)
 			c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid,
 				"restore from "+ref+": "+err.Error())
 			return
 		}
+		held, err := policykcp.Read(ctx, cluster, policykcp.ReadOptions{Repository: repository.Name})
+		if err != nil {
+			c.log.Error("kcp could not be read back after the policy restore", "repository", repository.Name, "err", err)
+			c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid, err.Error())
+			return
+		}
+		policyFingerprint = policykcp.Fingerprint(held)
 		c.log.Info("policy restored from the branch", "repository", repository.Name, "branch", ref, "commit", shortenHash(policyCommit))
-	} else if kcpLibrary, err := policykcp.Read(ctx, cluster); err == nil && policykcp.Distinct(kcpLibrary, library) {
+	case syncKcpToBranch:
 		if err := c.persistPolicy(ctx, store, ref, repository, kcpLibrary, library); err != nil {
 			c.log.Error("policy persist failed", "repository", repository.Name, "branch", ref, "err", err)
 			c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid,
@@ -265,9 +292,17 @@ func (c *Controller) reconcileRepositoryPolicy(ctx context.Context, namespace st
 		}
 		library, policyCommit, err = policygit.Read(ctx, store, ref)
 		if err != nil {
+			c.log.Error("the policy branch could not be re-read after the persist",
+				"repository", repository.Name, "branch", ref, "err", err)
+			c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid, err.Error())
 			return
 		}
 		c.log.Info("policy persisted to the branch", "repository", repository.Name, "branch", ref)
+	}
+	if err := c.recordPolicySync(ctx, namespace, repository, state, policyCommit, policyFingerprint); err != nil {
+		c.log.Error("the policy sync base could not be recorded", "repository", repository.Name, "err", err)
+		c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid, err.Error())
+		return
 	}
 
 	if commit == "" {
@@ -285,6 +320,67 @@ func (c *Controller) reconcileRepositoryPolicy(ctx context.Context, namespace st
 	}
 	c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionTrue, specapi.ReasonPolicyCompliant,
 		fmt.Sprintf("audited %s at %s", shortenHash(commit), shortenHash(policyCommit)))
+}
+
+// policySyncAction is what a reconcile does with the branch and kcp.
+type syncDirection int
+
+const (
+	// syncNone leaves both sides alone: nothing moved since the recorded base.
+	syncNone syncDirection = iota
+	// syncBranchToKcp applies the branch to kcp.
+	syncBranchToKcp
+	// syncKcpToBranch persists kcp to the branch.
+	syncKcpToBranch
+	// syncConflict reports both sides moved and overwrites neither.
+	syncConflict
+)
+
+// policySyncAction decides the direction from the recorded base: the branch
+// commit and the kcp fingerprint of the last sync. Only the side that moved is
+// written; when both moved to the same content there is nothing to do, and
+// when they moved to different content neither is overwritten.
+func policySyncAction(status *spec.PolicyStatus, branchCommit, branchFingerprint, kcpFingerprint string) syncDirection {
+	if status == nil || status.PolicyCommit == "" || status.KcpFingerprint == "" {
+		// No base was recorded yet (a fresh repository, or one synced before the
+		// fingerprint existed). The branch is the source of truth, so kcp is
+		// rebuilt from it and the base is recorded.
+		return syncBranchToKcp
+	}
+	branchMoved := branchCommit != status.PolicyCommit
+	kcpMoved := kcpFingerprint != status.KcpFingerprint
+	switch {
+	case !branchMoved && !kcpMoved:
+		return syncNone
+	case branchMoved && !kcpMoved:
+		return syncBranchToKcp
+	case !branchMoved && kcpMoved:
+		return syncKcpToBranch
+	case branchFingerprint == kcpFingerprint:
+		return syncNone
+	default:
+		return syncConflict
+	}
+}
+
+// baseCommit is the branch commit the last sync recorded, empty when none was.
+func baseCommit(status *spec.PolicyStatus) string {
+	if status == nil {
+		return ""
+	}
+	return status.PolicyCommit
+}
+
+// recordPolicySync stores the base the next sync compares against: the branch
+// commit and the kcp content it was synced with.
+func (c *Controller) recordPolicySync(ctx context.Context, namespace string, repository *spec.Repository, state *spec.PolicyStatus, policyCommit, fingerprint string) error {
+	if state != nil && state.PolicyCommit == policyCommit && state.KcpFingerprint == fingerprint {
+		return nil
+	}
+	_, err := c.client.PatchStatus(ctx, specapi.RepositoryGVR, namespace, repository.Name, map[string]any{
+		"policy": map[string]any{"policyCommit": policyCommit, "kcpFingerprint": fingerprint},
+	})
+	return err
 }
 
 // policyChangeInFlight names a PolicyChange of the repository that is still
@@ -319,7 +415,12 @@ func (c *Controller) policyChangeInFlight(ctx context.Context, namespace, reposi
 // persistPolicy writes the kcp templates and constraints to the branch and
 // rebuilds the dist and the catalogue, so a policy edited in kcp is a branch
 // commit like any other.
+//
+// Only the repository's own templates are written: what an import contributed
+// stays an import plus the lock, so a pack upgrade after a sync still resolves
+// to the pack and never collides with a frozen local copy.
 func (c *Controller) persistPolicy(ctx context.Context, store oagit.Store, ref string, repository *spec.Repository, kcpLibrary, branchLibrary policy.Library) error {
+	kcpLibrary.Imported = branchLibrary.Imported
 	files, err := policykcp.Files(kcpLibrary)
 	if err != nil {
 		return err
@@ -338,7 +439,26 @@ func (c *Controller) persistPolicy(ctx context.Context, store oagit.Store, ref s
 	files[policy.CataloguePath] = policyeval.Catalogue(merged)
 	stale := policykcp.Stale(branchLibrary.Files, kcpLibrary)
 	message := fmt.Sprintf("policy(%s): sync from kcp\n", repository.Name)
-	_, err = policygit.Update(ctx, store, ref, files, stale, message)
+	return updateWithRetry(ctx, store, ref, files, stale, message)
+}
+
+// updateWithRetry commits to a branch another writer may have moved, so a
+// raced commit is rebuilt against the new tip instead of failing the sync.
+func updateWithRetry(ctx context.Context, store oagit.Store, ref string, add map[string][]byte, remove []string, message string) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if _, err = policygit.Update(ctx, store, ref, add, remove, message); err == nil {
+			return nil
+		}
+		if !errors.Is(err, oagit.ErrRaced) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 	return err
 }
 

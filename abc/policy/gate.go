@@ -3,6 +3,7 @@ package policy
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 type RepositoryPolicy struct {
@@ -11,6 +12,17 @@ type RepositoryPolicy struct {
 	Enforcement Enforcement `json:"enforcement,omitempty"`
 
 	Disabled bool `json:"disabled,omitempty"`
+
+	// Baseline scopes the gates to the change. Empty is change-scoped: a
+	// violation the base already carried is inherited and does not block.
+	// "none" gates the whole repository.
+	Baseline string `json:"baseline,omitempty"`
+}
+
+// BaselineEnabled reports whether the gates block only on violations the
+// change introduced. Everything but an explicit "none" is change-scoped.
+func (p RepositoryPolicy) BaselineEnabled() bool {
+	return !strings.EqualFold(strings.TrimSpace(p.Baseline), "none")
 }
 
 func (p RepositoryPolicy) Cap() Enforcement {
@@ -61,6 +73,10 @@ type Decision struct {
 
 	Capped []Violation
 
+	// Inherited are the violations the base already carried: reported, never
+	// blocking. A whole-repository decision leaves it empty.
+	Inherited []Violation
+
 	Blocked bool
 }
 
@@ -106,15 +122,18 @@ type DecisionStatus struct {
 	Waived []Violation `json:"waived,omitempty"`
 
 	Capped []Violation `json:"capped,omitempty"`
+
+	Inherited []Violation `json:"inherited,omitempty"`
 }
 
 func StatusOf(d Decision) DecisionStatus {
 	return DecisionStatus{
-		Denied: limitViolations(d.Denied),
-		Warned: limitViolations(d.Warned),
-		DryRun: limitViolations(d.DryRun),
-		Waived: limitViolations(d.Waived),
-		Capped: limitViolations(d.Capped),
+		Denied:    limitViolations(d.Denied),
+		Warned:    limitViolations(d.Warned),
+		DryRun:    limitViolations(d.DryRun),
+		Waived:    limitViolations(d.Waived),
+		Capped:    limitViolations(d.Capped),
+		Inherited: limitViolations(d.Inherited),
 	}
 }
 
@@ -126,7 +145,7 @@ func limitViolations(violations []Violation) []Violation {
 }
 
 func (s DecisionStatus) Empty() bool {
-	return len(s.Denied) == 0 && len(s.Warned) == 0 && len(s.DryRun) == 0 && len(s.Waived) == 0
+	return len(s.Denied) == 0 && len(s.Warned) == 0 && len(s.DryRun) == 0 && len(s.Waived) == 0 && len(s.Inherited) == 0
 }
 
 func (d Decision) Messages() []string {

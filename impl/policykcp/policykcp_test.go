@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -210,9 +211,14 @@ type fakeCluster struct {
 	client *dynamicfake.FakeDynamicClient
 
 	refuse map[string]error
+
+	listErrors map[schema.GroupVersionResource]error
 }
 
 func (f fakeCluster) ListCluster(ctx context.Context, gvr schema.GroupVersionResource) (*unstructured.UnstructuredList, error) {
+	if err, ok := f.listErrors[gvr]; ok {
+		return nil, err
+	}
 	return f.client.Resource(gvr).List(ctx, metav1.ListOptions{})
 }
 
@@ -279,7 +285,7 @@ func TestApplyAndReadCoverTemplatesConstraintsAndCRDs(t *testing.T) {
 		"nodirectguestconnect.constraints.gatekeeper.sh"); err != nil {
 		t.Errorf("the constraint CRD was not created: %v", err)
 	}
-	read, err := Read(context.Background(), cluster)
+	read, err := Read(context.Background(), cluster, ReadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,14 +305,38 @@ func TestApplyAndReadCoverTemplatesConstraintsAndCRDs(t *testing.T) {
 
 func newFakeCluster(t *testing.T) fakeCluster {
 	t.Helper()
+	return newFakeClusterFor(t)
+}
+
+func newFakeClusterFor(t *testing.T, kinds ...string) fakeCluster {
+	t.Helper()
 	scheme := runtime.NewScheme()
 	listKinds := map[schema.GroupVersionResource]string{
-		policy.ConstraintTemplateGVR():                                                        "ConstraintTemplateList",
-		policy.ConstraintGVR("NoDirectGuestConnect"):                                          "NoDirectGuestConnectList",
-		policy.ConstraintGVR("ADirectGuestConnect"):                                           "ADirectGuestConnectList",
+		policy.ConstraintTemplateGVR(): "ConstraintTemplateList",
 		{Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions"}: "CustomResourceDefinitionList",
 	}
+	for _, kind := range append([]string{"NoDirectGuestConnect", "ADirectGuestConnect"}, kinds...) {
+		listKinds[policy.ConstraintGVR(kind)] = kind + "List"
+	}
 	return fakeCluster{client: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds)}
+}
+
+func templateNamed(name, slug, kind string) policy.Template {
+	template := testTemplate()
+	template.Name = name
+	template.Slug = slug
+	template.Kind = kind
+	return template
+}
+
+func libraryOf(template policy.Template) policy.Library {
+	return policy.Library{
+		Lib:       policyeval.Lib(),
+		Templates: []policy.Template{template},
+		Constraints: []policy.Constraint{{
+			Name: template.Slug, Kind: template.Kind, Template: template.Name, Enforcement: policy.EnforcementDeny,
+		}},
+	}
 }
 
 func TestParseTemplateObjectDropsClusterMetadataAndTheSlugAnnotation(t *testing.T) {
@@ -393,7 +423,7 @@ func TestApplyAppliesEverythingItCanAndNamesWhatFailed(t *testing.T) {
 		"nodirectguestconnect.constraints.gatekeeper.sh"); err != nil {
 		t.Errorf("the healthy template got no constraint CRD: %v", err)
 	}
-	read, err := Read(ctx, cluster)
+	read, err := Read(ctx, cluster, ReadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,5 +470,84 @@ func TestApplyKeepsEveryTemplateWhenPruning(t *testing.T) {
 	}
 	if _, err := cluster.GetCluster(context.Background(), policy.ConstraintTemplateGVR(), "nodirectguestconnect"); err != nil {
 		t.Errorf("prune removed the template that failed to apply: %v", err)
+	}
+}
+
+func TestReadAndPruneAreScopedToOneRepository(t *testing.T) {
+	ctx := context.Background()
+	market := templateNamed("marketnodirectconnect", "market-no-direct-connect", "MarketNoDirectConnect")
+	other := templateNamed("othernodirectconnect", "other-no-direct-connect", "OtherNoDirectConnect")
+	cluster := newFakeClusterFor(t, market.Kind, other.Kind)
+	if err := Apply(ctx, cluster, libraryOf(market), ApplyOptions{Repository: "market"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(ctx, cluster, libraryOf(other), ApplyOptions{Repository: "other"}); err != nil {
+		t.Fatal(err)
+	}
+
+	marketLibrary, err := Read(ctx, cluster, ReadOptions{Repository: "market"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(marketLibrary.Templates) != 1 || marketLibrary.Templates[0].Name != market.Name {
+		t.Fatalf("the market read saw %+v", marketLibrary.Templates)
+	}
+	if len(marketLibrary.Constraints) != 1 {
+		t.Fatalf("the market read saw %+v", marketLibrary.Constraints)
+	}
+	all, err := Read(ctx, cluster, ReadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all.Templates) != 2 {
+		t.Fatalf("an unfiltered read saw %d template(s)", len(all.Templates))
+	}
+
+	if err := Apply(ctx, cluster, libraryOf(market), ApplyOptions{Repository: "market", Prune: true}); err != nil {
+		t.Fatal(err)
+	}
+	otherLibrary, err := Read(ctx, cluster, ReadOptions{Repository: "other"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(otherLibrary.Templates) != 1 || len(otherLibrary.Constraints) != 1 {
+		t.Fatalf("a prune of market removed other's policies: %+v %+v",
+			otherLibrary.Templates, otherLibrary.Constraints)
+	}
+}
+
+func TestReadReportsANonNotFoundListError(t *testing.T) {
+	ctx := context.Background()
+	market := templateNamed("marketnodirectconnect", "market-no-direct-connect", "MarketNoDirectConnect")
+	cluster := newFakeClusterFor(t, market.Kind)
+	if err := Apply(ctx, cluster, libraryOf(market), ApplyOptions{Repository: "market"}); err != nil {
+		t.Fatal(err)
+	}
+	cluster.listErrors = map[schema.GroupVersionResource]error{
+		policy.ConstraintGVR(market.Kind): errors.New("kcp is unreachable"),
+	}
+	if _, err := Read(ctx, cluster, ReadOptions{Repository: "market"}); err == nil ||
+		!strings.Contains(err.Error(), "kcp is unreachable") {
+		t.Fatalf("a transient list error was swallowed: %v", err)
+	}
+}
+
+func TestReadTreatsANotFoundConstraintListAsNoConstraints(t *testing.T) {
+	ctx := context.Background()
+	market := templateNamed("marketnodirectconnect", "market-no-direct-connect", "MarketNoDirectConnect")
+	cluster := newFakeClusterFor(t, market.Kind)
+	if err := Apply(ctx, cluster, libraryOf(market), ApplyOptions{Repository: "market"}); err != nil {
+		t.Fatal(err)
+	}
+	gvr := policy.ConstraintGVR(market.Kind)
+	cluster.listErrors = map[schema.GroupVersionResource]error{
+		gvr: apierrors.NewNotFound(gvr.GroupResource(), market.Kind),
+	}
+	library, err := Read(ctx, cluster, ReadOptions{Repository: "market"})
+	if err != nil {
+		t.Fatalf("an unestablished constraint kind is not an error: %v", err)
+	}
+	if len(library.Templates) != 1 || len(library.Constraints) != 0 {
+		t.Fatalf("read = %d template(s), %d constraint(s)", len(library.Templates), len(library.Constraints))
 	}
 }
