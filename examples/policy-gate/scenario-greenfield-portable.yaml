@@ -1,0 +1,54 @@
+# The scripted agent of the portable-policy live test. The spec gate runs
+# before the agent, so the violating edit never reaches it; the fixed spec
+# does, and the agent writes the guest's report and the host's report handler.
+#
+# The two files are what the pack's model rules read: the guest opens the
+# outbound call that carries its network information, and the host emits the
+# network report from the http.handle that receives it, never from a
+# provisioning lifecycle.
+realize:
+  host:
+    - write:
+        path: lib/guest/report.ts
+        contents: |
+          export interface NetworkInfo {
+            address: string;
+            nodeId: string;
+          }
+
+          export async function reportNetwork(reportUrl: string, info: NetworkInfo): Promise<void> {
+            await fetch(reportUrl, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ purpose: "onNetwork", address: info.address, nodeId: info.nodeId }),
+            });
+          }
+    - write:
+        path: lib/host/atproto.ts
+        contents: |
+          export interface Agent {
+            did: string;
+          }
+
+          export async function putRecord(agent: Agent, collection: string, value: Record<string, unknown>): Promise<void> {
+            await Promise.resolve({ agent, collection, value });
+          }
+    - write:
+        path: lib/host/report.ts
+        contents: |
+          import { putRecord } from "./atproto.ts";
+          import type { Agent } from "./atproto.ts";
+
+          export const ON_NETWORK_EVENT = "com.publicdomainrelay.temp.compute.events.vm.onNetwork";
+
+          export interface HostApp {
+            post(path: string, handler: (request: Request) => Promise<Response>): void;
+          }
+
+          export function createReportRoutes(agent: Agent, app: HostApp): void {
+            app.post("/v1/on-network", async (request: Request) => {
+              const report = await request.json();
+              await putRecord(agent, ON_NETWORK_EVENT, report);
+              return Response.json({ ok: true });
+            });
+          }

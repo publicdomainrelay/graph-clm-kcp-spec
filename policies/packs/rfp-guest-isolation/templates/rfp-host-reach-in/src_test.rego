@@ -58,3 +58,11 @@ test_no_violation_when_the_initiator_is_not_the_host_role {
 	violations := violation with input as call with data.inventory as model([{"name": "bidder", "roles": ["requester"], "source": "observed"}, {"name": "guest", "roles": ["guest"], "source": "observed"}], [effect], [flow])
 	count(violations) == 0
 }
+
+# A declared flow carries no evidence until the first realize. The rule still
+# has to fire, or a spec that plans the reach-in reaches the agent.
+test_violation_when_a_declared_flow_has_no_evidence {
+	flow := {"from": "host", "to": "guest", "initiator": "host", "channel": "relay", "carries": ["network-info"], "purpose": "network-discovery", "level": "MUST", "source": "declared"}
+	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [], [flow])
+	count(violations) == 1
+}

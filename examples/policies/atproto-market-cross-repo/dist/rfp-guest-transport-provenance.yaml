@@ -2,32 +2,40 @@ apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
 metadata:
   annotations:
-    specs.publicdomainrelay.dev/calibration: 'reads the ArchitectureModel: a flow
-      the host initiates that acts on the guest and carries network information or
-      has network discovery as its purpose, and a container.exec or ssh.connect effect
-      in a host component that reaches the guest'
+    specs.publicdomainrelay.dev/calibration: 'the model-form replacement for the library''s
+      provisioning-new-guest-transport CodeDiff rule: an added line that names a transport
+      is denied only when an executing or writing effect starts there and the file''s
+      component is not the guest role, so a selector, a lexicon description, a test
+      name, a probe such as `which dumbpipe` or the guest''s own user_data is not
+      a violation'
     specs.publicdomainrelay.dev/level: MUST
     specs.publicdomainrelay.dev/origin: plan 0009 G4, pack rfp-guest-isolation v1
-    specs.publicdomainrelay.dev/title: the host never reaches into the guest for network
-      discovery
-  name: rfphostreachin
+    specs.publicdomainrelay.dev/title: a guest transport is installed by the guest's
+      user_data, not hand-assembled elsewhere
+  name: rfpguesttransportprovenance
 spec:
   crd:
     spec:
       names:
-        kind: RfpHostReachIn
+        kind: RfpGuestTransportProvenance
       validation:
         openAPIV3Schema:
           properties:
+            executedKinds:
+              items:
+                type: string
+              type: array
             guestRole:
               type: string
-            hostRole:
-              type: string
-            networkDiscoveryClass:
-              type: string
-            networkInfoClass:
-              type: string
-            reachInKinds:
+            ignoredPaths:
+              items:
+                type: string
+              type: array
+            installPatterns:
+              items:
+                type: string
+              type: array
+            transportPatterns:
               items:
                 type: string
               type: array
@@ -189,47 +197,34 @@ spec:
       line) = {\"file\": file, \"line\": line}\n\nviolation(msg, details) = result
       {\n\tresult := {\"msg\": msg, \"details\": details}\n}\n\nglobs_match(globs,
       path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [], path)\n}\n"
-    rego: "package rfphostreachin\n\nimport data.lib.specd\n\nhost_role := object.get(input.parameters,
-      \"hostRole\", \"host\")\n\nguest_role := object.get(input.parameters, \"guestRole\",
-      \"guest\")\n\nnetwork_info_class := object.get(input.parameters, \"networkInfoClass\",
-      \"network-info\")\n\nnetwork_discovery_class := object.get(input.parameters,
-      \"networkDiscoveryClass\", \"network-discovery\")\n\ndefault_reach_in_kinds
-      := [\"container.exec\", \"ssh.connect\"]\n\nviolation[specd.violation(msg, details)]
-      {\n\tflow := specd.model_flows[_]\n\tspecd.initiator_in_role(flow, host_role)\n\tspecd.acted_on_in_role(flow,
-      guest_role)\n\tnetwork_flow(flow)\n\tmsg := sprintf(\"the host reaches into
-      the guest: %s -> %s (initiator %s, channel %s, purpose %s, carries %v)\",\n\t\t[flow.from,
-      flow.to, object.get(flow, \"initiator\", \"\"), object.get(flow, \"channel\",
-      \"\"), object.get(flow, \"purpose\", \"\"), object.get(flow, \"carries\", [])])\n\tdetails
-      := flow_details(flow, site_file(flow), site_line(flow))\n}\n\nviolation[specd.violation(msg,
-      details)] {\n\teffect := specd.model_effects[_]\n\treach_in_kind(effect.kind)\n\tspecd.component_in_role(effect.component,
-      host_role)\n\tflow := specd.model_flows[_]\n\tflow.evidence[_] == effect.id\n\tspecd.acted_on_in_role(flow,
-      guest_role)\n\tnot reported_as_flow(flow)\n\tmsg := sprintf(\"the host reaches
-      into the guest with %s: %s:%d\",\n\t\t[effect.kind, effect.file, object.get(effect,
-      \"line\", 0)])\n\tdetails := {\"effect\": effect, \"flow\": flow_details(flow,
-      effect.file, object.get(effect, \"line\", 0)), \"file\": effect.file, \"line\":
-      object.get(effect, \"line\", 0)}\n}\n\nreach_in_kind(kind) {\n\tkind == input.parameters.reachInKinds[_]\n}\n\nreach_in_kind(kind)
-      {\n\tnot configured_reach_in_kinds\n\tkind == default_reach_in_kinds[_]\n}\n\nconfigured_reach_in_kinds
-      {\n\tcount(input.parameters.reachInKinds) > 0\n}\n\nreported_as_flow(flow) {\n\tspecd.initiator_in_role(flow,
-      host_role)\n\tspecd.acted_on_in_role(flow, guest_role)\n\tnetwork_flow(flow)\n}\n\nnetwork_flow(flow)
-      {\n\tobject.get(flow, \"purpose\", \"\") == network_discovery_class\n}\n\nnetwork_flow(flow)
-      {\n\tobject.get(flow, \"carries\", [])[_] == network_info_class\n}\n\n# reach_in_evidence
-      names where the reach-in happens: the evidence effect of\n# the flow that connects
-      to the guest, so the report points at a line.\nconnecting_kind(\"container.exec\")\n\nconnecting_kind(\"ssh.connect\")\n\nreach_in_evidence(flow)
-      = out {\n\tconnecting := [effect | effect := specd.model_effect(flow.evidence[_]);
-      connecting_kind(effect.kind)]\n\tcount(connecting) > 0\n\tout := connecting[0]\n}\n\nreach_in_evidence(flow)
-      = out {\n\tconnecting := [effect | effect := specd.model_effect(flow.evidence[_]);
-      connecting_kind(effect.kind)]\n\tcount(connecting) == 0\n\tall := [effect |
-      effect := specd.model_effect(flow.evidence[_])]\n\tcount(all) > 0\n\tout :=
-      all[0]\n}\n\nsite_file(flow) = file {\n\teffect := reach_in_evidence(flow)\n\tfile
-      := effect.file\n}\n\nsite_line(flow) = line {\n\teffect := reach_in_evidence(flow)\n\tline
-      := object.get(effect, \"line\", 0)\n}\n\n# A declared flow carries no evidence
-      until the first realize. The site is\n# empty then, and the rule still has to
-      fire: a spec that plans the reach-in is\n# denied before any code exists.\nsite_file(flow)
-      = \"\" {\n\tnot reach_in_evidence(flow)\n}\n\nsite_line(flow) = 0 {\n\tnot reach_in_evidence(flow)\n}\n\nflow_details(flow,
-      file, line) = details {\n\tdetails := {\n\t\t\"file\": file,\n\t\t\"line\":
-      line,\n\t\t\"from\": flow.from,\n\t\t\"to\": flow.to,\n\t\t\"initiator\": object.get(flow,
-      \"initiator\", \"\"),\n\t\t\"channel\": object.get(flow, \"channel\", \"\"),\n\t\t\"purpose\":
-      object.get(flow, \"purpose\", \"\"),\n\t\t\"carries\": object.get(flow, \"carries\",
-      []),\n\t\t\"source\": object.get(flow, \"source\", \"\"),\n\t\t\"evidence\":
-      object.get(flow, \"evidence\", []),\n\t}\n}\n"
+    rego: "package rfpguesstransportprovenance\n\nimport data.lib.specd\n\nguest_role
+      := object.get(input.parameters, \"guestRole\", \"guest\")\n\ndefault_transport_patterns
+      := [\"websocat\", \"wstunnel\", \"chisel\", \"frp[cs]\", \"autossh\", \"rathole\",
+      \"socat\", \"dumbpipe\", \"fedproxy\"]\n\ndefault_executed_kinds := [\"proc.exec\",
+      \"container.exec\", \"net.listen\", \"file.write\"]\n\nviolation[specd.violation(msg,
+      details)] {\n\tfile := input.review.object.spec.files[_]\n\trow := file.added[_]\n\tnot
+      specd.file_in_role(file.path, guest_role)\n\tnot specd.matches_globs(ignored_paths,
+      file.path)\n\tpattern := transport_pattern(row.text)[0]\n\texecuted(file.path,
+      row.line)\n\tinstalls(row.text)\n\tmsg := sprintf(\"added line %s:%d installs
+      or runs the guest transport %q outside the %s role's user_data: a guest transport
+      is a UserDataModule in the guest's cloud-init, so the RFP flow stays the only
+      way a guest comes up\",\n\t\t[file.path, row.line, pattern, guest_role])\n\tdetails
+      := {\"file\": file.path, \"line\": row.line, \"pattern\": pattern}\n}\n\nignored_paths
+      = out {\n\tout := input.parameters.ignoredPaths\n} else = [\"**/*.md\"]\n\ntransport_pattern(text)
+      = out {\n\tout := [pattern | pattern := transport_pattern_list[_]; regex.match(pattern,
+      text)]\n}\n\ntransport_pattern_list = out {\n\tout := input.parameters.transportPatterns\n}
+      else = default_transport_patterns\n\n\ndefault_install_patterns := [\"\\\\b(?:docker|podman|container|nerdctl)\\\\s+(?:run|exec|create)\\\\b\",
+      \"\\\\b(?:curl|wget)\\\\b\", \"\\\\btar\\\\s+-?[xz]\", \"\\\\b(?:cp|mv|install|mount)\\\\s\",
+      \"\\\\bchmod\\\\s\", \"\\\\bsystemctl\\\\s+(?:enable|start)\", \"\\\\b(?:apt-get|apt|dnf|yum|apk)\\\\s+install\"]\n\n#
+      installs keeps a probe out: `which dumbpipe` names the transport and runs a\n#
+      command, and it installs nothing. The line must read like an installation.\ninstalls(text)
+      {\n\tpattern := install_patterns[_]\n\tregex.match(pattern, text)\n}\n\ninstall_patterns
+      = out {\n\tout := input.parameters.installPatterns\n} else = default_install_patterns\n\n#
+      executed says the added line is a real site: an effect of an executing or a\n#
+      writing kind starts there. A description, a selector or a test name that\n#
+      merely mentions a transport is not an installation.\nexecuted(path, line) {\n\teffect
+      := specd.effects[_]\n\teffect.file == path\n\teffect.line == line\n\texecuted_kind(effect.kind)\n}\n\nexecuted_kind(kind)
+      {\n\tkind == input.parameters.executedKinds[_]\n}\n\nexecuted_kind(kind) {\n\tnot
+      configured_executed_kinds\n\tkind == default_executed_kinds[_]\n}\n\nconfigured_executed_kinds
+      {\n\tcount(input.parameters.executedKinds) > 0\n}\n"
     target: admission.k8s.gatekeeper.sh

@@ -1,0 +1,65 @@
+defaultEnforcement: deny
+imports:
+- pack: rfp-guest-isolation
+  source: embedded
+  version: v1
+repository: hono-compute-provider
+classifiers:
+- compute-provider.yaml
+roles:
+  guest:
+    declared: true
+    targets:
+      attrs:
+      - inspectIp
+      - backend.exec
+      routes:
+      - /v1/on-network
+  host:
+    globs:
+    - hono-compute-provider/**
+    - lib/compute-provider-local/**
+    - lib/compute-provider-digitalocean/**
+    - lib/container-backend-container/**
+    - lib/container-backend-docker/**
+    targets:
+      symbols:
+      - emitVmOnNetwork
+  test:
+    globs:
+    - test/**
+testGlobs:
+- test/**
+version: "1"
+vocabulary:
+  channels:
+    relay:
+    - websocat
+    - fedproxy
+    - dumbpipe
+    - iroh connect
+    - tunnel-subscriber
+  events:
+    network-report:
+    - COMPUTE_EVENTS_VM_ON_NETWORK_NSID
+    - vm.onNetwork
+    - vm.onNetwork
+  payloads:
+    network-info:
+    - address
+    - nodeId
+    - ticket
+    - TICKET
+    - route
+    - fedproxy
+    - iroh
+    - ipv4Address
+  purposes:
+    network-discovery:
+    - getNodeId
+    - nodeId
+    - onNetwork
+    - ticket
+  routes:
+    report:
+    - /v1/on-network

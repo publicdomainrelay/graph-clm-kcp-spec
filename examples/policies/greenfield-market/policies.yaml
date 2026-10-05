@@ -1,0 +1,58 @@
+defaultEnforcement: deny
+imports:
+- pack: rfp-guest-isolation
+  source: embedded
+  version: v1
+repository: greenfield-market
+roles:
+  guest:
+    contexts:
+    - guest
+    globs:
+    - lib/guest/**
+    targets:
+      routes:
+      - /v1/on-network
+  host:
+    contexts:
+    - host
+    globs:
+    - lib/host/**
+    targets:
+      symbols:
+      - reportUrl
+      - onNetwork
+  test:
+    globs:
+    - test/**
+testGlobs:
+- test/**
+version: "1"
+vocabulary:
+  channels:
+    relay:
+    - websocat
+    - fedproxy
+    - dumbpipe
+    - iroh connect
+    - tunnel-subscriber
+  events:
+    network-report:
+    - ON_NETWORK_EVENT
+    - vm.onNetwork
+  payloads:
+    network-info:
+    - address
+    - nodeId
+    - ticket
+    - route
+    - ipv4
+  purposes:
+    network-discovery:
+    - getNodeId
+    - nodeId
+    - onNetwork
+    - ticket
+  routes:
+    report:
+    - /v1/on-network

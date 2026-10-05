@@ -2,20 +2,20 @@ apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
 metadata:
   annotations:
-    specs.publicdomainrelay.dev/calibration: 'reads the ArchitectureModel: a flow
-      the host initiates that acts on the guest and carries network information or
-      has network discovery as its purpose, and a container.exec or ssh.connect effect
-      in a host component that reaches the guest'
+    specs.publicdomainrelay.dev/calibration: 'reads the ArchitectureModel: a declared
+      or observed flow the guest initiates that carries network information must exist,
+      and every event.emit of the network-report class in a host component must be
+      triggered by the http.handle of the report route'
     specs.publicdomainrelay.dev/level: MUST
     specs.publicdomainrelay.dev/origin: plan 0009 G4, pack rfp-guest-isolation v1
-    specs.publicdomainrelay.dev/title: the host never reaches into the guest for network
-      discovery
-  name: rfphostreachin
+    specs.publicdomainrelay.dev/title: the guest reports its network information and
+      that report drives the host's emission
+  name: rfpguestreportsnetwork
 spec:
   crd:
     spec:
       names:
-        kind: RfpHostReachIn
+        kind: RfpGuestReportsNetwork
       validation:
         openAPIV3Schema:
           properties:
@@ -23,14 +23,16 @@ spec:
               type: string
             hostRole:
               type: string
-            networkDiscoveryClass:
+            networkEventClass:
               type: string
             networkInfoClass:
               type: string
-            reachInKinds:
+            reportPeerRoles:
               items:
                 type: string
               type: array
+            reportRouteClass:
+              type: string
           type: object
   targets:
   - libs:
@@ -189,47 +191,32 @@ spec:
       line) = {\"file\": file, \"line\": line}\n\nviolation(msg, details) = result
       {\n\tresult := {\"msg\": msg, \"details\": details}\n}\n\nglobs_match(globs,
       path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [], path)\n}\n"
-    rego: "package rfphostreachin\n\nimport data.lib.specd\n\nhost_role := object.get(input.parameters,
-      \"hostRole\", \"host\")\n\nguest_role := object.get(input.parameters, \"guestRole\",
-      \"guest\")\n\nnetwork_info_class := object.get(input.parameters, \"networkInfoClass\",
-      \"network-info\")\n\nnetwork_discovery_class := object.get(input.parameters,
-      \"networkDiscoveryClass\", \"network-discovery\")\n\ndefault_reach_in_kinds
-      := [\"container.exec\", \"ssh.connect\"]\n\nviolation[specd.violation(msg, details)]
-      {\n\tflow := specd.model_flows[_]\n\tspecd.initiator_in_role(flow, host_role)\n\tspecd.acted_on_in_role(flow,
-      guest_role)\n\tnetwork_flow(flow)\n\tmsg := sprintf(\"the host reaches into
-      the guest: %s -> %s (initiator %s, channel %s, purpose %s, carries %v)\",\n\t\t[flow.from,
-      flow.to, object.get(flow, \"initiator\", \"\"), object.get(flow, \"channel\",
-      \"\"), object.get(flow, \"purpose\", \"\"), object.get(flow, \"carries\", [])])\n\tdetails
-      := flow_details(flow, site_file(flow), site_line(flow))\n}\n\nviolation[specd.violation(msg,
-      details)] {\n\teffect := specd.model_effects[_]\n\treach_in_kind(effect.kind)\n\tspecd.component_in_role(effect.component,
-      host_role)\n\tflow := specd.model_flows[_]\n\tflow.evidence[_] == effect.id\n\tspecd.acted_on_in_role(flow,
-      guest_role)\n\tnot reported_as_flow(flow)\n\tmsg := sprintf(\"the host reaches
-      into the guest with %s: %s:%d\",\n\t\t[effect.kind, effect.file, object.get(effect,
-      \"line\", 0)])\n\tdetails := {\"effect\": effect, \"flow\": flow_details(flow,
-      effect.file, object.get(effect, \"line\", 0)), \"file\": effect.file, \"line\":
-      object.get(effect, \"line\", 0)}\n}\n\nreach_in_kind(kind) {\n\tkind == input.parameters.reachInKinds[_]\n}\n\nreach_in_kind(kind)
-      {\n\tnot configured_reach_in_kinds\n\tkind == default_reach_in_kinds[_]\n}\n\nconfigured_reach_in_kinds
-      {\n\tcount(input.parameters.reachInKinds) > 0\n}\n\nreported_as_flow(flow) {\n\tspecd.initiator_in_role(flow,
-      host_role)\n\tspecd.acted_on_in_role(flow, guest_role)\n\tnetwork_flow(flow)\n}\n\nnetwork_flow(flow)
-      {\n\tobject.get(flow, \"purpose\", \"\") == network_discovery_class\n}\n\nnetwork_flow(flow)
-      {\n\tobject.get(flow, \"carries\", [])[_] == network_info_class\n}\n\n# reach_in_evidence
-      names where the reach-in happens: the evidence effect of\n# the flow that connects
-      to the guest, so the report points at a line.\nconnecting_kind(\"container.exec\")\n\nconnecting_kind(\"ssh.connect\")\n\nreach_in_evidence(flow)
-      = out {\n\tconnecting := [effect | effect := specd.model_effect(flow.evidence[_]);
-      connecting_kind(effect.kind)]\n\tcount(connecting) > 0\n\tout := connecting[0]\n}\n\nreach_in_evidence(flow)
-      = out {\n\tconnecting := [effect | effect := specd.model_effect(flow.evidence[_]);
-      connecting_kind(effect.kind)]\n\tcount(connecting) == 0\n\tall := [effect |
-      effect := specd.model_effect(flow.evidence[_])]\n\tcount(all) > 0\n\tout :=
-      all[0]\n}\n\nsite_file(flow) = file {\n\teffect := reach_in_evidence(flow)\n\tfile
-      := effect.file\n}\n\nsite_line(flow) = line {\n\teffect := reach_in_evidence(flow)\n\tline
-      := object.get(effect, \"line\", 0)\n}\n\n# A declared flow carries no evidence
-      until the first realize. The site is\n# empty then, and the rule still has to
-      fire: a spec that plans the reach-in is\n# denied before any code exists.\nsite_file(flow)
-      = \"\" {\n\tnot reach_in_evidence(flow)\n}\n\nsite_line(flow) = 0 {\n\tnot reach_in_evidence(flow)\n}\n\nflow_details(flow,
-      file, line) = details {\n\tdetails := {\n\t\t\"file\": file,\n\t\t\"line\":
-      line,\n\t\t\"from\": flow.from,\n\t\t\"to\": flow.to,\n\t\t\"initiator\": object.get(flow,
-      \"initiator\", \"\"),\n\t\t\"channel\": object.get(flow, \"channel\", \"\"),\n\t\t\"purpose\":
-      object.get(flow, \"purpose\", \"\"),\n\t\t\"carries\": object.get(flow, \"carries\",
-      []),\n\t\t\"source\": object.get(flow, \"source\", \"\"),\n\t\t\"evidence\":
-      object.get(flow, \"evidence\", []),\n\t}\n}\n"
+    rego: "package rfpguestreportsnetwork\n\nimport data.lib.specd\n\nhost_role :=
+      object.get(input.parameters, \"hostRole\", \"host\")\n\nguest_role := object.get(input.parameters,
+      \"guestRole\", \"guest\")\n\nnetwork_info_class := object.get(input.parameters,
+      \"networkInfoClass\", \"network-info\")\n\nnetwork_event_class := object.get(input.parameters,
+      \"networkEventClass\", \"network-report\")\n\nreport_route_class := object.get(input.parameters,
+      \"reportRouteClass\", \"report\")\n\n# The require waits for code. A repository
+      whose specs declare no interaction\n# yet is not denied at spec time: the model
+      carries no effects until the first\n# realize, and the reach-in rule is what
+      guards the declared shape until then.\nviolation[specd.violation(msg, details)]
+      {\n\thas_effects\n\tnot guest_reports\n\tmsg := sprintf(\"no declared or observed
+      flow has the %s initiating toward another role carrying %s: the guest must report
+      its own network information outbound\",\n\t\t[guest_role, network_info_class])\n\tdetails
+      := {\"guestRole\": guest_role, \"networkInfoClass\": network_info_class}\n}\n\nhas_effects
+      {\n\tcount(specd.model_effects) > 0\n}\n\nguest_reports {\n\tflow := specd.model_flows[_]\n\tspecd.initiator_in_role(flow,
+      guest_role)\n\tflow.carries[_] == network_info_class\n\tnot specd.acted_on_in_role(flow,
+      guest_role)\n\treport_peer(flow)\n}\n\nreport_peer(flow) {\n\tnot configured_report_peers\n}\n\nreport_peer(flow)
+      {\n\tspecd.acted_on_in_role(flow, input.parameters.reportPeerRoles[_])\n}\n\nconfigured_report_peers
+      {\n\tcount(input.parameters.reportPeerRoles) > 0\n}\n\nviolation[specd.violation(msg,
+      details)] {\n\teffect := specd.model_effects[_]\n\tspecd.component_in_role(effect.component,
+      host_role)\n\tspecd.event_class(effect, network_event_class)\n\tnot driven_by_report_handler(effect)\n\tmsg
+      := sprintf(\"the host emits the network report %q from the provisioning lifecycle,
+      not from the http.handle of the guest's report: %s:%d\",\n\t\t[object.get(object.get(effect,
+      \"attrs\", {}), \"type\", \"\"), effect.file, object.get(effect, \"line\", 0)])\n\tdetails
+      := {\"effect\": effect, \"routeClass\": report_route_class, \"file\": effect.file,
+      \"line\": object.get(effect, \"line\", 0)}\n}\n\ndriven_by_report_handler(effect)
+      {\n\ttrigger := specd.model_triggers[_]\n\ttrigger.to == effect.id\n\thandler
+      := specd.model_effect(trigger.from)\n\thandler.kind == \"http.handle\"\n\tspecd.route_class(handler,
+      report_route_class)\n}\n"
     target: admission.k8s.gatekeeper.sh

@@ -222,11 +222,14 @@ spec:
       effect := specd.model_effect(flow.evidence[_])]\n\tcount(all) > 0\n\tout :=
       all[0]\n}\n\nsite_file(flow) = file {\n\teffect := reach_in_evidence(flow)\n\tfile
       := effect.file\n}\n\nsite_line(flow) = line {\n\teffect := reach_in_evidence(flow)\n\tline
-      := object.get(effect, \"line\", 0)\n}\n\nflow_details(flow, file, line) = details
-      {\n\tdetails := {\n\t\t\"file\": file,\n\t\t\"line\": line,\n\t\t\"from\": flow.from,\n\t\t\"to\":
-      flow.to,\n\t\t\"initiator\": object.get(flow, \"initiator\", \"\"),\n\t\t\"channel\":
-      object.get(flow, \"channel\", \"\"),\n\t\t\"purpose\": object.get(flow, \"purpose\",
-      \"\"),\n\t\t\"carries\": object.get(flow, \"carries\", []),\n\t\t\"source\":
-      object.get(flow, \"source\", \"\"),\n\t\t\"evidence\": object.get(flow, \"evidence\",
-      []),\n\t}\n}\n"
+      := object.get(effect, \"line\", 0)\n}\n\n# A declared flow carries no evidence
+      until the first realize. The site is\n# empty then, and the rule still has to
+      fire: a spec that plans the reach-in is\n# denied before any code exists.\nsite_file(flow)
+      = \"\" {\n\tnot reach_in_evidence(flow)\n}\n\nsite_line(flow) = 0 {\n\tnot reach_in_evidence(flow)\n}\n\nflow_details(flow,
+      file, line) = details {\n\tdetails := {\n\t\t\"file\": file,\n\t\t\"line\":
+      line,\n\t\t\"from\": flow.from,\n\t\t\"to\": flow.to,\n\t\t\"initiator\": object.get(flow,
+      \"initiator\", \"\"),\n\t\t\"channel\": object.get(flow, \"channel\", \"\"),\n\t\t\"purpose\":
+      object.get(flow, \"purpose\", \"\"),\n\t\t\"carries\": object.get(flow, \"carries\",
+      []),\n\t\t\"source\": object.get(flow, \"source\", \"\"),\n\t\t\"evidence\":
+      object.get(flow, \"evidence\", []),\n\t}\n}\n"
     target: admission.k8s.gatekeeper.sh
