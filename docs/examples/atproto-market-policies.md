@@ -50,6 +50,18 @@ second.
 All three refs violate P-guest-reports under the strict reading (below); none
 of them is compliant.
 
+These three commits and their counts are re-run after plan 0010 track R (the
+call-site attribution, the relay-term rule, the reach-in default, the model
+and diff fixes, the one glob dialect and the fresh-index rule): 6 deny at
+`master`, 2 at `pre-iroh`, 2 at the spec branch, the same constraints at the
+same sites. The one visible change the stricter rules could have caused -- the
+host's own xrpc calls counted as reach-ins, because their target does not
+resolve -- is what the binding now answers: the requester role names
+`getPdsEndpoint`, `serviceEndpoint`, `com.atproto.repo` and `callService` as
+its target symbols, so those calls are flows to the requester and not
+reach-ins. `market-mini` answers the same question for its loopback agent port
+through `vocabulary.reachInExceptions`.
+
 This library now imports the portable pack `rfp-guest-isolation` (plan 0009
 G4), whose `RfpHostReachIn`, `RfpGuestReportsNetwork` and
 `RfpRelayOnlyGuestSsh` restate the same two rules over the ArchitectureModel.

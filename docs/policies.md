@@ -1219,7 +1219,8 @@ Reports name `policy`, `constraint`, `enforcementAction`, the reviewed object,
 ## Limits
 
 Known limits, stated rather than hidden. The first two bound what a policy can
-see; the third bounds the classifier a policy reads.
+see, the third and fourth bound the classifier a policy reads, and the last two
+bound what the pack can conclude from what it sees.
 
 ### The indexer emits declarations, not bodies
 
@@ -1270,18 +1271,52 @@ file are `scripts/effects-recall.py` and
 `testdata/effects-recall/atproto-market-master.yaml`, and the reading is
 recorded in plan 0009 G2.
 
+The same script measures the alias cases on their own labels
+(`testdata/effects-recall/effects-aliases.yaml`, over
+`fixtures/effects-aliases`), where the argv0, the host and the port are held
+in constants: `ssh.connect` 1/0/0 and `net.dial` 1/0/0, recall 1.000. The
+classifier resolves a simple string constant of the file and a name it imports
+from a sibling module of the same model, so `const SSH = "ssh"` used as an
+argv0 and `hostname: host` are found; the sample above is unchanged because
+`atproto-market` master holds no such case.
+
+### The classifier resolves names, not values
+
+An argument that is a runtime value stays unresolved: the emitted type of
+`createSignedRepoRecord(collection, record)` is the parameter `collection`, and
+no vocabulary term and no constant stands for it. The event class resolves a
+literal, a string constant of the file, or a name imported from a sibling
+module, and a binding can always name the identifier itself in
+`vocabulary.events`. A Go constant of another package (`pkg.EVENT_NSID`) is not
+resolved either: only a bare name is.
+
+### A reach-in is reported, a cut chain is not
+
+`rfp-host-reach-in` denies a host flow whose target is the guest or is
+unresolved, minus the targets a binding excepts through
+`vocabulary.reachInExceptions`. When the model cannot say what a host talks to,
+the flow is a reach-in, so a new outbound client in a host module is a false
+positive until the binding names it, as `atproto-market` names its PDS clients
+through the requester role's target symbols.
+
+`effectTriggers` walks call and instantiate edges up to three hops, and a
+trigger needs an edge, not a shared node: a root and a leaf in the same file
+node produce none. A real chain longer than three hops is therefore reported as
+"no path within three hops" rather than followed, and the rule that reads it
+treats that as a violation of its require rather than as a separate warning.
+
 ### A tunneled ssh whose transport the vocabulary does not name
 
-`relay-only-guest-ssh` denies an ssh outside the guest role that is carried by
-no `relay`-channel flow *and* carries no non-empty `proxyCommand`. The second
-half is deliberate -- an ssh whose proxy command is built elsewhere must stay
-out of the report -- but it also means the rule cannot check the transport of
-an ssh the model could not resolve a channel for. Such an ssh is not denied:
-the rule sees its `proxyCommand`, so it treats it as tunneled, and it cannot
-tell a relay from a transport the vocabulary does not name. What the rule
-still catches is the regression it guards -- a direct ssh with no tunnel at all
--- plus any `net.dial` from a test that acts on the guest. `docs/plans/0009`
-G4 states the same limit; the pack's `CATALOGUE.md` states it beside the rule.
+`relay-only-guest-ssh` denies an ssh outside the guest role unless a
+`relay`-channel flow carries it or its `proxyCommand` names a term of the
+binding's `channels/relay` class. An unresolved proxy command -- a helper the
+walk does not reach, a variable -- is not a pass any more: the term has to be
+there, so `ProxyCommand=nc <guest> 22` and any tunnel the vocabulary does not
+name are denied, and a binding whose transport the vocabulary omits names it
+(plan 0010 R2). A delegated proxy whose helper the model reaches is carried by
+the `relay` channel, which is the first clause, so a compliant ssh still
+passes; `market-mini` names `relay-subscriber`, the transport its cloud-init
+module deploys.
 
 ## Troubleshooting
 

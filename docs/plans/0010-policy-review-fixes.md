@@ -174,6 +174,40 @@ D6. **Real Gatekeeper parity.**
 - Provide an optional `deploy/crds/derived/` set of CRDs for these kinds, so
   `gator` and a real cluster can at least hold them (0003 A2).
 
+## Track R: done
+
+Every item below has a test that failed before the fix. Branches:
+`policy-fix-r`.
+
+| item | commit | what landed |
+| --- | --- | --- |
+| R1 | `fe98e18` | a call site reads its own text; a file-level site reads a window around the call, and the model's site text and hint walk use the same rule |
+| R2 | `82e63b0` | `proxied` needs a `channels/relay` term in the ProxyCommand; `market-mini` names `relay-subscriber` |
+| R3 | `82e63b0` | a host acting on the guest or on an unresolved target is a reach-in; `reachInKinds` gains `net.dial` and `http.request`; `vocabulary.reachInExceptions` names what is not the guest; atproto-market resolves its PDS clients to the requester role |
+| R4 | `b02bf70` | intra-file constant propagation and named-import resolution; `fixtures/effects-aliases` with hand labels, recall 1.000 |
+| R5 | `58f155e` | `Carries` unions on merge; a trigger needs a real node that contains the leaf; `term_in` and `containsFold` match whole tokens |
+| R6 | `80ae841` | `common/glob` is the one doublestar dialect, `lib.specd` passes `["/"]`, and a conformance table runs through both |
+| R7 | `ee36a47` | an index is read only when a stamp proves it fresh; otherwise it is rebuilt over a copy, never in a checkout, unless `--index-in-place` |
+| R8 | `f21cd9c` | the diff parser counts the hunk its `@@` header declares and reads headers only outside it; `diff --git` names the file, so a rename is reported |
+| R9 | `2d1345e` | the review's variants are pack suite cases and `fixtures/market-mini/violating-v{b,c,e,h1,h2,h3}`, each asserted to deny by `TestViolatingVariantsDeny` |
+
+Measurements after the track, at the documented commits:
+
+- recall on the G2 hand labels is unchanged: total 42/0/45, `0.483`;
+- recall on the alias labels is 1.000 for `ssh.connect` and `net.dial`;
+- the atproto-market three-ref eval is unchanged: 6 deny at `7a2e9d9`, 2 at
+  `d20070c`, 2 at `ffac22e`, the same constraints at the same sites.
+
+Limits recorded in `docs/policies.md`: the classifier resolves names it can
+see (a runtime argument and a constant of another Go package stay unresolved);
+a real trigger chain longer than three hops is reported as no path rather than
+followed; a reach-in whose target a binding does not name is a false positive
+until the binding names it.
+
+Also fixed on the way: `Makefile` did not rebuild `bin/specctl` when the
+embedded policy library or a pack template changed, so a policy build rewrote
+the stale library over an edit.
+
 ## Order
 
 R, S and D run in parallel worktrees. R1 to R3 and R9 come first, because
