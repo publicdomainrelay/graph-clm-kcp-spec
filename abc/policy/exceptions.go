@@ -90,11 +90,11 @@ func (o Override) Matches(violation Violation) bool {
 	if o.Constraint != "" && o.Constraint != violation.Constraint {
 		return false
 	}
-	if o.Key != "" && o.Key != Key(violation) {
-		return false
-	}
 	if o.Object != "" && !strings.Contains(violation.Object.String(), o.Object) {
 		return false
+	}
+	if o.Key != "" {
+		return o.Key == Key(violation)
 	}
 	file, line := Site(violation)
 	if o.File != "" && !glob.Match(o.File, file) {
@@ -107,9 +107,17 @@ func (o Override) Matches(violation Violation) bool {
 }
 
 // Key is the stable identity of a violation: the constraint, the object and
-// the site. Two evaluations of the same tree produce the same key, so a
-// waiver written from one run still matches the next.
+// the site. The site is the enclosing declaration and the effect's kind and
+// attributes when an evaluation anchored them, and the raw file and line
+// otherwise. Two evaluations of the same code produce the same key even when
+// an edit moved the line, so a waiver written from one run still matches the
+// next.
 func Key(violation Violation) string {
+	if Anchored(violation.Location) {
+		return ViolationID(violation.Constraint, violation.Object.String(),
+			violation.Location.File, violation.Location.Declaration,
+			violation.Location.Kind, violation.Location.Attrs)
+	}
 	file, line := Site(violation)
 	return ViolationID(violation.Constraint, violation.Object.String(), file, strconv.Itoa(line))
 }

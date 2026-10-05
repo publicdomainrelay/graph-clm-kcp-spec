@@ -414,14 +414,21 @@ specctl policy findings --repo atproto-market --worktree /path/to/atproto-market
 
 ```
 key              status    constraint               site                          message
-d3dac3b0fbc49c88 inherited guest-report-driven-onnetwork lib/market-bidder-compute/mod.ts:304 createVmBidderCallbacks emits the vm.onNetwork event from the provisioning lifecycle, not from an inbound guest report
-39eb35808df2f09d inherited rfp-guest-reports-network lib/market-bidder-compute/mod.ts:304 the host emits the network report "COMPUTE_EVENTS_VM_ONNETWORK_NSID" from the provisioning lifecycle, not from the http.handle of the guest's report: lib/market-bidder-compute/mod.ts:304
+9ed63c01ff399590 inherited guest-report-driven-onnetwork lib/market-bidder-compute/mod.ts:304 createVmBidderCallbacks emits the vm.onNetwork event from the provisioning lifecycle, not from an inbound guest report
+a23b49807c4b9e27 inherited rfp-guest-reports-network lib/market-bidder-compute/mod.ts:304 the host emits the network report "COMPUTE_EVENTS_VM_ONNETWORK_NSID" from the provisioning lifecycle, not from the http.handle of the guest's report: lib/market-bidder-compute/mod.ts:304
 findings: 0 new, 2 inherited, 0 waived
 ```
 
 Each finding carries its **key**: the constraint, the object and the site,
 hashed. The key is stable across runs, so it is what a waiver is written
-against and what a `status.policy` entry can be looked up by. `--base REF`
+against and what a `status.policy` entry can be looked up by. The site is the
+**declaration** that encloses the location -- with the model effect's kind and
+attributes when the violation is about an effect -- and not the line: an edit
+that moves the violation inside the same declaration keeps the key, so a
+waiver written from one run still matches the next and a pre-existing violation
+the base carried stays `inherited` after the realize rewrote the file. A
+location with no enclosing declaration (a file-level node, a diff line) still
+keys on file and line. `--base REF`
 adds the comparison the gates make: a violation the base carried is
 `inherited`; without it every violation is `new`. `-o json` prints the same
 list for a script. `status` is one of `new`, `inherited` and `waived`.
@@ -435,7 +442,7 @@ to the agent. It is a request, not a change -- the spec flow reviews it and
 decides how the code or the spec answers it.
 
 ```bash
-specctl policy fix d3dac3b0fbc49c88 --repo atproto-market \
+specctl policy fix 9ed63c01ff399590 --repo atproto-market \
   --worktree /path/to/atproto-market --library examples/policies/atproto-market
 # repository: atproto-market
 # constraint: guest-report-driven-onnetwork
@@ -456,7 +463,7 @@ other decision: the violation is accepted. It writes one file,
 ```yaml
 constraint: guest-report-driven-onnetwork
 file: lib/market-bidder-compute/mod.ts
-key: d3dac3b0fbc49c88
+key: 9ed63c01ff399590
 line: 304
 object: CodeGraph default/atproto-market
 owner: john
@@ -1555,11 +1562,18 @@ A change-scoped gate compares violations by constraint, object and site. A
 rule over the declared `ArchitectureModel` (the conformance pack's
 `forbidden-flow`, for example) carries no file location, so two violations of
 the same rule on the same object share one key. A change that adds a second
-such violation to an object the base already flagged reads as inherited. Code
-rules are unaffected: every effect and code violation carries `file:line`. The
-workaround today is a rule that names the differing detail in its `msg` and
-the constraint's own `msg`-based id, or gating that repository with
-`spec.policy.baseline: none`.
+such violation to an object the base already flagged reads as inherited.
+
+Code rules are anchored, not line-keyed: the site is the enclosing declaration
+plus the effect's kind and attributes. Two effects of the same rule in one
+declaration therefore also share a key unless their attributes differ -- two
+identical `net.dial`s in one function, say. That trade is deliberate: the same
+declaration must keep one key when an edit moves a line, because a pre-existing
+violation that changes key becomes `new` and blocks the change that only
+touched the code around it. A rule that must tell two sites inside one
+declaration apart names the differing detail in the effect's attributes (the
+target, the path, the argv0) or in the constraint's own `msg`-based id.
+`spec.policy.baseline: none` gates a repository whole instead.
 
 ### The offline spec gate is whole-repository
 

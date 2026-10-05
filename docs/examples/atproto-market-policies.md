@@ -648,8 +648,8 @@ bin/specctl policy eval --repo atproto-market \
   --worktree /home/johnandersen777/policy-u-work/atproto-market \
   --diff-base d20070c --inherited --strict --library /tmp/atpm-demo
 # key              status    constraint                 site
-# d3dac3b0fbc49c88 inherited guest-report-driven-onnetwork lib/market-bidder-compute/mod.ts:304
-# 39eb35808df2f09d inherited rfp-guest-reports-network    lib/market-bidder-compute/mod.ts:304
+# 9ed63c01ff399590 inherited guest-report-driven-onnetwork lib/market-bidder-compute/mod.ts:304
+# a23b49807c4b9e27 inherited rfp-guest-reports-network    lib/market-bidder-compute/mod.ts:304
 # findings: 0 new, 2 inherited, 0 waived
 # exit 0
 ```
@@ -663,13 +663,13 @@ the provisioning lifecycle instead of letting the guest report it.
 **2. Decide not to fix it.** Record the reason on the policy branch:
 
 ```bash
-bin/specctl policy waive d3dac3b0fbc49c88 \
+bin/specctl policy waive 9ed63c01ff399590 \
   --reason "the emitted address may be a public IPv4 the client can judge, so the host may announce it" \
   --owner john --repo atproto-market \
   --worktree /home/johnandersen777/policy-u-work/atproto-market \
   --library /tmp/atpm-demo --dir /tmp/atpm-demo
 # waived guest-report-driven-onnetwork at lib/market-bidder-compute/mod.ts
-# wrote exceptions/d3dac3b0fbc49c88.yaml
+# wrote exceptions/9ed63c01ff399590.yaml
 ```
 
 The file it writes:
@@ -677,7 +677,7 @@ The file it writes:
 ```yaml
 constraint: guest-report-driven-onnetwork
 file: lib/market-bidder-compute/mod.ts
-key: d3dac3b0fbc49c88
+key: 9ed63c01ff399590
 line: 304
 object: CodeGraph default/atproto-market
 owner: john
@@ -691,15 +691,23 @@ reason: the emitted address may be a public IPv4 the client can judge, so the ho
 bin/specctl policy findings --repo atproto-market \
   --worktree /home/johnandersen777/policy-u-work/atproto-market \
   --base d20070c --library /tmp/atpm-demo
-# d3dac3b0fbc49c88 waived    guest-report-driven-onnetwork lib/market-bidder-compute/mod.ts:304
+# 9ed63c01ff399590 waived    guest-report-driven-onnetwork lib/market-bidder-compute/mod.ts:304
 #                            reason: the emitted address may be a public IPv4 the client can judge...
-# 39eb35808df2f09d inherited rfp-guest-reports-network    lib/market-bidder-compute/mod.ts:304
+# a23b49807c4b9e27 inherited rfp-guest-reports-network    lib/market-bidder-compute/mod.ts:304
 # findings: 0 new, 1 inherited, 1 waived
 ```
 
 The waived violation is still listed, with its reason and owner. Nothing was
 dropped, and no gate blocks on it: the realize gate and the audit read the same
 exceptions.
+
+The keys above are the ones the current hydradb prints, and they name a
+**declaration**, not a line: `createVmBidderCallbacks`, with the model effect's
+kind and attributes. Re-run on `origin/pre-iroh` with two lines inserted inside
+that function, the same two keys come back with the site printed as
+`lib/market-bidder-compute/mod.ts:306`, and the waiver recorded at line 304
+still matches. Before the fix the key was `(constraint, object, file, line)`, so
+that edit turned both pre-existing violations into `new` ones.
 
 **The other decision is to fix it.** `specctl policy fix <key>` turns the
 finding into a SpecChange request -- the violation message, the site and the

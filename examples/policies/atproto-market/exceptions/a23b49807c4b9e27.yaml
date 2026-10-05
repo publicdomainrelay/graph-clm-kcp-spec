@@ -1,0 +1,8 @@
+constraint: rfp-guest-reports-network
+file: lib/market-bidder-compute/mod.ts
+key: a23b49807c4b9e27
+line: 304
+object: ArchitectureModel default/atproto-market
+owner: john
+reason: host-emitted vm.onNetwork carries the provisioned IP; it may be a public IPv4
+  the client judges; kept by decision

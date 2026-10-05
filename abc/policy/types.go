@@ -352,6 +352,12 @@ type Location struct {
 	Line int `json:"line,omitempty"`
 
 	Node string `json:"node,omitempty"`
+
+	Declaration string `json:"declaration,omitempty"`
+
+	Kind string `json:"kind,omitempty"`
+
+	Attrs string `json:"attrs,omitempty"`
 }
 
 type Violation struct {
