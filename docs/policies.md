@@ -233,12 +233,16 @@ deny     error      security-disabled-verification  CodeDiff default/deno-kcp
          added line deploy/install-provider.sh:21 is "KWA() { \"$KUBECTL\" --kubeconfig=\"$KUBECONFIG_PATH\" --server=\"$PROVIDER_SERVER\" apply --validate=false \"$@\"; }", which turns certificate verification off; a check that trusts any certificate checks nothing
 ```
 
-Two of the five are the same class `RESULTS.md` found at `accept.sh:141`: a
-`curl -sk` probe of a TLS listener. The other three are `--validate=false` on a
-`kubectl apply` and `InsecureSkipVerify: true` in a test client. The `curl -sk`
-probe of a local kcp with a self-signed certificate is the known intentional
-case; a repository that means it silences the rule for those paths with the
-constraint's `allowPatterns`, which is why the parameter exists.
+One of the five is the class `RESULTS.md` found at `accept.sh:141`: a `curl -sk`
+probe of a TLS listener. The other four are three `--validate=false` on a
+`kubectl apply` (two in `deploy/install-provider.sh` helpers, one in the live
+test) and one `InsecureSkipVerify: true` in that test's http client. The
+`curl -sk` probe of a local kcp with a self-signed certificate is the known
+intentional case; a repository that means it silences the rule for those paths
+with the constraint's `allowPatterns`, which is why the parameter exists. The
+three `--validate=false` lines are the pattern the origin's own
+`disabled_verification_pattern` names first, so this run reproduces the
+calibration rather than discovering a new class.
 
 The two `SpecChange` templates are exercised by their gator suites here
 (`specctl policy test --dir policies/library --gator`), and run against a live

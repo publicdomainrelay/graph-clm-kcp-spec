@@ -480,8 +480,9 @@ CodeGraph identifiers. See `docs/plans/0009-portable-policies.md`.
    added/removed lines with their head/base line numbers) and adds it to the
    reviewed objects and the inventory. The real run is recorded in
    `docs/policies.md` ("A real run"): against deno-kcp `0f1078d` the
-   `security-disabled-verification` rule raises five denies, two of them the
-   `curl -sk` class `RESULTS.md` found at `accept.sh:141`.
+   `security-disabled-verification` rule raises five denies -- three
+   `--validate=false`, one `InsecureSkipVerify: true` and one `curl -sk`, the
+   same class `RESULTS.md` found at `accept.sh:141`.
    `impl/policyeval/conformance_test.go` now also walks `policies/*`, so
    `SPECD_REQUIRE_GATOR=1 go test ./impl/policyeval/...` runs the library's
    suites through the built-in engine and the real gator.
