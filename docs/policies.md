@@ -1219,8 +1219,9 @@ Reports name `policy`, `constraint`, `enforcementAction`, the reviewed object,
 ## Limits
 
 Known limits, stated rather than hidden. The first two bound what a policy can
-see; the third bounds the classifier a policy reads; the fourth says who
-enforces a rule over the derived kinds.
+see; the third bounds the classifier a policy reads; the last three say who
+enforces a rule over the derived kinds, what confines the generation harness and
+which comments the no-comments rule exempts.
 
 ### The indexer emits declarations, not bodies
 
@@ -1283,6 +1284,29 @@ tell a relay from a transport the vocabulary does not name. What the rule
 still catches is the regression it guards -- a direct ssh with no tunnel at all
 -- plus any `net.dial` from a test that acts on the guest. `docs/plans/0009`
 G4 states the same limit; the pack's `CATALOGUE.md` states it beside the rule.
+
+### The harness is not sandboxed by specd
+
+A bind-mode prompt no longer carries the branch's binding: the model in it is
+built with an empty binding, so no role, glob or vocabulary term is given away,
+and specd runs the harness in a scratch directory under the state directory
+that holds no `examples/`. But specd does not confine the process: a harness
+with file tools can still read an absolute path -- the first real bind run in
+`docs/examples/atproto-market-policies.md` produced a binding byte-identical to
+the hand-written one because the harness read
+`examples/policies/atproto-market/policies.yaml` from a hydradb checkout. A
+measurement of what a harness can *derive* has to run it in a sandbox
+(`bwrap`, a container) that exposes only the scratch directory; the example run
+does that with a wrapper as the repository's `spec.agent.command`.
+
+### The pack Rego keeps its comments
+
+The no-comments rule is applied to the Go packages (`abc/policy`,
+`impl/policyeval`, `impl/policykcp`). The Rego in `impl/policyeval/lib/` and in
+the packs keeps its comments: they state what each rule means, they are the
+only prose a rule carries, and they are part of the shared library every
+`dist/` and every `policies.lock` is built from, so removing them would churn
+every generated artifact for a style rule written for Go.
 
 ### specd evaluates the derived kinds, not an in-cluster Gatekeeper
 

@@ -98,8 +98,11 @@ func TestResolveImportFromAGitSource(t *testing.T) {
 	gitRun(t, origin, "init", "-q", "-b", "main")
 	gitRun(t, origin, "add", "-A")
 	gitRun(t, origin, "-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-qm", "pack")
+	bare := filepath.Join(work, "bare.git")
+	gitRun(t, work, "clone", "--quiet", "--bare", origin, bare)
+	gitRun(t, bare, "symbolic-ref", "HEAD", "refs/heads/main")
 
-	source := "git:" + origin + "@main"
+	source := "git:" + bare + "@main"
 	resolved, err := ResolveImport(policy.PackImport{Pack: "gitpack", Version: "v1", Source: source}, ImportOptions{WorkDir: work})
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +126,7 @@ func TestResolveImportFromAGitSource(t *testing.T) {
 			resolved.Entry.SHA256, resolved.Entry.Files, want, files)
 	}
 
-	if _, err := ResolveImport(policy.PackImport{Pack: "gitpack", Version: "v1", Source: "git:" + origin + "@no-such-ref"}, ImportOptions{WorkDir: work}); err == nil {
+	if _, err := ResolveImport(policy.PackImport{Pack: "gitpack", Version: "v1", Source: "git:" + bare + "@no-such-ref"}, ImportOptions{WorkDir: work}); err == nil {
 		t.Error("a git ref that does not exist resolved")
 	}
 }
