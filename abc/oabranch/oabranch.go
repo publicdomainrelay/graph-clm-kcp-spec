@@ -263,6 +263,8 @@ type changeStatusDoc struct {
 
 	RequirementCoverage []spec.RequirementVerdict `json:"requirementCoverage,omitempty"`
 
+	Policy *spec.PolicyGateStatus `json:"policy,omitempty"`
+
 	Progress *changeProgressDoc `json:"progress,omitempty"`
 }
 
@@ -300,6 +302,7 @@ func changeStatusDocOf(status spec.SpecChangeStatus) changeStatusDoc {
 		RetryBy:             status.RetryBy,
 		Acceptance:          status.Acceptance,
 		RequirementCoverage: status.RequirementCoverage,
+		Policy:              status.Policy,
 		Progress:            progressSummary(status.Progress),
 	}
 }
@@ -318,6 +321,7 @@ func (s changeStatusDoc) specChangeStatus() spec.SpecChangeStatus {
 		RetryBy:             s.RetryBy,
 		Acceptance:          s.Acceptance,
 		RequirementCoverage: s.RequirementCoverage,
+		Policy:              s.Policy,
 	}
 }
 

@@ -1046,16 +1046,10 @@ func UnresolvedCodeRefs(requirements []spec.Requirement, observed spec.ObservedF
 
 func Conditions(in Input, previous []metav1.Condition) (Decision, []metav1.Condition) {
 	decision := Decide(in)
-	out := make([]metav1.Condition, 0, 3)
-	for _, conditionType := range []string{
-		specapi.ConditionSpecValid,
-		specapi.ConditionCodeSynced,
-		specapi.ConditionDrifted,
-	} {
-		if before := condition.Of(previous, conditionType); before != nil {
-			out = append(out, *before)
-		}
-	}
+	// Start from every condition the object already carries, so a condition
+	// another reconciler owns (PolicyCompliant, AcceptanceOverridden) survives
+	// this one. Set replaces the three this function owns in place.
+	out := condition.Copy(previous)
 
 	if decision.SpecValid {
 		condition.SetTrue(&out, in.Generation, specapi.ConditionSpecValid,

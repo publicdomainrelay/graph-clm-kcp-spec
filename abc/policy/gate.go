@@ -6,11 +6,11 @@ import (
 )
 
 type RepositoryPolicy struct {
-	Branch string
+	Branch string `json:"branch,omitempty"`
 
-	Enforcement Enforcement
+	Enforcement Enforcement `json:"enforcement,omitempty"`
 
-	Disabled bool
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 func (p RepositoryPolicy) Cap() Enforcement {
@@ -92,6 +92,41 @@ func Decide(report Report, repository RepositoryPolicy, overrides []Override) De
 	}
 	decision.Blocked = len(decision.Denied) > 0
 	return decision
+}
+
+const StatusViolationLimit = 20
+
+type DecisionStatus struct {
+	Denied []Violation `json:"denied,omitempty"`
+
+	Warned []Violation `json:"warned,omitempty"`
+
+	DryRun []Violation `json:"dryRun,omitempty"`
+
+	Waived []Violation `json:"waived,omitempty"`
+
+	Capped []Violation `json:"capped,omitempty"`
+}
+
+func StatusOf(d Decision) DecisionStatus {
+	return DecisionStatus{
+		Denied: limitViolations(d.Denied),
+		Warned: limitViolations(d.Warned),
+		DryRun: limitViolations(d.DryRun),
+		Waived: limitViolations(d.Waived),
+		Capped: limitViolations(d.Capped),
+	}
+}
+
+func limitViolations(violations []Violation) []Violation {
+	if len(violations) > StatusViolationLimit {
+		return violations[:StatusViolationLimit]
+	}
+	return violations
+}
+
+func (s DecisionStatus) Empty() bool {
+	return len(s.Denied) == 0 && len(s.Warned) == 0 && len(s.DryRun) == 0 && len(s.Waived) == 0
 }
 
 func (d Decision) Messages() []string {

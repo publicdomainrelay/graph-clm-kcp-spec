@@ -104,6 +104,10 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 	c.log.Log(ctx, level, "repository populated",
 		"repository", name, "path", path, "commit", commit, "phase", result.Phase,
 		"contexts", result.Total, "summarized", result.Summarized, "raised", result.Raised)
+
+	// The audit runs after the index, so the contexts it marks and the code
+	// graph it reads are the ones this commit produced.
+	c.reconcileRepositoryPolicy(ctx, namespace, repository, path, commit)
 	return c.opts.Resync, nil
 }
 

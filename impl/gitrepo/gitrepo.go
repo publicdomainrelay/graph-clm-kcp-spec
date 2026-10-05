@@ -176,6 +176,15 @@ func Diff(ctx context.Context, dir, base, commit string) (string, error) {
 	return run(ctx, dir, "diff", base, commit)
 }
 
+// DiffWorktree is the patch between a commit and the uncommitted worktree, so
+// a gate can judge what an agent has written before it commits.
+func DiffWorktree(ctx context.Context, dir, base string) (string, error) {
+	if base == "" {
+		return "", nil
+	}
+	return run(ctx, dir, "diff", base)
+}
+
 func FastForward(ctx context.Context, repo, branch, commit string) error {
 	current, err := Branch(ctx, repo)
 	if err != nil {

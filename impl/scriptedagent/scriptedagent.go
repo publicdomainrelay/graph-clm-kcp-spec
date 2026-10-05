@@ -73,6 +73,12 @@ type Scenario struct {
 	Contexts map[string]Draft `json:"contexts"`
 
 	Realize map[string][]Step `json:"realize"`
+
+	// Attempts, when a context names it, replaces Realize for that context
+	// with one step list per attempt: the first realize applies the first
+	// list, the second the second, and a later realize repeats the last. It is
+	// how a scenario writes code a policy denies and then complies.
+	Attempts map[string][][]Step `json:"attempts,omitempty"`
 }
 
 func Load(path string) (*Scenario, error) {
@@ -125,7 +131,7 @@ func (a *Agent) Realize(_ context.Context, request agent.RealizeRequest) (agent.
 	}
 	result := agent.RealizeResult{Summary: fmt.Sprintf("applied the steps of %s", strings.Join(contexts, ", "))}
 	for _, member := range members {
-		steps := a.scenario.Realize[member.Context]
+		steps := a.stepsFor(member.Context, request.Attempt)
 		if len(steps) == 0 {
 			return result, fmt.Errorf("scriptedagent: the scenario has no realize steps for %s", member.Context)
 		}
@@ -138,6 +144,22 @@ func (a *Agent) Realize(_ context.Context, request agent.RealizeRequest) (agent.
 		}
 	}
 	return result, nil
+}
+
+// stepsFor picks the step list of an attempt: the per-attempt list when the
+// scenario has one, else the fixed realize steps.
+func (a *Agent) stepsFor(context string, attempt int) []Step {
+	if byAttempt, ok := a.scenario.Attempts[context]; ok && len(byAttempt) > 0 {
+		index := attempt - 1
+		if index < 0 {
+			index = 0
+		}
+		if index >= len(byAttempt) {
+			index = len(byAttempt) - 1
+		}
+		return byAttempt[index]
+	}
+	return a.scenario.Realize[context]
 }
 
 func apply(dir string, step Step) ([]string, error) {

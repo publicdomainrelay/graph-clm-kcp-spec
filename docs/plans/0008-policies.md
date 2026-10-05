@@ -471,20 +471,100 @@ are pushed.
 
 ### C. kcp integration and the gate
 
-1. Vendored Gatekeeper ConstraintTemplate CRD, constraint CRD generation,
-   install in `deploy/install-specs*.sh`, PolicyChange APIResourceSchema plus
-   APIExport (schemagen; test the name agreement).
-2. Two-way sync with `open-policy/` (persist, restore), branch fallback.
-3. Audit on index: Repository status, `PolicyCompliant` condition, reports on
-   the branch.
-4. Gate in realize: agent feedback on deny, `PolicyDenied`, warn recorded in
-   CHANGES.md, `accept --override policy:<constraint>`.
-5. Live e2e (private kcp) on `fixtures/market-mini`:
-   - a scripted agent writes violating code first, gets the deny messages,
-     complies on attempt 2, and the change ends Succeeded;
-   - a scripted agent that never complies ends Failed with `PolicyDenied`;
-   - a warn-only constraint shows in status and CHANGES.md and does not block;
-   - restore from the branch into a fresh kcp gives the same constraints.
+1. **Done** (`2bd25bd`). Gatekeeper's `ConstraintTemplate` CRD
+   (`templates.gatekeeper.sh/v1`) is vendored under `deploy/crds/gatekeeper/`
+   and installed by `install-specs.sh` and `install-specs-provider.sh`, so
+   `specctl up`, `specctl eval` and every live test serve it. specd creates the
+   constraint CRD of a template with the frameworks' own helper
+   (`client.CreateCRD`), served at `v1beta1` with `spec.parameters` from the
+   template, and reports `status.created` and the `byPod` errors. The new
+   `PolicyChange` kind goes through schemagen into `deploy/crds`,
+   `deploy/apiresourceschemas` and the APIExport; the schema revision is 6 and
+   the name-agreement tests hold it. `Repository.spec.policy`
+   (`branch`/`enforcement`/`disabled`) and `Repository.status.policy`
+   (`policyCommit`/`evaluatedCommit`/`totals`/`violations`) are in the CRD and
+   in `abc/spec`.
+2. **Done** (`c703962`). Two-way sync in `impl/policykcp`: template and
+   constraint objects, `Files`/`Stale` for the branch, `Read`/`Apply` for kcp.
+   specd restores the branch into kcp when a Repository is created (or its
+   status has no policy commit yet), persists kcp edits back to the branch
+   (rebuilding `dist/` and `CATALOGUE.md`), and reconciles both directions on
+   every Repository resync. `specctl policy apply -f F|--library D`, `restore`,
+   `ls` and `report` drive it by hand.
+3. **Done** (`c703962`). The audit runs after the index on every Repository
+   reconcile whose commit or policy commit moved: it evaluates the library
+   against the head CodeGraph with the Repository and its SystemContexts in
+   inventory, fills `Repository.status.policy`, sets `PolicyCompliant` on each
+   context (False when a deny or warn violation names it or a file it owns),
+   and writes `reports/<code branch>.yaml` to the policy branch.
+4. **Done** (`c703962`). The gate runs in `runGates` after verify and before
+   acceptance, reviewing the worktree CodeGraph, the change's CodeDiff and the
+   SpecChanges, all of them also in inventory. A deny returns a `PolicyError`:
+   the change fails with `PolicyDenied: <constraint>: <msg>` and those messages
+   are the next attempt's agent log. Warn and dryrun are recorded in
+   `SpecChange.status.policy` and warn also in `CHANGES.md`.
+   `specctl accept --override policy:<constraint>` reuses
+   `acceptanceOverrides`, is consumed once the commit lands and sets
+   `AcceptanceOverridden`. The Repository enforcement cap applies.
+5. **Done** (`6d1dfe4`, `dab3863`, `TestPolicy*` in
+   `test/e2e/policy_live_test.go`): a private kcp, `fixtures/market-mini` and
+   `examples/policies/market-mini`.
+   - the first attempt writes the violating `lib/requester/mod.ts`, fails with
+     the deny messages in its agent log, and the second attempt complies and
+     lands (the scripted agent learned per-attempt step lists);
+   - an agent that never complies ends the episode `Failed` with
+     `PolicyDenied` and nothing lands;
+   - a warn-only constraint lands, shows in `SpecChange.status.policy` and in
+     the change record on the branch;
+   - `specctl accept --override policy:relay-only-ssh` waives the deny once and
+     is consumed;
+   - restore into a fresh kcp yields the same templates and constraints, and
+     `specctl policy ls|restore|apply` drive kcp;
+   - the audit sets `PolicyCompliant` False on the context that owns the
+     violating file and fills `Repository.status.policy` totals;
+   - `TestPolicyLibrariesApplyWholeIntoKcp` seeds
+     `examples/policies/market-mini`, `examples/policies/atproto-market` and
+     `policies/library` onto policy branches, restores each branch into kcp and
+     asserts every template's constraint CRD is `Established` and every
+     constraint is applied.
+
+   **What held the phase C branch back** (`dab3863`): the branch merged with
+   phase B, so `examples/policies/market-mini` grew from the phase A
+   placeholder to the four real templates and three live tests timed out. Three
+   separate causes, none of them in the restore itself:
+
+   - **The tests were written against the placeholder.** They asserted one
+     template named `nodirectguestconnect`, its deny message and the override
+     `policy:no-direct-guest-connect`; the real library holds four templates
+     and `relay-only-ssh` is the one that judges a requester. The violating
+     scenario was a probe under `test/` as well, which the real policy cannot
+     see: the codegraph indexer gives a test file a file node and its imports,
+     not the body of `Deno.test`, so `relay-only-ssh` reaches the production
+     code the test imports. The scenario rewrites `lib/requester/mod.ts` now.
+   - **kcp metadata leaked into the comparison.** kcp adds `kcp.io/cluster` to
+     every object it serves, and the kcp form of a template carries the slug as
+     an annotation while the branch keeps it in the directory name. Both sides
+     of `policykcp.Distinct` therefore always differed, so the reconcile took
+     the kcp-to-branch direction once per restore and wrote cluster metadata
+     into the policy branch (it stopped there only because the branch then
+     matched kcp). `ParseTemplateObject` drops both now and `Files` writes the
+     branch header the way `specctl policy build` does.
+   - **A failing template hid the rest.** `Apply` returned at the first error,
+     so a restore that could not create one constraint CRD left kcp half
+     applied and the wait timed out with nothing to read. It now attempts every
+     member, records the reason in the ConstraintTemplate `status.byPod` errors
+     and returns every failure joined; specd logs the restore, persist and
+     read failures; the live waits report the Repository policy condition and
+     the per-template statuses they last saw (`waitForState`).
+
+   Two more fixes came out of the same run: `codegraphsqlite.Ensure` resolved a
+   relative repository path against the child process working directory, which
+   is the repository path itself, so a cold index landed in a nested directory
+   and `TestExamplePoliciesOverFixtures` failed on a clean checkout; and the
+   audit and the gate now compute `CodeGraph.spec.effects` through
+   `impl/effects` (`effects.Dirs` for the worktree's own classifier packs) the
+   way `specctl policy eval` does, so a policy that reads effects behaves the
+   same in kcp as offline.
 
 ### D. Generation
 

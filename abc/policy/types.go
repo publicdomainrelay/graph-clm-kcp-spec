@@ -30,6 +30,8 @@ const (
 	AnnotationSeverity     = Group + "/severity"
 	AnnotationRequirements = Group + "/requirements"
 	AnnotationGeneratedBy  = Group + "/generated-by"
+
+	AnnotationSlug = Group + "/slug"
 )
 
 type Enforcement string
@@ -181,6 +183,7 @@ func ParseTemplate(header, rego []byte) (Template, error) {
 		}
 		template.Libs = append(template.Libs, target.Libs...)
 	}
+	template.Slug = template.Annotations[AnnotationSlug]
 	template.Title = template.Annotations[AnnotationTitle]
 	template.Level = Level(template.Annotations[AnnotationLevel])
 	template.Severity = Severity(template.Annotations[AnnotationSeverity])

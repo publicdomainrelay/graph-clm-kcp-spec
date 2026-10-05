@@ -53,6 +53,14 @@ func runPolicy(args []string, stdout, stderr io.Writer) int {
 		return runPolicyEffects(rest, stdout, stderr)
 	case "model":
 		return runPolicyModel(rest, stdout, stderr)
+	case "apply":
+		return runPolicyApply(rest, stdout, stderr)
+	case "ls":
+		return runPolicyLs(rest, stdout, stderr)
+	case "report":
+		return runPolicyReport(rest, stdout, stderr)
+	case "restore":
+		return runPolicyRestore(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, policyUsage)
 		return exitOK
@@ -100,6 +108,17 @@ usage:
       build the ArchitectureModel (components, roles, effects, flows, triggers)
       from the CodeGraph, the effects, the SystemContexts and the roles and
       vocabulary of policies.yaml
+  specctl policy apply -f F | --library D [--prune]
+      write ConstraintTemplates, their constraint CRDs and their constraints
+      into kcp
+  specctl policy restore --repo X [--path <git repo>] [--branch B] [--prune]
+      load the policy branch open-policy/X[--<branch slug>] into kcp; specd
+      does the same when a Repository is created
+  specctl policy ls [-o table|json|name]
+      the templates and constraints kcp holds
+  specctl policy report --repo X [-o text|json]
+      the last audit: the policy commit, the evaluated commit, the totals and
+      the first violations of Repository.status.policy
 
 gator suite paths: a suite in <dir>/tests/<name>/suite.yaml references the
 built template as ../../dist/<name>.yaml, so run 'policy build' before
@@ -839,14 +858,7 @@ func classifierDirs(worktree string, explicit []string) []string {
 	if len(explicit) > 0 {
 		return explicit
 	}
-	if worktree == "" {
-		return nil
-	}
-	candidate := filepath.Join(worktree, effects.ClassifiersDir)
-	if _, err := os.Stat(candidate); err == nil {
-		return []string{candidate}
-	}
-	return nil
+	return effects.Dirs(worktree)
 }
 
 func printEffects(out io.Writer, repository, commit string, computed []policy.Effect) {

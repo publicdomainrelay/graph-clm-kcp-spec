@@ -63,9 +63,14 @@ type AcceptanceStep struct {
 	Env map[string]string `json:"env,omitempty"`
 }
 
+// PolicyOverridePrefix marks an acceptance override that waives a policy
+// constraint for one change rather than an acceptance step.
+const PolicyOverridePrefix = "policy:"
+
 // AcceptanceOverride lets an operator land one commit past a red gating
-// acceptance step. It is one shot: specd removes the entry it consumed after
-// the commit lands, so the next realization is gated again.
+// acceptance step, or past one policy constraint. It is one shot: specd
+// removes the entry it consumed after the commit lands, so the next
+// realization is gated again.
 type AcceptanceOverride struct {
 	Step string `json:"step"`
 
@@ -76,12 +81,57 @@ type AcceptanceOverride struct {
 	At string `json:"at,omitempty"`
 }
 
+// RepositoryPolicySpec configures the policy branch of a repository. The
+// enforcement cap can downgrade a deny the templates declare, and disabled
+// turns every violation into a dryrun, during a migration.
+type RepositoryPolicySpec struct {
+	Branch string `json:"branch,omitempty"`
+
+	Enforcement string `json:"enforcement,omitempty"`
+
+	Disabled bool `json:"disabled,omitempty"`
+}
+
+// PolicyViolation is one policy finding as the status records it: the report
+// keeps the full objects, the status keeps the first fifty in a compact form.
+type PolicyViolation struct {
+	Policy string `json:"policy,omitempty"`
+
+	Constraint string `json:"constraint,omitempty"`
+
+	Enforcement string `json:"enforcementAction,omitempty"`
+
+	Severity string `json:"severity,omitempty"`
+
+	Msg string `json:"msg,omitempty"`
+
+	Object string `json:"object,omitempty"`
+
+	File string `json:"file,omitempty"`
+
+	Line int `json:"line,omitempty"`
+}
+
+type PolicyStatus struct {
+	PolicyCommit string `json:"policyCommit,omitempty"`
+
+	EvaluatedCommit string `json:"evaluatedCommit,omitempty"`
+
+	Totals map[string]int `json:"totals,omitempty"`
+
+	Violations []PolicyViolation `json:"violations,omitempty"`
+
+	Message string `json:"message,omitempty"`
+}
+
 type RepositorySpec struct {
 	Path   string            `json:"path,omitempty"`
 	Source *RepositorySource `json:"source,omitempty"`
 	Branch string            `json:"branch,omitempty"`
 	Verify []string          `json:"verify,omitempty"`
 	Agent  *AgentSpec        `json:"agent,omitempty"`
+
+	Policy *RepositoryPolicySpec `json:"policy,omitempty"`
 
 	Acceptance []AcceptanceStep `json:"acceptance,omitempty"`
 
@@ -105,6 +155,7 @@ type RepositoryStatus struct {
 	Contexts           *PopulateCounts         `json:"contexts,omitempty"`
 	PopulateRequest    string                  `json:"populateRequest,omitempty"`
 	OpenArchitecture   *OpenArchitectureStatus `json:"openArchitecture,omitempty"`
+	Policy             *PolicyStatus           `json:"policy,omitempty"`
 	Conditions         []metav1.Condition      `json:"conditions,omitempty"`
 }
 
@@ -302,6 +353,27 @@ type AcceptanceResult struct {
 	OverrideReason string `json:"overrideReason,omitempty"`
 }
 
+// PolicyGateStatus is what the realize gate recorded about one change: the
+// violations the repository cap and the operator's one-shot overrides left in
+// each bucket, with the deny count that failed the gate.
+type PolicyGateStatus struct {
+	Denied []PolicyViolation `json:"denied,omitempty"`
+
+	Warned []PolicyViolation `json:"warned,omitempty"`
+
+	DryRun []PolicyViolation `json:"dryRun,omitempty"`
+
+	Waived []PolicyViolation `json:"waived,omitempty"`
+
+	Capped []PolicyViolation `json:"capped,omitempty"`
+
+	Message string `json:"message,omitempty"`
+}
+
+func (s *PolicyGateStatus) Empty() bool {
+	return s == nil || (len(s.Denied) == 0 && len(s.Warned) == 0 && len(s.DryRun) == 0 && len(s.Waived) == 0)
+}
+
 type SpecChangeStatus struct {
 	Phase string `json:"phase,omitempty"`
 
@@ -318,6 +390,8 @@ type SpecChangeStatus struct {
 	Progress []ProgressRecord `json:"progress,omitempty"`
 
 	RequirementCoverage []RequirementVerdict `json:"requirementCoverage,omitempty"`
+
+	Policy *PolicyGateStatus `json:"policy,omitempty"`
 
 	Attempt int `json:"attempt,omitempty"`
 

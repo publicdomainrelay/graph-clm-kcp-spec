@@ -64,23 +64,27 @@ func Ensure(ctx context.Context, repoPath, tool string) (string, error) {
 	if _, err := exec.LookPath(tool); err != nil {
 		return "", fmt.Errorf("codegraphsqlite: %s is not on PATH: %w", tool, err)
 	}
-	dbPath := DatabasePath(repoPath)
+	root, err := filepath.Abs(repoPath)
+	if err != nil {
+		return "", fmt.Errorf("codegraphsqlite: resolve %s: %w", repoPath, err)
+	}
+	dbPath := DatabasePath(root)
 	action := "sync"
 	args := []string{"sync", "-q"}
 	if _, err := os.Stat(dbPath); err != nil {
 		action = "init"
 		args = []string{"init", "-y"}
 	}
-	args = append(args, repoPath)
+	args = append(args, root)
 	command := exec.CommandContext(ctx, tool, args...)
-	command.Dir = repoPath
+	command.Dir = root
 	if output, err := command.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("codegraphsqlite: %s %s: %w: %s", tool, action, err, strings.TrimSpace(string(output)))
 	}
 	if _, err := os.Stat(dbPath); err != nil {
 		return "", fmt.Errorf("codegraphsqlite: %s did not create %s: %w", action, dbPath, err)
 	}
-	if err := excludeLocally(ctx, repoPath, Directory+"/"); err != nil {
+	if err := excludeLocally(ctx, root, Directory+"/"); err != nil {
 		return "", err
 	}
 	return dbPath, nil

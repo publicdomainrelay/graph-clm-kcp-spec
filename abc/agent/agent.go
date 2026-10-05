@@ -109,6 +109,8 @@ type RealizeRequest struct {
 
 	Instruction string
 
+	Attempt int
+
 	Budget int
 
 	Members []RealizeMember

@@ -12,6 +12,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
@@ -247,10 +248,18 @@ func applyOne(ctx context.Context, client *kcpclient.Client, object *unstructure
 		fmt.Fprintf(stderr, "specctl apply: %v\n", err)
 		return false
 	}
-	spec.SetDefaults(typed)
-	if result := spec.ValidateAny(typed); !result.OK() {
-		fmt.Fprintf(stderr, "specctl apply: %s/%s is invalid: %v\n", object.GetKind(), object.GetName(), result.Err())
-		return false
+	if change, ok := typed.(*policy.PolicyChange); ok {
+		change.SetDefaults()
+		if err := policy.ValidatePolicyChange(change); err != nil {
+			fmt.Fprintf(stderr, "specctl apply: %s/%s is invalid: %v\n", object.GetKind(), object.GetName(), err)
+			return false
+		}
+	} else {
+		spec.SetDefaults(typed)
+		if result := spec.ValidateAny(typed); !result.OK() {
+			fmt.Fprintf(stderr, "specctl apply: %s/%s is invalid: %v\n", object.GetKind(), object.GetName(), result.Err())
+			return false
+		}
 	}
 
 	stamped, err := kcpclient.Unstructured(typed)
@@ -432,11 +441,12 @@ usage:
       instances run side by side; a fixed port still works
   specctl kcp stop [--root <dir>]
   specctl kcp endpoint [--root <dir>] [-o json|sh]
-  specctl policy init|new|build|test|eval
+  specctl policy init|new|build|test|eval|apply|restore|ls|report
       policies over the spec objects and the code: create the open-policy/<repo>
       branch, scaffold a Gatekeeper template, build dist/, run the opa unit
-      tests and the gator suites through the built-in engine, and audit a
-      checkout or a commit without a controller
+      tests and the gator suites through the built-in engine, audit a checkout
+      or a commit without a controller, apply a library or restore a branch
+      into kcp, list what kcp holds and print the last audit
   specctl eval [--fixtures fixtures] [--agent claude|claude-mod|pi]
       [--scenarios <glob>] [--out docs/eval/run-<date>.md]
       one Repository manifest per fixture, then one spec edit per scenario
@@ -447,7 +457,7 @@ usage:
       owns.
 
 kinds:
-  repository, systemcontext, specchange
+  repository, systemcontext, specchange, policychange
 
 global flags:
   --kubeconfig <path>   kcp kubeconfig (default $SPECD_KUBECONFIG or .kcp-specd/admin.kubeconfig)

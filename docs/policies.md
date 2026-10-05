@@ -119,9 +119,10 @@ Metadata lives in the ConstraintTemplate annotations, not in the rule body:
 
 A `Repository` may cap enforcement during a migration, and a single gate
 decision can be waived with `specctl accept --override policy:<constraint>`.
-That decision lives in `abc/policy` (`policy.Decide`); wiring it into the kcp
-gate is plan 0008 phase C, so nothing in this phase enforces a violation
-online.
+That decision lives in `abc/policy` (`policy.Decide`) and the kcp gate applies
+it (plan 0008 phase C): the audit records the violations,
+`Repository.status.policy` totals them, and a `deny` in a realize fails the
+change with reason `PolicyDenied`.
 
 ## The CodeGraph
 
@@ -139,9 +140,15 @@ spec:
   files:  [{path, language, context, test, sha256, size}]
   nodes:  [{id, kind, name, qualifiedName, file, startLine, endLine, exported, context, text}]
   edges:  [{source, target, kind, line}]
+  effects: [{id, component, kind, attrs, file, line, node}]
   texts:  {<path>: <file text>}
 ```
 
+- `effects` is computed from the nodes, the file texts and the classifier
+  packs (`impl/effects`; see plan 0009 G1), not read from the index. Every
+  path that evaluates policies adds it to the same graph: `specctl policy
+  eval`, the specd audit and the realize gate. The packs a worktree adds under
+  its own `classifiers/` directory are loaded beside the embedded ones.
 - Node and edge data come from the codegraph sqlite index. Edge kinds are
   `calls`, `imports`, `contains`, `references`, `instantiates`, `implements`
   and `extends`.

@@ -119,15 +119,21 @@ func (b *builder) checkAcceptanceOverrides(overrides []AcceptanceOverride, steps
 	seen := map[string]bool{}
 	for index, override := range overrides {
 		path := fmt.Sprintf("spec.acceptanceOverrides[%d]", index)
+		if seen[override.Step] {
+			b.add(path+".step", "%q is not unique", override.Step)
+		}
+		seen[override.Step] = true
 		switch {
 		case override.Step == "":
 			b.add(path+".step", "is required")
+		case strings.HasPrefix(override.Step, PolicyOverridePrefix):
+			// A policy override waives one constraint for one change; the
+			// constraint need not be an acceptance step.
+			if override.Step == PolicyOverridePrefix {
+				b.add(path+".step", "policy: needs a constraint name")
+			}
 		case !known[override.Step]:
 			b.add(path+".step", "%q is not an acceptance step", override.Step)
-		case seen[override.Step]:
-			b.add(path+".step", "%q is not unique", override.Step)
-		default:
-			seen[override.Step] = true
 		}
 		if override.Reason == "" {
 			b.add(path+".reason", "is required")

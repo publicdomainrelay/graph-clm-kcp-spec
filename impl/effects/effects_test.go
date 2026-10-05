@@ -205,3 +205,29 @@ func TestApplyWritesEffectsOntoGraph(t *testing.T) {
 		t.Fatalf("graph effects not written: %+v", graph.Spec.Effects)
 	}
 }
+
+func TestDirsNamesTheWorktreePacksOnlyWhenPresent(t *testing.T) {
+	if got := Dirs(""); got != nil {
+		t.Errorf("Dirs(\"\") = %v", got)
+	}
+	empty := t.TempDir()
+	if got := Dirs(empty); got != nil {
+		t.Errorf("Dirs of a worktree without classifiers/ = %v", got)
+	}
+	withPacks := t.TempDir()
+	dir := filepath.Join(withPacks, ClassifiersDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := Dirs(withPacks)
+	if len(got) != 1 || got[0] != dir {
+		t.Errorf("Dirs = %v, want [%s]", got, dir)
+	}
+	packs, err := Packs(Options{ClassifiersDirs: got})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packs) == 0 {
+		t.Error("the embedded packs are missing")
+	}
+}
