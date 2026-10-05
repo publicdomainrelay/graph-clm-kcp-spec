@@ -143,17 +143,15 @@ func TestPhase8TheModPathReportsIntoKcp(t *testing.T) {
 	}
 
 	running := phase8RunChange(t, ctx, client, "calc")
-	folded := runSpecctl(t, ctx, specctl, root, []byte(addInterface(rendered, spec.Interface{
+	queued := runSpecctl(t, ctx, specctl, root, []byte(addInterface(rendered, spec.Interface{
 		Name: "Multiply", Kind: "function", Signature: "func Multiply(a, b int) int", File: "calc/calc.go",
 	})), "clm", "apply", "--context", "calc")
-	foldedContext := getContext(t, ctx, client, "calc")
-	if got := len(changesFor(liveSpecChanges(t, ctx, client), "calc", specapi.DirectionSpecToCode)); got != 2 {
-		t.Errorf("spec to code changes = %d, want the raised one and the running one: the model's second edit folded", got)
+	if !strings.Contains(queued, "\"interfaces\"") {
+		t.Errorf("the queued apply printed no delta:\n%s", queued)
 	}
-	if !strings.Contains(folded, "\"interfaces\"") {
-		t.Errorf("the folded apply printed no delta:\n%s", folded)
-	}
-	_ = foldedContext
+	waitFor(t, ctx, "the second edit's own change", func() bool {
+		return len(changesFor(liveSpecChanges(t, ctx, client), "calc", specapi.DirectionSpecToCode)) == 3
+	})
 
 	report := runSpecctl(t, ctx, specctl, root, nil, "clm", "report",
 		"--change", running,
