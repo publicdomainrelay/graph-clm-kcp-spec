@@ -1,0 +1,23 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: SecurityDisabledVerification
+metadata:
+  name: security-disabled-verification
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - CodeDiff
+  parameters:
+    disabledVerificationPatterns:
+    - --validate=false
+    - --insecure\b
+    - InsecureSkipVerify
+    - rejectUnauthorized\s*:\s*false
+    - \bcurl\b[^\n]*\s-[A-Za-z]*k
+    commentPatterns:
+    - ^\s*#
+    - ^\s*//
+    - ^\s*\*

@@ -1,0 +1,21 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: provisioning-container-in-test
+tests:
+  - name: provisioning-container-in-test
+    template: ../../dist/provisioning-container-in-test.yaml
+    constraint: ../../constraints/provisioning-container-in-test.yaml
+    cases:
+      - name: allowed
+        object: inventory/codediff-allowed.yaml
+        inventory:
+          - inventory/codediff-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-container-in-test
+        object: inventory/codediff-denied.yaml
+        inventory:
+          - inventory/codediff-denied.yaml
+        assertions:
+          - violations: 2

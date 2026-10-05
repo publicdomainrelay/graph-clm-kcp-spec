@@ -1,0 +1,29 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: ProvisioningCloudInitBypass
+metadata:
+  name: provisioning-cloud-init-bypass
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - CodeDiff
+  parameters:
+    userDataPatterns:
+    - user_data
+    - userData
+    - cloud-init
+    - cloud_config
+    - cloud-config
+    bypassPatterns:
+    - skip
+    - bypass
+    - without
+    - disable
+    - no-user-data
+    - no-userdata
+    allowPatterns:
+    - ^\s*#
+    - ^\s*//

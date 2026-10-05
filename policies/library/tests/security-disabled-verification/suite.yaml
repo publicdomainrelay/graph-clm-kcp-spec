@@ -1,0 +1,21 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: security-disabled-verification
+tests:
+  - name: security-disabled-verification
+    template: ../../dist/security-disabled-verification.yaml
+    constraint: ../../constraints/security-disabled-verification.yaml
+    cases:
+      - name: allowed
+        object: inventory/codediff-allowed.yaml
+        inventory:
+          - inventory/codediff-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-disabled-verification
+        object: inventory/codediff-denied.yaml
+        inventory:
+          - inventory/codediff-denied.yaml
+        assertions:
+          - violations: 1

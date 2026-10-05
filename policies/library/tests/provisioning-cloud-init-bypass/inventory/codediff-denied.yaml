@@ -1,0 +1,14 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeDiff
+metadata:
+  name: atproto-market
+  namespace: default
+spec:
+  base: d20070c0000000000000000000000000000000aa
+  head: ffac22e0000000000000000000000000000000bb
+  files:
+    - path: scripts/bring-up-guest.sh
+      status: modified
+      added:
+        - line: 14
+          text: 'launch_guest --user_data=/dev/null  # bypass the RFP flow'

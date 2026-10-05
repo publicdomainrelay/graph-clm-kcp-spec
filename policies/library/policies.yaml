@@ -1,0 +1,7 @@
+defaultEnforcement: deny
+repository: library
+testGlobs:
+- test/**
+- '**/*_test.go'
+- '**/*_test.ts'
+version: "1"
