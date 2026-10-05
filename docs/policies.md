@@ -130,6 +130,26 @@ it (plan 0008 phase C): the audit records the violations,
 `Repository.status.policy` totals them, and a `deny` in a realize fails the
 change with reason `PolicyDenied`.
 
+The manifest can override the action a constraint ships with. `enforcement` is
+a list of `<name glob>`/`action` pairs, applied in order, the last match
+winning:
+
+```yaml
+enforcement:
+- {name: '*', action: warn}
+- {name: provisioning-*, action: deny}
+```
+
+Every load applies the list -- `policy build`, `policy test`, `policy eval`, the
+spec-time gate and the audit alike -- to the library's own constraints and to
+the constraints an imported pack contributes. It is the only override that
+reaches a pack's constraints, which live in the pack and not in any file the
+repository holds, so it is what `scripts/example-pr.sh` writes for
+`POLICY_ENFORCEMENT`. The name is read as a glob (`path.Match`); a constraint
+nothing matches keeps the action it shipped with, and an action that is not
+`deny`, `warn` or `dryrun` fails the load. `CATALOGUE.md` shows the action in
+force after the override.
+
 ## The CodeGraph
 
 `CodeGraph` is one object per repository and commit. `impl/codegraphfacts`
@@ -597,7 +617,8 @@ inventory paths.
 Policies are stored like the architecture: a branch with no parent commit.
 
 ```
-policies.yaml                    PolicyLibrary manifest: repository, version, testGlobs, default enforcement
+policies.yaml                    PolicyLibrary manifest: repository, version, testGlobs, default enforcement, enforcement overrides
+policies.lock                    the resolved pack digests a build pins (generated)
 lib/specd.rego                   the shared library (refreshed by `specctl policy build`)
 lib/specd_test.rego              the library's own opa unit tests
 templates/<slug>/src.rego        the rule: package <slug>, violation[{"msg","details"}]
@@ -631,9 +652,10 @@ bin/specctl policy test  --dir /tmp/policies --gator
 ```
 
 A library that already exists as a directory -- `examples/policies/<repo>`, or a
-branch of another repository -- is seeded with `--from`, which copies its
-templates, constraints and suites, takes `--repo` as the manifest's repository,
-and rebuilds the rest:
+branch of another repository -- is seeded with `--from`, which copies the
+directory's own templates, constraints and suites, keeps the `imports` its
+manifest declares and its `policies.lock`, takes `--repo` as the manifest's
+repository, and rebuilds the rest:
 
 ```bash
 bin/specctl policy init  --path /path/to/clone --repo deno-kcp --branch spec/x \
@@ -644,11 +666,18 @@ bin/specctl policy build --path /path/to/clone --repo deno-kcp --branch spec/x \
 
 The first command writes the orphan branch `open-policy/deno-kcp--spec-x`
 (`--branch` picks the code branch the policy branch belongs to; without it the
-branch is `open-policy/deno-kcp`); the second refreshes `lib/specd.rego` and
-renders `dist/` and `CATALOGUE.md` from what the branch now holds. Everything
-the source directory carries is copied except the generated files, so the result
-is what `specctl policy build` would have produced had the library been authored
-on the branch.
+branch is `open-policy/deno-kcp`); the second refreshes `lib/specd.rego`,
+resolves the imports and renders `dist/` and `CATALOGUE.md` from what the branch
+now holds. Everything the source directory carries is copied except the
+generated files, so the result is what `specctl policy build` would have
+produced had the library been authored on the branch. An imported pack is the
+exception: its templates and constraints live in the pack, so the seed keeps
+only the `imports` entry and the lock that pins it, and `policy build` is what
+merges them -- the seed's own `dist/` and `CATALOGUE.md` cover the directory's
+own templates, and the build adds the pack's. `--enforcement SPEC` writes the
+manifest's enforcement overrides while it seeds
+(`--enforcement '*=warn,provisioning-*=deny'`), so a run's enforcement reaches
+the pack's constraints too.
 
 | slug | reviews | denies | origin |
 | --- | --- | --- | --- |

@@ -1158,6 +1158,9 @@ PUSH=1 POLICY_LIBRARY=$HYDRA/examples/policies/deno-kcp \
 ```bash
 cp -r examples/policies/deno-kcp $WORK/policy-deno-kcp        # a run copy
 # apply POLICY_ENFORCEMENT (default: *=warn security-disabled-verification=deny provisioning-*=deny)
+# as the manifest's enforcement: list, so it reaches an imported pack's constraints too
+specctl policy init  --dir $WORK/policy-deno-kcp --repo deno-kcp \
+  --from $WORK/policy-deno-kcp --enforcement "$POLICY_ENFORCEMENT"
 specctl policy init  --path $WORK/deno-kcp --repo deno-kcp --branch $BRANCH \
   --default-branch main --from $WORK/policy-deno-kcp
 specctl policy build --path $WORK/deno-kcp --repo deno-kcp --branch $BRANCH \
@@ -1165,13 +1168,20 @@ specctl policy build --path $WORK/deno-kcp --repo deno-kcp --branch $BRANCH \
 export SPECD_POLICY_LIBRARY=$WORK/policy-deno-kcp             # the spec-time gate
 ```
 
-`specctl policy init --from DIR` copies the library onto
-`open-policy/deno-kcp--<branch slug>`; `build` refreshes `lib/specd.rego` and
-renders `dist/` and `CATALOGUE.md`. specd restores that branch into kcp on the
-Repository's first reconcile, which is what runs the audit and fills
-`Repository.status.policy`; the realize gate reads the same branch. The
-spec-time gate reads the directory, so it sees the same eight templates with the
-enforcement this run asked for.
+`specctl policy init --from DIR` copies the library's own templates, constraints
+and suites onto `open-policy/deno-kcp--<branch slug>` and keeps the `imports` it
+declares with the lock that pins them; `build` refreshes `lib/specd.rego`,
+resolves the imports and renders `dist/` and `CATALOGUE.md`. specd restores that
+branch into kcp on the Repository's first reconcile, which is what runs the
+audit and fills `Repository.status.policy`; the realize gate reads the same
+branch. The spec-time gate reads the directory, so it sees what the directory
+holds: the library's own templates plus, at build, the pack's. The enforcement
+this run asks for is a manifest rule, not an edit to a constraint file, so it
+reaches the pack's constraints too.
+
+The run above predates the import: the library then carried its own eight
+templates and nothing else, so the spec-time gate read exactly those. A rerun
+after plan 0009 G4 resolves `rfp-guest-isolation` and reads thirteen.
 
 Timings, from the run's own logs:
 

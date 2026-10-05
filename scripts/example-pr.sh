@@ -51,21 +51,26 @@
 #   POLICY_LIBRARY
 #               a policy directory (policies.yaml, templates/, constraints/).
 #               Before specd starts, it is copied into $WORK/policy-<repo>, its
-#               constraints get the enforcement POLICY_ENFORCEMENT asks for, its
-#               library is written to the clone's orphan branch
-#               open-policy/<repo>[--<branch slug>] with the same commands a
-#               user would run (`specctl policy init --from` then `specctl
-#               policy build`, so lib/, dist/ and CATALOGUE.md are rebuilt), and
-#               the directory is handed to specd as SPECD_POLICY_LIBRARY for the
-#               spec-time gate. specd then restores the branch into kcp (the
-#               audit runs) and the realize gate reads it. Empty (the default)
-#               turns policies off and the run is the one PR #1 came from.
+#               constraints get the enforcement POLICY_ENFORCEMENT asks for --
+#               written into the manifest, so it reaches an imported pack's
+#               constraints too -- its library is written to the clone's orphan
+#               branch open-policy/<repo>[--<branch slug>] with the same
+#               commands a user would run (`specctl policy init --from` then
+#               `specctl policy build`, so lib/, dist/ and CATALOGUE.md are
+#               rebuilt and the imports resolve), and the directory is handed
+#               to specd as SPECD_POLICY_LIBRARY for the spec-time gate. specd
+#               then restores the branch into kcp (the audit runs) and the
+#               realize gate reads it. Empty (the default) turns policies off
+#               and the run is the one PR #1 came from.
 #   POLICY_ENFORCEMENT
 #               the enforcement each constraint gets, as whitespace- or
 #               comma-separated <name glob>=<deny|warn|dryrun> entries applied
 #               in order, the last match winning; a constraint nothing matches
-#               keeps the action the library ships. Ignored without
-#               POLICY_LIBRARY. Default:
+#               keeps the action the library ships. It is written into the
+#               manifest's `enforcement:` list, which a load applies to the
+#               library's own constraints and to an imported pack's alike (a
+#               pack's constraints live in the pack, so editing a file would
+#               miss them). Ignored without POLICY_LIBRARY. Default:
 #                 *=warn security-disabled-verification=deny provisioning-*=deny
 #               -- the two rule families that are non-negotiable deny, written
 #               after a warn default, so a first gated run is not stopped by a
@@ -149,6 +154,13 @@ if [ -n "$POLICY_LIBRARY" ]; then
   rm -rf "$POLICY_DIR"
   cp -r "$POLICY_LIBRARY" "$POLICY_DIR"
   rm -rf "$POLICY_DIR/dist" "$POLICY_DIR/reports" "$POLICY_DIR/CATALOGUE.md" "$POLICY_DIR/.gitattributes"
+  # The enforcement is written into the manifest, not into the constraint
+  # files: an imported pack's constraints live in the pack, so an override that
+  # only edited files would miss them. specctl applies a manifest rule to the
+  # library's own constraints and to the pack's alike, at every load -- the
+  # spec-time gate reads this directory, build reads it on the branch.
+  specctl policy init --dir "$POLICY_DIR" --repo "$REPO" --from "$POLICY_DIR" \
+    --enforcement "$POLICY_ENFORCEMENT" >/dev/null
   POLICY_DIR="$POLICY_DIR" POLICY_ENFORCEMENT="$POLICY_ENFORCEMENT" python3 - <<'PY' | tee "$WORK/policy-enforcement.txt"
 import os, re, sys
 from fnmatch import fnmatch
@@ -179,15 +191,13 @@ for entry in sorted(os.listdir(directory)):
     for pattern, wanted in rules:
         if fnmatch(name, pattern):
             action = wanted
-    text = text[: shipped.start(2)] + action + text[shipped.end(2) :]
-    with open(path, "w") as handle:
-        handle.write(text)
     print(f"{name}\t{shipped.group(2)}\t{action}")
+print("note: an imported pack's constraints take the same rules; they resolve at policy build")
 PY
   # The branch is written the way a user writes it: init creates the tree from
-  # the library, build refreshes lib/specd.rego and renders dist/ and
-  # CATALOGUE.md. specd reads this branch on the Repository's first reconcile,
-  # restores it into kcp and audits the indexed commit.
+  # the library, build refreshes lib/specd.rego, resolves the imports and
+  # renders dist/ and CATALOGUE.md. specd reads this branch on the Repository's
+  # first reconcile, restores it into kcp and audits the indexed commit.
   specctl policy init --path "$PWD" --repo "$REPO" --branch "$BRANCH" \
     --default-branch "$DEFAULT_BRANCH" --from "$POLICY_DIR"
   specctl policy build --path "$PWD" --repo "$REPO" --branch "$BRANCH" \

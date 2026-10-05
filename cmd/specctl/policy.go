@@ -76,15 +76,22 @@ the spec objects and the code.
 
 usage:
   specctl policy init [--repo X] [--dir D | --path <git repo>] [--branch B] [--default-branch main]
-      [--with-library | --from DIR]
+      [--with-library | --from DIR] [--enforcement SPEC]
       create the policy tree: policies.yaml, lib/specd.rego, lib/specd_test.rego.
       --dir writes a plain directory; --path writes the orphan branch
       open-policy/X[--<branch slug>]; --with-library also copies the embedded
       policy library: the ported change-integrity, spec-structure, provisioning
       and disabled-verification templates with their constraints and gator suites;
-      --from DIR seeds the tree from an existing policy directory instead: its
-      templates, constraints and suites are copied, the manifest takes --repo as
-      its repository, and lib/, dist/ and CATALOGUE.md are rebuilt
+      --from DIR seeds the tree from an existing policy directory instead: the
+      directory's own templates, constraints and suites are copied and its
+      imports and policies.lock are kept -- an imported pack is not copied, it
+      resolves when 'policy build' runs -- the manifest takes --repo as its
+      repository, and lib/, dist/ (the directory's own templates) and
+      CATALOGUE.md are rebuilt;
+      --enforcement SPEC writes the manifest's enforcement overrides, as
+      whitespace- or comma-separated <name glob>=<deny|warn|dryrun> entries
+      applied in order, the last match winning; a load applies them to the
+      library's own constraints and to an imported pack's alike
   specctl policy new <name> --kind <Kind> [--title T] [--level MUST] [--pattern P]
       [--dir D | --path <git repo>] [--repo X]
       scaffold src.rego, src_test.rego, template.yaml, the constraint and a
@@ -206,9 +213,12 @@ func (t policyTarget) load(ctx context.Context) (policy.Library, error) {
 }
 
 // resolveLibraryImports merges the packs a library imports. The lock the
-// library carries pins them; verify refuses a pack that moved.
+// library carries pins them; verify refuses a pack that moved. The manifest's
+// enforcement rules are applied either way, so a library that imports nothing
+// still gets them.
 func resolveLibraryImports(library policy.Library, verify bool) (policy.Library, []policy.LockEntry, error) {
 	if len(library.Manifest.Imports) == 0 {
+		library.ApplyEnforcement()
 		return library, nil, nil
 	}
 	lock := policy.PackLock{}
@@ -251,12 +261,18 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 	fs.Var(&testGlobs, "test-glob", "test file glob for the manifest; repeatable")
 	withLibrary := fs.Bool("with-library", false, "copy the embedded policy library into the new policy tree")
 	from := fs.String("from", "", "seed the new policy tree from an existing policy directory")
+	enforcement := fs.String("enforcement", "", "enforcement the library's constraints get, as <name glob>=<deny|warn|dryrun> entries applied in order, the last match winning")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
 	target.resolveRepo()
 	if target.onBranch() && !flagSet(fs, "repo") {
 		fmt.Fprintln(stderr, "specctl policy init: --repo is required when writing a policy branch")
+		return exitUsage
+	}
+	rules, err := parseEnforcementSpec(*enforcement)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy init: %v\n", err)
 		return exitUsage
 	}
 
@@ -282,7 +298,7 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 	seeded := policy.Library{}
 	switch {
 	case *from != "":
-		seeded, err = policyeval.Load(*from)
+		seeded, err = policyeval.LoadRaw(os.DirFS(*from))
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl policy init: read %s: %v\n", *from, err)
 			return exitError
@@ -308,6 +324,10 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 		}
 		maps.Copy(add, files)
 		copied = len(files)
+	}
+	if flagSet(fs, "enforcement") {
+		manifest.Enforcement = rules
+		seeded.Manifest = manifest
 	}
 	doc, err := yaml.Marshal(manifest)
 	if err != nil {
@@ -349,10 +369,26 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
+// parseEnforcementSpec reads the --enforcement value: whitespace- or
+// comma-separated <name glob>=<deny|warn|dryrun> entries, applied in order, the
+// last match winning. It is the same syntax scripts/example-pr.sh passes.
+func parseEnforcementSpec(spec string) ([]policy.EnforcementRule, error) {
+	rules := []policy.EnforcementRule{}
+	for _, token := range strings.FieldsFunc(spec, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' }) {
+		name, action, found := strings.Cut(token, "=")
+		if !found || name == "" || !policy.Enforcement(action).Known() {
+			return nil, fmt.Errorf("%q is not <name glob>=<deny|warn|dryrun>", token)
+		}
+		rules = append(rules, policy.EnforcementRule{Name: name, Action: policy.Enforcement(action)})
+	}
+	return rules, nil
+}
+
 // policyFiles reads a policy directory: every file a user authored, and none
 // of the generated ones. lib/, dist/, CATALOGUE.md, .gitattributes and the
 // manifest are written by the caller, so an imported tree is rebuilt the same
-// way specctl policy build would rebuild it.
+// way specctl policy build would rebuild it. policies.lock is authored -- it
+// pins the imports -- and is copied as it stands.
 func policyFiles(dir string) (map[string][]byte, error) {
 	add := map[string][]byte{}
 	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
