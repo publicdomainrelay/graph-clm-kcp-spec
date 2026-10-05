@@ -510,7 +510,7 @@ Run the pack's own suites:
 
 ```bash
 bin/specctl policy test --dir policies/packs/rfp-guest-isolation --gator
-# opa: 81/81 passed
+# opa: 82/82 passed
 # suites: 13/13 cases passed
 # PASS
 ```

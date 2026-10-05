@@ -605,7 +605,7 @@ What is built:
   `RfpGuestTransportProvenance` and `RfpKeyMaterialProvenance`. Each has a
   gator suite with allowed and denied ArchitectureModel (or CodeDiff)
   fixtures, and opa unit tests: `specctl policy test --dir
-  policies/packs/rfp-guest-isolation --gator` is 81/81 unit tests and 13/13
+  policies/packs/rfp-guest-isolation --gator` is 82/82 unit tests and 13/13
   suite cases, and the built-in engine and the real gator agree case for case.
   The fixture library `fixtures/market-mini` runs the pack too:
   `TestExamplePoliciesOverFixtures` builds the ArchitectureModel over the
