@@ -806,12 +806,15 @@ project tree, and they are evaluated offline: no kcp, no controller.
 ```bash
 scripts/install-policy-tools.sh                  # pinned opa and gator into bin/
 bin/specctl policy init --repo market-mini --dir /tmp/policies
+bin/specctl policy init --repo market-mini --dir /tmp/lib --with-library  # the ported library
 bin/specctl policy new relay-only-ssh --kind RelayOnlySsh --dir /tmp/policies \
   --title "ssh over the relay only" --pattern 'Deno\.connect' --glob 'test/**'
 bin/specctl policy test --dir /tmp/policies            # opa unit tests + gator suites
 bin/specctl policy test --dir /tmp/policies --gator    # the real gator binary too
 bin/specctl policy eval --worktree fixtures/market-mini/compliant
 bin/specctl policy eval --worktree fixtures/market-mini/violating -o json
+bin/specctl policy eval --repo deno-kcp --commit 0f1078d --path <clone> \
+  --diff-base 0f1078d^ --library policies/library    # CodeDiff rules need --diff-base
 ```
 
 `policy eval` on `fixtures/market-mini/compliant` prints `violations: 0` and
@@ -830,9 +833,19 @@ overrides) is `abc/policy`; nothing about it is wired into kcp yet.
 The engine is the same client `bin/gator` builds: Gatekeeper's
 `frameworks/constraint` client with its K8s validation target, so a suite
 passes or fails identically under `specctl policy test` and under
-`bin/gator verify`. A conformance test runs every suite in `examples/` and
-`testdata/` through both and fails when the two disagree
+`bin/gator verify`. A conformance test runs every suite in `examples/policies/`,
+`policies/` and `testdata/` through both and fails when the two disagree
 (`SPECD_REQUIRE_GATOR=1` makes a missing gator fatal).
+
+`policies/library/` is the calibrated port of deno-kcp's `opa-first-stab`:
+seven templates (a change that is Succeeded past a failed acceptance, a
+requirement text with a machine path, container-run-in-test, manual ssh key
+material, a cloud-init bypass, a new guest transport outside a `UserDataModule`,
+disabled certificate verification), each with its origin and calibration note in
+the template annotations. It is embedded in the binary and copied by
+`policy init --with-library`. The CodeDiff rules need `policy eval --diff-base
+REF`, which derives the diff for the evaluated commit; `docs/policies.md` records
+the real run against deno-kcp `0f1078d` (five denies).
 
 A policy is a directory: `templates/<slug>/src.rego` (the rule, always
 `violation[{"msg","details"}]`), `templates/<slug>/template.yaml` (the

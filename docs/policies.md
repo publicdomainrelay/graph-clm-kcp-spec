@@ -15,6 +15,10 @@ policies in this repository are the acceptance examples of
 suite passes or fails identically under `specctl policy test` and
 `bin/gator verify`.
 
+`policies/library/` is a ready-made library of seven portable policies, ported
+from deno-kcp's `opa-first-stab` and embedded in `specctl`; see
+[The policy library](#the-policy-library).
+
 ## Concepts
 
 ### Gatekeeper objects
@@ -45,7 +49,10 @@ suite passes or fails identically under `specctl policy test` and
 | `CodeDiff` | derived for a change | no |
 
 A policy selects what it reviews with `spec.match.kinds`. Almost every code
-policy reviews `CodeGraph`, because that is where the call graph is.
+policy reviews `CodeGraph`, because that is where the call graph is. A policy
+that is about *the change* rather than the resulting tree reviews `CodeDiff`,
+which `specctl policy eval --diff-base REF` derives from a commit range (see
+[Evaluating](#evaluating)); the gate derives the same object for a `SpecChange`.
 
 ### Policy metadata
 
@@ -150,6 +157,92 @@ CATALOGUE.md                     rendered from template metadata (generated)
 `specctl policy init` creates it; `specctl policy restore` (kcp side) loads it
 back. A repository without a policy branch falls back to
 `examples/policies/<repository>` so `eval` works before a branch exists.
+
+## The policy library
+
+`policies/library/` is a calibrated library of seven policies ported from
+deno-kcp's `opa-first-stab` (`opa/policies/`, `plans/RESULTS.md`) into Gatekeeper
+form: same layout as `examples/policies/*`, same `lib/specd`, one template per
+concern, and a gator suite with an allowed and a denied case each. It is
+embedded in the `specctl` binary (`policies/library/embed.go`), so
+`specctl policy init --with-library` copies it into a new policy dir or branch:
+
+```bash
+bin/specctl policy init --repo atproto-market --dir /tmp/policies --with-library
+bin/specctl policy build --dir /tmp/policies
+bin/specctl policy test  --dir /tmp/policies --gator
+```
+
+| slug | reviews | denies | origin |
+| --- | --- | --- | --- |
+| `change-succeeded-with-failed-acceptance` | `SpecChange` | `status.phase: Succeeded` while an acceptance step reports `passed: false` and was not overridden | `change_integrity` |
+| `requirement-text-has-machine-path` | `SpecChange` | a delta requirement's `to.text` naming `/home/...`, `/Users/...`, `/tmp/...` | `spec_structure` |
+| `provisioning-container-in-test` | `CodeDiff` | an added test line running `docker/podman/container/nerdctl run\|exec` | `code_safety` |
+| `provisioning-manual-key-material` | `CodeDiff` | an added line writing `authorized_keys` or running `ssh-keygen` | `code_safety` |
+| `provisioning-cloud-init-bypass` | `CodeDiff` | an added line that names `user_data`/`cloud-init` and a skip/bypass marker | `code_safety` |
+| `provisioning-new-guest-transport` | `CodeDiff` | an added line naming `websocat`, `wstunnel`, `chisel`, `frpc/frps`, `autossh`, `rathole` or `socat` without a `UserDataModule` marker | `code_safety` |
+| `security-disabled-verification` | `CodeDiff` | an added line with `curl -k`, `--insecure`, `--validate=false`, `InsecureSkipVerify` or `rejectUnauthorized: false` | `change_security` |
+
+Every template carries two extra annotations: `specs.publicdomainrelay.dev/origin`
+names the source rule, and `specs.publicdomainrelay.dev/calibration` records
+where the threshold or pattern came from in `RESULTS.md` and where this port
+deviates from the origin. `policies/library/CATALOGUE.md` is the rendered list.
+
+Patterns and globs are parameters (`containerPatterns`, `testGlobs`,
+`patterns`, `disabledVerificationPatterns`, `allowPatterns`, ...), so another
+repository reuses a template by changing only its constraint. Each rule has a
+default in the Rego (`x = out { out := input.parameters.x } else = [...]`) so a
+missing parameter narrows the rule rather than widening it.
+
+### A real run
+
+`specctl policy eval --diff-base REF` diffs `REF` against the evaluated commit
+(`--commit`, or the worktree's `HEAD`) and adds the resulting `CodeDiff` to both
+the reviewed objects and the inventory, so the provisioning and
+disabled-verification templates have something to read. The run below is the
+real output against `publicdomainrelay/deno-kcp` at `0f1078d`, a commit that
+adds the deploy manifests, a restart-safe runner and a live kcp lifecycle test:
+
+```bash
+bin/specctl policy eval --repo deno-kcp \
+  --commit 0f1078d8ab68387d940bfea5e630e732716c7aa8 \
+  --diff-base 0f1078d8ab68387d940bfea5e630e732716c7aa8^ \
+  --path ~/src/publicdomainrelay-kcp/deno-kcp \
+  --library policies/library
+```
+
+```
+repository: deno-kcp  commit: 0f1078d8
+templates: 7  constraints: 7
+violations: 5 (deny 5, warn 0, dryrun 0)
+
+deny     error      security-disabled-verification  CodeDiff default/deno-kcp
+         deploy/start-kcp.sh:21
+         added line deploy/start-kcp.sh:21 is "curl -sk \"https://127.0.0.1:${KCP_SECURE_PORT}/readyz\" >/dev/null 2>&1", which turns certificate verification off; a check that trusts any certificate checks nothing
+deny     error      security-disabled-verification  CodeDiff default/deno-kcp
+         internal/provider/live_lifecycle_test.go:257
+         added line internal/provider/live_lifecycle_test.go:257 is "client.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}", which turns certificate verification off; a check that trusts any certificate checks nothing
+deny     error      security-disabled-verification  CodeDiff default/deno-kcp
+         internal/provider/live_lifecycle_test.go:298
+         added line internal/provider/live_lifecycle_test.go:298 is "cmd := exec.Command(\"kubectl\", \"--kubeconfig\", kubeconfig, \"--server\", server, \"apply\", \"--validate=false\", \"-f\", \"-\")", which turns certificate verification off; a check that trusts any certificate checks nothing
+deny     error      security-disabled-verification  CodeDiff default/deno-kcp
+         deploy/install-provider.sh:12
+         added line deploy/install-provider.sh:12 is "KA() { \"$KUBECTL\" --kubeconfig=\"$KUBECONFIG_PATH\" apply --validate=false \"$@\"; }", which turns certificate verification off; a check that trusts any certificate checks nothing
+deny     error      security-disabled-verification  CodeDiff default/deno-kcp
+         deploy/install-provider.sh:21
+         added line deploy/install-provider.sh:21 is "KWA() { \"$KUBECTL\" --kubeconfig=\"$KUBECONFIG_PATH\" --server=\"$PROVIDER_SERVER\" apply --validate=false \"$@\"; }", which turns certificate verification off; a check that trusts any certificate checks nothing
+```
+
+Two of the five are the same class `RESULTS.md` found at `accept.sh:141`: a
+`curl -sk` probe of a TLS listener. The other three are `--validate=false` on a
+`kubectl apply` and `InsecureSkipVerify: true` in a test client. The `curl -sk`
+probe of a local kcp with a self-signed certificate is the known intentional
+case; a repository that means it silences the rule for those paths with the
+constraint's `allowPatterns`, which is why the parameter exists.
+
+The two `SpecChange` templates are exercised by their gator suites here
+(`specctl policy test --dir policies/library --gator`), and run against a live
+`SpecChange` where the gate reviews one — plan 0008 phase C.
 
 ## lib.specd reference
 
@@ -270,7 +363,12 @@ and fills `Violation.Location`, so `file:line` prints in the report and in
 
    ```bash
    bin/specctl policy init --repo atproto-market --dir /tmp/policies
+   bin/specctl policy init --repo atproto-market --dir /tmp/policies --with-library
    ```
+
+   `--with-library` also copies the seven ported policies from
+   `policies/library/` (see [The policy library](#the-policy-library)); leave it
+   off to start empty.
 
 2. Scaffold a template, a constraint and a gator suite with one allowed case
    and one denied case. `--pattern` is a first cut; edit the Rego after.
@@ -398,9 +496,11 @@ tests:
 ```
 
 The conformance test `impl/policyeval/conformance_test.go` runs every suite
-under `examples/` and `testdata/` through the built-in engine and through
-`bin/gator verify` and fails when the two disagree. `SPECD_REQUIRE_GATOR=1`
-makes a missing gator fatal instead of a skip:
+under `examples/policies/`, `policies/` and `testdata/` through the built-in
+engine and through `bin/gator verify` and fails when the two disagree;
+`TestExampleDistAndCatalogueAreCurrent` also fails when a library's `dist/`,
+`CATALOGUE.md` or `lib/specd.rego` is stale. `SPECD_REQUIRE_GATOR=1` makes a
+missing gator fatal instead of a skip:
 
 ```bash
 SPECD_REQUIRE_GATOR=1 go test ./impl/policyeval/...
@@ -419,10 +519,19 @@ bin/specctl policy eval --worktree fixtures/market-mini/compliant
 bin/specctl policy eval --worktree fixtures/market-mini/violating -o json
 bin/specctl policy eval --repo atproto-market --commit 7a2e9d9 \
   --path ~/clones/atproto-market --library examples/policies/atproto-market
+bin/specctl policy eval --repo deno-kcp --commit 0f1078d --path ~/clones/deno-kcp \
+  --diff-base 0f1078d^ --library policies/library
 ```
 
 - `--worktree P` indexes a checkout; `--commit C --path R` exports that commit
   to a temporary directory and indexes it (the clone is never touched).
+- `--diff-base REF` derives a `CodeDiff` between `REF` and the evaluated commit
+  and reviews it alongside the `CodeGraph`, so a policy whose `match.kinds` is
+  `CodeDiff` fires. The diff is computed with `git diff --unified=0
+  --no-renames --no-prefix`, one `{path, status, added[], removed[]}` per file,
+  and each added line carries its line number in the head file, so a violation
+  points at a real line. `--diff-base` needs a real commit: with `--commit C`
+  the diff runs in `--path`; with `--worktree P` it runs in `P`.
 - `--library D` reads the library from a directory instead of the policy
   branch. Without it, the branch `open-policy/<repo>[--<branch slug>]` is
   read, falling back to `examples/policies/<repo>`.

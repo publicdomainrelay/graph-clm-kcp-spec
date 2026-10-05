@@ -454,18 +454,37 @@ CodeGraph identifiers. See `docs/plans/0009-portable-policies.md`.
 
 ### E. Library port from opa-first-stab
 
-1. `policies/library/`, embedded in specd and offered by `specctl policy
-   init --with-library`. Port a calibrated subset into Gatekeeper form. The
-   source is deno-kcp `opa-first-stab` `opa/`:
-   - **SpecChange checks:**
-     - change Succeeded with a failed gating acceptance;
-     - requirement text carries a machine path;
-   - **project provisioning rules over CodeDiff** (code_safety):
-     - container run/exec in tests, manual authorized_keys, ssh-keygen;
-     - a cloud-init bypass, a new guest transport not in a UserDataModule;
-   - **security over CodeDiff:** TLS verification disabled.
-2. Each port keeps its calibration note and adds a gator suite.
-   CATALOGUE.md is rendered.
+1. **Done.** `policies/library/` holds seven ported templates, each with a
+   constraint, a gator suite (an allowed and a denied case) and rendered
+   `dist/` and `CATALOGUE.md`:
+   - `change-succeeded-with-failed-acceptance` (SpecChange, from
+     `change_integrity`);
+   - `requirement-text-has-machine-path` (SpecChange, from `spec_structure`);
+   - `provisioning-container-in-test`, `provisioning-manual-key-material`,
+     `provisioning-cloud-init-bypass`, `provisioning-new-guest-transport`
+     (CodeDiff, from `code_safety`);
+   - `security-disabled-verification` (CodeDiff, from `change_security`).
+   Patterns and globs are constraint parameters; every template carries
+   `specs.publicdomainrelay.dev/origin` and `.../calibration` annotations
+   recording the `RESULTS.md` finding or threshold it came from and every
+   deviation from the origin. The package is embedded
+   (`policies/library/embed.go`, `Files()`) and copied by
+   `specctl policy init --with-library`. The embed lives in the
+   `policies/library` Go package, not in `cmd/specd`, because specd has no
+   policy surface yet -- the kcp-side offer of the library (serving it to a
+   controller, or a specd-hosted catalogue) is phase C. `cmd/specctl` links the
+   package today; `policies/library/library_test.go` keeps the embed in sync
+   with the templates, the constraints and the suites.
+2. **Done.** `specctl policy eval --diff-base REF` derives a `CodeDiff` with
+   `impl/codediff` (`git diff --unified=0 --no-renames --no-prefix`, per-file
+   added/removed lines with their head/base line numbers) and adds it to the
+   reviewed objects and the inventory. The real run is recorded in
+   `docs/policies.md` ("A real run"): against deno-kcp `0f1078d` the
+   `security-disabled-verification` rule raises five denies, two of them the
+   `curl -sk` class `RESULTS.md` found at `accept.sh:141`.
+   `impl/policyeval/conformance_test.go` now also walks `policies/*`, so
+   `SPECD_REQUIRE_GATOR=1 go test ./impl/policyeval/...` runs the library's
+   suites through the built-in engine and the real gator.
 
 ### F. Review and fix
 
