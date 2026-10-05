@@ -806,3 +806,160 @@ The agent works in this repository's `plan5-iroh` worktree and pushes only that
 branch. Its own long run is started the same way (a `setsid` script plus a
 done-file), which is why the example above can be watched from outside without
 ever attaching to it.
+
+## Round with policies (PR #2)
+
+The same sentence, run again from `pre-iroh` on a fresh clone, this time with the
+policy gate on. [#1](https://github.com/publicdomainrelay/atproto-market/pull/1)
+is untouched; the retry is its own branch and its own pull request.
+
+```bash
+HYDRA=/home/johnandersen777/src/publicdomainrelay-kcp/hydradb-policy-i2
+cd $HYDRA && make build
+WORK=/tmp/specd-atproto-policy2-20261005                     # created first
+BASE=pre-iroh BRANCH=spec/iroh-dumbpipe-policy2-20261005 PUSH=1 KEEP=1 \
+POLICY_LIBRARY=$HYDRA/examples/policies/atproto-market \
+POLICY_ENFORCEMENT='*=deny' \
+ACCEPT='deno test --allow-all test/bidder_container_integration_test.ts' \
+scripts/example-atproto-market-iroh-pr.sh
+```
+
+`POLICY_LIBRARY` writes `open-policy/atproto-market--spec/iroh-dumbpipe-policy2-20261005`
+the way a user writes it (`policy init --from` then `policy build`) and hands the
+same directory to specd as `SPECD_POLICY_LIBRARY` for the spec-time gate.
+`POLICY_ENFORCEMENT='*=deny'` is the whole library: the user's two rules, the
+concrete `relay-only-ssh` and `guest-report-*` templates, and the imported pack
+`rfp-guest-isolation@v2`. `POLICY_LIBRARY`/`POLICY_ENFORCEMENT` are the script's;
+`ACCEPT` is the one addition to the #1 command, and it is what makes the live
+container suite a gate.
+
+### Before specd starts: the decision, as a durable waiver
+
+The host-emitted `vm.onNetwork` in `lib/market-bidder-compute/mod.ts` carries the
+provisioned IP. The user decided it stays: that IP may be a public IPv4 the client
+judges. `pre-iroh` already violates the strict reading, so the run starts by
+recording the decision on the policy branch, one exception file per finding, keyed
+by the finding's own key:
+
+```bash
+cd $HYDRA
+git -C /tmp/anchprobe/atproto-market ... # a plain pre-iroh checkout to read the findings from
+specctl policy findings --repo atproto-market --worktree $CLONE \
+  --library examples/policies/atproto-market
+# key              status    constraint                    site
+# 9ed63c01ff399590 new       guest-report-driven-onnetwork lib/market-bidder-compute/mod.ts:304
+# a23b49807c4b9e27 new       rfp-guest-reports-network     lib/market-bidder-compute/mod.ts:304
+specctl policy waive 9ed63c01ff399590 \
+  --reason "host-emitted vm.onNetwork carries the provisioned IP; it may be a public IPv4 the client judges; kept by decision" \
+  --owner john --repo atproto-market --worktree $CLONE \
+  --library examples/policies/atproto-market --dir examples/policies/atproto-market
+specctl policy waive a23b49807c4b9e27 --reason "<the same>" --owner john ... # the pack's rule, same site
+```
+
+Two rules name the site -- the concrete `guest-report-driven-onnetwork` and the
+pack's `rfp-guest-reports-network` -- so the decision is one waiver each. The files
+land in `examples/policies/atproto-market/exceptions/` and are seeded onto the
+run's branch with the rest of the library; the spec-time gate reads them through
+`SPECD_POLICY_LIBRARY`, the realize gate and the audit through the branch.
+
+### The key had to stop moving with the line first
+
+`Key` was `(constraint, object, file, line)`. The realize edits
+`lib/market-bidder-compute/mod.ts` above the emission, so the line moves -- and a
+pre-existing violation that changes key is a *new* violation to a change-scoped
+gate, and a waiver written at one line stops matching at another. Measured before
+the run on the real repository: at `pre-iroh` the emission is at line 304 and at
+#1's head `ffac22e` it is at line 313, and the two keys were different.
+
+hydradb `e12560a` anchors a violation to the declaration that encloses its
+location (`abc/policy/anchor.go`, wired in `impl/policyeval/evaluate.go`), plus
+the model effect's kind and attributes when there is one; `Key`, the baseline
+comparison and a durable waiver read the anchor. The same measurement after the
+fix gives the same two keys at both refs:
+
+```
+pre-iroh  d20070c/05fe296  lib/market-bidder-compute/mod.ts:304  9ed63c01ff399590  a23b49807c4b9e27
+#1 head   ffac22e          lib/market-bidder-compute/mod.ts:313  9ed63c01ff399590  a23b49807c4b9e27
+```
+
+So at #1's head the change-scoped gate reports `0 new, 2 inherited`, and the
+waiver recorded at line 304 still matches the violation at line 313. Before the
+fix both readings were `2 new`.
+
+### What the run did
+
+| step | value |
+| --- | --- |
+| hydradb | `d6334cc` (the anchor fix `e12560a` and the two waivers `d6334cc`) |
+| clone + 9 siblings | 15 s |
+| `specctl up` to `Populated` | 46 contexts, 46 summarized, 8 min |
+| policy branch | `open-policy/atproto-market--spec-iroh-dumbpipe-policy2-20261005`, seeded at `bddba0c` |
+| policy tests at seed time | opa 67/67, suites 11/11 |
+| harness: research + spec edit | 4 SpecToCode changes in 5 min |
+| realize rounds | 10 attempts; see the gate table below |
+| acceptance | `deno test --allow-all test/bidder_container_integration_test.ts`, gated, 1800 s per step |
+
+### The gate, per attempt
+
+Every attempt is recorded on its change; the table is the two columns the policy
+decision fills.
+
+| what the gate did | attempts | evidence |
+| --- | --- | --- |
+| waived the two accepted findings | every attempt, 34 of them | `status.policy.waived` carries `guest-report-driven-onnetwork` and `rfp-guest-reports-network` at `lib/market-bidder-compute/mod.ts:304` on each change, including the two that landed |
+| denied a new violation | the `-a2`/`-a4` attempts of all three contexts | `PolicyDenied: rfp-relay-only-guest-ssh: ssh from test reaches the guest directly: test/bidder_container_integration_test.ts:251` |
+| audit | 3 runs | `violations 2, deny 2, waived 2` |
+
+The deny is the interesting one. The code agent's rewritten harness ssh'd the
+guest with no ProxyCommand; `relay-only-ssh` saw the ssh and denied it. The
+message was the next attempt's agent log, the agent gave the ssh the transport the
+cloud-init deployed, and no later attempt was denied by that rule. In
+`factory/specd` terms the gate consumed the waivers as the change's
+`acceptanceOverridden: policy:guest-report-driven-onnetwork,policy:rfp-guest-reports-network`,
+which is what a durable exception looks like on a landed change.
+
+### Fix rounds, all through the spec flow
+
+No file in atproto-market was edited by hand. Every correction is either a
+`specctl retry --reason` or a requirement applied with `specctl clm apply`; the
+reason is what the code agent reads on its next attempt.
+
+| round | reason | outcome |
+| --- | --- | --- |
+| 1-3 | none (the plain script, automatic attempts) | acceptance red: 401 `aud mismatch: expected did:web:relay.localhost, got did:web:172.17.0.1` |
+| 4 | the tap: `tar: dumbpipe: Not found in archive`, read from the kept guest container | `lib-common-cloud-init-common` realized `./dumbpipe` correctly after the requirement was amended |
+| 4 | the policy deny above | the direct ssh got the dumbpipe ProxyCommand |
+| 5-6 | the harness asserted on its own test double (`did:key fast path ...`) | requirement amended: the fake PLC exists so registration is not 401, and the suite asserts only run-level facts |
+| 7 | `readTarGz` deadlocked a `DecompressionStream`: `writer.write(archive)` then `await writer.close()` with nothing reading `ds.readable` | reproduced standalone in a sentence; the suite then ran the real flow for the first time |
+| 8-10 | the guest's report never lands: the URL `https://did-key-<...>.localhost/iroh-ticket/<ref>` names no port, so the reporter dials 443 where nothing listens | requirement amended (`r.iroh-ticket-report`): the URL names the guest-reachable port and the CA is installed; the reporter fails fast |
+
+The two spec amendments that changed cloud-init are the ones that landed:
+`r.iroh-dumbpipe-install` (the archive holds `./dumbpipe`; extract the whole
+archive; bounded retry) and `r.iroh-ticket-report` (a reachable URL, the CA, a
+fast failure). Both were applied with `specctl clm apply` after the live evidence
+was read, and the code agent that realized them produced exactly the install the
+requirement now describes.
+
+### What landed, and what did not
+
+Landed on the branch:
+
+- `8b36a2b realize lib-abc-requester: +2 ~5` -- the transport-neutral requester
+  interface: the address is opaque, the session provider owns the ProxyCommand,
+  `ContractResult.sshProxyCommand` and `sessionOutput`.
+- `924781f realize lib-common-cloud-init-common: ~1` -- the iroh cloud-init module:
+  a pinned dumbpipe install that extracts the archive's `./dumbpipe` behind a
+  bounded retry, the listener in front of the guest's own sshd, the ticket file,
+  and, when `ctx.irohReportUrl` is set, the reporter unit.
+
+Not landed, and why: the three remaining contexts
+(`atproto-market`, `lib-did-key-ingress-proxy`, `lib-requester-xrpc`) never
+passed the acceptance gate. The live evidence from the kept guest containers says
+the transport itself works -- the guest boots from the RFP cloud-init, the
+dumbpipe listener runs, the ticket is extracted, and the guest-side reporter
+starts -- but the report never reaches the requester, so `sshReady` stays false
+and the suite fails on `guest must become reachable`. The failing rounds ended
+`receiptOk: true, bids: 1, sshReady: false` in 5 minutes. Ten attempts is where
+this session stopped; the change-scoped gate is what stopped it, and that is the
+gate working.
+
