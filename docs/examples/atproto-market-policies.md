@@ -334,7 +334,7 @@ bin/specctl up --repo . --agent claude --summarize=false
 bin/specctl policy generate --repo atproto-market --slug relay-only-guest-ssh \
   --prompt "integration tests with bidder and requester MUST always make ssh connections over the relay" \
   --requirement lib-requester-xrpc#r.relay --wait
-bin/specctl policy accept atproto-market-relay-only-guest-ssh
+bin/specctl policy accept atproto-market-relay-only-guest-ssh   # --kubeconfig/--workspace when no session is recorded
 
 bin/specctl policy generate --repo atproto-market --slug guest-reports-network \
   --prompt "the bidder and the compute provider MUST NEVER reach into the guest for the vm.onNetwork event, the guest MUST reach out to it to provide the address, routing / iroh / fedproxy info" \
