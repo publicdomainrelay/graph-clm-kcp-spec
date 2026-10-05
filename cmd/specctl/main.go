@@ -186,6 +186,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runPolicy(rest, stdout, stderr)
 	case "kcp":
 		return runKcp(rest, stdout, stderr)
+	case "keeper":
+		return runKeeper(rest, stdout, stderr)
 	case "version":
 		return runVersion(rest, stdout, stderr)
 	case "help", "-h", "--help":

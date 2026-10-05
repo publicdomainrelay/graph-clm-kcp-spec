@@ -26,9 +26,10 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	leaks := kcpproc.Leaks()
 	for _, leak := range leaks {
-		fmt.Fprintf(os.Stderr, "runlock: leaked kcp %d and kine %d on the root %s\n", leak.KcpPid, leak.KinePid, leak.Root)
+		fmt.Fprintf(os.Stderr, "runlock: leaked kcp %d, kine %d and specd %d on the root %s\n", leak.KcpPid, leak.KinePid, leak.SpecdPid, leak.Root)
 		kcpproc.Terminate(leak.KcpPid, leak.Root)
 		kcpproc.Terminate(leak.KinePid, leak.Root)
+		kcpproc.Terminate(leak.SpecdPid, leak.Root)
 	}
 	if len(leaks) > 0 {
 		code = 1

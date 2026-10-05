@@ -176,6 +176,13 @@ func startKcp(ctx context.Context, record *session.Record, previous session.Reco
 			return err
 		}
 		instance = started
+		keeperPid, err := startKeeper(instance.Root)
+		if err != nil {
+			return fmt.Errorf("start the keeper: %w", err)
+		}
+		if keeperPid > 0 {
+			fmt.Fprintf(stdout, "keeper %d watches pid %d; the kcp, kine and specd of %s die with it\n", keeperPid, kcpproc.DieWithPid(), instance.Root)
+		}
 	}
 	record.KcpRoot = instance.Root
 	record.KcpPort, record.KcpURL, record.KcpPid = instance.KcpPort, instance.KcpURL, instance.KcpPid
@@ -331,6 +338,7 @@ func startSpecd(record session.Record, specdPath, agent, pushRemote string) (int
 	if !session.Alive(pid, "specd") {
 		return 0, logPath, fmt.Errorf("specd exited at once; see %s", logPath)
 	}
+	kcpproc.RecordSpecd(record.KcpRoot, pid)
 	return pid, logPath, nil
 }
 

@@ -30,9 +30,13 @@ const (
 
 	LedgerEnv = "SPECD_KCP_LEDGER"
 
+	DieWithEnv = "SPECD_DIE_WITH"
+
 	kcpAttempts = 5
 
 	logTrimEvery = time.Second
+
+	keeperInterval = 200 * time.Millisecond
 )
 
 var kineAvailable = regexp.MustCompile(`Kine available at (http://127\.0\.0\.1:(\d+))`)
@@ -60,9 +64,11 @@ type Options struct {
 type LedgerEntry struct {
 	Root string `json:"root"`
 
-	KcpPid int `json:"kcpPid"`
+	KcpPid int `json:"kcpPid,omitempty"`
 
-	KinePid int `json:"kinePid"`
+	KinePid int `json:"kinePid,omitempty"`
+
+	SpecdPid int `json:"specdPid,omitempty"`
 }
 
 type Instance struct {
@@ -244,14 +250,19 @@ func fillPids(root string, instance Instance) Instance {
 	return instance
 }
 
-func ScanPids(root string) (int, int) {
+type proc struct {
+	pid    int
+	binary string
+	fields []string
+}
+
+func scanProcs() []proc {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return 0, 0
+		return nil
 	}
-	cleaned := filepath.Clean(root)
 	self := os.Getpid()
-	kcpPid, kinePid := 0, 0
+	procs := []proc{}
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(entry.Name())
 		if err != nil || pid == self || !alive(pid) {
@@ -265,18 +276,54 @@ func ScanPids(root string) (int, int) {
 		if len(fields) == 0 {
 			continue
 		}
-		switch filepath.Base(fields[0]) {
-		case "kcp":
-			if value, found := flagValue(fields, "--root-directory"); found && filepath.Clean(value) == cleaned {
-				kcpPid = pid
-			}
-		case "kine":
-			if value, found := flagValue(fields, "--endpoint"); found && filepath.Clean(strings.TrimPrefix(value, "sqlite://")) == filepath.Join(cleaned, "kine.db") {
-				kinePid = pid
-			}
+		procs = append(procs, proc{pid: pid, binary: filepath.Base(fields[0]), fields: fields})
+	}
+	return procs
+}
+
+func namesKcp(process proc, root string) bool {
+	if process.binary != "kcp" {
+		return false
+	}
+	value, found := flagValue(process.fields, "--root-directory")
+	return found && filepath.Clean(value) == root
+}
+
+func namesKine(process proc, root string) bool {
+	if process.binary != "kine" {
+		return false
+	}
+	value, found := flagValue(process.fields, "--endpoint")
+	return found && filepath.Clean(strings.TrimPrefix(value, "sqlite://")) == filepath.Join(root, "kine.db")
+}
+
+func namesSpecd(process proc, root string) bool {
+	return process.binary == "specd" && strings.Contains(strings.Join(process.fields, " "), root)
+}
+
+func ScanPids(root string) (int, int) {
+	cleaned := filepath.Clean(root)
+	kcpPid, kinePid := 0, 0
+	for _, process := range scanProcs() {
+		switch {
+		case namesKcp(process, cleaned):
+			kcpPid = process.pid
+		case namesKine(process, cleaned):
+			kinePid = process.pid
 		}
 	}
 	return kcpPid, kinePid
+}
+
+func scanProcesses(root string) []int {
+	cleaned := filepath.Clean(root)
+	pids := []int{}
+	for _, process := range scanProcs() {
+		if namesKcp(process, cleaned) || namesKine(process, cleaned) || namesSpecd(process, cleaned) {
+			pids = append(pids, process.pid)
+		}
+	}
+	return pids
 }
 
 func Running(root string) []int {
@@ -468,11 +515,22 @@ func trimLogOnce(path string, max int64) {
 }
 
 func recordStart(instance Instance) {
+	appendLedger(LedgerEntry{Root: instance.Root, KcpPid: instance.KcpPid, KinePid: instance.KinePid})
+}
+
+func RecordSpecd(root string, pid int) {
+	if pid <= 0 {
+		return
+	}
+	appendLedger(LedgerEntry{Root: root, SpecdPid: pid})
+}
+
+func appendLedger(entry LedgerEntry) {
 	path := os.Getenv(LedgerEnv)
 	if path == "" {
 		return
 	}
-	line, err := json.Marshal(LedgerEntry{Root: instance.Root, KcpPid: instance.KcpPid, KinePid: instance.KinePid})
+	line, err := json.Marshal(entry)
 	if err != nil {
 		return
 	}
@@ -482,6 +540,33 @@ func recordStart(instance Instance) {
 	}
 	defer file.Close()
 	_, _ = file.Write(append(line, '\n'))
+}
+
+func DieWithPid() int {
+	pid, err := strconv.Atoi(strings.TrimSpace(os.Getenv(DieWithEnv)))
+	if err != nil || pid <= 1 {
+		return 0
+	}
+	return pid
+}
+
+func Watch(root string, dieWith int) {
+	for alive(dieWith) {
+		if len(scanProcesses(root)) == 0 {
+			return
+		}
+		time.Sleep(keeperInterval)
+	}
+	for range 50 {
+		pids := scanProcesses(root)
+		if len(pids) == 0 {
+			return
+		}
+		for _, pid := range pids {
+			Terminate(pid, root)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func Ledger() []LedgerEntry {
@@ -510,7 +595,7 @@ func Ledger() []LedgerEntry {
 func Leaks() []LedgerEntry {
 	leaks := []LedgerEntry{}
 	for _, entry := range Ledger() {
-		if owns(entry.KcpPid, entry.Root) || owns(entry.KinePid, entry.Root) {
+		if owns(entry.KcpPid, entry.Root) || owns(entry.KinePid, entry.Root) || owns(entry.SpecdPid, entry.Root) {
 			leaks = append(leaks, entry)
 		}
 	}
