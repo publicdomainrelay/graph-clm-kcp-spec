@@ -1411,10 +1411,12 @@ minutes later.
 specd now recovers an orphan instead:
 
 1. It removes what the killed realize left in the repository: the
-   `specd-worktree-*` temporary worktree that still holds the realize branch
-   (without this the next `git worktree add` fails with `cannot force update
-   the branch ... used by worktree`), and the branch itself. A worktree anywhere
-   else, an operator's or another tool's, is never touched.
+   `specd-worktree-*` temporary worktree that still holds the orphan's realize
+   branch (without this the next `git worktree add` fails with `cannot force
+   update the branch ... used by worktree`), and the branch itself. Only
+   worktrees that are under a `specd-worktree-*` temporary directory and hold
+   that branch are removed; the repository itself, another branch's worktree and
+   any worktree outside the temporary directory are never touched.
 2. It marks the orphan `Failed` with the message `specd restarted mid-realize`,
    so the record says why.
 3. It creates the change's next attempt, `Pending`, with the same spec and the
