@@ -502,6 +502,18 @@ Honest reading:
   Realize then generates code, and the observed flows conform.
 - Both runs are recorded in `docs/examples/portable-policies.md` with
   `scripts/example-portable-policies.sh`.
+- **One model across several repositories.** B2 found the real reach-in for
+  atproto-market in a different repository. `hono-compute-provider`'s
+  `compute-provider-local` reads the guest address with `container inspect`
+  (`inspectIp`) and polls ssh with `pollSshExec`. A CodeGraph of one repository
+  cannot see that code. Two changes are needed:
+  - `policies.yaml` gains `members:` (other repositories, each with a git URL,
+    a ref and a role binding);
+  - the ArchitectureModel is built over every member, so `no-host-reach-in`
+    sees the provider's `container.exec` effect.
+
+  Proof: atproto-market plus hono-compute-provider at `pre-iroh` / `fb11e74`
+  denies the `inspectIp` reach-in.
 
 ### G6. Portable generation
 
