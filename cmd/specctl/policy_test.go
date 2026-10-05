@@ -370,3 +370,42 @@ func treeFingerprint(t *testing.T, dir string) map[string]string {
 	}
 	return out
 }
+
+func TestPolicyTestFindsGatorOnPath(t *testing.T) {
+	stubDir := t.TempDir()
+	log := filepath.Join(stubDir, "gator.log")
+	stub := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + log + "\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(stubDir, "gator"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", stubDir)
+	t.Setenv("SPECD_GATOR", "")
+
+	library := filepath.Join("..", "..", "examples", "policies", "market-mini")
+	code, _, stderr := runWith("policy", "test", "--dir", library, "--gator")
+	if code != exitOK {
+		t.Fatalf("code %d, stderr %q", code, stderr)
+	}
+	raw, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatalf("the gator on PATH was not run: %v", err)
+	}
+	if !strings.HasPrefix(string(raw), "verify ") {
+		t.Errorf("gator was run as %q, want verify <suites>", raw)
+	}
+}
+
+func TestPolicyTestNamesWhereItLookedForGator(t *testing.T) {
+	empty := t.TempDir()
+	t.Setenv("PATH", empty)
+	t.Setenv("SPECD_GATOR", "")
+
+	library := filepath.Join("..", "..", "examples", "policies", "market-mini")
+	code, _, stderr := runWith("policy", "test", "--dir", library, "--gator")
+	if code != exitError {
+		t.Fatalf("code %d, want %d", code, exitError)
+	}
+	if !strings.Contains(stderr, "gator not found in") || !strings.Contains(stderr, "PATH") {
+		t.Errorf("stderr does not name the search: %q", stderr)
+	}
+}

@@ -110,7 +110,8 @@ usage:
       imported packs and the members policies.yaml names
   specctl policy test [--dir D] [--gator] [--gator-bin <path>]
       opa unit tests and gator suites through the built-in engine; --gator also
-      runs the real gator binary
+      runs the real gator binary (--gator-bin, else $SPECD_GATOR, else bin/gator,
+      else the first gator on PATH)
   specctl policy eval --repo X [--worktree P | --commit C] [--path <git repo>]
       [--library D] [--branch B] [--diff-base REF] [--test-glob G]
       [--cache-dir DIR] [--member NAME=PATH] [-o text|json] [--strict]
@@ -669,7 +670,7 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	target := addPolicyTargetFlags(fs)
 	withGator := fs.Bool("gator", false, "also run the real gator binary over the suites")
-	gatorBin := fs.String("gator-bin", "", "path to gator (default $SPECD_GATOR or bin/gator)")
+	gatorBin := fs.String("gator-bin", "", "path to gator (default $SPECD_GATOR, bin/gator, then PATH)")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -763,14 +764,11 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 				filepath.Join(dir, policy.TestsDir))
 			failed++
 		} else {
-			bin := *gatorBin
+			bin, looked := gatorBinary(*gatorBin)
 			if bin == "" {
-				bin = os.Getenv("SPECD_GATOR")
-			}
-			if bin == "" {
-				bin = defaultGator
-			}
-			if code := runGator(bin, filepath.Join(dir, policy.TestsDir), stdout, stderr); code != exitOK {
+				fmt.Fprintf(stderr, "specctl policy test: gator not found in %s; run scripts/install-policy-tools.sh\n", strings.Join(looked, ", "))
+				failed++
+			} else if code := runGator(bin, filepath.Join(dir, policy.TestsDir), stdout, stderr); code != exitOK {
 				failed++
 			}
 		}
@@ -829,11 +827,25 @@ func renderTestTree(ctx context.Context, target *policyTarget) (string, policy.L
 	return dir, library, cleanup, nil
 }
 
-func runGator(bin, suites string, stdout, stderr io.Writer) int {
-	if _, err := os.Stat(bin); err != nil {
-		fmt.Fprintf(stderr, "specctl policy test: %s not found; run scripts/install-policy-tools.sh\n", bin)
-		return exitError
+func gatorBinary(explicit string) (string, []string) {
+	looked := []string{}
+	for _, candidate := range []string{explicit, os.Getenv("SPECD_GATOR"), defaultGator} {
+		if candidate == "" {
+			continue
+		}
+		looked = append(looked, candidate)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, looked
+		}
 	}
+	looked = append(looked, "PATH")
+	if found, err := exec.LookPath("gator"); err == nil {
+		return found, looked
+	}
+	return "", looked
+}
+
+func runGator(bin, suites string, stdout, stderr io.Writer) int {
 	command := exec.Command(bin, "verify", suites)
 	command.Stdout = stdout
 	command.Stderr = stderr
