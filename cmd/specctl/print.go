@@ -17,6 +17,33 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
 
+// printObject writes one named object the way kubectl does: the object itself,
+// never a List envelope, so what get wrote is what apply reads back.
+func printObject(out io.Writer, item unstructured.Unstructured, format string) error {
+	switch format {
+	case "json":
+		encoded, err := json.MarshalIndent(item.Object, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(out, string(encoded))
+		return nil
+	case "yaml":
+		encoded, err := yaml.Marshal(item.Object)
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(encoded)
+		return err
+	case "name":
+		fmt.Fprintf(out, "%s/%s\n", strings.ToLower(item.GetKind()), item.GetName())
+		return nil
+	case "table", "":
+		return printTable(out, []unstructured.Unstructured{item})
+	}
+	return fmt.Errorf("unknown output format %q", format)
+}
+
 func printObjects(out io.Writer, items []unstructured.Unstructured, format string) error {
 	switch format {
 	case "name":

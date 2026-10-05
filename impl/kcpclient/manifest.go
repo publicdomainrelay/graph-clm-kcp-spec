@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,6 +36,14 @@ func Decode(data []byte) ([]*unstructured.Unstructured, error) {
 		if object.GetKind() == "" {
 			return nil, fmt.Errorf("kcpclient: manifest has no kind")
 		}
+		if isListKind(object.GetKind()) {
+			items, err := listItems(object)
+			if err != nil {
+				return nil, err
+			}
+			objects = append(objects, items...)
+			continue
+		}
 		if _, err := specapi.GVRForKind(object.GetKind()); err != nil {
 			return nil, err
 		}
@@ -44,6 +53,38 @@ func Decode(data []byte) ([]*unstructured.Unstructured, error) {
 		return nil, fmt.Errorf("kcpclient: manifest holds no objects")
 	}
 	return objects, nil
+}
+
+// isListKind accepts the envelope specctl get -o json writes, so a manifest
+// that was read out of kcp can be applied back without unwrapping items by hand.
+func isListKind(kind string) bool {
+	return strings.HasSuffix(kind, "List")
+}
+
+func listItems(list *unstructured.Unstructured) ([]*unstructured.Unstructured, error) {
+	raw, found, err := unstructured.NestedSlice(list.Object, "items")
+	if err != nil || !found {
+		return nil, fmt.Errorf("kcpclient: %s holds no items", list.GetKind())
+	}
+	out := make([]*unstructured.Unstructured, 0, len(raw))
+	for index, entry := range raw {
+		item, ok := entry.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("kcpclient: %s item %d is not an object", list.GetKind(), index)
+		}
+		object := &unstructured.Unstructured{Object: item}
+		if object.GetKind() == "" {
+			return nil, fmt.Errorf("kcpclient: %s item %d has no kind", list.GetKind(), index)
+		}
+		if _, err := specapi.GVRForKind(object.GetKind()); err != nil {
+			return nil, err
+		}
+		out = append(out, object)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("kcpclient: %s holds no objects", list.GetKind())
+	}
+	return out, nil
 }
 
 func Encode(object *unstructured.Unstructured) ([]byte, error) {

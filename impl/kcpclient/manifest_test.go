@@ -52,6 +52,49 @@ func TestDecodeRejectsUnknownKindsAndEmptyInput(t *testing.T) {
 	}
 }
 
+func TestDecodeExpandsAListOfObjects(t *testing.T) {
+	list := `
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: List
+items:
+  - apiVersion: specs.publicdomainrelay.dev/v1alpha1
+    kind: Repository
+    metadata: {name: calc, namespace: default}
+    spec: {path: examples/calc}
+  - apiVersion: specs.publicdomainrelay.dev/v1alpha1
+    kind: SystemContext
+    metadata: {name: calc, namespace: default}
+    spec: {repository: calc}
+`
+	objects, err := Decode([]byte(list))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(objects) != 2 || objects[0].GetKind() != specapi.RepositoryKind || objects[1].GetKind() != specapi.SystemContextKind {
+		t.Fatalf("objects = %+v", objects)
+	}
+	if objects[0].GetName() != "calc" || objects[1].GetNamespace() != "default" {
+		t.Fatalf("metadata did not survive: %s/%s", objects[0].GetName(), objects[1].GetNamespace())
+	}
+}
+
+func TestDecodeRejectsAnUnknownKindInsideAList(t *testing.T) {
+	list := `
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: v1
+    kind: Widget
+    metadata: {name: w}
+`
+	if _, err := Decode([]byte(list)); err == nil {
+		t.Fatal("an unknown kind inside a List must not decode")
+	}
+	if _, err := Decode([]byte("apiVersion: v1\nkind: List\n")); err == nil {
+		t.Fatal("a List with no items must not decode")
+	}
+}
+
 func TestTypedAndUnstructuredRoundTrip(t *testing.T) {
 	objects, err := Decode([]byte(multiDocument))
 	if err != nil {

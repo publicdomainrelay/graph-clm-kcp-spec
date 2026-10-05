@@ -304,14 +304,18 @@ func runGet(args []string, stdout, stderr io.Writer) int {
 			return exitError
 		}
 		items = append(items, *found)
-	} else {
-		listed, err := client.List(ctx, gvr, options.namespace)
-		if err != nil {
+		if err := printObject(stdout, *found, *output); err != nil {
 			fmt.Fprintf(stderr, "specctl get: %v\n", err)
 			return exitError
 		}
-		items = append(items, listed.Items...)
+		return exitOK
 	}
+	listed, err := client.List(ctx, gvr, options.namespace)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl get: %v\n", err)
+		return exitError
+	}
+	items = append(items, listed.Items...)
 
 	if err := printObjects(stdout, items, *output); err != nil {
 		fmt.Fprintf(stderr, "specctl get: %v\n", err)

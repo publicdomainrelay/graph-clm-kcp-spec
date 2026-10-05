@@ -143,11 +143,48 @@ func TestPrintNameYAMLAndJSON(t *testing.T) {
 	}
 }
 
+func TestPrintObjectIsTheObjectNotAList(t *testing.T) {
+	repository := &spec.Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc"},
+		Spec:       spec.RepositorySpec{Path: "/repos/calc"},
+	}
+	repository.SetDefaults()
+	object := testObject(t, repository)
+
+	for _, format := range []string{"json", "yaml"} {
+		out := &bytes.Buffer{}
+		if err := printObject(out, object, format); err != nil {
+			t.Fatal(err)
+		}
+		decoded := map[string]any{}
+		if err := yaml.Unmarshal(out.Bytes(), &decoded); err != nil {
+			t.Fatalf("%s output is not yaml or json: %v\n%s", format, err, out.String())
+		}
+		if decoded["kind"] != specapi.RepositoryKind {
+			t.Errorf("%s kind = %v, want the object and not a List", format, decoded["kind"])
+		}
+		if _, listed := decoded["items"]; listed {
+			t.Errorf("%s wrapped the object in a List:\n%s", format, out.String())
+		}
+	}
+
+	out := &bytes.Buffer{}
+	if err := printObject(out, object, "name"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.String()) != "repository/calc" {
+		t.Errorf("name output = %q", out.String())
+	}
+}
+
 func TestPrintRejectsAnUnknownFormat(t *testing.T) {
 	out := &bytes.Buffer{}
 	err := printObjects(out, nil, "csv")
 	if err == nil || !strings.Contains(err.Error(), "unknown output format") {
 		t.Fatalf("err = %v", err)
+	}
+	if err := printObject(out, unstructured.Unstructured{}, "csv"); err == nil {
+		t.Fatal("printObject must reject an unknown format too")
 	}
 }
 
