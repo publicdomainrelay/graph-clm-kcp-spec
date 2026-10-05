@@ -859,7 +859,7 @@ Remaining, honestly:
   and `policy model` do not.
 - `git:` and `oci:` pack sources still have no test that pulls a pack.
 
-### G6. Portable generation
+### G6. Portable generation -- done
 
 Plan-0008 phase D re-targeted to the model, plus `specctl policy bind`. The
 real run generates the two user sentences into model policies and a binding
