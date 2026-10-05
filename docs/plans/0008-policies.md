@@ -30,6 +30,7 @@ report its ticket itself and must pass.
 
 ## What exists and what we keep
 
+(Inspection record: `docs/reviews/0005-opa-first-stab-inspection.md`.)
 `deno-kcp` branch `opa-first-stab`, directory `opa/` (12.7k lines) is a first
 attempt. Notes:
 
