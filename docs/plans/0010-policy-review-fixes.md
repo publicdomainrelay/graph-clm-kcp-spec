@@ -302,3 +302,40 @@ U4's durable waivers are site-scoped by key, not by constraint like an
 acceptance override, but they reuse `policy.Override`, so `Decide`,
 `DecideBaseline` and the audit's waived reporting share one code path. An
 exception that has expired is dropped and reported, never silently honoured.
+
+## Round 2 (review 0006)
+
+`docs/reviews/0006-policies-follow-up.md` re-checked everything above on
+`1805860`.
+
+- **N1.** An ssh is exempted only by its own arguments, its ProxyCommand or
+  ProxyJump, or an ssh config alias. Nearby relay words never count.
+- **N2.** The key survives line shifts: file + enclosing declaration + effect
+  kind/attrs. Phase I's `e12560a` on `policy-i2` is the start.
+- **N3.**
+  - Strict exception files: unknown fields are refused.
+  - `key` is required unless a waiver says `scope: rule`.
+  - A violation without a site never shares a key.
+  - A waiver whose key matches nothing is reported as stale.
+- **N4.** "Direct" is decided by target, not tool name.
+  - Direct: the ssh family (`ssh`, `scp`, `sftp`, `autossh`, `sshpass`,
+    absolute paths, `sh -c` wrappers) reaching a guest-role or unresolved
+    target, or a ProxyCommand that only dials the target (`nc` variants,
+    `socat TCP*:`, `openssl s_client`, `/dev/tcp`, sockets in a script).
+  - Not direct: `-J`/ProxyJump/`-W` through a jump host, a relay or SOCKS
+    hop, and ssh to non-guest hosts.
+- **N5.** A test's `net.dial`/`Deno.connect` to a guest-role or unresolved
+  target denies on real code. The review's vD becomes a fixture.
+- **N6.** `sh -c` strings and `node:child_process` are classified for host
+  reach-ins.
+- **N7.** Waivers apply in plain `policy eval`. `--strict` ignores waived
+  violations, as docs/policies.md says.
+- **N8.** Rule 2b also checks provenance where the model can show it: the
+  emitted address comes from the guest report's payload. Where it cannot,
+  that is recorded as a limit.
+- **N9.** `policy fix` creates the SpecChange (with `--dry-run` to only
+  print).
+- **N10.** The bind leak is investigated again. Either prove the binding is
+  derived (a different repository, or a perturbed copy) or record it.
+- **Low items:** vD/B9/A3/G6/D3 from 0003; the `pack.yaml` text "three rules"
+  becomes "two rules"; the 55 new comment lines in `abc/policy` are removed.
