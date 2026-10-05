@@ -48,6 +48,28 @@
 #               this checkout)
 #   WORK        temp dir to clone into
 #   HARNESS     the model command (default deepseek-claude)
+#   POLICY_LIBRARY
+#               a policy directory (policies.yaml, templates/, constraints/).
+#               Before specd starts, it is copied into $WORK/policy-<repo>, its
+#               constraints get the enforcement POLICY_ENFORCEMENT asks for, its
+#               library is written to the clone's orphan branch
+#               open-policy/<repo>[--<branch slug>] with the same commands a
+#               user would run (`specctl policy init --from` then `specctl
+#               policy build`, so lib/, dist/ and CATALOGUE.md are rebuilt), and
+#               the directory is handed to specd as SPECD_POLICY_LIBRARY for the
+#               spec-time gate. specd then restores the branch into kcp (the
+#               audit runs) and the realize gate reads it. Empty (the default)
+#               turns policies off and the run is the one PR #1 came from.
+#   POLICY_ENFORCEMENT
+#               the enforcement each constraint gets, as whitespace- or
+#               comma-separated <name glob>=<deny|warn|dryrun> entries applied
+#               in order, the last match winning; a constraint nothing matches
+#               keeps the action the library ships. Ignored without
+#               POLICY_LIBRARY. Default:
+#                 *=warn security-disabled-verification=deny provisioning-*=deny
+#               -- the two rule families that are non-negotiable deny, written
+#               after a warn default, so a first gated run is not stopped by a
+#               rule whose calibration is still open.
 #   PUSH KEEP FRESH POPULATE_TIMEOUT REALIZE_TIMEOUT   as for the deno-kcp run
 #
 set -euo pipefail
@@ -68,6 +90,8 @@ HARNESS=${HARNESS:-deepseek-claude}
 GITHUB=${GITHUB:-https://github.com/publicdomainrelay}
 ORG_ROOT=${ORG_ROOT:-$(cd "$HYDRA/.." && pwd)}
 WORK=${WORK:-$(mktemp -d "${TMPDIR:-/tmp}/specd-${REPO}.XXXXXX")}
+POLICY_LIBRARY=${POLICY_LIBRARY:-}
+POLICY_ENFORCEMENT=${POLICY_ENFORCEMENT:-"*=warn security-disabled-verification=deny provisioning-*=deny"}
 PUSH=${PUSH:-0}
 KEEP=${KEEP:-0}
 FRESH=${FRESH:-1}
@@ -114,6 +138,69 @@ else
   git switch -q -c "$BRANCH"
 fi
 git log --oneline -1
+DEFAULT_BRANCH=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
+DEFAULT_BRANCH=${DEFAULT_BRANCH:-${BASE:-main}}
+
+POLICY_DIR=""
+if [ -n "$POLICY_LIBRARY" ]; then
+  say "seed open-policy/$REPO from $POLICY_LIBRARY with POLICY_ENFORCEMENT='$POLICY_ENFORCEMENT'"
+  [ -d "$POLICY_LIBRARY" ] || { echo "POLICY_LIBRARY $POLICY_LIBRARY is not a directory" >&2; exit 1; }
+  POLICY_DIR="$WORK/policy-$REPO"
+  rm -rf "$POLICY_DIR"
+  cp -r "$POLICY_LIBRARY" "$POLICY_DIR"
+  rm -rf "$POLICY_DIR/dist" "$POLICY_DIR/reports" "$POLICY_DIR/CATALOGUE.md" "$POLICY_DIR/.gitattributes"
+  POLICY_DIR="$POLICY_DIR" POLICY_ENFORCEMENT="$POLICY_ENFORCEMENT" python3 - <<'PY' | tee "$WORK/policy-enforcement.txt"
+import os, re, sys
+from fnmatch import fnmatch
+
+rules = []
+for token in re.split(r"[,\s]+", os.environ["POLICY_ENFORCEMENT"].strip()):
+    if not token:
+        continue
+    name, _, action = token.partition("=")
+    action = action.strip()
+    if not name or action not in ("deny", "warn", "dryrun"):
+        sys.exit(f"POLICY_ENFORCEMENT: {token!r} is not <name glob>=<deny|warn|dryrun>")
+    rules.append((name, action))
+
+directory = os.path.join(os.environ["POLICY_DIR"], "constraints")
+print("constraint\tshipped\tapplied")
+for entry in sorted(os.listdir(directory)):
+    if not entry.endswith(".yaml"):
+        continue
+    name = entry[: -len(".yaml")]
+    path = os.path.join(directory, entry)
+    with open(path) as handle:
+        text = handle.read()
+    shipped = re.search(r"^(\s*)enforcementAction:\s*(\S+)\s*$", text, re.M)
+    if not shipped:
+        sys.exit(f"{path}: no enforcementAction")
+    action = shipped.group(2)
+    for pattern, wanted in rules:
+        if fnmatch(name, pattern):
+            action = wanted
+    text = text[: shipped.start(2)] + action + text[shipped.end(2) :]
+    with open(path, "w") as handle:
+        handle.write(text)
+    print(f"{name}\t{shipped.group(2)}\t{action}")
+PY
+  # The branch is written the way a user writes it: init creates the tree from
+  # the library, build refreshes lib/specd.rego and renders dist/ and
+  # CATALOGUE.md. specd reads this branch on the Repository's first reconcile,
+  # restores it into kcp and audits the indexed commit.
+  specctl policy init --path "$PWD" --repo "$REPO" --branch "$BRANCH" \
+    --default-branch "$DEFAULT_BRANCH" --from "$POLICY_DIR"
+  specctl policy build --path "$PWD" --repo "$REPO" --branch "$BRANCH" \
+    --default-branch "$DEFAULT_BRANCH" | sed 's/^/  built /'
+  git for-each-ref --format='%(refname:short) %(objectname:short)' "refs/heads/open-policy/" | tee "$WORK/policy-branch.txt"
+  gator=""
+  [ -x "$HYDRA/bin/gator" ] && gator="--gator"
+  specctl policy test --dir "$POLICY_DIR" $gator 2>&1 | tee "$WORK/policy-test.txt"
+  # The spec-time gate reads a directory, so it sees the same library the
+  # branch carries. specd inherits this environment from specctl up.
+  export SPECD_POLICY_LIBRARY="$POLICY_DIR"
+  echo "SPECD_POLICY_LIBRARY=$SPECD_POLICY_LIBRARY"
+fi
 
 say "specctl up: build the architecture in kcp"
 if [ "$FRESH" = "1" ]; then
@@ -215,17 +302,73 @@ for arch in $(git for-each-ref --format='%(refname:short)' 'refs/heads/open-arch
 done
 echo "git status --porcelain: '$(git status --porcelain)'"
 
+if [ -n "$POLICY_DIR" ]; then
+  say "the policy records: the audit, the gate of every change, the head eval"
+  # The audit: what the library said about the indexed commit, and the report
+  # specd wrote to the policy branch.
+  specctl policy report -o json > "$WORK/policy-report.json" 2> "$WORK/policy-report.err" || true
+  specctl policy report | tee "$WORK/policy-audit.txt" || true
+  # The gate: every SpecChange, its attempts and the policy decision specd
+  # recorded on it.
+  specctl get specchanges -o json > "$WORK/specchanges.json" 2>/dev/null || true
+  python3 - "$WORK/specchanges.json" <<'PY' | tee "$WORK/policy-gate.txt"
+import json, sys
+try:
+    items = json.load(open(sys.argv[1]))
+except Exception as error:
+    print(f"no specchanges to read: {error}")
+    raise SystemExit(0)
+if isinstance(items, dict):
+    items = items.get("items", [])
+print("change\tcontext\tphase\tattempts\tpolicy")
+for item in items:
+    status = item.get("status", {})
+    policy = status.get("policy") or {}
+    parts = []
+    for key in ("denied", "warned", "dryRun", "waived", "capped"):
+        for violation in policy.get(key) or []:
+            parts.append("{}:{}:{}:{}".format(
+                key,
+                violation.get("constraint") or violation.get("policy", "?"),
+                violation.get("file", ""),
+                violation.get("msg", "")))
+    print("{}\t{}\t{}\t{}\t{}".format(
+        item.get("metadata", {}).get("name", ""),
+        item.get("spec", {}).get("systemContext", ""),
+        status.get("phase", ""),
+        status.get("attempt", 0),
+        "; ".join(parts) or "-"))
+PY
+  # The head, evaluated against the base the pull request targets.
+  specctl policy eval --repo "$REPO" --path "$PWD" --commit HEAD \
+    --diff-base "$DEFAULT_BRANCH" --library "$POLICY_DIR" \
+    > "$WORK/policy-eval-head.txt" 2>&1 || true
+  cat "$WORK/policy-eval-head.txt"
+  {
+    echo "hydradb $HYDRA_DESCRIBE"
+    echo "policy library: $POLICY_LIBRARY"
+    echo "policy enforcement: $POLICY_ENFORCEMENT"
+    echo "policy branch: open-policy/$REPO"
+    grep -E '^(violations|templates|constraints):' "$WORK/policy-eval-head.txt" || true
+  } > "$WORK/policy.txt"
+  echo "policy records: $WORK/policy.txt, $WORK/policy-audit.txt, $WORK/policy-gate.txt, $WORK/policy-eval-head.txt"
+fi
+
 if [ "$PUSH" = "1" ]; then
-  say "push the branch and the architecture, open the pull request"
+  say "push the branch, the architecture and the policies, open the pull request"
   git push -q -u origin "$BRANCH"
   git push -q origin "refs/heads/open-architecture/*:refs/heads/open-architecture/*"
+  if [ -n "$POLICY_DIR" ]; then
+    git push -q origin "refs/heads/open-policy/*:refs/heads/open-policy/*"
+  fi
   prbase=${BASE:-$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || echo main)}
   gh pr create --repo "${GITHUB#https://github.com/}/${REPO}" --base "$prbase" --head "$BRANCH" \
     --title "$PROMPT" \
-    --body "Produced by graph-clm-kcp-spec from the request: \"$PROMPT\". The spec this code realizes is on open-architecture/${REPO}--${BRANCH//\//-}."
+    --body "Produced by graph-clm-kcp-spec from the request: \"$PROMPT\". The spec this code realizes is on open-architecture/${REPO}--${BRANCH//\//-}. The policies that gated it are on open-policy/${REPO}--${BRANCH//\//-}."
 else
   say "PUSH=0: to publish"
   echo "  cd $WORK/$REPO && git push -u origin $BRANCH && git push origin 'refs/heads/open-architecture/*:refs/heads/open-architecture/*'"
+  [ -n "$POLICY_DIR" ] && echo "  git push origin 'refs/heads/open-policy/*:refs/heads/open-policy/*'"
   echo "  gh pr create --repo ${GITHUB#https://github.com/}/$REPO --base ${BASE:-main} --head $BRANCH"
 fi
 

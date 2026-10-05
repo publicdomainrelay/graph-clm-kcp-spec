@@ -404,6 +404,26 @@ bin/specctl policy build --dir /tmp/policies
 bin/specctl policy test  --dir /tmp/policies --gator
 ```
 
+A library that already exists as a directory -- `examples/policies/<repo>`, or a
+branch of another repository -- is seeded with `--from`, which copies its
+templates, constraints and suites, takes `--repo` as the manifest's repository,
+and rebuilds the rest:
+
+```bash
+bin/specctl policy init  --path /path/to/clone --repo deno-kcp --branch spec/x \
+  --default-branch main --from examples/policies/deno-kcp
+bin/specctl policy build --path /path/to/clone --repo deno-kcp --branch spec/x \
+  --default-branch main
+```
+
+The first command writes the orphan branch `open-policy/deno-kcp--spec-x`
+(`--branch` picks the code branch the policy branch belongs to; without it the
+branch is `open-policy/deno-kcp`); the second refreshes `lib/specd.rego` and
+renders `dist/` and `CATALOGUE.md` from what the branch now holds. Everything
+the source directory carries is copied except the generated files, so the result
+is what `specctl policy build` would have produced had the library been authored
+on the branch.
+
 | slug | reviews | denies | origin |
 | --- | --- | --- | --- |
 | `change-succeeded-with-failed-acceptance` | `SpecChange` | `status.phase: Succeeded` while an acceptance step reports `passed: false` and was not overridden | `change_integrity` |
