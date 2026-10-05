@@ -129,3 +129,31 @@ func TestIsPolicyPath(t *testing.T) {
 		t.Fatal("a code path was taken for a policy path")
 	}
 }
+
+// TestReadRawReadsABranchWhoseImportsDoNotResolve pins plan 0010 D1: a branch
+// that holds the pack import and not yet the roles the pack requires is
+// readable raw, which is the branch a binding generation starts from.
+func TestReadRawReadsABranchWhoseImportsDoNotResolve(t *testing.T) {
+	repo := gitRepo(t)
+	store := oagit.Store{Repo: repo}
+	ref := policy.Ref("market")
+	ctx := context.Background()
+	manifest := policy.PolicyLibrary{
+		Repository: "market",
+		Version:    "1",
+		Imports:    []policy.PackImport{{Pack: "rfp-guest-isolation", Version: "v1", Source: policy.SourceEmbedded}},
+	}
+	if _, _, err := policygit.Init(ctx, store, "market", ref, manifest, policyeval.Lib(), policyeval.LibTest()); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := policygit.Read(ctx, store, ref); err == nil {
+		t.Fatal("a resolved read accepted a branch whose binding is not declared")
+	}
+	library, _, err := policygit.ReadRaw(ctx, store, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(library.Manifest.Imports) != 1 || library.Manifest.Imports[0].Pack != "rfp-guest-isolation" {
+		t.Errorf("the raw library carries %+v", library.Manifest.Imports)
+	}
+}

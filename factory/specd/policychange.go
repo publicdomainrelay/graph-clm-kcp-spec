@@ -106,7 +106,7 @@ func (c *Controller) draftPolicyChange(ctx context.Context, namespace string, ch
 		return 0, nil
 	}
 
-	branchLibrary, policyCommit, err := c.policyBranchLibrary(ctx, repository)
+	branchLibrary, policyCommit, err := c.draftBranchLibrary(ctx, change, repository)
 	if err != nil {
 		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, err.Error())
 		return 0, nil
@@ -561,6 +561,23 @@ func (c *Controller) applyPolicyLibrary(ctx context.Context, cluster policykcp.C
 		return err
 	}
 	return policykcp.Apply(ctx, cluster, generated, policykcp.ApplyOptions{CRDs: engine})
+}
+
+// draftBranchLibrary reads the branch a draft is authored against. A bind-mode
+// draft reads it without resolving its imports: the branch that holds the pack
+// import and not yet the roles the pack requires is exactly the branch a
+// binding is authored for.
+func (c *Controller) draftBranchLibrary(ctx context.Context, change *policy.PolicyChange, repository *spec.Repository) (policy.Library, string, error) {
+	if change.Spec.Mode() != policy.GenerateModeBind {
+		return c.policyBranchLibrary(ctx, repository)
+	}
+	path := repository.WorkPath()
+	if path == "" {
+		return policy.Library{}, "", nil
+	}
+	store := oagit.Store{Repo: path}
+	ref := policy.RefFor(policyBranchOf(repository), repository.Spec.Branch, store.DefaultBranch(ctx))
+	return policygit.ReadRaw(ctx, store, ref)
 }
 
 // policyBranchLibrary reads the repository's policy branch, resolved: the

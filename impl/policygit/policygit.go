@@ -22,6 +22,18 @@ func Tip(ctx context.Context, store oagit.Store, ref string) (string, error) {
 }
 
 func Read(ctx context.Context, store oagit.Store, ref string) (policy.Library, string, error) {
+	return read(ctx, store, ref, policyeval.LoadFS)
+}
+
+// ReadRaw reads the branch without resolving its imports: a branch that imports
+// a pack and does not declare the pack's roles yet is readable, which is what a
+// binding generation needs -- the roles it writes are the declaration the
+// resolution expects.
+func ReadRaw(ctx context.Context, store oagit.Store, ref string) (policy.Library, string, error) {
+	return read(ctx, store, ref, policyeval.LoadRaw)
+}
+
+func read(ctx context.Context, store oagit.Store, ref string, load func(fs.FS) (policy.Library, error)) (policy.Library, string, error) {
 	commit, err := store.Tip(ctx, ref)
 	if err != nil {
 		return policy.Library{}, "", err
@@ -33,7 +45,7 @@ func Read(ctx context.Context, store oagit.Store, ref string) (policy.Library, s
 	if err != nil {
 		return policy.Library{}, "", err
 	}
-	library, err := policyeval.LoadFS(FS(files))
+	library, err := load(FS(files))
 	if err != nil {
 		return policy.Library{}, "", err
 	}
