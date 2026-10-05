@@ -741,10 +741,16 @@ They are the model-form replacements for the library's
 `provisioning-new-guest-transport` and `provisioning-manual-key-material`
 CodeDiff rules. They read effects and roles, so a transport named in a selector,
 a lexicon description or a test name, a `which dumbpipe` probe, and the
-`authorized_keys` the guest's own `user_data` writes are all clean. Measured on
-atproto-market PR #1 (`ffac22e`, base `d20070c`): the library alone reports 21
-denies, the library plus this pack reports the one real violation and nothing
-else.
+`authorized_keys` the guest's own `user_data` writes are all clean.
+
+Measured on atproto-market PR #1 (`ffac22e`, base `d20070c`) with the rule in
+the library: adding the import changes nothing, 2 deny violations either way
+(`guest-report-driven-onnetwork`, `rfp-guest-reports-network`), because that
+diff installs no transport and no key material by hand -- the two rules this
+pack carries are quiet on a change that does not provision. On the phase I
+baseline the same two rules are what separates the library's 21 CodeDiff denies
+(which name a transport or key material wherever they appear) from the one real
+violation, which is the calibration the templates were written for.
 
 Run its own suites:
 
