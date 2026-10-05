@@ -837,7 +837,8 @@ Policies are first class in kcp and in specd (plan 0008 C):
   constraint CRD of every template the way Gatekeeper's controller does
   (`<lower kind>.constraints.gatekeeper.sh`, served at `v1beta1`,
   `spec.parameters` from the template) and reports `status.created` and the
-  per-pod errors.
+  per-pod errors. A template kcp refuses never stops the rest of the library:
+  it records the reason in that status and the restore reports it.
 - A `PolicyChange` kind (our group, schema revision 6) is the generation unit;
   `Repository.spec.policy` carries the branch override and the enforcement cap,
   `Repository.status.policy` the last audit.
@@ -847,7 +848,10 @@ Policies are first class in kcp and in specd (plan 0008 C):
 - Audit: every indexed commit and every policy change evaluates all constraints
   against the Repository, its SystemContexts and the head CodeGraph, fills
   `Repository.status.policy`, sets the `PolicyCompliant` condition on each
-  context, and writes `reports/<code branch>.yaml` to the policy branch.
+  context, and writes `reports/<code branch>.yaml` to the policy branch. The
+  graph carries `spec.effects`, computed by `impl/effects` exactly as
+  `specctl policy eval` computes them, so a policy that reads effects behaves
+  the same in kcp as offline.
 - Gate: `realize` evaluates the worktree CodeGraph and the change's CodeDiff
   between verify and acceptance. A `deny` fails the gate like a red verify and
   its messages go to the agent on the next attempt; exhausted attempts end

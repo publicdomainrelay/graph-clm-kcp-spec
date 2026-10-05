@@ -979,19 +979,36 @@ func TestPolicyLibrariesApplyWholeIntoKcp(t *testing.T) {
 		forgetConstraintCRDs(t, cleanupCtx, client)
 	})
 
-	for _, dir := range []string{
-		filepath.Join("examples", "policies", "atproto-market"),
-		filepath.Join("policies", "library"),
+	for _, restored := range []struct {
+		dir        string
+		repository string
+	}{
+		{dir: filepath.Join("examples", "policies", "atproto-market"), repository: "policy-atproto-market"},
+		{dir: filepath.Join("policies", "library"), repository: "policy-library"},
 	} {
-		library, err := policyeval.Load(filepath.Join(root, dir))
+		dir := restored.dir
+		loaded, err := policyeval.Load(filepath.Join(root, dir))
 		if err != nil {
 			t.Fatalf("load %s: %v", dir, err)
 		}
-		if len(library.Templates) == 0 {
+		if len(loaded.Templates) == 0 {
 			t.Fatalf("%s holds no template", dir)
 		}
+		// Restore the branch the way the repository reconcile does: seed the
+		// library onto its policy branch and read it back out of git.
+		repoPath := policyMarketMini(t, restored.repository)
+		store := oagit.Store{Repo: repoPath}
+		seedPolicyBranch(t, repoPath, restored.repository, loaded)
+		ref := policy.RefFor(restored.repository, "main", store.DefaultBranch(ctx))
+		library, _, err := policygit.Read(ctx, store, ref)
+		if err != nil {
+			t.Fatalf("read the %s policy branch: %v", restored.repository, err)
+		}
+		if len(library.Templates) != len(loaded.Templates) {
+			t.Fatalf("%s: the branch holds %d template(s), want %d", dir, len(library.Templates), len(loaded.Templates))
+		}
 		if err := policykcp.Apply(ctx, client, library, policykcp.ApplyOptions{}); err != nil {
-			t.Fatalf("apply %s: %v\n%s", dir, err, policyState(t, ctx, client, ""))
+			t.Fatalf("restore %s: %v\n%s", dir, err, policyState(t, ctx, client, restored.repository))
 		}
 		for _, template := range library.Templates {
 			if err := constraintCRDEstablished(ctx, client, template); err != nil {
