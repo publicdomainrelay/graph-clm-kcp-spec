@@ -85,14 +85,16 @@ usage:
       [--dir D | --path <git repo>] [--repo X]
       scaffold src.rego, src_test.rego, template.yaml, the constraint and a
       gator suite (one allowed case, one denied case)
-  specctl policy build [--dir D | --path <git repo> --repo X]
-      write dist/, refresh lib/specd.rego, render CATALOGUE.md
+  specctl policy build [--dir D | --path <git repo> --repo X] [--relock]
+      [--cache-dir DIR] [--member NAME=PATH]
+      write dist/, refresh lib/specd.rego, render CATALOGUE.md, and pin the
+      imported packs and the members policies.yaml names
   specctl policy test [--dir D] [--gator] [--gator-bin <path>]
       opa unit tests and gator suites through the built-in engine; --gator also
       runs the real gator binary
   specctl policy eval --repo X [--worktree P | --commit C] [--path <git repo>]
       [--library D] [--branch B] [--diff-base REF] [--test-glob G]
-      [-o text|json] [--strict]
+      [--cache-dir DIR] [--member NAME=PATH] [-o text|json] [--strict]
       one-off audit of a checkout or a commit against the policy branch;
       --diff-base also derives a CodeDiff between REF and the evaluated commit,
       so the provisioning and disabled-verification templates have an object
@@ -109,10 +111,12 @@ usage:
       context and file. Classifier packs ship with specctl; a repository adds
       its own in <worktree>/classifiers/*.yaml or in --classifiers DIR
   specctl policy model [--worktree P | --commit C] [--repo X] [--path <git repo>]
-      [--library D] [--classifiers DIR] [--test-glob G] [-o text|json]
+      [--library D] [--classifiers DIR] [--test-glob G] [--cache-dir DIR]
+      [--member NAME=PATH] [-o text|json]
       build the ArchitectureModel (components, roles, effects, flows, triggers)
       from the CodeGraph, the effects, the SystemContexts and the roles and
-      vocabulary of policies.yaml
+      vocabulary of policies.yaml, plus every member repository the library
+      names (--member NAME=PATH clones one from a local checkout instead)
   specctl policy apply -f F | --library D [--prune]
       write ConstraintTemplates, their constraint CRDs and their constraints
       into kcp
