@@ -12,10 +12,11 @@ spec:
       - CodeDiff
   parameters:
     disabledVerificationPatterns:
-    - --validate=false
     - --insecure\b
     - InsecureSkipVerify
     - rejectUnauthorized\s*:\s*false
+    - NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*["']?0
+    - --tls-verify\s*=\s*false
     - \bcurl\b[^\n]*\s-[A-Za-z]*k
     commentPatterns:
     - ^\s*#

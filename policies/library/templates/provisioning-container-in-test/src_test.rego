@@ -49,3 +49,15 @@ test_no_violation_when_the_test_drives_the_contract {
 	violations := violation with input as call
 	count(violations) == 0
 }
+
+comment_in_test := code_diff([{
+	"path": "test/bidder_test.ts",
+	"status": "modified",
+	"added": [{"line": 12, "text": "  // the old path was container run --rm alpine true"}],
+}])
+
+test_no_violation_when_the_line_is_a_comment {
+	call := {"parameters": parameters, "review": review(comment_in_test)}
+	violations := violation with input as call
+	count(violations) == 0
+}

@@ -7,6 +7,7 @@ violation[{"msg": msg, "details": details}] {
 	specd.matches_globs(file_globs, file.path)
 	row := file.added[_]
 	pattern := container_patterns[_]
+	not comment(row.text)
 	not ignored(file.path)
 	regex.match(pattern, row.text)
 	msg := sprintf("added test line %s:%d stands up its own container: %q; a test that needs a live guest drives runComputeContract against a real local bidder, it never runs a container itself", [file.path, row.line, trim_space(row.text)])
@@ -24,3 +25,11 @@ container_patterns = out {
 ignored(path) {
 	specd.matches_globs(input.parameters.ignoredPaths, path)
 }
+
+comment(text) {
+	regex.match(comment_patterns[_], text)
+}
+
+comment_patterns = out {
+	out := input.parameters.commentPatterns
+} else = [`^\s*#`, `^\s*//`, `^\s*\*`]

@@ -13,6 +13,12 @@ tests:
           - inventory/codediff-allowed.yaml
         assertions:
           - violations: 0
+      - name: allowed-commented
+        object: inventory/codediff-commented-allowed.yaml
+        inventory:
+          - inventory/codediff-commented-allowed.yaml
+        assertions:
+          - violations: 0
       - name: denied-container-in-test
         object: inventory/codediff-denied.yaml
         inventory:

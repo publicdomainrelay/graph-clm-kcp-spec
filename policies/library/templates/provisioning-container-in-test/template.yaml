@@ -7,7 +7,7 @@ metadata:
     specs.publicdomainrelay.dev/level: MUST
     specs.publicdomainrelay.dev/severity: error
     specs.publicdomainrelay.dev/origin: "deno-kcp opa-first-stab policies/code_safety provisioning-test-stands-up-own-container, with the container-run and container-exec patterns"
-    specs.publicdomainrelay.dev/calibration: "the origin fired on any added test line containing docker/podman/container/nerdctl run or exec; grep of the atproto-market tree found the pattern only in prose and in the canonical harness, which drives runComputeContract, so the rule is scoped to files the manifest's testGlobs mark as tests. testGlobs and containerPatterns are parameters so a repository tunes them without editing the rule."
+    specs.publicdomainrelay.dev/calibration: "the origin fired on any added test line containing docker/podman/container/nerdctl run or exec; grep of the atproto-market tree found the pattern only in prose and in the canonical harness, which drives runComputeContract, so the rule is scoped to files the manifest's testGlobs mark as tests. A comment line is skipped, because the origin's code.is_comment guard had no counterpart here and a test comment that names the pattern is prose, not a container. testGlobs, containerPatterns, ignoredPaths and commentPatterns are parameters so a repository tunes them without editing the rule."
 spec:
   crd:
     spec:
@@ -26,6 +26,10 @@ spec:
               items:
                 type: string
             ignoredPaths:
+              type: array
+              items:
+                type: string
+            commentPatterns:
               type: array
               items:
                 type: string

@@ -6,8 +6,10 @@ metadata:
       containing docker/podman/container/nerdctl run or exec; grep of the atproto-market
       tree found the pattern only in prose and in the canonical harness, which drives
       runComputeContract, so the rule is scoped to files the manifest's testGlobs
-      mark as tests. testGlobs and containerPatterns are parameters so a repository
-      tunes them without editing the rule.
+      mark as tests. A comment line is skipped, because the origin's code.is_comment
+      guard had no counterpart here and a test comment that names the pattern is prose,
+      not a container. testGlobs, containerPatterns, ignoredPaths and commentPatterns
+      are parameters so a repository tunes them without editing the rule.
     specs.publicdomainrelay.dev/level: MUST
     specs.publicdomainrelay.dev/origin: deno-kcp opa-first-stab policies/code_safety
       provisioning-test-stands-up-own-container, with the container-run and container-exec
@@ -24,6 +26,10 @@ spec:
       validation:
         openAPIV3Schema:
           properties:
+            commentPatterns:
+              items:
+                type: string
+              type: array
             containerPatterns:
               items:
                 type: string
@@ -141,12 +147,14 @@ spec:
     rego: "package provisioningcontainerintest\n\nimport data.lib.specd\n\nviolation[{\"msg\":
       msg, \"details\": details}] {\n\tfile := input.review.object.spec.files[_]\n\tspecd.matches_globs(file_globs,
       file.path)\n\trow := file.added[_]\n\tpattern := container_patterns[_]\n\tnot
-      ignored(file.path)\n\tregex.match(pattern, row.text)\n\tmsg := sprintf(\"added
-      test line %s:%d stands up its own container: %q; a test that needs a live guest
-      drives runComputeContract against a real local bidder, it never runs a container
-      itself\", [file.path, row.line, trim_space(row.text)])\n\tdetails := specd.location(file.path,
-      row.line)\n}\n\nfile_globs = out {\n\tout := input.parameters.testGlobs\n} else
-      = [\"test/**\", \"**/*_test.go\", \"**/*_test.ts\", \"**/*.test.ts\"]\n\ncontainer_patterns
+      comment(row.text)\n\tnot ignored(file.path)\n\tregex.match(pattern, row.text)\n\tmsg
+      := sprintf(\"added test line %s:%d stands up its own container: %q; a test that
+      needs a live guest drives runComputeContract against a real local bidder, it
+      never runs a container itself\", [file.path, row.line, trim_space(row.text)])\n\tdetails
+      := specd.location(file.path, row.line)\n}\n\nfile_globs = out {\n\tout := input.parameters.testGlobs\n}
+      else = [\"test/**\", \"**/*_test.go\", \"**/*_test.ts\", \"**/*.test.ts\"]\n\ncontainer_patterns
       = out {\n\tout := input.parameters.containerPatterns\n} else = [`\\b(?:docker|podman|container|nerdctl)\\s+(?:run|exec)\\b`]\n\nignored(path)
-      {\n\tspecd.matches_globs(input.parameters.ignoredPaths, path)\n}\n"
+      {\n\tspecd.matches_globs(input.parameters.ignoredPaths, path)\n}\n\ncomment(text)
+      {\n\tregex.match(comment_patterns[_], text)\n}\n\ncomment_patterns = out {\n\tout
+      := input.parameters.commentPatterns\n} else = [`^\\s*#`, `^\\s*//`, `^\\s*\\*`]\n"
     target: admission.k8s.gatekeeper.sh

@@ -47,3 +47,39 @@ test_no_violation_when_the_line_is_allowed {
 	violations := violation with input as call
 	count(violations) == 0
 }
+
+commented := code_diff([{
+	"path": "scripts/bring-up.sh",
+	"status": "modified",
+	"added": [{"line": 22, "text": "  # ssh-keygen is replaced by the cloud-init module"}],
+}])
+
+markdown := code_diff([{
+	"path": "request-vm-ssh/README.md",
+	"status": "modified",
+	"added": [{"line": 105, "text": "Run ssh-keygen once, then paste the key into the guest's authorized_keys."}],
+}])
+
+both_patterns := code_diff([{
+	"path": "scripts/bring-up.sh",
+	"status": "modified",
+	"added": [{"line": 30, "text": "  ssh-keygen -f key && cat key.pub >> authorized_keys"}],
+}])
+
+test_no_violation_when_the_line_is_a_comment {
+	call := {"parameters": parameters, "review": review(commented)}
+	violations := violation with input as call
+	count(violations) == 0
+}
+
+test_no_violation_when_the_line_is_markdown {
+	call := {"parameters": parameters, "review": review(markdown)}
+	violations := violation with input as call
+	count(violations) == 0
+}
+
+test_one_violation_when_both_patterns_match_one_line {
+	call := {"parameters": parameters, "review": review(both_patterns)}
+	violations := violation with input as call
+	count(violations) == 1
+}
