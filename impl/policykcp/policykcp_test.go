@@ -3,6 +3,8 @@ package policykcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
+	"github.com/publicdomainrelay/kcp-libs/common/kcp"
 )
 
 const testRego = `package nodirectguestconnect
@@ -205,6 +208,8 @@ func TestConstraintCRDUsesGatekeepersNaming(t *testing.T) {
 
 type fakeCluster struct {
 	client *dynamicfake.FakeDynamicClient
+
+	refuse map[string]error
 }
 
 func (f fakeCluster) ListCluster(ctx context.Context, gvr schema.GroupVersionResource) (*unstructured.UnstructuredList, error) {
@@ -220,6 +225,9 @@ func (f fakeCluster) CreateCluster(ctx context.Context, object *unstructured.Uns
 }
 
 func (f fakeCluster) ApplyCluster(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	if err, ok := f.refuse[object.GetName()]; ok {
+		return nil, err
+	}
 	current, err := f.GetCluster(ctx, resourceGVR(object), object.GetName())
 	if err == nil {
 		object.SetResourceVersion(current.GetResourceVersion())
@@ -289,13 +297,148 @@ func TestApplyAndReadCoverTemplatesConstraintsAndCRDs(t *testing.T) {
 	}
 }
 
-func newFakeCluster(t *testing.T) Cluster {
+func newFakeCluster(t *testing.T) fakeCluster {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	listKinds := map[schema.GroupVersionResource]string{
 		policy.ConstraintTemplateGVR():                                                        "ConstraintTemplateList",
 		policy.ConstraintGVR("NoDirectGuestConnect"):                                          "NoDirectGuestConnectList",
+		policy.ConstraintGVR("ADirectGuestConnect"):                                           "ADirectGuestConnectList",
 		{Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions"}: "CustomResourceDefinitionList",
 	}
 	return fakeCluster{client: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds)}
+}
+
+func TestParseTemplateObjectDropsClusterMetadataAndTheSlugAnnotation(t *testing.T) {
+	object, err := TemplateObject(testTemplate())
+	if err != nil {
+		t.Fatal(err)
+	}
+	object.SetAnnotations(map[string]string{
+		kcp.ClusterAnnotation:  "1l5a2bcd",
+		kcp.PathAnnotation:     "root:specs",
+		policy.AnnotationSlug:  "no-direct-guest-connect",
+		policy.AnnotationTitle: "no direct guest connect",
+		policy.AnnotationLevel: "MUST",
+	})
+	parsed, err := ParseTemplateObject(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Slug != "no-direct-guest-connect" {
+		t.Errorf("slug = %s", parsed.Slug)
+	}
+	if _, ok := parsed.Annotations[policy.AnnotationSlug]; ok {
+		t.Errorf("the slug annotation survived the parse: %v", parsed.Annotations)
+	}
+	if _, ok := parsed.Annotations[kcp.ClusterAnnotation]; ok {
+		t.Errorf("the cluster annotation survived the parse: %v", parsed.Annotations)
+	}
+	library := policy.Library{Templates: []policy.Template{parsed}}
+	branch := policy.Library{Templates: []policy.Template{testTemplate()}}
+	if Distinct(library, branch) {
+		t.Errorf("a template read back from kcp differs from its branch form:\n%v\n%v",
+			library.Templates[0].Annotations, branch.Templates[0].Annotations)
+	}
+	files, err := Files(library)
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, ok := files[policy.TemplateHeaderPath("no-direct-guest-connect")]
+	if !ok {
+		t.Fatalf("no header in %v", files)
+	}
+	if strings.Contains(string(header), policy.AnnotationSlug) {
+		t.Errorf("the branch header carries the slug annotation:\n%s", header)
+	}
+	if strings.Contains(string(header), kcp.ClusterAnnotation) {
+		t.Errorf("the branch header carries the cluster annotation:\n%s", header)
+	}
+}
+
+func TestApplyAppliesEverythingItCanAndNamesWhatFailed(t *testing.T) {
+	failing := testTemplate()
+	failing.Name = "adirectguestconnect"
+	failing.Slug = "a-direct-guest-connect"
+	failing.Kind = "ADirectGuestConnect"
+	healthy := testTemplate()
+	library := policy.Library{
+		Lib:       policyeval.Lib(),
+		Templates: []policy.Template{failing, healthy},
+		Constraints: []policy.Constraint{
+			{Name: "a-direct-guest-connect", Kind: failing.Kind, Template: failing.Name, Enforcement: policy.EnforcementDeny},
+			{Name: "no-direct-guest-connect", Kind: healthy.Kind, Template: healthy.Name, Enforcement: policy.EnforcementDeny},
+		},
+	}
+	library.Sort()
+	cluster := newFakeCluster(t)
+	cluster.refuse = map[string]error{
+		"adirectguestconnect.constraints.gatekeeper.sh": errors.New("kcp refused the CRD"),
+	}
+	err := Apply(context.Background(), cluster, library, ApplyOptions{})
+	if err == nil {
+		t.Fatal("a failing template did not surface an error")
+	}
+	for _, want := range []string{"adirectguestconnect", "constraint CRD", "kcp refused the CRD"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "nodirectguestconnect") {
+		t.Errorf("the healthy template is reported as failed: %v", err)
+	}
+	ctx := context.Background()
+	if _, err := cluster.GetCluster(ctx,
+		schema.GroupVersionResource{Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions"},
+		"nodirectguestconnect.constraints.gatekeeper.sh"); err != nil {
+		t.Errorf("the healthy template got no constraint CRD: %v", err)
+	}
+	read, err := Read(ctx, cluster)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(read.Templates) != 2 {
+		t.Errorf("kcp holds %d template(s), want both", len(read.Templates))
+	}
+	if len(read.Constraints) != 2 {
+		t.Errorf("kcp holds %d constraint(s), want both", len(read.Constraints))
+	}
+	broken, err := cluster.GetCluster(ctx, policy.ConstraintTemplateGVR(), failing.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, _, _ := unstructured.NestedMap(broken.Object, "status")
+	if created, _, _ := unstructured.NestedBool(status, "created"); created {
+		t.Errorf("the failing template reports created: %v", status)
+	}
+	errorsOf, _, _ := unstructured.NestedSlice(status, "byPod")
+	if len(errorsOf) == 0 {
+		t.Fatalf("the failing template carries no byPod status: %v", status)
+	}
+	entry, _ := errorsOf[0].(map[string]any)
+	reported, _ := entry["errors"].([]any)
+	if len(reported) == 0 {
+		t.Fatalf("the failing template carries no error: %v", status)
+	}
+	first, _ := reported[0].(map[string]any)
+	if message, _ := first["message"].(string); !strings.Contains(message, "kcp refused the CRD") {
+		t.Errorf("the status message = %q", message)
+	}
+}
+
+func TestApplyKeepsEveryTemplateWhenPruning(t *testing.T) {
+	library := policy.Library{
+		Lib:       policyeval.Lib(),
+		Templates: []policy.Template{testTemplate()},
+	}
+	cluster := newFakeCluster(t)
+	cluster.refuse = map[string]error{
+		"nodirectguestconnect.constraints.gatekeeper.sh": errors.New("kcp refused the CRD"),
+	}
+	if err := Apply(context.Background(), cluster, library, ApplyOptions{Prune: true}); err == nil {
+		t.Fatal("the failing template did not surface an error")
+	}
+	if _, err := cluster.GetCluster(context.Background(), policy.ConstraintTemplateGVR(), "nodirectguestconnect"); err != nil {
+		t.Errorf("prune removed the template that failed to apply: %v", err)
+	}
 }

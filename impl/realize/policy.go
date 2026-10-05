@@ -13,6 +13,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphfacts"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/effects"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/gitrepo"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
 )
@@ -123,6 +124,12 @@ func buildGateGraph(ctx context.Context, options Options, dir string) (policy.Co
 	}
 	if err != nil {
 		return policy.CodeGraph{}, fmt.Errorf("realize: index the worktree for the policy gate: %w", err)
+	}
+	if _, err := effects.Apply(&graph, effects.Options{
+		ClassifiersDirs: effects.Dirs(dir),
+		IncludeExtras:   true,
+	}); err != nil {
+		return policy.CodeGraph{}, fmt.Errorf("realize: compute the effects for the policy gate: %w", err)
 	}
 	return graph, nil
 }

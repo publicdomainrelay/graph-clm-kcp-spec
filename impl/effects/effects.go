@@ -130,6 +130,21 @@ func Apply(graph *policy.CodeGraph, opts Options) ([]policy.Effect, error) {
 	return computed, nil
 }
 
+// Dirs names the classifier packs a worktree adds to the embedded ones: its
+// classifiers/ directory when it has one. Every caller that computes effects
+// over a checkout uses it, so the audit, the gate and specctl see the same
+// packs.
+func Dirs(worktree string) []string {
+	if worktree == "" {
+		return nil
+	}
+	candidate := filepath.Join(worktree, ClassifiersDir)
+	if _, err := os.Stat(candidate); err != nil {
+		return nil
+	}
+	return []string{candidate}
+}
+
 func Counts(effects []policy.Effect) map[policy.EffectKind]int {
 	counts := map[policy.EffectKind]int{}
 	for _, effect := range effects {

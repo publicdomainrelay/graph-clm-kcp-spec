@@ -2,15 +2,18 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/yaml"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/oabranch"
@@ -28,7 +31,13 @@ import (
 	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
-const policyProbePath = "test/policy_probe_test.ts"
+// policyRequesterPath is the file the policies under test judge: relay-only-ssh
+// reaches it from the integration test that drives it, so a violating variant
+// of this file is what a policy denial is made of. A test file alone cannot
+// violate it: the indexer gives a test file a file node and its imports, not
+// the body of Deno.test, so what the test reaches is the production code it
+// imports.
+const policyRequesterPath = "lib/requester/mod.ts"
 
 // policyContextNames are the directory-partitioned contexts the market-mini
 // fixture produces; the tests delete them too, because a context name belongs
@@ -37,28 +46,51 @@ var policyContextNames = []string{
 	"hono-bidder", "lib-cloud-init", "lib-compute-provider", "lib-market-common", "lib-requester", "test",
 }
 
-const policyViolatingProbe = `import { runComputeContract } from "@market-mini/requester";
-import type { Contract } from "@market-mini/market-common";
+// fixtureFile reads a file of a market-mini fixture variant: the violating
+// requester dials the guest directly, the compliant one goes over the relay.
+func fixtureFile(t *testing.T, variant, file string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "fixtures", "market-mini", variant, file))
+	if err != nil {
+		t.Fatalf("read the %s fixture %s: %v", variant, file, err)
+	}
+	return string(data)
+}
 
-Deno.test("the probe dials the guest directly", async () => {
-  const contract: Contract = { vmId: "vm", providerId: "p", guestHost: "10.0.0.7", guestPort: 22 };
-  const connection = await Deno.connect({ hostname: contract.guestHost, port: contract.guestPort });
-  connection.close();
-  await runComputeContract(contract);
-});
-`
+func violatingRequester(t *testing.T) string {
+	t.Helper()
+	return fixtureFile(t, "violating", policyRequesterPath)
+}
 
-const policyComplyingProbe = `import { runComputeContract } from "@market-mini/requester";
-import type { Contract } from "@market-mini/market-common";
+func compliantRequester(t *testing.T) string {
+	t.Helper()
+	return fixtureFile(t, "compliant", policyRequesterPath)
+}
 
-Deno.test("the probe reaches the guest over the relay", async () => {
-  const contract: Contract = { vmId: "vm", providerId: "p", guestHost: "10.0.0.7", guestPort: 22 };
-  const result = await runComputeContract(contract);
-  if (typeof result.exitCode !== "number") {
-    throw new Error("no exit code");
-  }
-});
-`
+// complyingRequester is the compliant requester plus one line the agent adds:
+// a failed realize leaves the worktree at HEAD, so writing the fixture's own
+// content again would be no change at all and commit nothing.
+func complyingRequester(t *testing.T) string {
+	t.Helper()
+	return compliantRequester(t) + "\n// Reached over the relay transport the RFP cloud-init deploys.\n"
+}
+
+// requesterContext is the context that owns lib/requester: the spec edit that
+// makes the agent touch the requester belongs to it, not to a context the
+// realize would have to write outside of.
+func requesterContext(t *testing.T, ctx context.Context, client *kcpclient.Client, repository string) string {
+	t.Helper()
+	contexts := repositoryContexts(t, ctx, client, repository)
+	names := []string{}
+	for _, systemContext := range contexts {
+		if systemContext.Name == "lib-requester" {
+			return systemContext.Name
+		}
+		names = append(names, systemContext.Name)
+	}
+	t.Fatalf("the repository has no lib-requester context; it has %v", names)
+	return ""
+}
 
 // seedPolicyBranch writes the example policy library to the orphan branch
 // open-policy/<repository> of the code checkout, the way specctl policy build
@@ -169,12 +201,24 @@ func policyRepository(repository, repoPath string) *spec.Repository {
 	}
 }
 
+// waitForContexts waits for the whole partition of the fixture, not just the
+// first context: a test that picks the context owning a file, or that writes a
+// scenario step for every context, needs all of them.
 func waitForContexts(t *testing.T, ctx context.Context, client *kcpclient.Client, repository string) []spec.SystemContext {
 	t.Helper()
-	waitFor(t, ctx, "the contexts of "+repository, func() bool {
-		return len(repositoryContexts(t, ctx, client, repository)) > 0
-	})
+	waitForState(t, ctx, "the contexts of "+repository, func() bool {
+		return len(repositoryContexts(t, ctx, client, repository)) >= len(policyContextNames)
+	}, func() string { return contextNames(repositoryContexts(t, ctx, client, repository)) })
 	return repositoryContexts(t, ctx, client, repository)
+}
+
+func contextNames(contexts []spec.SystemContext) string {
+	names := []string{}
+	for _, systemContext := range contexts {
+		names = append(names, systemContext.Name)
+	}
+	sort.Strings(names)
+	return fmt.Sprintf("contexts %v", names)
 }
 
 func repositoryContexts(t *testing.T, ctx context.Context, client *kcpclient.Client, repository string) []spec.SystemContext {
@@ -199,11 +243,13 @@ func repositoryContexts(t *testing.T, ctx context.Context, client *kcpclient.Cli
 }
 
 // writeAttemptScenario writes a scenario whose realize steps depend on the
-// attempt: the first writes the violating probe, the second the complying one.
-// The controller loads the file per realize, so the test may rewrite it after
-// the contexts are known.
+// attempt: the first writes the violating requester, the second the compliant
+// one. The controller loads the file per realize, so the test may rewrite it
+// after the contexts are known.
 func writeAttemptScenario(t *testing.T, path string, contexts []spec.SystemContext, repository string) {
 	t.Helper()
+	violating := violatingRequester(t)
+	complying := complyingRequester(t)
 	scenario := scriptedagent.Scenario{
 		Contexts: map[string]scriptedagent.Draft{},
 		Attempts: map[string][][]scriptedagent.Step{},
@@ -213,8 +259,8 @@ func writeAttemptScenario(t *testing.T, path string, contexts []spec.SystemConte
 			Intent: "the " + systemContext.Name + " context of " + repository,
 		}
 		scenario.Attempts[systemContext.Name] = [][]scriptedagent.Step{
-			{{Write: &scriptedagent.Write{Path: policyProbePath, Contents: policyViolatingProbe}}},
-			{{Write: &scriptedagent.Write{Path: policyProbePath, Contents: policyComplyingProbe}}},
+			{{Write: &scriptedagent.Write{Path: policyRequesterPath, Contents: violating}}},
+			{{Write: &scriptedagent.Write{Path: policyRequesterPath, Contents: complying}}},
 		}
 	}
 	writeScenario(t, path, scenario)
@@ -239,9 +285,9 @@ func specEditFor(context string, repository string) *unstructured.Unstructured {
 		"spec": map[string]any{
 			"repository": repository,
 			"requirements": []any{map[string]any{
-				"id": "r.policy-probe", "level": "MUST",
+				"id": "r.policy-relay", "level": "MUST",
 				"text":     "The integration test reaches the guest only through the relay.",
-				"codeRefs": []any{"file:" + policyProbePath},
+				"codeRefs": []any{"file:" + policyRequesterPath},
 			}},
 		},
 	}}
@@ -268,6 +314,51 @@ func repositoryPolicyStatus(t *testing.T, ctx context.Context, client *kcpclient
 	}
 	status, _, _ := unstructured.NestedMap(object.Object, "status", "policy")
 	return status
+}
+
+// policyState is what a stuck policy wait reports: the policy condition of the
+// repository, what kcp holds, and the status of each ConstraintTemplate, so a
+// template kcp refused names its reason instead of only timing out.
+func policyState(t *testing.T, ctx context.Context, client *kcpclient.Client, repository string) string {
+	t.Helper()
+	parts := []string{}
+	if repository != "" {
+		if object, err := client.Get(ctx, specapi.RepositoryGVR, specapi.DefaultNamespace, repository); err == nil {
+			conditions, _, _ := unstructured.NestedSlice(object.Object, "status", "conditions")
+			for _, raw := range conditions {
+				entry, ok := raw.(map[string]any)
+				if !ok || entry["type"] != specapi.ConditionPolicyReady {
+					continue
+				}
+				parts = append(parts, fmt.Sprintf("condition %v=%v (%v): %v",
+					entry["type"], entry["status"], entry["reason"], entry["message"]))
+			}
+			status, _, _ := unstructured.NestedMap(object.Object, "status", "policy")
+			parts = append(parts, fmt.Sprintf("policy status %v", status))
+		} else {
+			parts = append(parts, fmt.Sprintf("repository %s: %v", repository, err))
+		}
+	}
+	library, err := policykcp.Read(ctx, client)
+	if err != nil {
+		parts = append(parts, fmt.Sprintf("kcp library: %v", err))
+		return strings.Join(parts, "; ")
+	}
+	names := []string{}
+	for _, template := range library.Templates {
+		names = append(names, template.Name)
+	}
+	parts = append(parts, fmt.Sprintf("kcp holds templates %v and %d constraint(s)", names, len(library.Constraints)))
+	for _, template := range library.Templates {
+		object, err := client.GetCluster(ctx, policy.ConstraintTemplateGVR(), template.Name)
+		if err != nil {
+			parts = append(parts, fmt.Sprintf("%s status: %v", template.Name, err))
+			continue
+		}
+		status, _, _ := unstructured.NestedMap(object.Object, "status")
+		parts = append(parts, fmt.Sprintf("%s status %v", template.Name, status))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func conditionStatus(t *testing.T, ctx context.Context, client *kcpclient.Client, name, condition string) string {
@@ -323,43 +414,48 @@ func TestPolicyRestoreAndAudit(t *testing.T) {
 	startPolicyController(t, ctx, "", 1)
 	applyTyped(t, ctx, client, policyRepository(repository, repoPath))
 
-	waitFor(t, ctx, "the policy branch to be restored into kcp", func() bool {
-		library, err := policykcp.Read(ctx, client)
+	library := examplePolicyLibrary(t)
+	waitForState(t, ctx, "the policy branch to be restored into kcp", func() bool {
+		held, err := policykcp.Read(ctx, client)
 		if err != nil {
 			return false
 		}
-		return len(library.Templates) == 1 && len(library.Constraints) == 1
-	})
-	library, err := policykcp.Read(ctx, client)
+		return len(held.Templates) == len(library.Templates) && len(held.Constraints) == len(library.Constraints)
+	}, func() string { return policyState(t, ctx, client, repository) })
+	held, err := policykcp.Read(ctx, client)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if library.Templates[0].Name != "nodirectguestconnect" {
-		t.Errorf("template = %s", library.Templates[0].Name)
+	for _, want := range library.Templates {
+		found := false
+		for _, got := range held.Templates {
+			if got.Name == want.Name && got.Kind == want.Kind {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s was not restored into kcp: %v", want.Name, held.Templates)
+		}
 	}
-	if library.Constraints[0].Enforcement != policy.EnforcementDeny {
-		t.Errorf("enforcement = %s", library.Constraints[0].Enforcement)
+	for _, constraint := range held.Constraints {
+		if constraint.Enforcement != policy.EnforcementDeny {
+			t.Errorf("enforcement of %s = %s", constraint.Name, constraint.Enforcement)
+		}
 	}
 
 	contexts := waitForContexts(t, ctx, client, repository)
-	dumped := false
-	waitFor(t, ctx, "the audit of the repository", func() bool {
+	waitForState(t, ctx, "the audit of the repository", func() bool {
 		status := repositoryPolicyStatus(t, ctx, client, repository)
 		if status == nil || status["evaluatedCommit"] == nil || status["evaluatedCommit"] == "" {
 			return false
 		}
 		for _, systemContext := range contexts {
-			got := conditionStatus(t, ctx, client, systemContext.Name, specapi.ConditionPolicyCompliant)
-			if got != "True" {
-				if !dumped {
-					dumped = true
-					t.Logf("context %s PolicyCompliant = %q; status = %v", systemContext.Name, got, status)
-				}
+			if conditionStatus(t, ctx, client, systemContext.Name, specapi.ConditionPolicyCompliant) != "True" {
 				return false
 			}
 		}
 		return true
-	})
+	}, func() string { return policyState(t, ctx, client, repository) })
 	for _, systemContext := range contexts {
 		if got := conditionStatus(t, ctx, client, systemContext.Name, specapi.ConditionPolicyCompliant); got != "True" {
 			t.Errorf("PolicyCompliant of %s = %q, want True", systemContext.Name, got)
@@ -372,14 +468,14 @@ func TestPolicyRestoreAndAudit(t *testing.T) {
 		t.Errorf("the compliant checkout has violations: %v", status)
 	}
 
-	// The violating probe lands in test/, a directory the root context owns.
-	violating := filepath.Join(repoPath, policyProbePath)
-	if err := os.WriteFile(violating, []byte(policyViolatingProbe), 0o644); err != nil {
+	// The violating requester lands in lib/requester, the context that owns it.
+	violating := filepath.Join(repoPath, policyRequesterPath)
+	if err := os.WriteFile(violating, []byte(violatingRequester(t)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	fixture.Commit(t, repoPath, "a violating probe")
+	fixture.Commit(t, repoPath, "a violating requester")
 
-	waitFor(t, ctx, "the walkthrough audit to flag the probe", func() bool {
+	waitForState(t, ctx, "the walkthrough audit to flag the violating requester", func() bool {
 		status := repositoryPolicyStatus(t, ctx, client, repository)
 		totals, _ := status["totals"].(map[string]any)
 		if numberOf(totals["deny"]) == 0 {
@@ -391,11 +487,14 @@ func TestPolicyRestoreAndAudit(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}, func() string { return policyState(t, ctx, client, repository) })
 	fresh := repositoryContexts(t, ctx, client, repository)
-	owner := contextOwning(t, fresh, policyProbePath)
+	owner := contextOwning(t, fresh, policyRequesterPath)
 	if got := conditionStatus(t, ctx, client, owner, specapi.ConditionPolicyCompliant); got != "False" {
 		t.Errorf("PolicyCompliant of %s = %q, want False: it owns the violating file", owner, got)
+	}
+	if owner != "lib-requester" {
+		t.Errorf("the violating file belongs to %s, want lib-requester", owner)
 	}
 	status = repositoryPolicyStatus(t, ctx, client, repository)
 	violations, _ := status["violations"].([]any)
@@ -482,13 +581,13 @@ func TestPolicyGateDenyMakesTheAgentComply(t *testing.T) {
 	})
 	writeAttemptScenario(t, scenario, contexts, repository)
 
-	owner := contexts[0].Name
+	owner := requesterContext(t, ctx, client, repository)
 	applySpecEdit(t, ctx, client, specEditFor(owner, repository))
 
-	waitFor(t, ctx, "the denied attempt", func() bool {
+	waitForState(t, ctx, "the denied attempt", func() bool {
 		found := changesFor(liveSpecChanges(t, ctx, client), owner, specapi.DirectionSpecToCode)
 		return len(found) >= 1 && found[0].Status.Phase == specapi.PhaseFailed
-	})
+	}, func() string { return policyState(t, ctx, client, repository) })
 	denied := changesFor(liveSpecChanges(t, ctx, client), owner, specapi.DirectionSpecToCode)[0]
 	if !strings.Contains(denied.Status.Message, specapi.ReasonPolicyDenied) {
 		t.Errorf("message = %q, want %s", denied.Status.Message, specapi.ReasonPolicyDenied)
@@ -496,30 +595,44 @@ func TestPolicyGateDenyMakesTheAgentComply(t *testing.T) {
 	if denied.Status.Policy == nil || len(denied.Status.Policy.Denied) == 0 {
 		t.Fatalf("the denied change carries no policy status: %+v", denied.Status)
 	}
-	if !strings.Contains(denied.Status.Policy.Denied[0].Msg, "must not dial a guest directly") {
-		t.Errorf("denied message = %q", denied.Status.Policy.Denied[0].Msg)
+	denyMessages := []string{}
+	for _, violation := range denied.Status.Policy.Denied {
+		denyMessages = append(denyMessages, violation.Msg)
+	}
+	if !mentionsDeny(denyMessages, "dials a guest address directly") {
+		t.Errorf("denied messages = %v, want the relay-only-ssh direct dial", denyMessages)
 	}
 	if !strings.Contains(denied.Status.AgentLog, "policy gate") {
 		t.Errorf("the agent log does not carry the deny messages: %q", denied.Status.AgentLog)
 	}
 
-	waitFor(t, ctx, "the complying attempt to land", func() bool {
+	waitForState(t, ctx, "the complying attempt to land", func() bool {
 		for _, change := range changesFor(liveSpecChanges(t, ctx, client), owner, specapi.DirectionSpecToCode) {
 			if change.Status.Phase == specapi.PhaseSucceeded {
 				return true
 			}
 		}
 		return false
-	})
+	}, func() string { return policyState(t, ctx, client, repository) })
 	changes := changesFor(liveSpecChanges(t, ctx, client), owner, specapi.DirectionSpecToCode)
 	landed := changes[len(changes)-1]
 	if landed.Status.Commit == "" || headOf(t, repoPath) != landed.Status.Commit {
 		t.Errorf("commit = %q, HEAD = %q", landed.Status.Commit, headOf(t, repoPath))
 	}
-	contents := readFileAt(t, landed.Status.Commit, repoPath, policyProbePath)
-	if strings.Contains(contents, "Deno.connect") {
-		t.Errorf("the landed probe still dials the guest: %s", contents)
+	// gitOutput trims, so the trailing newline is compared trimmed too.
+	contents := readFileAt(t, landed.Status.Commit, repoPath, policyRequesterPath)
+	if contents != strings.TrimSpace(complyingRequester(t)) {
+		t.Errorf("the landed requester is not the complying one:\n%s", contents)
 	}
+}
+
+func mentionsDeny(messages []string, fragment string) bool {
+	for _, message := range messages {
+		if strings.Contains(message, fragment) {
+			return true
+		}
+	}
+	return false
 }
 
 // TestPolicyGateNeverComplyingEndsPolicyDenied covers the exhausted attempts:
@@ -554,18 +667,18 @@ func TestPolicyGateNeverComplyingEndsPolicyDenied(t *testing.T) {
 	contexts := startPolicyGateFixture(t, ctx, client, repository, repoPath, scenario, 2, nil)
 	writeViolatingScenario(t, scenario, contexts)
 
-	owner := contexts[0].Name
+	owner := requesterContext(t, ctx, client, repository)
 	base := headOf(t, repoPath)
 	applySpecEdit(t, ctx, client, specEditFor(owner, repository))
 
-	waitFor(t, ctx, "the two denied attempts", func() bool {
+	waitForState(t, ctx, "the two denied attempts", func() bool {
 		changes := changesFor(liveSpecChanges(t, ctx, client), owner, specapi.DirectionSpecToCode)
 		if len(changes) < 2 {
 			return false
 		}
 		newest := changes[len(changes)-1]
 		return newest.Status.Phase == specapi.PhaseFailed
-	})
+	}, func() string { return policyState(t, ctx, client, repository) })
 	time.Sleep(3 * time.Second)
 	changes := changesFor(liveSpecChanges(t, ctx, client), owner, specapi.DirectionSpecToCode)
 	newest := changes[len(changes)-1]
@@ -620,8 +733,11 @@ func startPolicyGateFixture(t *testing.T, ctx context.Context, client *kcpclient
 	return contexts
 }
 
+// writeViolatingScenario makes every realize write the violating requester, so
+// the gate denies every attempt no matter which context is realized.
 func writeViolatingScenario(t *testing.T, path string, contexts []spec.SystemContext) {
 	t.Helper()
+	violating := violatingRequester(t)
 	scenario := scriptedagent.Scenario{
 		Contexts: map[string]scriptedagent.Draft{},
 		Realize:  map[string][]scriptedagent.Step{},
@@ -629,7 +745,7 @@ func writeViolatingScenario(t *testing.T, path string, contexts []spec.SystemCon
 	for _, systemContext := range contexts {
 		scenario.Contexts[systemContext.Name] = scriptedagent.Draft{Intent: systemContext.Name}
 		scenario.Realize[systemContext.Name] = []scriptedagent.Step{
-			{Write: &scriptedagent.Write{Path: policyProbePath, Contents: policyViolatingProbe}},
+			{Write: &scriptedagent.Write{Path: policyRequesterPath, Contents: violating}},
 		}
 	}
 	writeScenario(t, path, scenario)
@@ -675,17 +791,17 @@ func TestPolicyWarnRecordsWithoutBlocking(t *testing.T) {
 	contexts := startPolicyGateFixture(t, ctx, client, repository, repoPath, scenario, 3, nil)
 	writeViolatingScenario(t, scenario, contexts)
 
-	owner := contexts[0].Name
+	owner := requesterContext(t, ctx, client, repository)
 	applySpecEdit(t, ctx, client, specEditFor(owner, repository))
 
-	waitFor(t, ctx, "the warned change to land", func() bool {
+	waitForState(t, ctx, "the warned change to land", func() bool {
 		for _, change := range changesFor(liveSpecChanges(t, ctx, client), owner, specapi.DirectionSpecToCode) {
 			if change.Status.Phase == specapi.PhaseSucceeded {
 				return true
 			}
 		}
 		return false
-	})
+	}, func() string { return policyState(t, ctx, client, repository) })
 	changes := changesFor(liveSpecChanges(t, ctx, client), owner, specapi.DirectionSpecToCode)
 	landed := changes[len(changes)-1]
 	if landed.Status.Policy == nil || len(landed.Status.Policy.Warned) == 0 {
@@ -736,21 +852,21 @@ func TestPolicyOverrideWaivesADeny(t *testing.T) {
 
 	scenario := filepath.Join(t.TempDir(), "scenario.yaml")
 	contexts := startPolicyGateFixture(t, ctx, client, repository, repoPath, scenario, 3, []spec.AcceptanceOverride{{
-		Step: "policy:no-direct-guest-connect", Reason: "a migration, tracked in issue 12", By: "operator",
+		Step: "policy:relay-only-ssh", Reason: "a migration, tracked in issue 12", By: "operator",
 	}})
 	writeViolatingScenario(t, scenario, contexts)
 
-	owner := contexts[0].Name
+	owner := requesterContext(t, ctx, client, repository)
 	applySpecEdit(t, ctx, client, specEditFor(owner, repository))
 
-	waitFor(t, ctx, "the waived change to land", func() bool {
+	waitForState(t, ctx, "the waived change to land", func() bool {
 		for _, change := range changesFor(liveSpecChanges(t, ctx, client), owner, specapi.DirectionSpecToCode) {
 			if change.Status.Phase == specapi.PhaseSucceeded {
 				return true
 			}
 		}
 		return false
-	})
+	}, func() string { return policyState(t, ctx, client, repository) })
 	changes := changesFor(liveSpecChanges(t, ctx, client), owner, specapi.DirectionSpecToCode)
 	landed := changes[len(changes)-1]
 	if landed.Status.Policy == nil || len(landed.Status.Policy.Waived) == 0 {
@@ -800,37 +916,165 @@ func TestPolicyCliDrivesKcp(t *testing.T) {
 		forgetPolicies(t, cleanupCtx, client)
 	})
 
+	example := examplePolicyLibrary(t)
 	empty := runSpecctl(t, ctx, specctl, repoPath, nil, "policy", "ls")
 	if !strings.Contains(empty, "TEMPLATE") {
 		t.Fatalf("policy ls = %q", empty)
 	}
-	if strings.Contains(empty, "nodirectguestconnect") {
+	if strings.Contains(empty, "relayonlyssh") {
 		t.Fatalf("kcp already holds the template: %q", empty)
 	}
 
 	restored := runSpecctl(t, ctx, specctl, repoPath, nil,
 		"policy", "restore", "--repo", repository, "--path", repoPath)
-	if !strings.Contains(restored, "restored 1 template(s) and 1 constraint(s)") {
+	if !strings.Contains(restored, fmt.Sprintf("restored %d template(s) and %d constraint(s)",
+		len(example.Templates), len(example.Constraints))) {
 		t.Errorf("policy restore = %q", restored)
 	}
 	listed := runSpecctl(t, ctx, specctl, repoPath, nil, "policy", "ls")
-	if !strings.Contains(listed, "nodirectguestconnect") ||
-		!strings.Contains(listed, "no-direct-guest-connect(deny)") {
+	if !strings.Contains(listed, "relayonlyssh") ||
+		!strings.Contains(listed, "relay-only-ssh(deny)") {
 		t.Errorf("policy ls after restore = %q", listed)
 	}
 
 	forgetPolicies(t, ctx, client)
 	applied := runSpecctl(t, ctx, specctl, root, nil,
 		"policy", "apply", "--library", filepath.Join(root, "examples", "policies", "market-mini"))
-	if !strings.Contains(applied, "1 template(s), 1 constraint(s) applied") {
+	if !strings.Contains(applied, fmt.Sprintf("%d template(s), %d constraint(s) applied",
+		len(example.Templates), len(example.Constraints))) {
 		t.Errorf("policy apply = %q", applied)
 	}
 	library, err := policykcp.Read(ctx, client)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(library.Templates) != 1 || len(library.Constraints) != 1 {
+	if len(library.Templates) != len(example.Templates) || len(library.Constraints) != len(example.Constraints) {
 		t.Errorf("kcp holds %d template(s) and %d constraint(s)", len(library.Templates), len(library.Constraints))
+	}
+}
+
+// TestPolicyLibrariesApplyWholeIntoKcp restores the two real libraries, the
+// atproto-market examples and the ported opa-first-stab library, and asserts
+// every template's constraint CRD is established and every constraint is
+// applied: a template kcp refuses must fail here with the reason, not leave a
+// half-applied library behind.
+func TestPolicyLibrariesApplyWholeIntoKcp(t *testing.T) {
+	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
+	root := repoRoot(t)
+	startCluster(t, root)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+
+	client := liveClient(t, root)
+	if err := client.Ping(ctx); err != nil {
+		t.Fatalf("kcp is not serving the specs API: %v", err)
+	}
+	forgetPolicies(t, ctx, client)
+	forgetConstraintCRDs(t, ctx, client)
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cleanupCancel()
+		forgetPolicies(t, cleanupCtx, client)
+		forgetConstraintCRDs(t, cleanupCtx, client)
+	})
+
+	for _, dir := range []string{
+		filepath.Join("examples", "policies", "atproto-market"),
+		filepath.Join("policies", "library"),
+	} {
+		library, err := policyeval.Load(filepath.Join(root, dir))
+		if err != nil {
+			t.Fatalf("load %s: %v", dir, err)
+		}
+		if len(library.Templates) == 0 {
+			t.Fatalf("%s holds no template", dir)
+		}
+		if err := policykcp.Apply(ctx, client, library, policykcp.ApplyOptions{}); err != nil {
+			t.Fatalf("apply %s: %v\n%s", dir, err, policyState(t, ctx, client, ""))
+		}
+		for _, template := range library.Templates {
+			if err := constraintCRDEstablished(ctx, client, template); err != nil {
+				t.Errorf("%s: template %s: %v", dir, template.Name, err)
+			}
+			status := templateStatus(t, ctx, client, template.Name)
+			if created, _, _ := unstructured.NestedBool(status, "created"); !created {
+				t.Errorf("%s: template %s reports created=%v: %v", dir, template.Name, created, status)
+			}
+		}
+		held, err := policykcp.Read(ctx, client)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, constraint := range library.Constraints {
+			found := false
+			for _, got := range held.Constraints {
+				if got.Name == constraint.Name && got.Kind == constraint.Kind {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("%s: constraint %s (%s) is not in kcp", dir, constraint.Name, constraint.Kind)
+			}
+		}
+	}
+}
+
+// templateStatus is the simplified byPod status of a ConstraintTemplate.
+func templateStatus(t *testing.T, ctx context.Context, client *kcpclient.Client, name string) map[string]any {
+	t.Helper()
+	object, err := client.GetCluster(ctx, policy.ConstraintTemplateGVR(), name)
+	if err != nil {
+		t.Fatalf("get template %s: %v", name, err)
+	}
+	status, _, _ := unstructured.NestedMap(object.Object, "status")
+	return status
+}
+
+// constraintCRDEstablished fails while the constraint CRD of a template is
+// missing or not Established, and names the CRD's own condition when it is.
+func constraintCRDEstablished(ctx context.Context, client *kcpclient.Client, template policy.Template) error {
+	crd, err := client.GetCluster(ctx, constraintCRDGVR, policy.ConstraintCRDName(template.Kind))
+	if err != nil {
+		return err
+	}
+	conditions, _, _ := unstructured.NestedSlice(crd.Object, "status", "conditions")
+	for _, raw := range conditions {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if entry["type"] != "Established" {
+			continue
+		}
+		if entry["status"] == "True" {
+			return nil
+		}
+		return fmt.Errorf("the CRD %s is not established: %v", crd.GetName(), conditions)
+	}
+	return fmt.Errorf("the CRD %s has no Established condition: %v", crd.GetName(), conditions)
+}
+
+var constraintCRDGVR = schema.GroupVersionResource{
+	Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions",
+}
+
+// forgetConstraintCRDs deletes the constraint CRDs of every ConstraintTemplate
+// kcp holds, so a later test starts from a kcp that serves no constraint kind.
+func forgetConstraintCRDs(t *testing.T, ctx context.Context, client *kcpclient.Client) {
+	t.Helper()
+	listed, err := client.ListCluster(ctx, policy.ConstraintTemplateGVR())
+	if err != nil {
+		return
+	}
+	for index := range listed.Items {
+		kind, found, err := unstructured.NestedString(listed.Items[index].Object, "spec", "crd", "spec", "names", "kind")
+		if err != nil || !found {
+			continue
+		}
+		if err := client.DeleteCluster(ctx, constraintCRDGVR, policy.ConstraintCRDName(kind)); err != nil {
+			t.Logf("forget the constraint CRD of %s: %v", kind, err)
+		}
 	}
 }
 

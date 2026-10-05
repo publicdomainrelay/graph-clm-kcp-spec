@@ -27,6 +27,14 @@ const phase4Repository = "phase4-calc"
 
 func waitFor(t *testing.T, ctx context.Context, what string, predicate func() bool) {
 	t.Helper()
+	waitForState(t, ctx, what, predicate, nil)
+}
+
+// waitForState waits like waitFor, and on a timeout reports what it last saw
+// through the optional state function, so a stuck wait says why it is stuck
+// instead of only naming what it waited for.
+func waitForState(t *testing.T, ctx context.Context, what string, predicate func() bool, state func() string) {
+	t.Helper()
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		if predicate() {
@@ -34,11 +42,22 @@ func waitFor(t *testing.T, ctx context.Context, what string, predicate func() bo
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatalf("waiting for %s: %v", what, ctx.Err())
+			t.Fatalf("waiting for %s: %v%s", what, ctx.Err(), lastState(state))
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
-	t.Fatalf("timed out waiting for %s", what)
+	t.Fatalf("timed out waiting for %s%s", what, lastState(state))
+}
+
+func lastState(state func() string) string {
+	if state == nil {
+		return ""
+	}
+	seen := state()
+	if seen == "" {
+		return ""
+	}
+	return "; last saw " + seen
 }
 
 func liveSpecChanges(t *testing.T, ctx context.Context, client *kcpclient.Client) []spec.SpecChange {

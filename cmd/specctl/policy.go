@@ -829,14 +829,7 @@ func classifierDirs(worktree string, explicit []string) []string {
 	if len(explicit) > 0 {
 		return explicit
 	}
-	if worktree == "" {
-		return nil
-	}
-	candidate := filepath.Join(worktree, effects.ClassifiersDir)
-	if _, err := os.Stat(candidate); err == nil {
-		return []string{candidate}
-	}
-	return nil
+	return effects.Dirs(worktree)
 }
 
 func printEffects(out io.Writer, repository, commit string, computed []policy.Effect) {

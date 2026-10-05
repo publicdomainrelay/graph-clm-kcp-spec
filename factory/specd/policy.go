@@ -14,6 +14,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphfacts"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/effects"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/oagit"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
@@ -169,6 +170,7 @@ func (c *Controller) reconcileRepositoryPolicy(ctx context.Context, namespace st
 	ref := policy.RefFor(policyBranchOf(repository), repository.Spec.Branch, store.DefaultBranch(ctx))
 	library, policyCommit, err := policygit.Read(ctx, store, ref)
 	if err != nil {
+		c.log.Error("the policy branch could not be read", "repository", repository.Name, "branch", ref, "err", err)
 		c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid, err.Error())
 		return
 	}
@@ -178,6 +180,7 @@ func (c *Controller) reconcileRepositoryPolicy(ctx context.Context, namespace st
 
 	if repository.Status.Policy == nil || repository.Status.Policy.PolicyCommit == "" {
 		if err := policykcp.Apply(ctx, cluster, library, policykcp.ApplyOptions{Prune: true}); err != nil {
+			c.log.Error("policy restore failed", "repository", repository.Name, "branch", ref, "err", err)
 			c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid,
 				"restore from "+ref+": "+err.Error())
 			return
@@ -185,6 +188,7 @@ func (c *Controller) reconcileRepositoryPolicy(ctx context.Context, namespace st
 		c.log.Info("policy restored from the branch", "repository", repository.Name, "branch", ref, "commit", shortenHash(policyCommit))
 	} else if kcpLibrary, err := policykcp.Read(ctx, cluster); err == nil && policykcp.Distinct(kcpLibrary, library) {
 		if err := c.persistPolicy(ctx, store, ref, repository, kcpLibrary, library); err != nil {
+			c.log.Error("policy persist failed", "repository", repository.Name, "branch", ref, "err", err)
 			c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid,
 				"persist to "+ref+": "+err.Error())
 			return
@@ -262,6 +266,12 @@ func (c *Controller) auditRepositoryPolicy(
 	})
 	if err != nil {
 		return fmt.Errorf("build the code graph: %w", err)
+	}
+	if _, err := effects.Apply(&graph, effects.Options{
+		ClassifiersDirs: effects.Dirs(path),
+		IncludeExtras:   true,
+	}); err != nil {
+		return fmt.Errorf("compute the effects: %w", err)
 	}
 
 	inventory := []*unstructured.Unstructured{}

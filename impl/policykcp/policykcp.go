@@ -2,6 +2,7 @@ package policykcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
+	"github.com/publicdomainrelay/kcp-libs/common/kcp"
 )
 
 type Cluster interface {
@@ -58,11 +60,34 @@ func withSlug(annotations map[string]string, slug string) map[string]string {
 	return out
 }
 
+// normalizeMetadata drops the annotations kcp adds to every object it serves,
+// so a template read back from kcp compares equal to the branch it came from
+// and the sync does not write cluster metadata into the branch.
+func normalizeMetadata(object *unstructured.Unstructured) {
+	annotations := object.GetAnnotations()
+	if len(annotations) == 0 {
+		return
+	}
+	kept := map[string]string{}
+	for key, value := range annotations {
+		if key == kcp.ClusterAnnotation || key == kcp.PathAnnotation {
+			continue
+		}
+		kept[key] = value
+	}
+	if len(kept) == 0 {
+		object.SetAnnotations(nil)
+		return
+	}
+	object.SetAnnotations(kept)
+}
+
 func ParseTemplateObject(object *unstructured.Unstructured) (policy.Template, error) {
 	rego := ""
 	libs := []string{}
 
 	header := object.DeepCopy()
+	normalizeMetadata(header)
 	targets, found, err := unstructured.NestedSlice(header.Object, "spec", "targets")
 	if err != nil {
 		return policy.Template{}, fmt.Errorf("policykcp: %s targets: %w", object.GetName(), err)
@@ -104,6 +129,9 @@ func ParseTemplateObject(object *unstructured.Unstructured) (policy.Template, er
 	if template.Slug == "" {
 		template.Slug = template.Name
 	}
+	// The slug lives in the branch path, not in the header the branch holds, so
+	// it is dropped here too and the kcp and branch forms stay comparable.
+	delete(template.Annotations, policy.AnnotationSlug)
 	if len(libs) > 0 {
 		template.Libs = libs
 	}
@@ -176,56 +204,80 @@ type ApplyOptions struct {
 // Apply writes the library into kcp: each ConstraintTemplate, the constraint
 // CRD its kind needs and every constraint. With Prune, templates and
 // constraints kcp holds and the library does not are deleted.
+//
+// One broken template or constraint never stops the rest: every member is
+// attempted, the failing template records the error in its status, and the
+// returned error names each failure. A caller that only reports the error
+// therefore still leaves kcp holding everything that could be applied.
 func Apply(ctx context.Context, cluster Cluster, library policy.Library, options ApplyOptions) error {
 	engine, err := policyeval.NewEngine(ctx, library, nil)
 	if err != nil {
 		return err
 	}
 	wanted := map[string]bool{}
+	failures := []error{}
 	for _, template := range library.Templates {
+		wanted[template.Name] = true
 		built := template
 		if len(built.Libs) == 0 && library.Lib != "" {
 			built.Libs = []string{library.Lib}
 		}
 		object, err := TemplateObject(built)
 		if err != nil {
-			return err
+			failures = append(failures, fmt.Errorf("policykcp: template %s: %w", template.Name, err))
+			continue
 		}
 		if _, err := cluster.ApplyCluster(ctx, object); err != nil {
-			return fmt.Errorf("policykcp: apply template %s: %w", template.Name, err)
+			failures = append(failures, fmt.Errorf("policykcp: apply template %s: %w", template.Name, err))
+			failures = appendStatus(failures, recordTemplateStatus(ctx, cluster, template.Name, false, err))
+			continue
 		}
-		wanted[template.Name] = true
-		crd, err := engine.ConstraintCRD(ctx, template)
+		crd, err := engine.ConstraintCRD(ctx, built)
 		if err == nil {
 			_, err = cluster.ApplyCluster(ctx, crd)
 		}
+		if err == nil {
+			err = waitForConstraintKind(ctx, cluster, template.Kind)
+		}
 		if err != nil {
-			cluster.PatchStatusCluster(ctx, policy.ConstraintTemplateGVR(), template.Name, constraintTemplateStatus(false, err))
-			return fmt.Errorf("policykcp: constraint CRD for %s: %w", template.Kind, err)
+			failures = append(failures, fmt.Errorf("policykcp: constraint CRD of %s (%s): %w", template.Name, template.Kind, err))
+			failures = appendStatus(failures, recordTemplateStatus(ctx, cluster, template.Name, false, err))
+			continue
 		}
-		if _, statusErr := cluster.PatchStatusCluster(ctx, policy.ConstraintTemplateGVR(), template.Name,
-			constraintTemplateStatus(true, nil)); statusErr != nil {
-			return fmt.Errorf("policykcp: record the constraint CRD of %s: %w", template.Name, statusErr)
-		}
-		if err := waitForConstraintKind(ctx, cluster, template.Kind); err != nil {
-			return err
-		}
+		failures = appendStatus(failures, recordTemplateStatus(ctx, cluster, template.Name, true, nil))
 	}
 	for _, constraint := range library.Constraints {
 		object, err := ConstraintObject(constraint)
-		if err != nil {
-			return err
+		if err == nil {
+			_, err = cluster.ApplyCluster(ctx, object)
 		}
-		if _, err := cluster.ApplyCluster(ctx, object); err != nil {
-			return fmt.Errorf("policykcp: apply constraint %s: %w", constraint.Name, err)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("policykcp: apply constraint %s: %w", constraint.Name, err))
 		}
 	}
 	if options.Prune {
 		if err := prune(ctx, cluster, library, wanted); err != nil {
-			return err
+			failures = append(failures, fmt.Errorf("policykcp: prune: %w", err))
 		}
 	}
+	return errors.Join(failures...)
+}
+
+// recordTemplateStatus writes the simplified byPod status Gatekeeper reports,
+// so the reason a template did not establish is readable from kcp.
+func recordTemplateStatus(ctx context.Context, cluster Cluster, name string, created bool, failure error) error {
+	if _, err := cluster.PatchStatusCluster(ctx, policy.ConstraintTemplateGVR(), name,
+		constraintTemplateStatus(created, failure)); err != nil {
+		return fmt.Errorf("policykcp: record the constraint CRD status of %s: %w", name, err)
+	}
 	return nil
+}
+
+func appendStatus(failures []error, err error) []error {
+	if err == nil {
+		return failures
+	}
+	return append(failures, err)
 }
 
 // ConstraintCRDTimeout bounds how long Apply waits for kcp to serve a
@@ -314,9 +366,8 @@ func Files(library policy.Library) (map[string][]byte, error) {
 		stripped := template
 		stripped.Rego = ""
 		stripped.Libs = nil
-		if slug != stripped.Name {
-			stripped.Annotations = withSlug(stripped.Annotations, slug)
-		}
+		// The branch carries the slug in the directory name, the way
+		// specctl policy build writes it, not as an annotation.
 		header, err := stripped.Header()
 		if err != nil {
 			return nil, fmt.Errorf("policykcp: template %s: %w", template.Name, err)
