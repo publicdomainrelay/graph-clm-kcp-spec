@@ -425,10 +425,10 @@ func (c *Controller) updateContextConditions(ctx context.Context, namespace stri
 				specapi.ConditionPolicyCompliant, specapi.ReasonPolicyViolations, violationsMessage(violations))
 		}
 		status := map[string]any{"conditions": conditions}
-		enforcedBy := policy.TemplatesForRequirement(library, systemContext.Name)
-		if len(enforcedBy) > 0 {
-			status["enforcedBy"] = enforcedBy
-		}
+		// The field says what enforces the context's requirements now, so a
+		// policy that stops being in force clears it rather than leaving the
+		// last answer behind.
+		status["enforcedBy"] = policy.TemplatesForRequirement(library, systemContext.Name)
 		if specapi.StatusMatches(systemContext.Status, status) {
 			continue
 		}
