@@ -62,6 +62,39 @@ its target symbols, so those calls are flows to the requester and not
 reach-ins. `market-mini` answers the same question for its loopback agent port
 through `vocabulary.reachInExceptions`.
 
+Re-run again after plan 0010 round 2 (review 0006), on the same fresh clone
+with `examples/policies/atproto-market` as it stands today:
+
+```
+bin/specctl policy eval --repo atproto-market --commit 7a2e9d9 \
+  --path /home/johnandersen777/policy-r2-work/atproto-market
+# violations: 6 (deny 4, warn 0, dryrun 0, waived 2)
+bin/specctl policy eval --repo atproto-market --commit d20070c ...
+# violations: 2 (deny 0, warn 0, dryrun 0, waived 2)
+bin/specctl policy eval --repo atproto-market --commit ffac22e ...
+# violations: 2 (deny 0, warn 0, dryrun 0, waived 2)
+```
+
+Two changes explain the difference from the track R numbers, and neither is a
+rule change:
+
+- The offline evaluation honours the branch's durable exceptions (review 0006
+  N7), so the two accepted violations (`guest-report-driven-onnetwork` and
+  `rfp-guest-reports-network` at the `createVmBidderCallbacks` emission) print
+  as `waived` and no longer count as deny. At `pre-iroh` and the spec branch
+  that leaves 0 deny; the run is clean but not compliant -- the exceptions are
+  the record of a decision, and `findings` still lists them.
+- The waiver's key is the enclosing declaration, not the line (review 0006
+  N2), so the same exception now covers the emission at `master`'s
+  `lib/market-bidder-compute/mod.ts:257` as well as `:304`/`:313` at the other
+  two refs. `master` keeps 4 deny: the identity emission at `:284` (which no
+  exception names), the reach-in at `:282`, the pack's reach-in flow, and the
+  pack's lifecycle emission for the identity.
+
+`relay-only-ssh` remains clean at all three refs under the round-2 relay rule
+(the target-based reading), as do `guest-report-cloud-init` and the pack's
+`RfpRelayOnlyGuestSsh`.
+
 This library now imports the portable pack `rfp-guest-isolation` (plan 0009
 G4), whose `RfpHostReachIn`, `RfpGuestReportsNetwork` and
 `RfpRelayOnlyGuestSsh` restate the same two rules over the ArchitectureModel.
@@ -473,6 +506,11 @@ the same three invariants:
 | `pre-iroh` `d20070c` | 2 deny: the emission at `:304`, and the missing guest report | 1 deny: `rfp-guest-reports-network` (`:304`) |
 | `spec/iroh-dumbpipe-20261004141803` `ffac22e` | 2 deny: the emission at `:313`, and the missing guest report | 1 deny: `rfp-guest-reports-network` (`:313`) |
 
+The pack column is the reading of that run, before review 0006 N7 made the
+offline evaluation honour durable exceptions; with the library as it stands
+today it prints `waived` for the exception-covered sites and 0 deny at the two
+later refs, as the re-run above records.
+
 Every site the pack names, the generated rule names too. The one difference is
 the require clause, and it is the difference G4 already recorded: the pack's
 `guest-reports-network` require accepts *any* role the guest reports to
@@ -711,6 +749,23 @@ bin/specctl policy findings --repo atproto-market \
 The waived violation is still listed, with its reason and owner. Nothing was
 dropped, and no gate blocks on it: the realize gate and the audit read the same
 exceptions.
+
+Re-run after round 2, against the library as it stands today (both exception
+files on the branch) with the same clone:
+
+```
+bin/specctl policy findings --repo atproto-market \
+  --worktree /home/johnandersen777/policy-r2-work/atproto-market \
+  --base d20070c --library examples/policies/atproto-market
+# 9ed63c01ff399590 waived guest-report-driven-onnetwork  lib/market-bidder-compute/mod.ts:313
+# a23b49807c4b9e27 waived rfp-guest-reports-network      lib/market-bidder-compute/mod.ts:313
+# findings: 0 new, 0 inherited, 2 waived
+```
+
+Both violations the base carried are now **waived** rather than inherited: the
+second exception (`a23b49807c4b9e27`) is on the branch, so nothing is left to
+inherit, and the plain `policy eval` reads the same two as waived (review 0006
+N7).
 
 The keys above are the ones the current hydradb prints, and they name a
 **declaration**, not a line: `createVmBidderCallbacks`, with the model effect's

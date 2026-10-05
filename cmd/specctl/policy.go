@@ -1528,18 +1528,22 @@ func printReportDecision(out io.Writer, report policy.Report, waived []policy.Vi
 	for _, member := range report.Members {
 		fmt.Fprintf(out, "member: %s %s at %s\n", member.Name, member.Ref, shortCommit(member.Commit))
 	}
-	denies := 0
+	denies, waivedCount := 0, 0
 	for _, violation := range report.Violations {
-		if violation.Enforcement == policy.EnforcementDeny && !waivedKeys[policy.Key(violation)] {
-			denies++
+		if !waivedKeys[policy.Key(violation)] {
+			if violation.Enforcement == policy.EnforcementDeny {
+				denies++
+			}
+			continue
 		}
+		waivedCount++
 	}
 	fmt.Fprintf(out, "violations: %d (deny %d, warn %d, dryrun %d, waived %d)\n",
 		len(report.Violations),
 		denies,
 		report.Totals[policy.EnforcementWarn],
 		report.Totals[policy.EnforcementDryRun],
-		len(waivedKeys),
+		waivedCount,
 	)
 	if len(report.Violations) == 0 {
 		fmt.Fprintln(out, "clean")

@@ -6,7 +6,7 @@ metadata:
     specs.publicdomainrelay.dev/title: "the guest reports its network information and that report drives the host's emission"
     specs.publicdomainrelay.dev/level: MUST
     specs.publicdomainrelay.dev/origin: "plan 0009 G4, pack rfp-guest-isolation v1"
-    specs.publicdomainrelay.dev/calibration: "reads the ArchitectureModel: a declared or observed flow the guest initiates that carries network information must exist; every event.emit of the network-report class in a host component must be triggered by the http.handle of the report route; and where the model can show a file read on the emitter's call chain, the emission is denied as host-sourced"
+    specs.publicdomainrelay.dev/calibration: "reads the ArchitectureModel: a declared or observed flow the guest initiates that carries network information must exist; every event.emit of the network-report class in a host component must be triggered by the http.handle of the report route"
 spec:
   crd:
     spec:
@@ -27,10 +27,6 @@ spec:
             reportRouteClass:
               type: string
             reportPeerRoles:
-              type: array
-              items:
-                type: string
-            edgeKinds:
               type: array
               items:
                 type: string

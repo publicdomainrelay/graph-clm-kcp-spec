@@ -16,11 +16,3 @@ spec:
     networkInfoClass: network-info
     networkEventClass: network-report
     reportRouteClass: report
-    edgeKinds:
-    - calls
-    - imports
-    - references
-    - contains
-    - instantiates
-    - implements
-    - extends

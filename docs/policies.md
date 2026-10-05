@@ -504,6 +504,10 @@ specctl policy findings --repo atproto-market --worktree /path/to/atproto-market
 # findings: 0 new, 1 inherited, 1 waived
 ```
 
+With the branch's second exception in place as well, both read as waived
+(`findings: 0 new, 0 inherited, 2 waived`), and so does the plain evaluation
+when it runs against the branch.
+
 `specctl policy eval --inherited --diff-base REF` is the same reading inside
 `eval`: the base ref is evaluated too, inherited violations are printed as warn,
 and `--strict` fails only on a *new* deny. That is the offline form of what the
@@ -730,7 +734,7 @@ The first bound pack: the user's three rules for a running guest, written once.
 | template | enforcement | fires when |
 | --- | --- | --- |
 | `RfpHostReachIn` | deny | a flow the host initiates acts on the guest and carries network information or has network discovery as its purpose; or a `container.exec`/`ssh.connect` effect in a host component reaches the guest and no such flow rule reported it |
-| `RfpGuestReportsNetwork` | deny | once the model carries effects, no declared or observed flow has the guest initiating toward another role carrying `network-info`; or an `event.emit` of the `network-report` class in a host component is not triggered by the `http.handle` of the `routes/report` route; or a `file.read` effect sits on the emitter's call chain, which is the model showing the emitted address came from a source the host read itself |
+| `RfpGuestReportsNetwork` | deny | once the model carries effects, no declared or observed flow has the guest initiating toward another role carrying `network-info`; or an `event.emit` of the `network-report` class in a host component is not triggered by the `http.handle` of the `routes/report` route |
 | `RfpRelayOnlyGuestSsh` | deny | an `ssh.connect` effect outside the guest role reaches the guest -- it names the guest, names nothing the model can read, or a flow says it acted on the guest -- and carries no relay. `socat ... TCP4:`, `nc.openbsd`, `openssl s_client`, a python socket, `/dev/tcp/`, scp, autossh, sshpass, an absolute `ssh` and an `sh -c "ssh ..."` are the ssh family and are read by their own destination. A `ProxyCommand` counts as direct only when its own destination is the guest, the ssh's own target, `%h`, or something unresolved; a `ProxyJump`/`-J` hop, a SOCKS proxy, an `-F` config and `ssh -W ... jumphost` are relays. A `net.dial` of a test component to the guest or to an unresolved target denies unless the binding's `reachInExceptions` names it; a declared flow that reaches the guest over a channel naming no relay term denies at spec time |
 
 Version `v2` moved the two provisioning provenance templates to the opt-in
@@ -1618,18 +1622,26 @@ carrying both. The end-to-end measurement on a real repository is
 `docs/examples/atproto-market-policies.md`, which runs the offline
 `--inherited` form of the same decision.
 
-### Rule 2's provenance is read only where the model shows an emission
+### The model cannot show where an emitted value came from
 
-`rfp-guest-reports-network` denies an emitted network report whose emitter has a
-`file.read` on its call chain, which is how the review's `h/dhcp_leases` run --
-an address read from the host's DHCP lease file -- is caught. The check needs
-the model to carry an `event.emit` effect for the emitter. A repository whose
-emitter returns an object literal, as market-mini's fixture does, produces no
-such effect, and the pack sees nothing; the repository's own rule over the
-CodeGraph carries the check there (`guest-report-driven-onnetwork` in
-`examples/policies/market-mini`, `hostSourcePatterns`). A host source that is
-not a file read -- a value fetched from another service, a shell command the
-classifier files under `proc.exec` -- is not on the chain either.
+Review 0006 N8: the bidder in the review's `h/dhcp_leases` run reads the
+address from the host's DHCP lease file and feeds it to the report handler, so
+the emitted `vm.onNetwork` carries an address the guest never reported, and
+nothing denied it. Rule 2b checks that the emitter sits behind the report
+handler; it cannot check that the *value* came from the guest, because the
+`ArchitectureModel` carries effects and flows, not data flow: a `file.read`
+effect is placed on the host's call graph, and a rule that reads the graph
+cannot tell a read that feeds the emitted address from a read elsewhere on the
+same path. Reading it through reachability was measured on atproto-market and
+denied the route handler that emits `body.address` -- the compliant shape --
+so the pack does not carry the check.
+
+The check is available where a repository's own rule can read the emitter's
+shape. `guest-report-driven-onnetwork`/`guest-report-driven-emission` in
+`examples/policies/market-mini` name the host sources that must not reach an
+emitter (`hostSourcePatterns`), which denies the DHCP fixture. A repository
+that wants the same guard writes the same clause over its own emitter.
+`specctl policy new` does not generate it.
 
 ### A finding key can repeat within one object
 

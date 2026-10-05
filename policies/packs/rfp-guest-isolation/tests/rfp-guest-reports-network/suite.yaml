@@ -19,13 +19,6 @@ tests:
     - inventory/model-denied-lifecycle.yaml
     assertions:
     - violations: 1
-  - name: denied-a-host-source-on-the-emitters-call-chain
-    object: inventory/model-denied-host-source.yaml
-    inventory:
-    - inventory/model-denied-host-source.yaml
-    - inventory/codegraph-denied-host-source.yaml
-    assertions:
-    - violations: 1
   - name: denied-no-guest-report
     object: inventory/model-denied-no-report.yaml
     inventory:

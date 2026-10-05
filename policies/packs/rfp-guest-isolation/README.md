@@ -51,11 +51,13 @@ weaker than they read.
   it), but a rule that needs the declaring symbol or a channel from the test
   does not see the body. Plan 0009 G4 gap (a) and `docs/policies.md`,
   "Limits", carry the detail.
-- **Rule 2's provenance needs an emission the model can see.** The host-source
-  check reads a `file.read` effect on the emitter's call chain, so it needs an
-  `event.emit` effect for the emitter; a repository whose emitter returns an
-  object literal is checked by its own rule over the CodeGraph instead
-  (review 0006 N8, `docs/policies.md`).
+- **Rule 2 cannot read where the emitted value came from.** The model carries
+  effects and flows, not data flow, so an emitter behind the report handler
+  passes even when the address it emits was read from the host's own DHCP
+  lease file (review 0006 N8). Reachability over the call graph was measured on
+  atproto-market and denied its compliant route handler, so the pack does not
+  carry it; a repository whose emitter shape allows it writes the check itself
+  (`hostSourcePatterns` in `examples/policies/market-mini`).
 - **Effects see declarations, not the guest's shell.** A transport installed
   from a `user_data` string is not an effect, so
   `rfp-provisioning-provenance`'s `rfp-guest-transport-provenance` treats the
