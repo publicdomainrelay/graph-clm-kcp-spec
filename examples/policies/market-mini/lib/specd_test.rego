@@ -477,3 +477,12 @@ test_a_codediff_review_resolves_the_repository_graph {
 	graph := code_graph with input as codediff_input with data.inventory as codediff_inventory
 	count(graph.spec.effects) == 1
 }
+
+named_codediff_input := {"review": {"kind": {"kind": "CodeDiff"}, "object": {"metadata": {"name": "a-change-1", "namespace": "default"}, "spec": {"repository": "market", "base": "a", "head": "b", "files": []}}}}
+
+test_a_codediff_that_names_its_repository_prefers_the_field {
+	name := repository_name with input as named_codediff_input with data.inventory as codediff_inventory
+	name == "market"
+	graph := code_graph with input as named_codediff_input with data.inventory as codediff_inventory
+	count(graph.spec.effects) == 1
+}

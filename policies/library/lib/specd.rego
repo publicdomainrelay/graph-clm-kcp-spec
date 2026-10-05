@@ -27,11 +27,19 @@ repository_name = name {
 	name := context.spec.repository
 }
 
-# A CodeDiff carries no repository field: the diff of a repository is named
-# after it, so a rule that reads the diff can still resolve the code graph.
+# A diff a realize reviews may carry no repository: it is then named after the
+# repository it belongs to, so a rule that reads the diff still resolves the
+# code graph. The name is only the fallback; a diff that names its repository
+# is resolved by the clause above, and two clauses producing two names would be
+# a conflict rather than a lookup.
 repository_name = name {
 	input.review.kind.kind == "CodeDiff"
+	not review_names_a_repository
 	name := input.review.object.metadata.name
+}
+
+review_names_a_repository {
+	input.review.object.spec.repository != ""
 }
 
 default repository = {}

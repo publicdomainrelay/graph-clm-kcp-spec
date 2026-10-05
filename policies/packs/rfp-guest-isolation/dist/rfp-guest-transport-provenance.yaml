@@ -48,11 +48,14 @@ spec:
       := input.review.object.spec.repository\n\tname != \"\"\n}\n\nrepository_name
       = name {\n\tinput.review.kind.kind == \"Repository\"\n\tname := input.review.object.metadata.name\n}\n\nrepository_name
       = name {\n\tinput.review.kind.kind == \"SpecChange\"\n\tcontext := data.inventory.namespace[namespace][api_version][\"SystemContext\"][input.review.object.spec.systemContext]\n\tname
-      := context.spec.repository\n}\n\n# A CodeDiff carries no repository field: the
-      diff of a repository is named\n# after it, so a rule that reads the diff can
-      still resolve the code graph.\nrepository_name = name {\n\tinput.review.kind.kind
-      == \"CodeDiff\"\n\tname := input.review.object.metadata.name\n}\n\ndefault repository
-      = {}\n\nrepository = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"Repository\"][repository_name]\n}\n\ndefault
+      := context.spec.repository\n}\n\n# A diff a realize reviews may carry no repository:
+      it is then named after the\n# repository it belongs to, so a rule that reads
+      the diff still resolves the\n# code graph. The name is only the fallback; a
+      diff that names its repository\n# is resolved by the clause above, and two clauses
+      producing two names would be\n# a conflict rather than a lookup.\nrepository_name
+      = name {\n\tinput.review.kind.kind == \"CodeDiff\"\n\tnot review_names_a_repository\n\tname
+      := input.review.object.metadata.name\n}\n\nreview_names_a_repository {\n\tinput.review.object.spec.repository
+      != \"\"\n}\n\ndefault repository = {}\n\nrepository = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"Repository\"][repository_name]\n}\n\ndefault
       code_graph = {\"spec\": {\"files\": [], \"nodes\": [], \"edges\": [], \"texts\":
       {}}}\n\ncode_graph = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"CodeGraph\"][repository_name]\n}\n\ndefault
       arch = {}\n\narch = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"Architecture\"][repository_name]\n}\n\ndefault
