@@ -707,6 +707,20 @@ non-empty `proxyCommand` and treats the ssh as tunneled, so an ssh whose
 channel the model did not resolve is outside its reach; it still denies a
 direct ssh and a test's `net.dial` on the guest.
 
+**Verification.** `gofmt -l .` clean, `go vet ./...` clean, `go test ./...
+-short -count=1` green, and `TMPDIR=/home/johnandersen777/e2e-tmp
+SPECD_REQUIRE_LIVE=1 go test ./... -count=1` green in chunks (the whole
+non-`test/e2e` set in one run; `test/e2e` split by `-run`, every test of the
+package covered). One flake seen once and not reproduced:
+`TestPhase7OneManifestPopulatesAnUnknownCodebase` reported `changes = 5, want
+one per context` because one `CodeToSpec` change had a second, no-op attempt
+(`...-a2`, "the spec already said this"); it passed on a rerun of the same
+chunk and alone. It is the same reconcile-race class as the known
+`TestPhase5CodeToSpecWithTheScriptedAgent` flake and is not item 1's
+regression. No kcp, kine or specd whose root is under a test temp directory
+was alive after the runs (checked `/proc` for root paths under `e2e-tmp`; the
+only live instances belong to other agents' roots).
+
 **5. The hand-labelled recall numbers.** They are in plan 0009 G2 ("Recall,
 hand-labelled": 42 tp, 0 fp, 45 fn; precision 1.000, recall 0.483;
 `proc.exec` 0.070, `net.dial` 0.000) and the same table and reading is now in
