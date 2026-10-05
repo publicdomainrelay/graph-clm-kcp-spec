@@ -243,3 +243,39 @@ After all three tracks merge:
 - re-run the atproto-market and deno-kcp policy runs;
 - update the docs tables;
 - re-run the DeepSeek analysis and the Opus review on the result.
+
+## User corrections (2026-10-05)
+
+U1. **Scope.**
+- No more porting of opa-first-stab rules; `policies/library` (7 rules) stays
+  opt-in only and is not seeded into example runs by default.
+- `rfp-guest-isolation` holds only the user's two rules. The two provenance
+  templates move to a separate opt-in pack.
+
+U2. **Relay means "not a direct connection".** Any indirection counts as a
+relay: the org relay, fedproxy, websocat, iroh/dumbpipe, any tunnel or
+overlay. `RfpRelayOnlyGuestSsh` denies only direct connections:
+- ssh with no ProxyCommand to a guest address;
+- a ProxyCommand that only dials the guest (`nc`/`ncat`/`socat TCP:`/
+  `/dev/tcp`/`ssh -W host:port` to the guest);
+- a `net.dial` from a test to a guest.
+
+The vocabulary `channels/relay` becomes an optional naming hint, not a
+requirement. This replaces R2's "unnamed tunnel denies".
+
+U3. **Rule 2 is enforced on the delta.**
+- The gates block only new violations (S6). Pre-existing ones are
+  `inherited`.
+- The bidder's host-emitted `vm.onNetwork` carrying the provisioned IP is a
+  known, accepted pre-existing violation. That IP may be a public IPv4 the
+  client can judge, so it is **not** to be fixed.
+- Phase I's first retry removed it under whole-repo gating. That run was
+  stopped before any push and will be re-run with change-scoped gates.
+
+U4. **Find existing violations and decide.** A documented, demoed workflow:
+1. List the inherited violations of a repository.
+2. For each one, either fix it (turn it into a SpecChange) or waive it with a
+   recorded reason (a durable, site-scoped exception on the policy branch,
+   reported as `waived`).
+
+The onNetwork IP is the demo's waiver example.
