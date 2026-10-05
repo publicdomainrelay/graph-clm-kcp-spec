@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,11 +21,13 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codediff"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphfacts"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/effects"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/oagit"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policygit"
+	specdlib "github.com/publicdomainrelay/graph-clm-kcp-spec/policies/library"
 )
 
 const defaultGator = "bin/gator"
@@ -62,9 +65,12 @@ the spec objects and the code.
 
 usage:
   specctl policy init [--repo X] [--dir D | --path <git repo>] [--branch B] [--default-branch main]
+      [--with-library]
       create the policy tree: policies.yaml, lib/specd.rego, lib/specd_test.rego.
       --dir writes a plain directory; --path writes the orphan branch
-      open-policy/X[--<branch slug>]
+      open-policy/X[--<branch slug>]; --with-library also copies the embedded
+      policy library: the ported change-integrity, spec-structure, provisioning
+      and disabled-verification templates with their constraints and gator suites
   specctl policy new <name> --kind <Kind> [--title T] [--level MUST] [--pattern P]
       [--dir D | --path <git repo>] [--repo X]
       scaffold src.rego, src_test.rego, template.yaml, the constraint and a
@@ -75,8 +81,12 @@ usage:
       opa unit tests and gator suites through the built-in engine; --gator also
       runs the real gator binary
   specctl policy eval --repo X [--worktree P | --commit C] [--path <git repo>]
-      [--library D] [--branch B] [--test-glob G] [-o text|json] [--strict]
-      one-off audit of a checkout or a commit against the policy branch
+      [--library D] [--branch B] [--diff-base REF] [--test-glob G]
+      [-o text|json] [--strict]
+      one-off audit of a checkout or a commit against the policy branch;
+      --diff-base also derives a CodeDiff between REF and the evaluated commit,
+      so the provisioning and disabled-verification templates have an object
+      to review
   specctl policy effects [--worktree P | --commit C] [--repo X] [--path <git repo>]
       [--classifiers DIR] [--kind K] [--no-extras] [-o text|json]
       classify the code into the fixed effect vocabulary (net.dial, ssh.connect,
@@ -165,6 +175,7 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 	target := addPolicyTargetFlags(fs)
 	testGlobs := stringsFlag{}
 	fs.Var(&testGlobs, "test-glob", "test file glob for the manifest; repeatable")
+	withLibrary := fs.Bool("with-library", false, "copy the embedded policy library into the new policy tree")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -202,6 +213,16 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 		policy.LibTestPath:       []byte(policyeval.LibTest()),
 		policy.GitAttributesPath: []byte(policygit.GitAttributes),
 	}
+	copied := 0
+	if *withLibrary {
+		files, err := specdlib.Files()
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl policy init: %v\n", err)
+			return exitError
+		}
+		maps.Copy(add, files)
+		copied = len(files)
+	}
 	message := fmt.Sprintf("policy(%s): init\n", target.repo)
 	commit, err := target.apply(ctx, add, nil, message)
 	if err != nil {
@@ -215,6 +236,9 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 		}
 	} else {
 		fmt.Fprintf(stdout, "%s ready\n", target.dir)
+	}
+	if *withLibrary {
+		fmt.Fprintf(stdout, "library: %d files copied; run specctl policy build to render dist/ and CATALOGUE.md\n", copied)
 	}
 	return exitOK
 }
@@ -524,6 +548,7 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 	branch := fs.String("branch", "", "code branch")
 	defaultBranch := fs.String("default-branch", "main", "default code branch")
 	libraryDir := fs.String("library", "", "read the policy library from this directory instead of the branch")
+	diffBase := fs.String("diff-base", "", "ref to diff the evaluated commit against; builds a CodeDiff")
 	output := fs.String("o", "text", "text or json")
 	strict := fs.Bool("strict", false, "exit 1 when a deny violation survives the cap")
 	testGlobs := stringsFlag{}
@@ -622,6 +647,25 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	inventory = append(inventory, graphObject)
+	reviewed := []*unstructured.Unstructured{graphObject}
+	if *diffBase != "" {
+		diffRepo := codeDir
+		if *commit != "" {
+			diffRepo = *path
+		}
+		diff, err := codediff.Build(ctx, diffRepo, *diffBase, resolved)
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
+			return exitError
+		}
+		diffObject, err := policyeval.Unstructured(marshalObject(policy.CodeDiffObject(diff)))
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
+			return exitError
+		}
+		reviewed = append(reviewed, diffObject)
+		inventory = append(inventory, diffObject)
+	}
 	for _, context := range contexts {
 		object, err := policyeval.Unstructured(marshalObject(context))
 		if err != nil {
@@ -645,7 +689,7 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		Library:    library,
 		Repository: *repository,
 		Commit:     resolved,
-		Reviewed:   []*unstructured.Unstructured{graphObject},
+		Reviewed:   reviewed,
 		Inventory:  inventory,
 	})
 	if err != nil {

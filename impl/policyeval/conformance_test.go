@@ -28,6 +28,7 @@ func suites(t *testing.T) []string {
 	found := []string{}
 	for _, pattern := range []string{
 		filepath.Join(root, "examples", "policies", "*", policy.TestsDir, "*", policy.SuiteName),
+		filepath.Join(root, "policies", "*", policy.TestsDir, "*", policy.SuiteName),
 		filepath.Join(root, "testdata", "*", policy.TestsDir, "*", policy.SuiteName),
 	} {
 		matches, err := filepath.Glob(pattern)
@@ -141,10 +142,18 @@ func gatorBinaryPath() string {
 }
 
 func TestExampleDistAndCatalogueAreCurrent(t *testing.T) {
-	libraries, err := filepath.Glob(filepath.Join(root, "examples", "policies", "*"))
-	if err != nil {
-		t.Fatal(err)
+	libraries := []string{}
+	for _, pattern := range []string{
+		filepath.Join(root, "examples", "policies", "*"),
+		filepath.Join(root, "policies", "*"),
+	} {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatal(err)
+		}
+		libraries = append(libraries, matches...)
 	}
+	sort.Strings(libraries)
 	checked := 0
 	for _, dir := range libraries {
 		info, err := os.Stat(dir)
