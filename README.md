@@ -815,8 +815,8 @@ bin/specctl policy eval --worktree fixtures/market-mini/violating -o json
 ```
 
 `policy eval` on `fixtures/market-mini/compliant` prints `violations: 0` and
-`clean`; the `violating` variant is denied by both example policies -- seven
-deny violations from `relay-only-ssh` and the `guest-report-*` templates. A
+`clean`; the `violating` variant is denied by both example policies -- eleven
+deny violations from `relay-only-ssh` and the `guest-report-*` constraints. A
 repository with no policy branch falls back to
 `examples/policies/<repository>`. `--dir` writes a plain directory; without it
 `init`, `new` and `build` commit to the `open-policy/<repo>` branch of `--path`
@@ -843,15 +843,21 @@ and `tests/<slug>/suite.yaml`. `specctl policy build` renders
 
 The two acceptance policies are `examples/policies/atproto-market`:
 `relay-only-ssh` (P-relay) and the `guest-report-reach-in`,
-`guest-report-driven-emission` and `guest-report-cloud-init` templates
-(P-guest-reports, one policy as a set of templates), with
-`examples/policies/market-mini` as the fixture-parameterized twin.
+`guest-report-driven-emission`, `guest-report-driven-onnetwork` and
+`guest-report-cloud-init` constraints (P-guest-reports, one policy as a set of
+templates; the two driven-emission constraints share the
+`GuestReportDrivenEmission` template and report the identity and the
+`vm.onNetwork` event separately), with `examples/policies/market-mini` as the
+fixture-parameterized twin.
 `docs/policies.md` is the concepts, the `lib.specd` reference, the annotations
 and the step-by-step how-to; `docs/examples/atproto-market-policies.md` records
 the real run against `publicdomainrelay/atproto-market` at `master`
-(`7a2e9d9`, two deny violations), `pre-iroh` and
+(`7a2e9d9`, three deny violations), `pre-iroh` and
 `spec/iroh-dumbpipe-20261004141803`, and `scripts/example-policies.sh` repeats
-that run.
+that run. Under the strict reading of P-guest-reports all three refs fail --
+including `spec/iroh-dumbpipe-20261004141803` (atproto-market#1), which emits
+`vm.onNetwork` from the provisioning lifecycle even though the guest reports
+its ticket separately.
 
 ## Requirements
 
