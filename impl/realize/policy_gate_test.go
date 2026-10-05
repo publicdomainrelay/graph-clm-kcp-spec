@@ -10,6 +10,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 )
 
 // TestTheGateGraphCarriesEffects pins the gate to the same input the offline
@@ -19,10 +20,7 @@ func TestTheGateGraphCarriesEffects(t *testing.T) {
 	if _, err := exec.LookPath("codegraph"); err != nil {
 		t.Skip("codegraph is not on PATH")
 	}
-	dir, err := filepath.Abs(filepath.Join("..", "..", "fixtures", "market-mini", "compliant"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	dir := fixture.CopyTree(t, filepath.Join("market-mini", "compliant"))
 	graph, err := buildGateGraph(context.Background(), Options{
 		Repository: &spec.Repository{
 			ObjectMeta: metav1.ObjectMeta{Name: "market-mini", Namespace: "default"},

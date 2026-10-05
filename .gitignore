@@ -2,6 +2,7 @@
 /hydradb-bins
 node_modules/
 .codegraph/
+fixtures/**/.codegraph/
 /.kcp-specd/
 .kcp-specd/
 .specs/

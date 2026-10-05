@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpproc"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 )
 
 type branchRecord struct {
@@ -57,11 +58,7 @@ func buildSpecctlAndSpecd(t *testing.T) (string, string) {
 
 func cloneCalcFixture(t *testing.T, dir string) {
 	t.Helper()
-	source := filepath.Join(repoRoot(t), "fixtures", "calc")
-	if out, err := exec.Command("cp", "-r", source, dir).CombinedOutput(); err != nil {
-		t.Fatalf("copy fixture: %v\n%s", err, out)
-	}
-	os.RemoveAll(filepath.Join(dir, ".codegraph"))
+	fixture.Stage(t, "calc", dir)
 	phase13Git(t, dir, "init", "-q", "-b", "main")
 	phase13Git(t, dir, "add", "-A")
 	phase13Git(t, dir, "-c", "user.name=u", "-c", "user.email=u@u", "commit", "-qm", "upstream code")

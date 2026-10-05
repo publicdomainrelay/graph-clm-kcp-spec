@@ -45,6 +45,13 @@ func CopyAs(t *testing.T, name, as string) string {
 	return target
 }
 
+func CopyTree(t *testing.T, name string) string {
+	t.Helper()
+	target := filepath.Join(t.TempDir(), name)
+	Stage(t, name, target)
+	return target
+}
+
 func Stage(t *testing.T, name, target string) {
 	t.Helper()
 	source := filepath.Join(Root(t), "fixtures", name)

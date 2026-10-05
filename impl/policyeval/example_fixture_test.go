@@ -12,6 +12,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphfacts"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 )
 
 func fixtureGraph(t *testing.T, dir, repository string, testGlobs []string) *unstructured.Unstructured {
@@ -58,7 +59,7 @@ func TestExamplePoliciesOverFixtures(t *testing.T) {
 		{name: "violating", wantDeny: true},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
-			dir := filepath.Join(root, "fixtures", "market-mini", variant.name)
+			dir := fixture.CopyTree(t, filepath.Join("market-mini", variant.name))
 			graph := fixtureGraph(t, dir, "market-mini", library.Manifest.TestGlobs)
 			report, err := policyeval.EvaluateLibrary(context.Background(), library,
 				[]*unstructured.Unstructured{graph}, []*unstructured.Unstructured{graph})

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 )
 
 type phase13Machine struct {
@@ -91,10 +93,7 @@ func TestPhase13CloneUpPersistsAndASecondCloneRestores(t *testing.T) {
 
 	work := t.TempDir()
 	upstream := filepath.Join(work, "upstream")
-	if out, err := exec.Command("cp", "-r", filepath.Join(root, "fixtures", "calc"), upstream).CombinedOutput(); err != nil {
-		t.Fatalf("copy fixture: %v\n%s", err, out)
-	}
-	os.RemoveAll(filepath.Join(upstream, ".codegraph"))
+	fixture.Stage(t, "calc", upstream)
 	phase13Git(t, upstream, "init", "-q", "-b", "main")
 	phase13Git(t, upstream, "add", "-A")
 	phase13Git(t, upstream, "-c", "user.name=u", "-c", "user.email=u@u", "commit", "-qm", "upstream code")

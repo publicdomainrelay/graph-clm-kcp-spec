@@ -13,17 +13,8 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphfacts"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 )
-
-func copyFixture(t *testing.T, name string) string {
-	t.Helper()
-	source := filepath.Join("..", "..", "fixtures", name)
-	target := filepath.Join(t.TempDir(), name)
-	if err := os.CopyFS(target, os.DirFS(source)); err != nil {
-		t.Fatalf("copy fixture: %v", err)
-	}
-	return target
-}
 
 func requireCodegraph(t *testing.T) {
 	t.Helper()
@@ -34,7 +25,7 @@ func requireCodegraph(t *testing.T) {
 
 func TestBuildIsDeterministicAndAssignsContexts(t *testing.T) {
 	requireCodegraph(t)
-	repo := copyFixture(t, "calc")
+	repo := fixture.CopyTree(t, "calc")
 	contexts := []spec.SystemContext{
 		{ObjectMeta: metav1.ObjectMeta{Name: "calc", Namespace: "default"}, Status: spec.SystemContextStatus{Observed: spec.ObservedFacts{Files: []string{"calc/calc.go"}}}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "cmd-calc", Namespace: "default"}, Status: spec.SystemContextStatus{Observed: spec.ObservedFacts{Files: []string{"cmd/calc/main.go"}}}},
