@@ -1,0 +1,21 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: guest-report-reach-in
+tests:
+  - name: guest-report-reach-in
+    template: ../../dist/guest-report-reach-in.yaml
+    constraint: ../../constraints/guest-report-reach-in.yaml
+    cases:
+      - name: allowed
+        object: inventory/codegraph-allowed.yaml
+        inventory:
+          - inventory/codegraph-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-reach-in
+        object: inventory/codegraph-denied.yaml
+        inventory:
+          - inventory/codegraph-denied.yaml
+        assertions:
+          - violations: 1

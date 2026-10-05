@@ -10,6 +10,7 @@ export interface CloudInitContext {
   vmName: string;
   relaySubdomain: string;
   sshAuthorizedKey: string;
+  reportUrl: string;
 }
 
 export interface Contract {

@@ -1,5 +1,5 @@
 defaultEnforcement: deny
-repository: market-mini
+repository: atproto-market
 testGlobs:
 - test/**
 version: "1"

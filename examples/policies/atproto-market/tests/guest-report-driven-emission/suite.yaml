@@ -1,0 +1,21 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: guest-report-driven-emission
+tests:
+  - name: guest-report-driven-emission
+    template: ../../dist/guest-report-driven-emission.yaml
+    constraint: ../../constraints/guest-report-driven-emission.yaml
+    cases:
+      - name: allowed
+        object: inventory/codegraph-allowed.yaml
+        inventory:
+          - inventory/codegraph-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-provisioning-emission
+        object: inventory/codegraph-denied.yaml
+        inventory:
+          - inventory/codegraph-denied.yaml
+        assertions:
+          - violations: 1

@@ -1,6 +1,6 @@
 # Policy catalogue
 
-repository: market-mini
+repository: atproto-market
 
 | policy | title | level | severity | requirements | constraints |
 | --- | --- | --- | --- | --- | --- |

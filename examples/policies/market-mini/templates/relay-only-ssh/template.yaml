@@ -1,0 +1,40 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: relayonlyssh
+  annotations:
+    specs.publicdomainrelay.dev/title: "integration tests ssh to a guest only over the relay"
+    specs.publicdomainrelay.dev/level: MUST
+spec:
+  crd:
+    spec:
+      names:
+        kind: RelayOnlySsh
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            testGlobs:
+              type: array
+              items:
+                type: string
+            driverIdentifiers:
+              type: string
+            sshPattern:
+              type: string
+            proxyCommandPattern:
+              type: string
+            allowedTransports:
+              type: array
+              items:
+                type: string
+            directDialPatterns:
+              type: array
+              items:
+                type: string
+            edgeKinds:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh

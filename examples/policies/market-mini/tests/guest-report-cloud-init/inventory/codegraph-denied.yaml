@@ -1,0 +1,16 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeGraph
+metadata:
+  name: market-mini
+  namespace: default
+spec:
+  repository: market-mini
+  commit: "0000000000000000000000000000000000000000"
+  files:
+  - path: lib/cloud-init/mod.ts
+  nodes: []
+  edges: []
+  texts:
+    lib/cloud-init/mod.ts: |
+      name: "relay-transport"
+      systemctl enable --now relay-subscriber.service
