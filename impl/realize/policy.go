@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
@@ -112,7 +113,8 @@ func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Dec
 	if err != nil {
 		return policy.Decision{}, policy.Report{}, err
 	}
-	decision := policy.Decide(report, gate.Repository, gate.Overrides)
+	overrides, _ := policyeval.Waivers(gate.Library, gate.Overrides, time.Now())
+	decision := policy.Decide(report, gate.Repository, overrides)
 	if !decision.Blocked || options.Base == "" || !gate.Repository.BaselineEnabled() {
 		return decision, report, nil
 	}
@@ -120,7 +122,7 @@ func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Dec
 	if err != nil {
 		return policy.Decision{}, policy.Report{}, err
 	}
-	return policy.DecideBaseline(report, baseReport, gate.Repository, gate.Overrides), report, nil
+	return policy.DecideBaseline(report, baseReport, gate.Repository, overrides), report, nil
 }
 
 // gateReport builds the architecture model from one graph and evaluates the

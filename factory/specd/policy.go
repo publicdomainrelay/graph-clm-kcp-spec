@@ -90,12 +90,20 @@ func (c *Controller) loadPolicyGate(ctx context.Context, repository *spec.Reposi
 		Commit:     commit,
 		Branch:     repository.Spec.Branch,
 	}
+	gate.Overrides = acceptanceOverrides(repository)
+	return gate, nil
+}
+
+// acceptanceOverrides is the Repository's one-shot waivers, the same list the
+// gate, the spec-time gate and the audit read.
+func acceptanceOverrides(repository *spec.Repository) []policy.Override {
+	out := []policy.Override{}
 	for _, override := range repository.Spec.AcceptanceOverrides {
 		if parsed, ok := policy.ParseOverride(override.Step, override.Reason, override.By); ok {
-			gate.Overrides = append(gate.Overrides, parsed)
+			out = append(out, parsed)
 		}
 	}
-	return gate, nil
+	return out
 }
 
 // episodeWasPolicyDenied reports whether an earlier attempt of this episode
@@ -568,12 +576,21 @@ func (c *Controller) auditRepositoryPolicy(
 	}
 	report.Members = memberPins
 
-	status := policyStatusOf(report, policyCommit)
+	// The repository's durable exceptions and the acceptance overrides waive
+	// their sites: the audit reports them as waived and they do not make a
+	// context non-compliant.
+	waivers, expired := policyeval.Waivers(library, acceptanceOverrides(repository), time.Now())
+	for _, exception := range expired {
+		c.log.Info("policy exception expired",
+			"repository", repository.Name, "constraint", exception.Constraint,
+			"expires", exception.Expires)
+	}
+	status := policyStatusOf(report, policyCommit, waivers)
 	if _, err := c.client.PatchStatus(ctx, specapi.RepositoryGVR, namespace, repository.Name,
 		map[string]any{"policy": status}); err != nil {
 		return err
 	}
-	if err := c.updateContextConditions(ctx, namespace, contexts, report, library); err != nil {
+	if err := c.updateContextConditions(ctx, namespace, contexts, report, waivers, library); err != nil {
 		return err
 	}
 
@@ -584,12 +601,19 @@ func (c *Controller) auditRepositoryPolicy(
 	if _, err := policygit.WriteReport(ctx, store, ref, repository.Spec.Branch, repository.Name, document); err != nil {
 		return err
 	}
+	waived := 0
+	for _, violation := range report.Violations {
+		if policy.Waived(waivers, violation) {
+			waived++
+		}
+	}
 	c.log.Info("policy audited",
 		"repository", repository.Name, "commit", shortenHash(commit),
 		"violations", len(report.Violations),
 		"deny", report.Totals[policy.EnforcementDeny],
 		"warn", report.Totals[policy.EnforcementWarn],
-		"dryrun", report.Totals[policy.EnforcementDryRun])
+		"dryrun", report.Totals[policy.EnforcementDryRun],
+		"waived", waived)
 	return nil
 }
 
@@ -619,10 +643,10 @@ func (c *Controller) repositoryContexts(ctx context.Context, namespace, reposito
 // with the count and the first messages. The same pass records which templates
 // enforce a requirement of the context, so a requirement a policy guards says
 // so in the spec.
-func (c *Controller) updateContextConditions(ctx context.Context, namespace string, contexts []spec.SystemContext, report policy.Report, library policy.Library) error {
+func (c *Controller) updateContextConditions(ctx context.Context, namespace string, contexts []spec.SystemContext, report policy.Report, waivers []policy.Override, library policy.Library) error {
 	for index := range contexts {
 		systemContext := contexts[index]
-		violations := contextViolations(systemContext, report)
+		violations := contextViolations(systemContext, report, waivers)
 		conditions := condition.Copy(systemContext.Status.Conditions)
 		if len(violations) == 0 {
 			condition.Set(&conditions, systemContext.GetGeneration(), metav1.ConditionTrue,
@@ -646,7 +670,7 @@ func (c *Controller) updateContextConditions(ctx context.Context, namespace stri
 	return nil
 }
 
-func contextViolations(systemContext spec.SystemContext, report policy.Report) []policy.Violation {
+func contextViolations(systemContext spec.SystemContext, report policy.Report, waivers []policy.Override) []policy.Violation {
 	owned := map[string]bool{}
 	for _, file := range systemContext.Status.Observed.Files {
 		owned[file] = true
@@ -657,6 +681,9 @@ func contextViolations(systemContext spec.SystemContext, report policy.Report) [
 	out := []policy.Violation{}
 	for _, violation := range report.Violations {
 		if violation.Enforcement == policy.EnforcementDryRun {
+			continue
+		}
+		if policy.Waived(waivers, violation) {
 			continue
 		}
 		if violation.Object.Kind == policy.SystemContextKind && violation.Object.Name == systemContext.Name {
@@ -687,7 +714,7 @@ func violationsMessage(violations []policy.Violation) string {
 	return message
 }
 
-func policyStatusOf(report policy.Report, policyCommit string) *spec.PolicyStatus {
+func policyStatusOf(report policy.Report, policyCommit string, waivers []policy.Override) *spec.PolicyStatus {
 	status := &spec.PolicyStatus{
 		PolicyCommit:    policyCommit,
 		EvaluatedCommit: report.Commit,
@@ -698,11 +725,18 @@ func policyStatusOf(report policy.Report, policyCommit string) *spec.PolicyStatu
 		},
 		Violations: []spec.PolicyViolation{},
 	}
+	waived := 0
 	for _, violation := range report.Violations {
-		if len(status.Violations) >= StatusViolationLimit {
-			break
+		if policy.Waived(waivers, violation) {
+			waived++
 		}
-		status.Violations = append(status.Violations, compactViolation(violation))
+		if len(status.Violations) >= StatusViolationLimit {
+			continue
+		}
+		status.Violations = append(status.Violations, compactViolation(violation, waivers))
+	}
+	if waived > 0 {
+		status.Totals["waived"] = waived
 	}
 	if report.Empty() {
 		status.Message = "clean"
@@ -712,7 +746,7 @@ func policyStatusOf(report policy.Report, policyCommit string) *spec.PolicyStatu
 	return status
 }
 
-func compactViolation(violation policy.Violation) spec.PolicyViolation {
+func compactViolation(violation policy.Violation, waivers []policy.Override) spec.PolicyViolation {
 	out := spec.PolicyViolation{
 		Policy:      violation.Policy,
 		Constraint:  violation.Constraint,
@@ -720,6 +754,8 @@ func compactViolation(violation policy.Violation) spec.PolicyViolation {
 		Severity:    string(violation.Severity),
 		Msg:         violation.Msg,
 		Object:      violation.Object.String(),
+		Waived:      policy.Waived(waivers, violation),
+		Key:         policy.Key(violation),
 	}
 	if violation.Location != nil {
 		out.File = violation.Location.File

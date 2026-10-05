@@ -1,13 +1,7 @@
 package policy
 
-import "strconv"
-
 func BaselineKey(violation Violation) string {
-	file, line := "", 0
-	if violation.Location != nil {
-		file, line = violation.Location.File, violation.Location.Line
-	}
-	return ViolationID(violation.Constraint, violation.Object.String(), file, strconv.Itoa(line))
+	return Key(violation)
 }
 
 func BaselineKeys(report Report) map[string]bool {

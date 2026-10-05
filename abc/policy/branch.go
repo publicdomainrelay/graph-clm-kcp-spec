@@ -138,6 +138,11 @@ type PolicyLibrary struct {
 	Members []Member `json:"members,omitempty"`
 
 	Classifiers []string `json:"classifiers,omitempty"`
+
+	// Exceptions are the durable, site-scoped waivers: a violation they match
+	// is reported as waived by every gate, the audit and an offline
+	// evaluation, never dropped. Each is also a file under exceptions/.
+	Exceptions []Exception `json:"exceptions,omitempty"`
 }
 
 func (l PolicyLibrary) EnforcementFallback() Enforcement {

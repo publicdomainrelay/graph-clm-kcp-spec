@@ -63,12 +63,7 @@ func (c *Controller) specGate(ctx context.Context, namespace string, repository 
 		}
 		applied[member.Spec.SystemContext] = delta.Apply(base, changeDelta)
 	}
-	overrides := []policy.Override{}
-	for _, override := range repository.Spec.AcceptanceOverrides {
-		if parsed, ok := policy.ParseOverride(override.Step, override.Reason, override.By); ok {
-			overrides = append(overrides, parsed)
-		}
-	}
+	overrides := acceptanceOverrides(repository)
 	result, err := policyeval.CheckSpecsBaseline(ctx, policyeval.SpecInput{
 		Repository:     repository.Name,
 		Contexts:       ordered,

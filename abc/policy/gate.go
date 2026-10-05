@@ -37,12 +37,24 @@ func Cap(action, cap Enforcement) Enforcement {
 	return action
 }
 
+// Override is a waiver: an acceptance step's policy override, or a durable
+// exception from the policy branch. An override that names only a constraint
+// waives every violation of it; naming a key, an object, a file or a line
+// narrows it to those sites.
 type Override struct {
 	Constraint string
 
 	Reason string
 
 	By string
+
+	Key string
+
+	Object string
+
+	File string
+
+	Line int
 }
 
 func (o Override) Step() string {
@@ -74,15 +86,11 @@ type Decision struct {
 }
 
 func Decide(report Report, repository RepositoryPolicy, overrides []Override) Decision {
-	waived := map[string]bool{}
-	for _, override := range overrides {
-		waived[override.Constraint] = true
-	}
 	cap := repository.Cap()
 
 	decision := Decision{}
 	for _, violation := range report.Violations {
-		if waived[violation.Constraint] {
+		if Waived(overrides, violation) {
 			decision.Waived = append(decision.Waived, violation)
 			continue
 		}
@@ -101,6 +109,18 @@ func Decide(report Report, repository RepositoryPolicy, overrides []Override) De
 	}
 	decision.Blocked = len(decision.Denied) > 0
 	return decision
+}
+
+// Waived reports whether a durable exception or a one-shot override covers a
+// violation. It is exported because the audit reports the same set the
+// decision waives.
+func Waived(overrides []Override, violation Violation) bool {
+	for _, override := range overrides {
+		if override.Matches(violation) {
+			return true
+		}
+	}
+	return false
 }
 
 const StatusViolationLimit = 20

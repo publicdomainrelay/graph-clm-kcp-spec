@@ -3,6 +3,7 @@ package policyeval
 import (
 	"context"
 	"fmt"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -137,10 +138,11 @@ func CheckSpecs(ctx context.Context, input SpecInput) (SpecResult, error) {
 		return SpecResult{}, err
 	}
 	report.Members = memberPins
+	overrides, _ := Waivers(input.Library, input.Overrides, time.Now())
 	return SpecResult{
 		Model:    model,
 		Report:   report,
-		Decision: policy.Decide(report, input.Policy, input.Overrides),
+		Decision: policy.Decide(report, input.Policy, overrides),
 	}, nil
 }
 
@@ -158,7 +160,8 @@ func CheckSpecsBaseline(ctx context.Context, input SpecInput) (SpecResult, error
 	if err != nil {
 		return SpecResult{}, err
 	}
-	head.Decision = policy.DecideBaseline(head.Report, baseResult.Report, input.Policy, input.Overrides)
+	overrides, _ := Waivers(input.Library, input.Overrides, time.Now())
+	head.Decision = policy.DecideBaseline(head.Report, baseResult.Report, input.Policy, overrides)
 	return head, nil
 }
 

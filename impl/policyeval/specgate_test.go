@@ -341,3 +341,41 @@ func TestCheckSpecsReportsAMemberItCannotResolve(t *testing.T) {
 		t.Fatalf("an unresolvable member was ignored: %v", err)
 	}
 }
+
+// A durable exception on the policy branch waives its site at the spec-time
+// gate exactly as it does in an offline evaluation: the violation is reported
+// as waived, not dropped, and it does not block.
+func TestCheckSpecsHonoursADurableException(t *testing.T) {
+	contexts := []spec.SystemContext{
+		guestContext([]spec.Interaction{noReachIn()}),
+		hostContext([]spec.Interaction{{
+			ID: "i.reach-in", Peer: "guest", Initiator: spec.InitiatorSelf,
+			Channel: "relay", Carries: []string{"network-info"},
+			Purpose: "network-discovery", Level: spec.LevelMust,
+		}}),
+	}
+	library := conformanceLibrary(t)
+	library.Manifest.Exceptions = []policy.Exception{{
+		Constraint: "conformance-forbidden-flow",
+		Reason:     "accepted for this measurement",
+		Owner:      "tester",
+	}}
+	result, err := policyeval.CheckSpecs(context.Background(), policyeval.SpecInput{
+		Repository: "greenfield-market",
+		Contexts:   contexts,
+		Binding:    conformanceBinding(),
+		Library:    library,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Decision.Blocked {
+		t.Fatalf("the exception did not waive the violation: %+v", result.Messages())
+	}
+	if len(result.Decision.Waived) == 0 {
+		t.Fatalf("the violation was dropped instead of waived: %+v", result.Report.Violations)
+	}
+	if len(result.Report.Violations) == 0 {
+		t.Fatal("the waived violation is not in the report")
+	}
+}

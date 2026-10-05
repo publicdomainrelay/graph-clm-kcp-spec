@@ -13,16 +13,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/oabranch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codediff"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphfacts"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/effects"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/oagit"
@@ -68,6 +67,12 @@ func runPolicy(args []string, stdout, stderr io.Writer) int {
 		return runPolicyLs(rest, stdout, stderr)
 	case "report":
 		return runPolicyReport(rest, stdout, stderr)
+	case "findings":
+		return runPolicyFindings(rest, stdout, stderr)
+	case "waive":
+		return runPolicyWaive(rest, stdout, stderr)
+	case "fix":
+		return runPolicyFix(rest, stdout, stderr)
 	case "restore":
 		return runPolicyRestore(rest, stdout, stderr)
 	case "help", "-h", "--help":
@@ -165,6 +170,22 @@ usage:
   specctl policy report --repo X [-o text|json]
       the last audit: the policy commit, the evaluated commit, the totals and
       the first violations of Repository.status.policy
+  specctl policy findings --repo X [--worktree P | --commit C] [--base REF]
+      [--library D] [-o text|json]
+      every violation of the checkout, each with its stable key (constraint,
+      object, site) and its status: new, inherited (the --base ref already
+      carried it) or waived (a durable exception on the policy branch covers
+      it). This is how a repository finds what it already violates
+  specctl policy waive <key> --reason R [--owner O] [--expires DATE]
+      [--repo X --worktree P | --commit C] [--dir D | --path P]
+      write a durable, site-scoped exception for one finding onto the policy
+      branch, under exceptions/<key>.yaml. Every gate, the audit and an
+      offline evaluation honour it and report the violation as waived
+  specctl policy fix <key> [--repo X --worktree P | --commit C] [-o yaml|json|text]
+      [--write FILE]
+      turn one finding into a SpecChange request: the violation, its site and
+      the instruction the normal spec flow hands to the agent. -o text prints
+      the prompt alone
 
 gator suite paths: a suite in <dir>/tests/<name>/suite.yaml references the
 built template as ../../dist/<name>.yaml, so run 'policy build' before
@@ -870,6 +891,7 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 	specsOnly := fs.Bool("specs-only", false, "evaluate the declared state alone: the ArchitectureModel from the specs, no code and no effects")
 	output := fs.String("o", "text", "text or json")
 	strict := fs.Bool("strict", false, "exit 1 when a deny violation survives the cap")
+	inherited := fs.Bool("inherited", false, "evaluate --diff-base too and report what it already carried as inherited")
 	indexInPlace := fs.Bool("index-in-place", false, "write the codegraph index into the checkout instead of a copy")
 	cacheDir := fs.String("cache-dir", defaultCacheDir(), "where a member repository is cloned")
 	memberPathFlags := memberPaths{}
@@ -959,118 +981,42 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		testGlobs = library.Manifest.TestGlobs
 	}
 
-	contexts := loadContexts(ctx, *path, *repository, *branch, *defaultBranch)
-	graph, err := codegraphfacts.Build(ctx, codeDir, codegraphfacts.Options{
-		Repository:   *repository,
-		Branch:       *branch,
-		Commit:       resolved,
-		TestGlobs:    testGlobs,
-		Contexts:     codegraphfacts.ContextsByFile(contexts),
-		IndexInPlace: *indexInPlace,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
-		return exitError
-	}
-	libraryClassifiers, classifierCleanup, err := policyeval.LibraryClassifierDirs(library, codeDir, "")
-	if err != nil {
-		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
-		return exitError
-	}
-	defer classifierCleanup()
-	computed, err := effects.Apply(&graph, effects.Options{
-		ClassifiersDirs: classifierDirs(codeDir, libraryClassifiers),
-		IncludeExtras:   true,
+	report, err := evaluateCode(ctx, codeEvaluation{
+		Repository:    *repository,
+		Branch:        *branch,
+		DefaultBranch: *defaultBranch,
+		Path:          *path,
+		CodeDir:       codeDir,
+		Commit:        resolved,
+		Library:       library,
+		TestGlobs:     testGlobs,
+		IndexInPlace:  *indexInPlace,
+		DiffBase:      *diffBase,
+		CacheDir:      *cacheDir,
+		Members:       memberPathFlags,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 		return exitError
 	}
 
-	inventory := []*unstructured.Unstructured{}
-	graphObject, err := policy.Unstructured(marshalObject(graph))
-	if err != nil {
-		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
-		return exitError
+	if *inherited {
+		return printInherited(ctx, inheritedOptions{
+			stdout: stdout, stderr: stderr, strict: *strict, output: *output,
+			library: library, report: report, evaluation: codeEvaluation{
+				Repository:    *repository,
+				Branch:        *branch,
+				DefaultBranch: *defaultBranch,
+				Path:          *path,
+				CodeDir:       codeDir,
+				Library:       library,
+				TestGlobs:     testGlobs,
+				CacheDir:      *cacheDir,
+				Members:       memberPathFlags,
+			},
+			base: *diffBase,
+		})
 	}
-	inventory = append(inventory, graphObject)
-	reviewed := []*unstructured.Unstructured{graphObject}
-	if *diffBase != "" {
-		diffRepo := codeDir
-		if *commit != "" {
-			diffRepo = *path
-		}
-		diff, err := codediff.Build(ctx, diffRepo, *diffBase, resolved)
-		if err != nil {
-			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
-			return exitError
-		}
-		diff.Spec.Repository = *repository
-		diffObject, err := policy.Unstructured(marshalObject(policy.CodeDiffObject(diff)))
-		if err != nil {
-			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
-			return exitError
-		}
-		reviewed = append(reviewed, diffObject)
-		inventory = append(inventory, diffObject)
-	}
-
-	members, err := policyeval.ResolveMembers(ctx, library.Manifest.Members, library, memberOptions(*cacheDir, memberPathFlags))
-	if err != nil {
-		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
-		return exitError
-	}
-	defer cleanupMembers(members)
-	model, memberPins, err := policyeval.BuildEvaluationModel(ctx, policyeval.ModelRequest{
-		Repository: *repository,
-		Graph:      graph,
-		Effects:    computed,
-		Contexts:   modelContexts(contexts),
-		Library:    library,
-		Members:    members,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
-		return exitError
-	}
-	modelObject, err := policy.Unstructured(marshalObject(model))
-	if err != nil {
-		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
-		return exitError
-	}
-	inventory = append(inventory, modelObject)
-	reviewed = append(reviewed, modelObject)
-	for _, context := range contexts {
-		object, err := policy.Unstructured(marshalObject(context))
-		if err != nil {
-			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
-			return exitError
-		}
-		inventory = append(inventory, object)
-	}
-	repositoryObject, err := policy.Unstructured(marshalObject(spec.Repository{
-		TypeMeta:   typeMeta(specapi.RepositoryKind),
-		ObjectMeta: objectMeta(*repository),
-		Spec:       spec.RepositorySpec{Branch: defaultOr(*branch, *defaultBranch)},
-	}))
-	if err != nil {
-		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
-		return exitError
-	}
-	inventory = append(inventory, repositoryObject)
-
-	report, err := policyeval.Evaluate(ctx, policyeval.Evaluation{
-		Library:    library,
-		Repository: *repository,
-		Commit:     resolved,
-		Reviewed:   reviewed,
-		Inventory:  inventory,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
-		return exitError
-	}
-	report.Members = memberPins
 
 	if *output == "json" {
 		encoded, err := json.MarshalIndent(report, "", "  ")
@@ -1086,6 +1032,76 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		decision := policy.Decide(report, policy.RepositoryPolicy{}, nil)
 		if decision.Blocked {
 			return exitError
+		}
+	}
+	return exitOK
+}
+
+type inheritedOptions struct {
+	stdout io.Writer
+
+	stderr io.Writer
+
+	strict bool
+
+	output string
+
+	library policy.Library
+
+	report policy.Report
+
+	evaluation codeEvaluation
+
+	base string
+}
+
+// printInherited is `policy eval --inherited`: the change-scoped reading of the
+// offline evaluation. The base ref is evaluated too, so a violation the base
+// already carried is reported as inherited (warn) and only a new one blocks.
+func printInherited(ctx context.Context, options inheritedOptions) int {
+	if options.base == "" {
+		fmt.Fprintln(options.stderr, "specctl policy eval: --inherited needs --diff-base REF, the ref the change is on top of")
+		return exitUsage
+	}
+	baseDir, cleanup, err := exportCommit(ctx, options.evaluation.CodeDir, options.base)
+	if err != nil {
+		fmt.Fprintf(options.stderr, "specctl policy eval: %v\n", err)
+		return exitError
+	}
+	defer cleanup()
+	if absolute, err := filepath.Abs(baseDir); err == nil {
+		baseDir = absolute
+	}
+	evaluation := options.evaluation
+	evaluation.CodeDir = baseDir
+	evaluation.Commit = options.base
+	evaluation.DiffBase = ""
+	baseReport, err := evaluateCode(ctx, evaluation)
+	if err != nil {
+		fmt.Fprintf(options.stderr, "specctl policy eval: %v\n", err)
+		return exitError
+	}
+	waivers, expired := policyeval.Waivers(options.library, nil, time.Now())
+	for _, exception := range expired {
+		fmt.Fprintf(options.stderr, "specctl policy eval: the exception for %s expired %s and is not honoured\n",
+			exception.Constraint, exception.Expires)
+	}
+	findings := findingsOf(options.report, baseReport, waivers, true)
+	if options.output == "json" {
+		encoded, err := json.MarshalIndent(findings, "", "  ")
+		if err != nil {
+			fmt.Fprintf(options.stderr, "specctl policy eval: %v\n", err)
+			return exitError
+		}
+		fmt.Fprintln(options.stdout, string(encoded))
+	} else {
+		printFindings(options.stdout, findings)
+	}
+	if options.strict {
+		for _, finding := range findings {
+			if finding.Status == findingNew && finding.Enforcement == string(policy.EnforcementDeny) {
+				return exitError
+			}
 		}
 	}
 	return exitOK

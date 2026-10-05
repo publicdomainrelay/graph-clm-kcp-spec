@@ -106,6 +106,14 @@ type PolicyViolation struct {
 
 	Enforcement string `json:"enforcementAction,omitempty"`
 
+	// Waived marks a violation a durable exception on the policy branch
+	// covers. It is reported, never dropped.
+	Waived bool `json:"waived,omitempty"`
+
+	// Key is the stable identity of the violation: constraint, object and
+	// site. specctl policy waive writes the exception from it.
+	Key string `json:"key,omitempty"`
+
 	Severity string `json:"severity,omitempty"`
 
 	Msg string `json:"msg,omitempty"`

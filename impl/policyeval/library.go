@@ -116,6 +116,32 @@ func loadTree(fsys fs.FS, manifest policy.PolicyLibrary, manifestPath string, ma
 		}
 	}
 
+	entries, err = fs.ReadDir(fsys, policy.ExceptionsDir)
+	if err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+				continue
+			}
+			file := path.Join(policy.ExceptionsDir, entry.Name())
+			data, err := fs.ReadFile(fsys, file)
+			if err != nil {
+				return policy.Library{}, err
+			}
+			var exception policy.Exception
+			if err := yaml.Unmarshal(data, &exception); err != nil {
+				return policy.Library{}, fmt.Errorf("policyeval: %s: %w", file, err)
+			}
+			if strings.TrimSpace(exception.Constraint) == "" {
+				return policy.Library{}, fmt.Errorf("policyeval: %s names no constraint", file)
+			}
+			if strings.TrimSpace(exception.Reason) == "" {
+				return policy.Library{}, fmt.Errorf("policyeval: %s records no reason", file)
+			}
+			library.Files[file] = data
+			library.Manifest.Exceptions = append(library.Manifest.Exceptions, exception)
+		}
+	}
+
 	entries, err = fs.ReadDir(fsys, policy.ConstraintsDir)
 	if err == nil {
 		for _, entry := range entries {
