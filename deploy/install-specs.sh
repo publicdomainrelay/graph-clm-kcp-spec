@@ -74,15 +74,22 @@ specs_served() {
   W api-resources --api-group=specs.publicdomainrelay.dev 2>/dev/null | grep -q systemcontexts
 }
 
+# Gatekeeper's ConstraintTemplate CRD is vendored under crds/gatekeeper/. specd
+# creates the constraint CRD of every template, so a workspace that holds
+# policies serves templates.gatekeeper.sh too.
+gatekeeper_served() {
+  W api-resources --api-group=templates.gatekeeper.sh 2>/dev/null | grep -q constrainttemplates
+}
+
 deadline=$((SECONDS + WAIT_SECONDS))
 while true; do
   applied=true
-  for crd in "$DEPLOY_DIR"/crds/*.yaml; do
+  for crd in "$DEPLOY_DIR"/crds/*.yaml "$DEPLOY_DIR"/crds/gatekeeper/*.yaml; do
     if ! W apply --validate=false -f "$crd" >/dev/null 2>&1; then
       applied=false
     fi
   done
-  if [ "$applied" = true ] && specs_served; then
+  if [ "$applied" = true ] && specs_served && gatekeeper_served; then
     break
   fi
   if [ "$SECONDS" -ge "$deadline" ]; then

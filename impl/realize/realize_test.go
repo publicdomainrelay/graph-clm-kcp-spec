@@ -270,7 +270,7 @@ func TestRunGatesStopsAtTheFirstGate(t *testing.T) {
 		},
 	}}
 	result := Result{}
-	err := runGates(context.Background(), repository, dir, time.Minute, time.Minute, &result)
+	err := runGates(context.Background(), Options{Repository: repository}, dir, time.Minute, time.Minute, &result)
 	if _, ok := errors.AsType[*VerifyError](err); !ok {
 		t.Fatalf("err = %v, want a VerifyError", err)
 	}
@@ -281,7 +281,7 @@ func TestRunGatesStopsAtTheFirstGate(t *testing.T) {
 	repository.Spec.Verify = []string{"true"}
 	repository.Spec.Acceptance = []spec.AcceptanceStep{{Name: "market", Command: []string{"sh", "-c", "echo bob is down; exit 2"}, Gate: true}}
 	result = Result{}
-	err = runGates(context.Background(), repository, dir, time.Minute, time.Minute, &result)
+	err = runGates(context.Background(), Options{Repository: repository}, dir, time.Minute, time.Minute, &result)
 	acceptanceErr, ok := errors.AsType[*AcceptanceError](err)
 	if !ok || acceptanceErr.Result.Name != "market" {
 		t.Fatalf("err = %v, want an AcceptanceError naming market", err)
@@ -320,7 +320,7 @@ func TestRunGatesLandsPastARedGateAnOverrideNames(t *testing.T) {
 		},
 	}}
 	result := Result{}
-	if err := runGates(context.Background(), repository, dir, time.Minute, time.Minute, &result); err != nil {
+	if err := runGates(context.Background(), Options{Repository: repository}, dir, time.Minute, time.Minute, &result); err != nil {
 		t.Fatalf("err = %v, want the override to let the commit land", err)
 	}
 	if len(result.Acceptance) != 1 {

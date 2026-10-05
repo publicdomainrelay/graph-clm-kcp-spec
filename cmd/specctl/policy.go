@@ -51,6 +51,14 @@ func runPolicy(args []string, stdout, stderr io.Writer) int {
 		return runPolicyEval(rest, stdout, stderr)
 	case "effects":
 		return runPolicyEffects(rest, stdout, stderr)
+	case "apply":
+		return runPolicyApply(rest, stdout, stderr)
+	case "ls":
+		return runPolicyLs(rest, stdout, stderr)
+	case "report":
+		return runPolicyReport(rest, stdout, stderr)
+	case "restore":
+		return runPolicyRestore(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, policyUsage)
 		return exitOK
@@ -93,6 +101,17 @@ usage:
       proc.exec, http.handle, ...) and print the effects grouped by
       context and file. Classifier packs ship with specctl; a repository adds
       its own in <worktree>/classifiers/*.yaml or in --classifiers DIR
+  specctl policy apply -f F | --library D [--prune]
+      write ConstraintTemplates, their constraint CRDs and their constraints
+      into kcp
+  specctl policy restore --repo X [--path <git repo>] [--branch B] [--prune]
+      load the policy branch open-policy/X[--<branch slug>] into kcp; specd
+      does the same when a Repository is created
+  specctl policy ls [-o table|json|name]
+      the templates and constraints kcp holds
+  specctl policy report --repo X [-o text|json]
+      the last audit: the policy commit, the evaluated commit, the totals and
+      the first violations of Repository.status.policy
 
 gator suite paths: a suite in <dir>/tests/<name>/suite.yaml references the
 built template as ../../dist/<name>.yaml, so run 'policy build' before

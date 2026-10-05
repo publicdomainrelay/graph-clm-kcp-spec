@@ -320,6 +320,77 @@ spec:
                 attempt:
                   type: integer
                   description: which attempt of the episode this change is; a manual retry records the number it took
+                policy:
+                  type: object
+                  description: What the realize policy gate recorded, bucketed by the action the repository cap and the operator's overrides left.
+                  properties:
+                    denied:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          policy: {type: string}
+                          constraint: {type: string}
+                          enforcementAction: {type: string}
+                          severity: {type: string}
+                          msg: {type: string}
+                          object: {type: string}
+                          file: {type: string}
+                          line: {type: integer}
+                    warned:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          policy: {type: string}
+                          constraint: {type: string}
+                          enforcementAction: {type: string}
+                          severity: {type: string}
+                          msg: {type: string}
+                          object: {type: string}
+                          file: {type: string}
+                          line: {type: integer}
+                    dryRun:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          policy: {type: string}
+                          constraint: {type: string}
+                          enforcementAction: {type: string}
+                          severity: {type: string}
+                          msg: {type: string}
+                          object: {type: string}
+                          file: {type: string}
+                          line: {type: integer}
+                    waived:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          policy: {type: string}
+                          constraint: {type: string}
+                          enforcementAction: {type: string}
+                          severity: {type: string}
+                          msg: {type: string}
+                          object: {type: string}
+                          file: {type: string}
+                          line: {type: integer}
+                    capped:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          policy: {type: string}
+                          constraint: {type: string}
+                          enforcementAction: {type: string}
+                          severity: {type: string}
+                          msg: {type: string}
+                          object: {type: string}
+                          file: {type: string}
+                          line: {type: integer}
+                    message:
+                      type: string
                 retryReason:
                   type: string
                   description: why an operator retried the episode; its presence makes this a deliberate attempt the attempt cap does not apply to

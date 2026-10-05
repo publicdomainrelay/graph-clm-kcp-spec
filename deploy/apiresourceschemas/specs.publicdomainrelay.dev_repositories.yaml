@@ -1,7 +1,7 @@
 apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
-  name: v1alpha1-5.repositories.specs.publicdomainrelay.dev
+  name: v1alpha1-6.repositories.specs.publicdomainrelay.dev
 spec:
   group: specs.publicdomainrelay.dev
   names:
@@ -124,6 +124,28 @@ spec:
             path:
               description: Local working tree; the phase 1 form of spec.source.path.
               type: string
+            policy:
+              description: The policy branch of this repository. The enforcement cap
+                can downgrade a deny to warn, and disabled turns every violation into
+                a dryrun, during a migration.
+              properties:
+                branch:
+                  description: Override of the policy branch name; empty resolves
+                    open-policy/<repository> with the usual code branch fallback.
+                  type: string
+                disabled:
+                  description: Turn every violation into a dryrun without editing
+                    the templates.
+                  type: boolean
+                enforcement:
+                  description: The strongest action a policy of this repository may
+                    take; a template's deny is capped to it.
+                  enum:
+                  - deny
+                  - warn
+                  - dryrun
+                  type: string
+              type: object
             populate:
               description: What the controller does with the tree once it has one.
               properties:
@@ -272,6 +294,42 @@ spec:
               - Populated
               - Failed
               type: string
+            policy:
+              description: What the last audit found, being the policy branch commit
+                it read, the code commit it evaluated and the first fifty violations.
+              properties:
+                evaluatedCommit:
+                  type: string
+                message:
+                  type: string
+                policyCommit:
+                  type: string
+                totals:
+                  additionalProperties:
+                    type: integer
+                  type: object
+                violations:
+                  items:
+                    properties:
+                      constraint:
+                        type: string
+                      enforcementAction:
+                        type: string
+                      file:
+                        type: string
+                      line:
+                        type: integer
+                      msg:
+                        type: string
+                      object:
+                        type: string
+                      policy:
+                        type: string
+                      severity:
+                        type: string
+                    type: object
+                  type: array
+              type: object
             populateRequest:
               description: The specs.publicdomainrelay.dev/populate-request annotation
                 value this status answers.

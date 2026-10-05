@@ -430,6 +430,36 @@ func changesDocument(snapshot Snapshot) string {
 			change.Status.VerifyExitCode, acceptanceSummary(change), coverageSummary(change))
 	}
 	builder.WriteString(unimplementedSection(changes))
+	builder.WriteString(policySection(changes))
+	return builder.String()
+}
+
+// policySection names the warn and dryrun violations the realize gate left on
+// the branch's changes. A policy that denies never reaches a landing commit, so
+// only the recorded actions appear here.
+func policySection(changes []spec.SpecChange) string {
+	lines := []string{}
+	for _, change := range changes {
+		status := change.Status.Policy
+		if status == nil {
+			continue
+		}
+		for _, violation := range status.Warned {
+			lines = append(lines, fmt.Sprintf("- `%s` (%s): %s", violation.Constraint, change.Name, violation.Msg))
+		}
+		for _, violation := range status.DryRun {
+			lines = append(lines, fmt.Sprintf("- `%s` (dryrun, %s): %s", violation.Constraint, change.Name, violation.Msg))
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	builder := strings.Builder{}
+	builder.WriteString("\n## Policy\n\n")
+	builder.WriteString("Violations a policy recorded without blocking the change.\n\n")
+	for _, line := range lines {
+		builder.WriteString(line + "\n")
+	}
 	return builder.String()
 }
 
