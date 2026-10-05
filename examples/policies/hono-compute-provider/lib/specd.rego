@@ -424,7 +424,7 @@ file_in_role(path, role) {
 	component := model_components[_]
 	component.roles[_] == role
 	pattern := object.get(component, "globs", [])[_]
-	glob.match(pattern, [], path)
+	glob.match(pattern, ["/"], path)
 }
 
 # event_class is an event.emit whose emitted type is one of the terms the
@@ -487,7 +487,7 @@ route_class(effect, class) {
 	route := object.get(object.get(effect, "attrs", {}), "path", "")
 	route != ""
 	term := vocabulary_terms("routes", class)[_]
-	glob.match(term, [], route)
+	glob.match(term, ["/"], route)
 }
 
 declared(flow) {
@@ -557,5 +557,5 @@ violation(msg, details) = result {
 
 globs_match(globs, path) {
 	pattern := globs[_]
-	glob.match(pattern, [], path)
+	glob.match(pattern, ["/"], path)
 }

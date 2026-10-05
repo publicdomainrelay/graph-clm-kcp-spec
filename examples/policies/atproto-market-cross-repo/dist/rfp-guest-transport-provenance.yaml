@@ -162,8 +162,8 @@ spec:
       the path. It\n# is how a rule that reads a CodeDiff tells the guest's files
       from the rest.\nfile_in_role(path, role) {\n\tcomponent := model_components[_]\n\tcomponent.roles[_]
       == role\n\tpattern := object.get(component, \"globs\", [])[_]\n\tglob.match(pattern,
-      [], path)\n}\n\n# event_class is an event.emit whose emitted type is one of
-      the terms the\n# binding wrote for an event class. The comparison is case-insensitive
+      [\"/\"], path)\n}\n\n# event_class is an event.emit whose emitted type is one
+      of the terms the\n# binding wrote for an event class. The comparison is case-insensitive
       and one\n# way: the emitted type carries the vocabulary term, as a constant
       name carries\n# the NSID it stands for.\nevent_class(effect, class) {\n\teffect.kind
       == \"event.emit\"\n\temitted := object.get(object.get(effect, \"attrs\", {}),
@@ -183,7 +183,7 @@ spec:
       class)[_]\n\tterm == route\n}\n\nroute_class(effect, class) {\n\teffect.kind
       == \"http.handle\"\n\troute := object.get(object.get(effect, \"attrs\", {}),
       \"path\", \"\")\n\troute != \"\"\n\tterm := vocabulary_terms(\"routes\", class)[_]\n\tglob.match(term,
-      [], route)\n}\n\ndeclared(flow) {\n\tflow.source == \"declared\"\n}\n\ndeclared(flow)
+      [\"/\"], route)\n}\n\ndeclared(flow) {\n\tflow.source == \"declared\"\n}\n\ndeclared(flow)
       {\n\tflow.source == \"both\"\n}\n\nobserved(flow) {\n\tflow.source == \"observed\"\n}\n\nobserved(flow)
       {\n\tflow.source == \"both\"\n}\n\nforbidden(flow) {\n\tflow.forbidden == true\n}\n\nflow_level(flow,
       level) {\n\tflow.level == level\n}\n\n# same_flow is the directed shape two
@@ -204,7 +204,7 @@ spec:
       := model_flows[_]\n\tforbidden(marker)\n\tsame_flow(flow, marker)\n}\n\nlocation(file,
       line) = {\"file\": file, \"line\": line}\n\nviolation(msg, details) = result
       {\n\tresult := {\"msg\": msg, \"details\": details}\n}\n\nglobs_match(globs,
-      path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [], path)\n}\n"
+      path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [\"/\"], path)\n}\n"
     rego: "package rfpguesstransportprovenance\n\nimport data.lib.specd\n\nguest_role
       := object.get(input.parameters, \"guestRole\", \"guest\")\n\ndefault_transport_patterns
       := [\"websocat\", \"wstunnel\", \"chisel\", \"frp[cs]\", \"autossh\", \"rathole\",

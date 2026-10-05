@@ -3,12 +3,12 @@ package policy
 import (
 	"fmt"
 	"net/url"
-	"path"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
 
+	policyglob "github.com/publicdomainrelay/graph-clm-kcp-spec/common/glob"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
 
@@ -421,8 +421,7 @@ func bestGlobRole(file string, roles []compiledRole) (string, bool) {
 	bestLength := -1
 	for _, role := range roles {
 		for _, pattern := range role.globs {
-			matched, err := path.Match(pattern, file)
-			if err != nil || !matched {
+			if !policyglob.Match(pattern, file) {
 				continue
 			}
 			if len(pattern) > bestLength || (len(pattern) == bestLength && role.name < best) {
@@ -476,7 +475,7 @@ func labelsMatch(wanted, labels map[string]string) bool {
 func roleMatchesFiles(role compiledRole, files []string, nodesByFile map[string][]CodeGraphNode) bool {
 	for _, file := range files {
 		for _, pattern := range role.globs {
-			if matched, err := path.Match(pattern, file); err == nil && matched {
+			if policyglob.Match(pattern, file) {
 				return true
 			}
 		}
@@ -723,7 +722,7 @@ func matchesAnyPattern(patterns []string, value string) bool {
 		if pattern == value {
 			return true
 		}
-		if matched, err := path.Match(pattern, value); err == nil && matched {
+		if policyglob.Match(pattern, value) {
 			return true
 		}
 	}
