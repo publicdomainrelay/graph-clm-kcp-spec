@@ -390,8 +390,10 @@ itself, on branch `fix-running-recovery`:
   `cannot force update the branch ... used by worktree`) and the branch, marks
   the orphan `Failed` with `specd restarted mid-realize`, and creates the next
   attempt `Pending` with the attempt counted, so the cap still applies and the
-  queue moves. Only worktrees under a `specd-worktree-*` temporary directory are
-  touched.
+  queue moves. Only a worktree that is under a `specd-worktree-*` temporary
+  directory and holds that branch is removed: the repository itself, another
+  branch's worktree and any worktree outside the temporary directory are left
+  alone, because removing one falls back to deleting its directory.
 - A `PolicyChange` whose owner is gone has its claim released and is drafted
   again; its `Drafting` and `Testing` phases were already re-driven by the
   normal reconcile. The acceptance steps run inside the realize, so a specd
