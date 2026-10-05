@@ -1,0 +1,37 @@
+language: shell
+version: "1"
+rules:
+  - id: shell-ssh
+    kind: ssh.connect
+    command: {name: ssh}
+    extract:
+      - {attr: proxyCommand, regex: 'ProxyCommand=([^\s"'';]+)'}
+      - {attr: host, regex: '(?:^|\s)(?:-o\s+\S+\s+)*([a-z_][a-z0-9_-]*@[A-Za-z0-9.\-]+)'}
+  - id: shell-container
+    kind: container.exec
+    command: {name: 'docker|podman|nerdctl|container|virsh|lxc|incus', verbs: [exec, run, inspect, create, start, stop, rm, ps, cp]}
+    extract:
+      - {attr: runtime, regex: '^\s*(\S+)'}
+      - {attr: verb, regex: '^\s*\S+\s+(?:-{1,2}\S+\s+)*([a-z]+)'}
+  - id: shell-socat
+    kind: net.dial
+    command: {name: socat}
+  - id: shell-netcat
+    kind: net.dial
+    command: {name: 'nc|netcat|ncat'}
+  - id: shell-curl
+    kind: http.request
+    command: {name: 'curl|wget'}
+    extract:
+      - {attr: url, regex: '(https?://[^\s"''<>)]+)'}
+  - id: shell-scp
+    kind: ssh.connect
+    command: {name: 'scp|rsync'}
+    extract:
+      - {attr: host, regex: '(?:^|\s)([a-z_][a-z0-9_-]*@[A-Za-z0-9.\-]+)'}
+  - id: shell-ssh-keygen
+    kind: proc.exec
+    command: {name: ssh-keygen}
+  - id: shell-file-write
+    kind: file.write
+    command: {name: 'tee'}

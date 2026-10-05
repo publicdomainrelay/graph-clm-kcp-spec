@@ -21,6 +21,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphfacts"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/effects"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/oagit"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policygit"
@@ -45,6 +46,8 @@ func runPolicy(args []string, stdout, stderr io.Writer) int {
 		return runPolicyTest(rest, stdout, stderr)
 	case "eval":
 		return runPolicyEval(rest, stdout, stderr)
+	case "effects":
+		return runPolicyEffects(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, policyUsage)
 		return exitOK
@@ -74,6 +77,12 @@ usage:
   specctl policy eval --repo X [--worktree P | --commit C] [--path <git repo>]
       [--library D] [--branch B] [--test-glob G] [-o text|json] [--strict]
       one-off audit of a checkout or a commit against the policy branch
+  specctl policy effects [--worktree P | --commit C] [--repo X] [--path <git repo>]
+      [--classifiers DIR] [--kind K] [--no-extras] [-o text|json]
+      classify the code into the fixed effect vocabulary (net.dial, ssh.connect,
+      proc.exec, http.handle, ...) and print the effects grouped by
+      context and file. Classifier packs ship with specctl; a repository adds
+      its own in <worktree>/classifiers/*.yaml or in --classifiers DIR
 
 gator suite paths: a suite in <dir>/tests/<name>/suite.yaml references the
 built template as ../../dist/<name>.yaml, so run 'policy build' before
@@ -598,6 +607,13 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 		return exitError
 	}
+	if _, err := effects.Apply(&graph, effects.Options{
+		ClassifiersDirs: classifierDirs(codeDir, nil),
+		IncludeExtras:   true,
+	}); err != nil {
+		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
+		return exitError
+	}
 
 	inventory := []*unstructured.Unstructured{}
 	graphObject, err := policyeval.Unstructured(marshalObject(graph))
@@ -654,6 +670,180 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	return exitOK
+}
+
+func runPolicyEffects(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("specctl policy effects", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repository := fs.String("repo", "", "repository name")
+	worktree := fs.String("worktree", "", "code checkout to index and classify")
+	commit := fs.String("commit", "", "commit of --path to export and classify")
+	path := fs.String("path", ".", "git repository to read a commit from")
+	branch := fs.String("branch", "", "code branch")
+	defaultBranch := fs.String("default-branch", "main", "default code branch")
+	output := fs.String("o", "text", "text or json")
+	kind := fs.String("kind", "", "only print effects of one kind")
+	noExtras := fs.Bool("no-extras", false, "disable classifier rules marked extra")
+	classifiers := stringsFlag{}
+	fs.Var(&classifiers, "classifiers", "directory of extra classifier packs; repeatable")
+	testGlobs := stringsFlag{}
+	fs.Var(&testGlobs, "test-glob", "test file glob; repeatable")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	if *worktree != "" && *commit != "" {
+		fmt.Fprintln(stderr, "specctl policy effects: --worktree and --commit are exclusive")
+		return exitUsage
+	}
+	if *kind != "" && !policy.KnownEffectKind(policy.EffectKind(*kind)) {
+		fmt.Fprintf(stderr, "specctl policy effects: unknown effect kind %q\n", *kind)
+		return exitUsage
+	}
+
+	ctx := context.Background()
+	codeDir := *worktree
+	cleanup := func() {}
+	var err error
+	if *commit != "" {
+		codeDir, cleanup, err = exportCommit(ctx, *path, *commit)
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl policy effects: %v\n", err)
+			return exitError
+		}
+	} else if codeDir == "" {
+		codeDir = *path
+	}
+	defer cleanup()
+	if absolute, absErr := filepath.Abs(codeDir); absErr == nil {
+		codeDir = absolute
+	}
+	if *repository == "" {
+		*repository = filepath.Base(codeDir)
+	}
+	resolved := *commit
+	if resolved == "" {
+		resolved = codegraphfacts.GitCommit(ctx, codeDir)
+	}
+
+	contexts := loadContexts(ctx, *path, *repository, *branch, *defaultBranch)
+	graph, err := codegraphfacts.Build(ctx, codeDir, codegraphfacts.Options{
+		Repository: *repository,
+		Branch:     *branch,
+		Commit:     resolved,
+		TestGlobs:  testGlobs,
+		Contexts:   codegraphfacts.ContextsByFile(contexts),
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy effects: %v\n", err)
+		return exitError
+	}
+	computed, err := effects.Apply(&graph, effects.Options{
+		ClassifiersDirs: classifierDirs(codeDir, classifiers),
+		IncludeExtras:   !*noExtras,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy effects: %v\n", err)
+		return exitError
+	}
+	if *kind != "" {
+		computed = policy.EffectsOf(computed, policy.EffectKind(*kind))
+	}
+
+	if *output == "json" {
+		encoded, err := json.MarshalIndent(computed, "", "  ")
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl policy effects: %v\n", err)
+			return exitError
+		}
+		fmt.Fprintln(stdout, string(encoded))
+		return exitOK
+	}
+	printEffects(stdout, *repository, resolved, computed)
+	return exitOK
+}
+
+func classifierDirs(worktree string, explicit []string) []string {
+	if len(explicit) > 0 {
+		return explicit
+	}
+	if worktree == "" {
+		return nil
+	}
+	candidate := filepath.Join(worktree, effects.ClassifiersDir)
+	if _, err := os.Stat(candidate); err == nil {
+		return []string{candidate}
+	}
+	return nil
+}
+
+func printEffects(out io.Writer, repository, commit string, computed []policy.Effect) {
+	fmt.Fprintf(out, "repository: %s  commit: %s\n", repository, shortCommit(commit))
+	fmt.Fprintf(out, "effects: %d\n", len(computed))
+	counts := effects.Counts(computed)
+	kinds := make([]string, 0, len(counts))
+	for kind := range counts {
+		kinds = append(kinds, string(kind))
+	}
+	sort.Strings(kinds)
+	for _, kind := range kinds {
+		fmt.Fprintf(out, "  %-16s %d\n", kind, counts[policy.EffectKind(kind)])
+	}
+	if len(computed) == 0 {
+		return
+	}
+	fmt.Fprintln(out)
+	names := []string{}
+	byContext := map[string][]policy.Effect{}
+	for _, effect := range computed {
+		name := effect.Component
+		if name == "" {
+			name = "(no context)"
+		}
+		if _, ok := byContext[name]; !ok {
+			names = append(names, name)
+		}
+		byContext[name] = append(byContext[name], effect)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		fmt.Fprintf(out, "context %s\n", name)
+		for _, file := range effectFiles(byContext[name]) {
+			fmt.Fprintf(out, "  %s\n", file)
+			for _, effect := range byContext[name] {
+				if effect.File != file {
+					continue
+				}
+				fmt.Fprintf(out, "    %5d  %-16s %s\n", effect.Line, effect.Kind, effectAttrs(effect))
+			}
+		}
+	}
+}
+
+func effectFiles(effects []policy.Effect) []string {
+	files := []string{}
+	seen := map[string]bool{}
+	for _, effect := range effects {
+		if seen[effect.File] {
+			continue
+		}
+		seen[effect.File] = true
+		files = append(files, effect.File)
+	}
+	sort.Strings(files)
+	return files
+}
+
+func effectAttrs(effect policy.Effect) string {
+	keys := make([]string, 0, len(effect.Attrs))
+	for key := range effect.Attrs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+effect.Attrs[key])
+	}
+	return strings.Join(parts, " ")
 }
 
 func repositoryForWorktree(worktree string) string {

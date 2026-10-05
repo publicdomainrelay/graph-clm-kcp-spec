@@ -1,0 +1,92 @@
+language: typescript
+version: "1"
+rules:
+  - id: deno-command-ssh
+    kind: ssh.connect
+    call: {name: Deno.Command, argv0: [ssh]}
+    target: argv0
+    extract:
+      - {attr: proxyCommand, regex: 'ProxyCommand=([^\n,;]+)', trim: true}
+      - {attr: host, regex: '(?:^|\s)(?:root|ubuntu|[a-z_][a-z0-9_-]*)@([A-Za-z0-9.\-]+)'}
+  - id: deno-command-container
+    kind: container.exec
+    call: {name: Deno.Command, argv0: [docker, podman, nerdctl, container, virsh, lxc, incus]}
+    extract:
+      - {attr: runtime, regex: '^\s*["`]([^"`]+)["`]'}
+      - {attr: verb, regex: 'args\s*:\s*\[\s*["`]([a-z]+)["`]'}
+  - id: deno-command
+    kind: proc.exec
+    call: {name: Deno.Command}
+    target: argv0
+  - id: deno-run
+    kind: proc.exec
+    call: {name: Deno.run}
+  - id: node-spawn
+    kind: proc.exec
+    requiresImport: '^node:child_process$'
+    call: {name: spawn}
+  - id: node-exec-file
+    kind: proc.exec
+    requiresImport: '^node:child_process$'
+    call: {name: execFile}
+  - id: node-exec-file-sync
+    kind: proc.exec
+    requiresImport: '^node:child_process$'
+    call: {name: execFileSync}
+  - id: node-exec-sync
+    kind: proc.exec
+    requiresImport: '^node:child_process$'
+    call: {name: execSync}
+  - id: deno-connect
+    kind: net.dial
+    call: {name: Deno.connect}
+    extract:
+      - {attr: target, regex: 'hostname\s*:\s*["`]([^"`]+)["`]'}
+      - {attr: port, regex: 'port\s*:\s*([0-9]+)'}
+  - id: websocket
+    kind: net.dial
+    call: {name: WebSocket, new: true}
+    target: url
+  - id: websocket-stream
+    kind: net.dial
+    call: {name: WebSocketStream, new: true}
+    target: url
+  - id: deno-serve
+    kind: net.listen
+    call: {name: Deno.serve}
+    extract:
+      - {attr: port, regex: 'port\s*:\s*([0-9]+)'}
+      - {attr: host, regex: 'hostname\s*:\s*["`]([^"`]+)["`]'}
+  - id: deno-listen
+    kind: net.listen
+    call: {name: Deno.listen}
+    extract:
+      - {attr: port, regex: 'port\s*:\s*([0-9]+)'}
+  - id: fetch
+    kind: http.request
+    call: {name: fetch}
+    target: url
+  - id: xrpc-call-service
+    kind: http.request
+    extra: true
+    call: {name: callService, member: true}
+    target: url
+  - id: atproto-create-record
+    kind: event.emit
+    extra: true
+    call: {name: createRepoRecord, member: true}
+  - id: atproto-create-signed-record
+    kind: event.emit
+    extra: true
+    call: {name: createSignedRepoRecord, member: true}
+  - id: atproto-put-record
+    kind: event.emit
+    extra: true
+    call: {name: putRecord, member: true}
+  - id: atproto-get-record
+    kind: event.receive
+    extra: true
+    call: {name: getRecord, member: true}
+  - id: hono-route
+    kind: http.handle
+    route: {methods: [get, post, put, patch, delete, options, head, all, route]}

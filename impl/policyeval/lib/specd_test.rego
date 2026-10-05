@@ -8,6 +8,7 @@ inventory := {
 				"repository": "market",
 				"files": [
 					{"path": "hono-bidder/mod.ts", "test": false},
+					{"path": "lib/report.ts", "test": false},
 					{"path": "test/bidder_test.ts", "test": true},
 				],
 				"nodes": [
@@ -25,6 +26,11 @@ inventory := {
 					"hono-bidder/mod.ts": "const x = 1\nemitOnNetwork()\nfetch(guestAddress)\n",
 					"test/bidder_test.ts": "Deno.test(\"drives the contract\", () => { runComputeContract() })\n",
 				},
+				"effects": [
+					{"id": "e1", "kind": "ssh.connect", "component": "hono-bidder", "context": "hono-bidder", "attrs": {"argv0": "ssh", "proxyCommand": "websocat", "target": "guest.internal"}, "file": "hono-bidder/mod.ts", "line": 40, "node": "fn:ssh"},
+					{"id": "e2", "kind": "event.emit", "component": "hono-bidder", "context": "hono-bidder", "attrs": {"nsid": "com.example.onNetwork"}, "file": "hono-bidder/mod.ts", "line": 44, "node": "fn:emit"},
+					{"id": "e3", "kind": "net.dial", "component": "lib", "context": "lib", "attrs": {"target": "10.0.0.5:22"}, "file": "lib/report.ts", "line": 9, "node": "fn:report"},
+				],
 			},
 		}},
 		"Repository": {"market": {"metadata": {"name": "market", "namespace": "default"}, "spec": {"branch": "main"}}},
@@ -193,6 +199,44 @@ test_definition_node_excludes_file_and_import {
 test_matches_globs {
 	matches_globs(["test/**"], "test/a.ts") with input as code_graph_input
 	not matches_globs(["test/**"], "lib/a.ts") with input as code_graph_input
+}
+
+test_effects_of_kind {
+	effects := effects_of("ssh.connect") with input as code_graph_input with data.inventory as inventory
+	count(effects) == 1
+	effects[0].attrs.proxyCommand == "websocat"
+	effects[0].file == "hono-bidder/mod.ts"
+	effects[0].line == 40
+}
+
+test_effects_of_component_and_kind {
+	emitted := effects_of_component("hono-bidder", "event.emit") with input as code_graph_input with data.inventory as inventory
+	count(emitted) == 1
+	emitted[0].attrs.nsid == "com.example.onNetwork"
+	none := effects_of_component("lib", "event.emit") with input as code_graph_input with data.inventory as inventory
+	count(none) == 0
+}
+
+test_effects_in_globs {
+	inside := effects_in(["hono-bidder/**"]) with input as code_graph_input with data.inventory as inventory
+	count(inside) == 2
+	selected := effects_in(["lib/**"]) with input as code_graph_input with data.inventory as inventory
+	count(selected) == 1
+	selected[0].kind == "net.dial"
+	none := effects_in(["test/**"]) with input as code_graph_input with data.inventory as inventory
+	count(none) == 0
+}
+
+test_effect_targets_reads_the_target_attribute {
+	targets := effect_targets("net.dial") with input as code_graph_input with data.inventory as inventory
+	targets == ["10.0.0.5:22"]
+}
+
+test_effects_are_empty_without_a_graph {
+	none := effects_of("ssh.connect") with input as code_graph_input with data.inventory as {}
+	count(none) == 0
+	all := effects with input as code_graph_input with data.inventory as {}
+	count(all) == 0
 }
 
 test_missing_inventory_is_empty_not_undefined {

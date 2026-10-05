@@ -232,6 +232,33 @@ node_text_matches(node, pattern) {
 	re_match(pattern, node.text)
 }
 
+default effects = []
+
+effects = out {
+	out := code_graph.spec.effects
+}
+
+effects_of(kind) = out {
+	out := [effect | effect := effects[_]; effect.kind == kind]
+}
+
+effects_of_component(component, kind) = out {
+	out := [effect | effect := effects[_]; effect.kind == kind; effect.component == component]
+}
+
+effects_in(globs) = out {
+	paths := {path | path := files_matching(globs)[_].path}
+	out := [effect | effect := effects[_]; paths[effect.file]]
+}
+
+effect_targets(kind) = out {
+	out := [target |
+		effect := effects_of(kind)[_]
+		target := effect.attrs.target
+		target != ""
+	]
+}
+
 location(file, line) = {"file": file, "line": line}
 
 violation(msg, details) = result {

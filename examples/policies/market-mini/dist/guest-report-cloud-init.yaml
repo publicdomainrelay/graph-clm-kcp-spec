@@ -87,10 +87,17 @@ spec:
       := [{\"line\": index + 1, \"text\": line} | line := lines[index]; re_match(pattern,
       line)]\n}\n\nfiles_matching_text(pattern) = out {\n\tout := [file.path |\n\t\tfile
       := code_graph.spec.files[_]\n\t\tre_match(pattern, code_graph.spec.texts[file.path])\n\t]\n}\n\nnode_text_matches(node,
-      pattern) {\n\tre_match(pattern, node.text)\n}\n\nlocation(file, line) = {\"file\":
-      file, \"line\": line}\n\nviolation(msg, details) = result {\n\tresult := {\"msg\":
-      msg, \"details\": details}\n}\n\nglobs_match(globs, path) {\n\tpattern := globs[_]\n\tglob.match(pattern,
-      [], path)\n}\n"
+      pattern) {\n\tre_match(pattern, node.text)\n}\n\ndefault effects = []\n\neffects
+      = out {\n\tout := code_graph.spec.effects\n}\n\neffects_of(kind) = out {\n\tout
+      := [effect | effect := effects[_]; effect.kind == kind]\n}\n\neffects_of_component(component,
+      kind) = out {\n\tout := [effect | effect := effects[_]; effect.kind == kind;
+      effect.component == component]\n}\n\neffects_in(globs) = out {\n\tpaths := {path
+      | path := files_matching(globs)[_].path}\n\tout := [effect | effect := effects[_];
+      paths[effect.file]]\n}\n\neffect_targets(kind) = out {\n\tout := [target |\n\t\teffect
+      := effects_of(kind)[_]\n\t\ttarget := effect.attrs.target\n\t\ttarget != \"\"\n\t]\n}\n\nlocation(file,
+      line) = {\"file\": file, \"line\": line}\n\nviolation(msg, details) = result
+      {\n\tresult := {\"msg\": msg, \"details\": details}\n}\n\nglobs_match(globs,
+      path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [], path)\n}\n"
     rego: "package guestreportcloudinit\n\nimport data.lib.specd\n\nviolation[specd.violation(msg,
       details)] {\n\tfiles := specd.files_matching(input.parameters.guestGlobs)\n\tcount(files)
       > 0\n\tnot reports_out\n\tfile := files[0]\n\tmsg := sprintf(\"no cloud-init

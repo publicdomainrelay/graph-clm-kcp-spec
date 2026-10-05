@@ -236,7 +236,7 @@ as a PolicyChange.
 
 ## Phases
 
-### G1. Effects
+### G1. Effects -- done (`07941df`, `985c7e2`, `0787a11`)
 
 `impl/effects` and the classifier packs for TypeScript/Deno, Go and shell,
 with per-language fixtures. `specctl policy effects --worktree P` prints the
@@ -245,6 +245,100 @@ effects. Calibrated on atproto-market and on hydradb itself:
 - every `ssh`, `fetch`/`callService`, `Deno.Command`, route and
   `createRepoRecord` site in atproto-market is classified correctly;
 - the misses and false positives are recorded and fixed.
+
+What is built:
+
+- `abc/policy` (pure): `EffectKind` and the fixed vocabulary, `Effect`
+  (`id`, `kind`, `component`, `context`, `attrs`, `file`, `line`, `node`),
+  `ClassifierPack`, `EffectRule` and its matchers (qualified call, member
+  call, shell command with a verb, import specifier, string literal args,
+  route node), attribute extraction, `Compile` and pure matching over the
+  CodeGraph texts, nodes and edges. `CodeGraph.spec.effects` carries the
+  result into the inventory; `lib.specd` reads it through `effects`,
+  `effects_of(kind)`, `effects_of_component(component, kind)`,
+  `effects_in(globs)` and `effect_targets(kind)`.
+- `impl/effects`: the embedded packs `packs/typescript.yaml`, `go.yaml`,
+  `shell.yaml`, extra packs from `<worktree>/classifiers/*.yaml` or from
+  `--classifiers DIR`, and `Compute`/`Apply`. A rule marked `extra: true`
+  (the XRPC helpers `callService`, `createRepoRecord`,
+  `createSignedRepoRecord`, `putRecord`, `getRecord`) is off with
+  `--no-extras`.
+- `specctl policy effects`, and `specctl policy eval` now computes the
+  effects onto the CodeGraph before evaluating.
+
+Calibration, `scripts/effects-calibration.py` (grep truth per kind, language
+scoped, with a code mask on the truth side; the worktree is the whole
+checkout, tests included):
+
+```
+$ python3 scripts/effects-calibration.py --repo atproto-market \
+    --worktree /home/johnandersen777/policy-g1-work/atproto-market
+kind           truth  found  missed  extra
+event.emit        11     11       0      0
+event.receive     13     13       0      0
+http.handle       60     60       0      0
+http.request      34     34       0      0
+net.listen        38     38       0      0
+proc.exec         15     15       0      0
+ssh.connect        2      2       0      0
+total            173
+```
+
+atproto-market `master` 7a2e9d9, fresh clone, `codegraph` index 260/260
+`.ts` files. The two `ssh.connect` sites are
+`lib/requester-xrpc/mod.ts:691` and `:734`; `proxyCommand` follows the call
+to `sshTunnelArgs` one hop so it carries the `websocat` channel, and
+`ssh-keygen` is `proc.exec`, not `ssh.connect`.
+
+```
+$ python3 scripts/effects-calibration.py --repo hydradb --worktree .
+kind           truth  found  missed  extra
+container.exec      2      2       0      0
+event.emit          2      2       0      0
+event.receive       1      1       0      0
+file.write        102    102       0      0
+http.handle        11     11       0      0
+http.request        7      7       0      0
+net.dial            7      7       0      0
+net.listen          5      5       0      0
+proc.exec         111    111       0      0
+ssh.connect         5      5       0      0
+total             253
+```
+
+hydradb at the G1 commit. `file.write` is `os.WriteFile`/`os.Create`,
+`http.handle` includes the `mux.HandleFunc` route nodes of `fixtures/`, and
+`ssh.connect` comes from the fixture `ssh.Dial` behind the `crypto/ssh`
+import.
+
+Fixed by calibration: comment and string decoys (a `Deno.Command("ssh")`
+inside a string or a comment is not a site); a TypeScript regex literal
+(`/["']/`) no longer swallows the rest of the file (it cost 71 effects
+before the fix); command substitution inside double quotes in shell; the
+extraction group default; `net.Dial`'s address is argument 1, not 0;
+`crypto/ssh` also matches without the `golang.org/x` prefix; `proxyCommand`
+keeps the whole expression so a vocabulary can match `websocat` in an
+interpolated template.
+
+Remaining, honestly:
+
+- The classifier sees what the codegraph index sees. That index skips a
+  directory named `coverage`, so `impl/coverage/*.go` (2 files, one
+  `exec.CommandContext`) is invisible to every policy, not only to effects.
+  It is the only Go file gap in hydradb; atproto-market is complete.
+- Shell files are not indexed by codegraph at all, so `shell.yaml` is
+  exercised by the unit fixtures and by repositories whose graph carries
+  shell. The RFP cloud-init shell lives inside TypeScript strings, which the
+  mask removes; a guest-side command written in `user_data` is not an effect
+  today. G4/G5 should revisit this (the guest side is exactly where
+  `container.exec` and `ssh.connect` matter).
+- `argv0` from a variable (`new Deno.Command(cmd, ...)`) is `proc.exec` with
+  no `argv0`; a `container.exec` verb that is computed, not literal, is not
+  extracted.
+- A file bigger than the CodeGraph text cap (256 KiB) is classified over its
+  first 256 KiB. No file in either corpus reaches the cap.
+- `specctl policy effects` reports an empty context when the checkout has no
+  SystemContexts; G2 maps components and roles onto that field.
 
 ### G2. Model and bindings
 
