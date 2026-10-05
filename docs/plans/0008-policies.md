@@ -546,6 +546,44 @@ CodeGraph identifiers. See `docs/plans/0009-portable-policies.md`.
 - Opus review of `open-policy/atproto-market*` and the hydradb diff.
 - Fix what they find.
 
+### H. Retry deno-kcp#1 under policies, as a new PR
+
+The user asked whether the policies improve
+https://github.com/publicdomainrelay/deno-kcp/pull/1. PR #1 was built before
+any policy existed. Phase H measures it, then runs the same request again
+with the gate on. The result is a new pull request; #1 stays as it is.
+
+1. **Baseline.**
+   - Bind the policy library and the portable rules to deno-kcp, as
+     `policies.yaml` roles and vocabulary:
+     - host = the DenoPod provider;
+     - guest = the DenoPod workloads;
+     - requester = the example's market requester;
+     - relay = kcp-libs dnsshim / the relay listener.
+   - Evaluate PR #1's head against `main`:
+     `specctl policy eval --diff-base main`, using the library and the
+     binding.
+   - Record every violation, and read each one to label it real or false
+     positive. Known false positive: `kubectl --validate=false` read as
+     disabled TLS verification. Fix it in `policies/library`.
+2. **Retry.**
+   - `scripts/example-deno-kcp-pr.sh` with the same PROMPT and BRIEF, and
+     `open-policy/deno-kcp` seeded from the bound library.
+   - Real-run constraints are deny: TLS verification and provisioning.
+     Style and quality constraints are warn.
+   - The realize gate feeds deny messages back to the agent.
+   - Live acceptance runs as before.
+3. **Publish** as a new PR against deno-kcp (`spec/bidder-and-bob-pds-policy-<date>`),
+   with a body that compares it to #1:
+   - violations in #1 vs violations in the new PR;
+   - gate denials during realize, with the attempts it took;
+   - the acceptance result;
+   - the spec and diff size.
+4. **Record.** `docs/examples/deno-kcp-pr.md` gets a "with policies" round
+   holding the commands, the timings and the table.
+
+Order: after phase C's gate is fixed and merged (`policy-cm`).
+
 ## Not in scope
 
 - Running the real Gatekeeper admission webhook inside kcp.
