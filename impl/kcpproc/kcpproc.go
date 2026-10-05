@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -24,7 +26,13 @@ import (
 const (
 	DefaultFeatureGates = "WorkspaceMounts=true"
 
+	DefaultMaxLogBytes int64 = 16 << 20
+
+	LedgerEnv = "SPECD_KCP_LEDGER"
+
 	kcpAttempts = 5
+
+	logTrimEvery = time.Second
 )
 
 var kineAvailable = regexp.MustCompile(`Kine available at (http://127\.0\.0\.1:(\d+))`)
@@ -43,6 +51,18 @@ type Options struct {
 	KcpPort int
 
 	KinePort int
+
+	DieWithStarter bool
+
+	MaxLogBytes int64
+}
+
+type LedgerEntry struct {
+	Root string `json:"root"`
+
+	KcpPid int `json:"kcpPid"`
+
+	KinePid int `json:"kinePid"`
 }
 
 type Instance struct {
@@ -112,6 +132,9 @@ func (o Options) withDefaults() Options {
 	if o.ReadyTimeout <= 0 {
 		o.ReadyTimeout = 120 * time.Second
 	}
+	if o.MaxLogBytes <= 0 {
+		o.MaxLogBytes = DefaultMaxLogBytes
+	}
 	return o
 }
 
@@ -132,7 +155,7 @@ func Start(ctx context.Context, options Options) (Instance, error) {
 	}
 
 	kineLog := filepath.Join(options.Root, "kine.log")
-	kinePid, err := spawn(options.KineBin, kineLog,
+	kinePid, err := spawn(options.KineBin, kineLog, options,
 		"--endpoint", "sqlite://"+filepath.Join(options.Root, "kine.db"),
 		"--listen-address", "127.0.0.1:"+strconv.Itoa(options.KinePort),
 		"--metrics-bind-address=0")
@@ -158,7 +181,7 @@ func Start(ctx context.Context, options Options) (Instance, error) {
 			_ = os.Remove(instance.AdminKubeconfig)
 		}
 		kcpLog := filepath.Join(options.Root, "kcp.log")
-		kcpPid, err := spawn(options.KcpBin, kcpLog,
+		kcpPid, err := spawn(options.KcpBin, kcpLog, options,
 			"start",
 			"--root-directory="+options.Root,
 			"--etcd-servers="+kineURL,
@@ -174,6 +197,7 @@ func Start(ctx context.Context, options Options) (Instance, error) {
 		if err == nil {
 			instance.KcpPort = served
 			instance.KcpURL = "https://127.0.0.1:" + strconv.Itoa(served)
+			recordStart(instance)
 			return instance, nil
 		}
 		lastErr = err
@@ -360,8 +384,8 @@ func kernelPort() (int, error) {
 	return port, nil
 }
 
-func spawn(binary, logPath string, args ...string) (int, error) {
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+func spawn(binary, logPath string, options Options, args ...string) (int, error) {
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_TRUNC, 0o644)
 	if err != nil {
 		return 0, err
 	}
@@ -369,13 +393,128 @@ func spawn(binary, logPath string, args ...string) (int, error) {
 	command := exec.Command(binary, args...)
 	command.Stdout = logFile
 	command.Stderr = logFile
-	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := command.Start(); err != nil {
-		return 0, err
+	attributes := &syscall.SysProcAttr{Setsid: true}
+	if options.DieWithStarter {
+		setPdeathsig(attributes)
 	}
-	pid := command.Process.Pid
-	go func() { _ = command.Wait() }()
-	return pid, nil
+	command.SysProcAttr = attributes
+
+	type outcome struct {
+		pid int
+		err error
+	}
+	started := make(chan outcome, 1)
+	done := make(chan struct{})
+	go func() {
+		if options.DieWithStarter {
+			runtime.LockOSThread()
+			defer runtime.UnlockOSThread()
+		}
+		if err := command.Start(); err != nil {
+			started <- outcome{err: err}
+			return
+		}
+		started <- outcome{pid: command.Process.Pid}
+		_ = command.Wait()
+		close(done)
+	}()
+	result := <-started
+	if result.err != nil {
+		return 0, result.err
+	}
+	go trimLog(logPath, options.MaxLogBytes, done)
+	return result.pid, nil
+}
+
+func trimLog(path string, max int64, done <-chan struct{}) {
+	ticker := time.NewTicker(logTrimEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			trimLogOnce(path, max)
+		}
+	}
+}
+
+func trimLogOnce(path string, max int64) {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() <= max {
+		return
+	}
+	keep := max / 2
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	if _, err := file.Seek(-keep, io.SeekEnd); err != nil {
+		file.Close()
+		return
+	}
+	tail, err := io.ReadAll(file)
+	file.Close()
+	if err != nil {
+		return
+	}
+	out, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return
+	}
+	defer out.Close()
+	fmt.Fprintf(out, "kcpproc: trimmed the log to its last %d bytes at %s\n", len(tail), time.Now().UTC().Format(time.RFC3339))
+	_, _ = out.Write(tail)
+}
+
+func recordStart(instance Instance) {
+	path := os.Getenv(LedgerEnv)
+	if path == "" {
+		return
+	}
+	line, err := json.Marshal(LedgerEntry{Root: instance.Root, KcpPid: instance.KcpPid, KinePid: instance.KinePid})
+	if err != nil {
+		return
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	_, _ = file.Write(append(line, '\n'))
+}
+
+func Ledger() []LedgerEntry {
+	path := os.Getenv(LedgerEnv)
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	entries := []LedgerEntry{}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		entry := LedgerEntry{}
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+func Leaks() []LedgerEntry {
+	leaks := []LedgerEntry{}
+	for _, entry := range Ledger() {
+		if owns(entry.KcpPid, entry.Root) || owns(entry.KinePid, entry.Root) {
+			leaks = append(leaks, entry)
+		}
+	}
+	return leaks
 }
 
 func waitForKine(ctx context.Context, logPath string, pid int, timeout time.Duration) (string, int, error) {
