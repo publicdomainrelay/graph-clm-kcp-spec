@@ -325,6 +325,7 @@ func languageFamily(language string) string {
 func (m *Matcher) Effects(graph CodeGraph, opts MatchOptions) []Effect {
 	out := []Effect{}
 	contexts := newContextCache(graph)
+	importConsts := importConstants(graph)
 	claimed := map[string]map[int]bool{}
 	for _, file := range graph.Spec.Files {
 		source := sourceOf(graph, file.Path)
@@ -335,7 +336,7 @@ func (m *Matcher) Effects(graph CodeGraph, opts MatchOptions) []Effect {
 		if claimed[file.Path] == nil {
 			claimed[file.Path] = map[int]bool{}
 		}
-		scan := newScanner(source, family)
+		scan := newScanner(source, family, importConsts[file.Path])
 		imports := scan.imports()
 		for index := range m.packs {
 			pack := &m.packs[index]
@@ -365,7 +366,7 @@ func (m *Matcher) Effects(graph CodeGraph, opts MatchOptions) []Effect {
 
 func (m *Matcher) EffectsIn(file, language, source string, opts MatchOptions) []Effect {
 	out := []Effect{}
-	scan := newScanner(source, languageFamily(language))
+	scan := newScanner(source, languageFamily(language), nil)
 	imports := scan.imports()
 	claimed := map[int]bool{}
 	for index := range m.packs {
@@ -608,10 +609,225 @@ type scanner struct {
 	source string
 	family string
 	mask   []maskClass
+	consts map[string]string
 }
 
-func newScanner(source, family string) *scanner {
-	return &scanner{source: source, family: family, mask: codeMask(source, family)}
+func newScanner(source, family string, imported map[string]string) *scanner {
+	mask := codeMask(source, family)
+	consts := constTable(source, family, mask)
+	if len(imported) > 0 {
+		if consts == nil {
+			consts = map[string]string{}
+		}
+		for name, value := range imported {
+			if _, clash := consts[name]; !clash {
+				consts[name] = value
+			}
+		}
+	}
+	scan := &scanner{source: source, family: family, mask: mask, consts: consts}
+	if len(scan.consts) > 0 {
+		scan.source = scan.propagate()
+		scan.mask = codeMask(scan.source, family)
+	}
+	return scan
+}
+
+// importConstants resolves the named constants a file imports from another file
+// in the same graph, so `createSignedRepoRecord(EVENT_NSID, ...)` names the
+// NSID the constant stands for even when the constant lives in a sibling
+// module. The module is found by the specifier's last segment, which is how a
+// repository's own packages are named.
+func importConstants(graph CodeGraph) map[string]map[string]string {
+	locals := map[string]map[string]string{}
+	sources := map[string]string{}
+	for _, file := range graph.Spec.Files {
+		source := sourceOf(graph, file.Path)
+		if source == "" {
+			continue
+		}
+		sources[file.Path] = source
+		locals[file.Path] = constTable(source, languageFamily(file.Language), codeMask(source, languageFamily(file.Language)))
+	}
+	out := map[string]map[string]string{}
+	for path, source := range sources {
+		family := languageFamily(languageOf(graph, path))
+		table := map[string]string{}
+		maps.Copy(table, locals[path])
+		for _, imported := range namedImports(source, family) {
+			target := resolveModule(graph, path, imported.Specifier)
+			if target == "" {
+				continue
+			}
+			for local, remote := range imported.Names {
+				if _, clash := table[local]; clash {
+					continue
+				}
+				if value, ok := locals[target][remote]; ok {
+					table[local] = value
+				}
+			}
+		}
+		if len(table) > 0 {
+			out[path] = table
+		}
+	}
+	return out
+}
+
+type namedImport struct {
+	Specifier string
+	Names     map[string]string
+}
+
+func namedImports(source, family string) []namedImport {
+	if family != "typescript" {
+		return nil
+	}
+	regex := regexp.MustCompile(`(?m)^\s*import\b[^;]*?\{([^}]*)\}\s*from\s*["']([^"'\n]+)["']`)
+	out := []namedImport{}
+	for _, loc := range regex.FindAllStringSubmatchIndex(source, -1) {
+		names := map[string]string{}
+		for _, entry := range strings.Split(source[loc[2]:loc[3]], ",") {
+			fields := strings.Fields(strings.TrimSpace(entry))
+			switch len(fields) {
+			case 1:
+				names[fields[0]] = fields[0]
+			case 3:
+				if fields[1] == "as" {
+					names[fields[2]] = fields[0]
+				}
+			}
+		}
+		out = append(out, namedImport{Specifier: source[loc[4]:loc[5]], Names: names})
+	}
+	return out
+}
+
+func resolveModule(graph CodeGraph, from, specifier string) string {
+	tail := specifier
+	if index := strings.LastIndex(specifier, "/"); index >= 0 {
+		tail = specifier[index+1:]
+	}
+	tail = strings.TrimSuffix(tail, ".ts")
+	if tail == "" || tail == "." || tail == ".." {
+		return ""
+	}
+	if strings.HasPrefix(specifier, ".") {
+		base := from
+		if index := strings.LastIndex(base, "/"); index >= 0 {
+			base = base[:index]
+		}
+		candidate := base + "/" + specifier
+		for _, suffix := range []string{"", ".ts", "/mod.ts", "/index.ts"} {
+			if sourceOf(graph, candidate+suffix) != "" {
+				return candidate + suffix
+			}
+		}
+		return ""
+	}
+	for _, suffix := range []string{"/" + tail + "/mod.ts", "/" + tail + "/index.ts", "/" + tail + ".ts"} {
+		for _, file := range graph.Spec.Files {
+			if strings.HasSuffix(file.Path, suffix) {
+				return file.Path
+			}
+		}
+	}
+	return ""
+}
+
+func languageOf(graph CodeGraph, path string) string {
+	for _, file := range graph.Spec.Files {
+		if file.Path == path {
+			return file.Language
+		}
+	}
+	return ""
+}
+
+// constTable reads the simple string constants of one file: `const SSH = "ssh"`
+// in TypeScript, `sshBin = "ssh"` in Go. It is what lets a call whose argv0 or
+// host is held in a name still name the effect.
+func constTable(source, family string, mask []maskClass) map[string]string {
+	regex := constRegex(family)
+	if regex == nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, loc := range regex.FindAllStringSubmatchIndex(source, -1) {
+		if loc[2] < 0 || loc[4] < 0 || classAtIn(mask, loc[2]) != maskCode {
+			continue
+		}
+		name := source[loc[2]:loc[3]]
+		value := source[loc[4]:loc[5]]
+		if name == "" || value == "" {
+			continue
+		}
+		if _, clash := out[name]; !clash {
+			out[name] = value
+		}
+	}
+	return out
+}
+
+func constRegex(family string) *regexp.Regexp {
+	switch family {
+	case "typescript":
+		return regexp.MustCompile("\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*(?::[^=\\n]+)?=\\s*(\"(?:[^\"\\\\\\n]|\\\\.)*\"|'(?:[^'\\\\\\n]|\\\\.)*'|`[^`$\\n]*`)")
+	case "go":
+		return regexp.MustCompile("(?:^|\\n)\\s*(?:const\\s+)?([A-Za-z_]\\w*)\\s*(?:string\\s*)?=\\s*(\"(?:[^\"\\\\\\n]|\\\\.)*\")")
+	}
+	return nil
+}
+
+func classAtIn(mask []maskClass, offset int) maskClass {
+	if offset < 0 || offset >= len(mask) {
+		return maskComment
+	}
+	return mask[offset]
+}
+
+// propagate rewrites each constant name that appears in code with its literal,
+// so the extract rules read a value a name held. An occurrence that is a member
+// name, part of a longer word, or the left side of the declaration stays.
+func (s *scanner) propagate() string {
+	var out strings.Builder
+	out.Grow(len(s.source))
+	index := 0
+	for index < len(s.source) {
+		char := s.source[index]
+		if !isIdentStart(char) || (index > 0 && (isIdentifierByte(s.source[index-1]) || s.source[index-1] == '.')) {
+			out.WriteByte(char)
+			index++
+			continue
+		}
+		end := index
+		for end < len(s.source) && isIdentifierByte(s.source[end]) {
+			end++
+		}
+		name := s.source[index:end]
+		value, ok := s.consts[name]
+		if !ok || s.classAt(index) != maskCode || assignedAhead(s.source, end) {
+			out.WriteString(name)
+			index = end
+			continue
+		}
+		out.WriteString(value)
+		index = end
+	}
+	return out.String()
+}
+
+func assignedAhead(source string, offset int) bool {
+	for offset < len(source) && isSpaceByte(source[offset]) {
+		offset++
+	}
+	return offset < len(source) && source[offset] == '='
+}
+
+func isIdentStart(char byte) bool {
+	return char == '_' || char == '$' ||
+		(char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z')
 }
 
 func (s *scanner) sites(rule *compiledRule, claimed map[int]bool) []effectSite {
