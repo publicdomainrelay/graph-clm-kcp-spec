@@ -306,8 +306,8 @@ if [ -n "$POLICY_DIR" ]; then
   say "the policy records: the audit, the gate of every change, the head eval"
   # The audit: what the library said about the indexed commit, and the report
   # specd wrote to the policy branch.
-  specctl policy report -o json > "$WORK/policy-report.json" 2> "$WORK/policy-report.err" || true
-  specctl policy report | tee "$WORK/policy-audit.txt" || true
+  specctl policy report --repo "$REPO" -o json > "$WORK/policy-report.json" 2> "$WORK/policy-report.err" || true
+  specctl policy report --repo "$REPO" | tee "$WORK/policy-audit.txt" || true
   # The gate: every SpecChange, its attempts and the policy decision specd
   # recorded on it.
   specctl get specchanges -o json > "$WORK/specchanges.json" 2>/dev/null || true
@@ -357,9 +357,15 @@ fi
 if [ "$PUSH" = "1" ]; then
   say "push the branch, the architecture and the policies, open the pull request"
   git push -q -u origin "$BRANCH"
-  git push -q origin "refs/heads/open-architecture/*:refs/heads/open-architecture/*"
+  # Only this run's architecture branch. A fresh clone's open-architecture/<repo>
+  # is the baseline specd built from the index, which shares no history with the
+  # remote's, so pushing it is either rejected or clobbers what another branch
+  # published; this run's branch is a descendant of the baseline and carries it.
+  arch="open-architecture/${REPO}--${BRANCH//\//-}"
+  git push -q origin "refs/heads/$arch:refs/heads/$arch"
   if [ -n "$POLICY_DIR" ]; then
-    git push -q origin "refs/heads/open-policy/*:refs/heads/open-policy/*"
+    policy_branch="open-policy/${REPO}--${BRANCH//\//-}"
+    git push -q origin "refs/heads/$policy_branch:refs/heads/$policy_branch"
   fi
   prbase=${BASE:-$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || echo main)}
   gh pr create --repo "${GITHUB#https://github.com/}/${REPO}" --base "$prbase" --head "$BRANCH" \
@@ -367,8 +373,9 @@ if [ "$PUSH" = "1" ]; then
     --body "Produced by graph-clm-kcp-spec from the request: \"$PROMPT\". The spec this code realizes is on open-architecture/${REPO}--${BRANCH//\//-}. The policies that gated it are on open-policy/${REPO}--${BRANCH//\//-}."
 else
   say "PUSH=0: to publish"
-  echo "  cd $WORK/$REPO && git push -u origin $BRANCH && git push origin 'refs/heads/open-architecture/*:refs/heads/open-architecture/*'"
-  [ -n "$POLICY_DIR" ] && echo "  git push origin 'refs/heads/open-policy/*:refs/heads/open-policy/*'"
+  echo "  cd $WORK/$REPO && git push -u origin $BRANCH"
+  echo "  git push origin refs/heads/open-architecture/${REPO}--${BRANCH//\//-}:refs/heads/open-architecture/${REPO}--${BRANCH//\//-}"
+  [ -n "$POLICY_DIR" ] && echo "  git push origin refs/heads/open-policy/${REPO}--${BRANCH//\//-}:refs/heads/open-policy/${REPO}--${BRANCH//\//-}"
   echo "  gh pr create --repo ${GITHUB#https://github.com/}/$REPO --base ${BASE:-main} --head $BRANCH"
 fi
 
