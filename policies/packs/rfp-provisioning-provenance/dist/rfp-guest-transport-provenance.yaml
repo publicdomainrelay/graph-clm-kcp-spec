@@ -9,7 +9,8 @@ metadata:
       name, a probe such as `which dumbpipe` or the guest''s own user_data is not
       a violation'
     specs.publicdomainrelay.dev/level: MUST
-    specs.publicdomainrelay.dev/origin: plan 0009 G4, pack rfp-guest-isolation v1
+    specs.publicdomainrelay.dev/origin: plan 0009 G4, pack rfp-provisioning-provenance
+      v1
     specs.publicdomainrelay.dev/title: a guest transport is installed by the guest's
       user_data, not hand-assembled elsewhere
   name: rfpguesttransportprovenance

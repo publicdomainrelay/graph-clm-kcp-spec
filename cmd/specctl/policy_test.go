@@ -60,7 +60,7 @@ func TestPolicyInitFromADirectorySeedsAndRebuilds(t *testing.T) {
 	if raw.Manifest.Repository != "deno-kcp" {
 		t.Errorf("repository: got %q, want deno-kcp", raw.Manifest.Repository)
 	}
-	// The seed carries the directory's own templates; the imported pack's five
+	// The seed carries the directory's own templates; the imported pack's three
 	// are the pack's and resolve at build, not here.
 	if len(raw.Templates) != 8 {
 		t.Errorf("templates: got %d, want 8", len(raw.Templates))
@@ -85,7 +85,7 @@ func TestPolicyInitFromADirectorySeedsAndRebuilds(t *testing.T) {
 		t.Errorf("the pack's dist was rendered before the build: %v", err)
 	}
 	// The build resolves the import the seed kept: the library grows to the
-	// eight own templates plus the pack's five, and the pack's dist appears.
+	// eight own templates plus the pack's three, and the pack's dist appears.
 	code, _, stderr = runWith("policy", "build", "--dir", dir)
 	if code != exitOK {
 		t.Fatalf("build: code %d, stderr %q", code, stderr)
@@ -94,8 +94,8 @@ func TestPolicyInitFromADirectorySeedsAndRebuilds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(library.Templates) != 13 {
-		t.Errorf("templates after build: got %d, want 13", len(library.Templates))
+	if len(library.Templates) != 11 {
+		t.Errorf("templates after build: got %d, want 11", len(library.Templates))
 	}
 	if library.ImportedFrom("rfp-host-reach-in") == "" {
 		t.Errorf("the pack's template is not marked imported: %v", library.Imported)

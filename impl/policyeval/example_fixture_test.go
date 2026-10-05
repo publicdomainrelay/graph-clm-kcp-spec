@@ -125,8 +125,10 @@ func TestExamplePoliciesOverFixtures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Four of the repository's own templates, five of the pack it imports.
-	if len(library.Templates) != 9 || len(library.Constraints) != 10 {
+	// Four of the repository's own templates, three of the pack it imports. The
+	// two provisioning provenance templates moved to rfp-provisioning-provenance,
+	// which market-mini does not import.
+	if len(library.Templates) != 7 || len(library.Constraints) != 8 {
 		t.Fatalf("market-mini library: %d templates, %d constraints", len(library.Templates), len(library.Constraints))
 	}
 

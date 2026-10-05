@@ -1,0 +1,15 @@
+name: rfp-provisioning-provenance
+version: v1
+description: >-
+  The RFP flow's provisioning provenance invariants, written over the
+  CodeDiff and the ArchitectureModel: a guest's transport and its ssh key
+  material are installed by the cloud-init user_data the bidder applies, never
+  assembled by hand elsewhere. An added line that names a transport or key
+  material is a violation only when an executing or writing effect starts
+  there and the file's component is not the guest role. This pack is opt-in:
+  it is imported by a repository that provisions guests and wants the rule,
+  and no example imports it by default.
+roles:
+- guest
+parameters:
+  guestRole: guest

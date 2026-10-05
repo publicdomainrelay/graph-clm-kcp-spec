@@ -1,9 +1,9 @@
 imports:
-- files: 53
+- files: 35
   pack: rfp-guest-isolation
-  sha256: 5acf4f0d3bc5e79407e9461d2a48c04615797cf5aaf5e331fef62c0a364d4a15
+  sha256: 1c28a6a6c4c0120281534a024df8a06d26713d2a53ce1cbff0226f6c3d7607f3
   source: embedded
-  version: v1
+  version: v2
 members:
 - commit: fb11e740185ef27e870b361c414f1e4aee9a11cd
   name: hono-compute-provider

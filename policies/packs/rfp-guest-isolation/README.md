@@ -1,10 +1,16 @@
 # rfp-guest-isolation
 
 The pack that keeps the RFP flow the only way a guest comes up: a guest is
-reached through the relay, its transport and its key material are installed by
-the cloud-init `user_data` the bidder applies, and the host never reaches into
-it. Five templates over the `ArchitectureModel`; the catalogue
-(`CATALOGUE.md`) is generated from them.
+reached over a relay -- anything that is not a direct connection -- the guest
+reports its own network information, and the host never reaches into it. Three
+templates over the `ArchitectureModel`; the catalogue (`CATALOGUE.md`) is
+generated from them.
+
+v2 moved the two provisioning provenance templates
+(`RfpGuestTransportProvenance`, `RfpKeyMaterialProvenance`) to the opt-in pack
+`rfp-provisioning-provenance`. They guard a CodeDiff at provisioning time, not
+the running guest, and a repository that does not provision guests should not
+have to carry them.
 
 Bind it with an import in a repository's `policies.yaml`:
 
@@ -12,7 +18,7 @@ Bind it with an import in a repository's `policies.yaml`:
 imports:
   - pack: rfp-guest-isolation
     source: embedded
-    version: v1
+    version: v2
 ```
 
 The templates, their constraints and their gator suites live under
@@ -45,5 +51,6 @@ weaker than they read.
   `docs/policies.md`, "Limits", carry the detail.
 - **Effects see declarations, not the guest's shell.** A transport installed
   from a `user_data` string is not an effect, so
-  `rfp-guest-transport-provenance` treats the guest role's files as allowed
-  wholesale rather than checking that the transport is a `UserDataModule`.
+  `rfp-provisioning-provenance`'s `rfp-guest-transport-provenance` treats the
+  guest role's files as allowed wholesale rather than checking that the
+  transport is a `UserDataModule`.

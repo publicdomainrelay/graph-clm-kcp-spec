@@ -842,10 +842,12 @@ its templates into the repository library and pins the pack's sources by sha256
 in `policies.lock`. `policies/packs/rfp-guest-isolation/` is the first bound
 one -- the RFP flow's guest isolation rules over the model: the host never
 reaches into the guest, the guest reports its network information and that
-report drives the host's emission, ssh to a guest goes through the relay, and a
-transport or key material is installed by the guest's `user_data` rather than
-hand-assembled. `examples/policies/{atproto-market,market-mini,deno-kcp}`
-import it; their `roles` and `vocabulary` are the only per-repository input.
+report drives the host's emission, and a guest is reached over a relay (any
+indirection counts; only a direct connection is denied). A transport or key
+material installed by hand outside the guest's `user_data` is the opt-in pack
+`policies/packs/rfp-provisioning-provenance`, which no example imports.
+`examples/policies/{atproto-market,market-mini,deno-kcp}` import the isolation
+pack; their `roles` and `vocabulary` are the only per-repository input.
 
 `policy effects` classifies the code into the fixed effect vocabulary
 (`net.dial`, `http.request`, `ssh.connect`, `container.exec`, ...) with the
@@ -957,7 +959,7 @@ including `spec/iroh-dumbpipe-20261004141803` (atproto-market#1), which emits
 `vm.onNetwork` from the provisioning lifecycle even though the guest reports
 its ticket separately.
 
-`policies/packs/rfp-guest-isolation` is the same two invariants written once
+`policies/packs/rfp-guest-isolation` is the same invariants written once
 over roles, effects and flows, and bound three times -- to atproto-market with
 `hono-compute-provider` beside it as a `members:` repository, to that provider
 alone, and to the spec-only `greenfield-market` fixture -- with only

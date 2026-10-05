@@ -88,7 +88,7 @@ vocabulary:
   payloads: {network-info: [address, nodeId, ticket]}
   purposes: {network-discovery: [getNodeId, nodeId, ticket]}
 imports:
-  - {pack: rfp-guest-isolation, version: v1, source: embedded}
+  - {pack: rfp-guest-isolation, version: v2, source: embedded}
 ```
 
 - `roles.<name>.contexts|labels|globs|symbols` select components (see the model
@@ -420,6 +420,16 @@ A pack is a versioned directory of templates that read the ArchitectureModel
 and the binding's vocabulary, never a file name or an identifier of one
 repository. Only the binding changes from project to project.
 
+**Everything here is opt-in.** A pack enters a repository only through an
+`imports:` entry the repository writes, and `policies/library` (the ported
+change-integrity, spec-structure, provisioning and disabled-verification rules)
+enters only through `specctl policy init --with-library`. No example run and no
+scaffold seeds either by default: `policy init` writes a manifest with no
+imports and no library, and the example policy trees in `examples/policies/`
+name exactly the packs their own run needs. `specctl policy build` then pins
+what was asked for; a pack that is not imported never lands in `dist/` or in
+kcp.
+
 ### Format
 
 ```
@@ -456,7 +466,7 @@ constraint is the place a repository overrides a class name or a role name.
 ```yaml
 imports:
 - pack: rfp-guest-isolation
-  version: v1
+  version: v2
   source: embedded
 ```
 
@@ -479,24 +489,24 @@ bin/specctl policy build --dir examples/policies/atproto-market
 # dist/rfp-relay-only-guest-ssh.yaml
 # lib/specd.rego
 # policies.lock
-# pack rfp-guest-isolation@v1 e23fbd799c49 embedded
+# pack rfp-guest-isolation@v2 1c28a6a6c4c0 embedded
 ```
 
 ```yaml
 imports:
-- files: 51
+- files: 35
   pack: rfp-guest-isolation
-  sha256: e23fbd799c492448219694ad8b4ae33ebe0571b16b4b598a4418bf90e8599c22
+  sha256: 1c28a6a6c4c0120281534a024df8a06d26713d2a53ce1cbff0226f6c3d7607f3
   source: embedded
-  version: v1
+  version: v2
 ```
 
 A build whose pack no longer resolves to the pinned digest fails and asks for a
 version bump; `--relock` rewrites the lock:
 
 ```
-specctl policy build: policyeval: pack rfp-guest-isolation@v1 resolves to
-e23fbd799c49..., policies.lock pins 0032a10e2157...; bump the version or run
+specctl policy build: policyeval: pack rfp-guest-isolation@v2 resolves to
+1c28a6a6c4c0..., policies.lock pins 0032a10e2157...; bump the version or run
 specctl policy build --relock
 ```
 
@@ -544,7 +554,7 @@ vocabulary:
   purposes: {network-discovery: [getNodeId, nodeId]}
   routes:   {report: [/v1/on-network]}
 imports:
-- {pack: rfp-guest-isolation, version: v1, source: embedded}
+- {pack: rfp-guest-isolation, version: v2, source: embedded}
 ```
 
 A missing role or class fails the build with the pack's name, which is the
@@ -599,31 +609,54 @@ is not a fact before code exists.
 
 ### The rfp-guest-isolation pack
 
-The first bound pack: the two rules the RFP flow exists to keep, written once.
+The first bound pack: the user's three rules for a running guest, written once.
 
 | template | enforcement | fires when |
 | --- | --- | --- |
 | `RfpHostReachIn` | deny | a flow the host initiates acts on the guest and carries network information or has network discovery as its purpose; or a `container.exec`/`ssh.connect` effect in a host component reaches the guest and no such flow rule reported it |
 | `RfpGuestReportsNetwork` | deny | once the model carries effects, no declared or observed flow has the guest initiating toward another role carrying `network-info`; or an `event.emit` of the `network-report` class in a host component is not triggered by the `http.handle` of the `routes/report` route |
 | `RfpRelayOnlyGuestSsh` | deny | an `ssh.connect` effect outside the guest role is a direct connection -- no `proxyCommand`, or one that only dials the guest, and no `relay`-channel flow carries it; this catches an ssh written directly inside a test body as a file-level effect -- or a `net.dial` effect of a test component acts on the guest. Any other proxy command is a relay |
-| `RfpGuestTransportProvenance` | deny | an added CodeDiff line that names a transport installs or runs it (an executing effect starts there and the line reads like an installation) in a file whose component is not the guest role |
-| `RfpKeyMaterialProvenance` | deny | an added CodeDiff line that names key material is executed or written in a file whose component is not the guest role |
 
-The last two are the model-form replacements for the library's
-`provisioning-new-guest-transport` and `provisioning-manual-key-material`
-CodeDiff rules. They read effects and roles, so a transport named in a selector,
-a lexicon description or a test name, a `which dumbpipe` probe, and the
-`authorized_keys` the guest's own `user_data` writes are all clean. Measured on
-atproto-market PR #1 (`ffac22e`, base `d20070c`): the library alone reports 21
-denies, the library plus the pack reports the one real violation and nothing
-else.
+Version `v2` moved the two provisioning provenance templates to the opt-in
+pack below; `v1` importers bump their import and relock with
+`specctl policy build --relock`.
 
 Run the pack's own suites:
 
 ```bash
 bin/specctl policy test --dir policies/packs/rfp-guest-isolation --gator
-# opa: 83/83 passed
-# suites: 14/14 cases passed
+# opa: 84/84 passed
+# suites: 19/19 cases passed
+# PASS
+```
+
+### The rfp-provisioning-provenance pack (opt-in)
+
+The provisioning half, split out in `rfp-guest-isolation` v2 because it needs a
+CodeDiff and an executing or writing effect at the added line, while the
+isolation pack guards the running guest. No example imports it: a repository
+binds it only where it provisions guests and wants the rule.
+
+| template | enforcement | fires when |
+| --- | --- | --- |
+| `RfpGuestTransportProvenance` | deny | an added CodeDiff line that names a transport installs or runs it (an executing effect starts there and the line reads like an installation) in a file whose component is not the guest role |
+| `RfpKeyMaterialProvenance` | deny | an added CodeDiff line that names key material is executed or written in a file whose component is not the guest role |
+
+They are the model-form replacements for the library's
+`provisioning-new-guest-transport` and `provisioning-manual-key-material`
+CodeDiff rules. They read effects and roles, so a transport named in a selector,
+a lexicon description or a test name, a `which dumbpipe` probe, and the
+`authorized_keys` the guest's own `user_data` writes are all clean. Measured on
+atproto-market PR #1 (`ffac22e`, base `d20070c`): the library alone reports 21
+denies, the library plus this pack reports the one real violation and nothing
+else.
+
+Run its own suites:
+
+```bash
+bin/specctl policy test --dir policies/packs/rfp-provisioning-provenance --gator
+# opa: 60/60 passed
+# suites: 4/4 cases passed
 # PASS
 ```
 

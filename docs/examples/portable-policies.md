@@ -21,8 +21,11 @@ The pack's rules, in one line each:
 | `RfpHostReachIn` | a `host`-initiated flow acts on the `guest`, carrying `network-info` or for `network-discovery`, or a `container.exec`/`ssh.connect` in `host` reaches the guest |
 | `RfpGuestReportsNetwork` | no flow has the guest initiating toward another role carrying `network-info`, or an `event.emit` of the network report in `host` is not triggered by the `http.handle` of the report route |
 | `RfpRelayOnlyGuestSsh` | an `ssh.connect` outside the guest role is a direct connection -- no `proxyCommand`, or one that only dials the guest -- and no relay-channel flow carries it, or a test dials the guest directly |
-| `RfpGuestTransportProvenance` | an added line installs a guest transport outside the guest role's files |
-| `RfpKeyMaterialProvenance` | an added line makes ssh key material by hand outside the guest role's files |
+
+The last two rules of `v1`, `RfpGuestTransportProvenance` and
+`RfpKeyMaterialProvenance`, moved to the opt-in pack
+`policies/packs/rfp-provisioning-provenance` in `v2` (plan 0010 U1). None of
+the three bindings here imports it, so none of them carries those rules.
 
 ## What G5 added to the model
 

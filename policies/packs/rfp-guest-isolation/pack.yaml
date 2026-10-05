@@ -1,16 +1,18 @@
 name: rfp-guest-isolation
-version: v1
+version: v2
 description: >-
   The RFP flow's guest isolation invariants, written over the ArchitectureModel:
   the host never reaches into the guest, the guest reports its own network
   information and that report drives the host's emission, and a guest is
   reached over a relay -- a relay is anything that is not a direct connection,
   so only an ssh with no ProxyCommand or one that dials the guest itself is
-  denied. The templates read components, roles, effects, flows and triggers;
-  only the binding's roles and vocabulary change per repository. The class
-  channels/relay is an optional naming hint: a binding that maps it gets the
-  relay channel on the model's flows and a name in the messages, and a binding
-  that does not is still bound.
+  denied. These are the user's three rules; the provisioning provenance
+  templates moved to the opt-in pack rfp-provisioning-provenance in v2. The
+  templates read components, roles, effects, flows and triggers; only the
+  binding's roles and vocabulary change per repository. The class channels/relay
+  is an optional naming hint: a binding that maps it gets the relay channel on
+  the model's flows and a name in the messages, and a binding that does not is
+  still bound.
 roles:
 - guest
 - host

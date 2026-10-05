@@ -3,39 +3,35 @@ kind: ConstraintTemplate
 metadata:
   annotations:
     specs.publicdomainrelay.dev/calibration: 'the model-form replacement for the library''s
-      provisioning-new-guest-transport CodeDiff rule: an added line that names a transport
-      is denied only when an executing or writing effect starts there and the file''s
-      component is not the guest role, so a selector, a lexicon description, a test
-      name, a probe such as `which dumbpipe` or the guest''s own user_data is not
-      a violation'
+      provisioning-manual-key-material CodeDiff rule: an added line that names key
+      material is denied only when it is executed or written and the file''s component
+      is not the guest role, so the user_data that installs the root key and a test
+      that asserts on it are not violations'
     specs.publicdomainrelay.dev/level: MUST
-    specs.publicdomainrelay.dev/origin: plan 0009 G4, pack rfp-guest-isolation v1
-    specs.publicdomainrelay.dev/title: a guest transport is installed by the guest's
-      user_data, not hand-assembled elsewhere
-  name: rfpguesttransportprovenance
+    specs.publicdomainrelay.dev/origin: plan 0009 G4, pack rfp-provisioning-provenance
+      v1
+    specs.publicdomainrelay.dev/title: ssh key material is placed by the guest's user_data,
+      never assembled by hand
+  name: rfpkeymaterialprovenance
 spec:
   crd:
     spec:
       names:
-        kind: RfpGuestTransportProvenance
+        kind: RfpKeyMaterialProvenance
       validation:
         openAPIV3Schema:
           properties:
-            executedKinds:
-              items:
-                type: string
-              type: array
             guestRole:
               type: string
             ignoredPaths:
               items:
                 type: string
               type: array
-            installPatterns:
+            keyPatterns:
               items:
                 type: string
               type: array
-            transportPatterns:
+            writtenKinds:
               items:
                 type: string
               type: array
@@ -205,34 +201,23 @@ spec:
       line) = {\"file\": file, \"line\": line}\n\nviolation(msg, details) = result
       {\n\tresult := {\"msg\": msg, \"details\": details}\n}\n\nglobs_match(globs,
       path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [\"/\"], path)\n}\n"
-    rego: "package rfpguesstransportprovenance\n\nimport data.lib.specd\n\nguest_role
-      := object.get(input.parameters, \"guestRole\", \"guest\")\n\ndefault_transport_patterns
-      := [\"websocat\", \"wstunnel\", \"chisel\", \"frp[cs]\", \"autossh\", \"rathole\",
-      \"socat\", \"dumbpipe\", \"fedproxy\"]\n\ndefault_executed_kinds := [\"proc.exec\",
-      \"container.exec\", \"net.listen\", \"file.write\"]\n\nviolation[specd.violation(msg,
-      details)] {\n\tfile := input.review.object.spec.files[_]\n\trow := file.added[_]\n\tnot
+    rego: "package rfpkeymaterialprovenance\n\nimport data.lib.specd\n\nguest_role
+      := object.get(input.parameters, \"guestRole\", \"guest\")\n\ndefault_key_patterns
+      := [\"authorized_keys\", \"ssh-keygen\", \"BEGIN [A-Z ]*PRIVATE KEY\"]\n\ndefault_written_kinds
+      := [\"proc.exec\", \"file.write\"]\n\nviolation[specd.violation(msg, details)]
+      {\n\tfile := input.review.object.spec.files[_]\n\trow := file.added[_]\n\tnot
       specd.file_in_role(file.path, guest_role)\n\tnot specd.matches_globs(ignored_paths,
-      file.path)\n\tpattern := transport_pattern(row.text)[0]\n\texecuted(file.path,
-      row.line)\n\tinstalls(row.text)\n\tmsg := sprintf(\"added line %s:%d installs
-      or runs the guest transport %q outside the %s role's user_data: a guest transport
-      is a UserDataModule in the guest's cloud-init, so the RFP flow stays the only
-      way a guest comes up\",\n\t\t[file.path, row.line, pattern, guest_role])\n\tdetails
-      := {\"file\": file.path, \"line\": row.line, \"pattern\": pattern}\n}\n\nignored_paths
-      = out {\n\tout := input.parameters.ignoredPaths\n} else = [\"**/*.md\"]\n\ntransport_pattern(text)
-      = out {\n\tout := [pattern | pattern := transport_pattern_list[_]; regex.match(pattern,
-      text)]\n}\n\ntransport_pattern_list = out {\n\tout := input.parameters.transportPatterns\n}
-      else = default_transport_patterns\n\n\ndefault_install_patterns := [\"\\\\b(?:docker|podman|container|nerdctl)\\\\s+(?:run|exec|create)\\\\b\",
-      \"\\\\b(?:curl|wget)\\\\b\", \"\\\\btar\\\\s+-?[xz]\", \"\\\\b(?:cp|mv|install|mount)\\\\s\",
-      \"\\\\bchmod\\\\s\", \"\\\\bsystemctl\\\\s+(?:enable|start)\", \"\\\\b(?:apt-get|apt|dnf|yum|apk)\\\\s+install\"]\n\n#
-      installs keeps a probe out: `which dumbpipe` names the transport and runs a\n#
-      command, and it installs nothing. The line must read like an installation.\ninstalls(text)
-      {\n\tpattern := install_patterns[_]\n\tregex.match(pattern, text)\n}\n\ninstall_patterns
-      = out {\n\tout := input.parameters.installPatterns\n} else = default_install_patterns\n\n#
-      executed says the added line is a real site: an effect of an executing or a\n#
-      writing kind starts there. A description, a selector or a test name that\n#
-      merely mentions a transport is not an installation.\nexecuted(path, line) {\n\teffect
-      := specd.effects[_]\n\teffect.file == path\n\teffect.line == line\n\texecuted_kind(effect.kind)\n}\n\nexecuted_kind(kind)
-      {\n\tkind == input.parameters.executedKinds[_]\n}\n\nexecuted_kind(kind) {\n\tnot
-      configured_executed_kinds\n\tkind == default_executed_kinds[_]\n}\n\nconfigured_executed_kinds
-      {\n\tcount(input.parameters.executedKinds) > 0\n}\n"
+      file.path)\n\tpattern := key_pattern(row.text)[0]\n\twritten(file.path, row.line)\n\tmsg
+      := sprintf(\"added line %s:%d makes ssh key material by hand outside the %s
+      role's user_data: %q; a guest's keys are placed by the cloud-init user_data
+      and the guest is reached through the relay\",\n\t\t[file.path, row.line, guest_role,
+      pattern])\n\tdetails := {\"file\": file.path, \"line\": row.line, \"pattern\":
+      pattern}\n}\n\nignored_paths = out {\n\tout := input.parameters.ignoredPaths\n}
+      else = [\"**/*.md\"]\n\nkey_pattern(text) = out {\n\tout := [pattern | pattern
+      := key_pattern_list[_]; regex.match(pattern, text)]\n}\n\nkey_pattern_list =
+      out {\n\tout := input.parameters.keyPatterns\n} else = default_key_patterns\n\n\nwritten(path,
+      line) {\n\teffect := specd.effects[_]\n\teffect.file == path\n\teffect.line
+      == line\n\twritten_kind(effect.kind)\n}\n\nwritten_kind(kind) {\n\tkind == input.parameters.writtenKinds[_]\n}\n\nwritten_kind(kind)
+      {\n\tnot configured_written_kinds\n\tkind == default_written_kinds[_]\n}\n\nconfigured_written_kinds
+      {\n\tcount(input.parameters.writtenKinds) > 0\n}\n"
     target: admission.k8s.gatekeeper.sh

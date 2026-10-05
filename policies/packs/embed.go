@@ -8,6 +8,7 @@ import (
 )
 
 //go:embed all:rfp-guest-isolation
+//go:embed all:rfp-provisioning-provenance
 //go:embed all:conformance
 var embedded embed.FS
 
