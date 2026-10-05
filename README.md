@@ -815,9 +815,9 @@ bin/specctl policy eval --worktree fixtures/market-mini/violating -o json
 ```
 
 `policy eval` on `fixtures/market-mini/compliant` prints `violations: 0` and
-`clean`; the `violating` variant reports the direct `Deno.connect` its
-integration test dials. The example library is `examples/policies/market-mini`,
-and a repository with no policy branch falls back to
+`clean`; the `violating` variant is denied by both example policies -- seven
+deny violations from `relay-only-ssh` and the `guest-report-*` templates. A
+repository with no policy branch falls back to
 `examples/policies/<repository>`. `--dir` writes a plain directory; without it
 `init`, `new` and `build` commit to the `open-policy/<repo>` branch of `--path`
 (`--branch` picks a feature branch's own, as `open-architecture/` does).
@@ -834,13 +834,24 @@ passes or fails identically under `specctl policy test` and under
 `testdata/` through both and fails when the two disagree
 (`SPECD_REQUIRE_GATOR=1` makes a missing gator fatal).
 
-A policy is a directory: `templates/<name>/src.rego` (the rule, always
-`violation[{"msg","details"}]`), `templates/<name>/template.yaml` (the
-ConstraintTemplate header plus the specd annotations), `constraints/<name>.yaml`
-and `tests/<name>/suite.yaml`. `specctl policy build` renders
-`dist/<name>.yaml` with the shared `lib.specd` Rego library inlined, refreshes
-`lib/specd.rego` and renders `CATALOGUE.md`. The library reference, the
-annotations and the violation shape are phase 0008 B (`docs/policies.md`).
+A policy is a directory: `templates/<slug>/src.rego` (the rule, always
+`violation[{"msg","details"}]`), `templates/<slug>/template.yaml` (the
+ConstraintTemplate header plus the specd annotations), `constraints/<slug>.yaml`
+and `tests/<slug>/suite.yaml`. `specctl policy build` renders
+`dist/<slug>.yaml` with the shared `lib.specd` Rego library inlined, refreshes
+`lib/specd.rego` and renders `CATALOGUE.md`.
+
+The two acceptance policies are `examples/policies/atproto-market`:
+`relay-only-ssh` (P-relay) and the `guest-report-reach-in`,
+`guest-report-driven-emission` and `guest-report-cloud-init` templates
+(P-guest-reports, one policy as a set of templates), with
+`examples/policies/market-mini` as the fixture-parameterized twin.
+`docs/policies.md` is the concepts, the `lib.specd` reference, the annotations
+and the step-by-step how-to; `docs/examples/atproto-market-policies.md` records
+the real run against `publicdomainrelay/atproto-market` at `master`
+(`7a2e9d9`, two deny violations), `pre-iroh` and
+`spec/iroh-dumbpipe-20261004141803`, and `scripts/example-policies.sh` repeats
+that run.
 
 ## Requirements
 

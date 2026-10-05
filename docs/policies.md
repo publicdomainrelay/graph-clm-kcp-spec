@@ -1,0 +1,477 @@
+# Policies
+
+A policy is a Gatekeeper `ConstraintTemplate` plus one or more constraints. It
+reviews the objects specd already holds (`Repository`, `SystemContext`,
+`SpecChange`) and a derived view of the code, `CodeGraph` (and `CodeDiff` for a
+change). Policies live on the orphan branch `open-policy/<repository>` next to
+the specs, are audited on every indexed commit, and are evaluated offline by
+`specctl policy eval` -- no kcp, no controller, no cluster. The two example
+policies in this repository are the acceptance examples of
+`docs/plans/0008-policies.md`; the real run is
+`docs/examples/atproto-market-policies.md`.
+
+`specctl policy build` compiles a template into Gatekeeper form, and
+`specctl policy test` runs it through the same client `bin/gator` builds, so a
+suite passes or fails identically under `specctl policy test` and
+`bin/gator verify`.
+
+## Concepts
+
+### Gatekeeper objects
+
+- **ConstraintTemplate** is the rule: `metadata.name` is `lower(kind)` (for
+  example kind `RelayOnlySsh` gives the template name `relayonlyssh`), it
+  carries the parameters schema under
+  `spec.crd.spec.validation.openAPIV3Schema`, and the Rego under
+  `spec.targets[].rego`, with the shared library under `spec.targets[].libs`.
+- **Constraint** is an instance of a template: it names the template's kind,
+  selects objects with `spec.match`, passes `spec.parameters`, and sets
+  `spec.enforcementAction` (`deny`, `warn` or `dryrun`).
+- The Rego package for a template is its slug (`relay-only-ssh` is the
+  directory, file and constraint name; the template name is
+  `lower(kind)`). The rule always produces
+  `violation[{"msg": ..., "details": ...}]`.
+- A constraint's `apiVersion` is `constraints.gatekeeper.sh/v1beta1`. The
+  CRD name `<kind lower>.constraints.gatekeeper.sh` is not the object's group.
+
+### Reviewable kinds
+
+| kind | source | stored in kcp |
+| --- | --- | --- |
+| `Repository` | specd CRD | yes |
+| `SystemContext` | specd CRD | yes |
+| `SpecChange` | specd CRD | yes |
+| `CodeGraph` | derived per evaluation | no |
+| `CodeDiff` | derived for a change | no |
+
+A policy selects what it reviews with `spec.match.kinds`. Almost every code
+policy reviews `CodeGraph`, because that is where the call graph is.
+
+### Policy metadata
+
+Metadata lives in the ConstraintTemplate annotations, not in the rule body:
+
+| annotation | meaning |
+| --- | --- |
+| `specs.publicdomainrelay.dev/title` | one line |
+| `specs.publicdomainrelay.dev/level` | MUST / SHOULD / MAY |
+| `specs.publicdomainrelay.dev/severity` | error / warning / info; defaults from the level (MUST -> error) |
+| `specs.publicdomainrelay.dev/requirements` | `<context>#<requirement id>,...` the policy enforces; may be empty |
+| `specs.publicdomainrelay.dev/generated-by` | PolicyChange name, when generated |
+
+`CATALOGUE.md` is rendered from this metadata by `specctl policy build`.
+
+### Enforcement
+
+`enforcementAction` is per constraint. The audit and the gate read it:
+
+- `deny` blocks (a gate failure, or `--strict` exits 1);
+- `warn` is recorded and does not block;
+- `dryrun` is recorded only.
+
+A `Repository` may cap enforcement during a migration, and a single gate
+decision can be waived with `specctl accept --override policy:<constraint>`.
+That decision lives in `abc/policy` (`policy.Decide`); wiring it into the kcp
+gate is plan 0008 phase C, so nothing in this phase enforces a violation
+online.
+
+## The CodeGraph
+
+`CodeGraph` is one object per repository and commit. `impl/codegraphfacts`
+builds it from the codegraph sqlite index, the tree and the arch partition.
+
+```yaml
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeGraph
+metadata: {name: atproto-market, namespace: default, labels: {...commit, branch, repository}}
+spec:
+  repository: atproto-market
+  branch: master
+  commit: <40 hex>
+  files:  [{path, language, context, test, sha256, size}]
+  nodes:  [{id, kind, name, qualifiedName, file, startLine, endLine, exported, context, text}]
+  edges:  [{source, target, kind, line}]
+  texts:  {<path>: <file text>}
+```
+
+- Node and edge data come from the codegraph sqlite index. Edge kinds are
+  `calls`, `imports`, `contains`, `references`, `instantiates`, `implements`
+  and `extends`.
+- `context` is the `SystemContext` whose observed files hold the file.
+- `text` is the node's source span (capped at 64 KiB); `texts` holds whole
+  files (capped at 256 KiB). `texts` is what the `*_line` helpers read, so a
+  violation can carry a real file line.
+- `test` is true when the path matches the repository's test globs (the
+  library manifest's `testGlobs`, or `--test-glob`).
+- The object is sorted and stable for the same commit.
+
+Granularity matters: the TypeScript indexer emits one node per declaration
+(function, method, class, ...), not per closure. A callback passed to a
+function is part of its enclosing node's text, and a method call on a value of
+an interface type (for example `provider.getNodeId(...)`) usually has no
+resolved edge. Reachability is therefore used to bound *where* a pattern is
+looked for, and a regex over the text of the reachable nodes carries the
+detail. See "Writing a policy" below.
+
+### Inventory
+
+Every evaluation loads the referential data Gatekeeper keys as
+`data.inventory.namespace[ns][apiVersion][kind][name]`:
+
+- the `Repository`;
+- all `SystemContext`s;
+- the `CodeGraph`;
+- the arch (`Architecture`);
+- for a gate, the `SpecChange` and its `CodeDiff`.
+
+A policy that reviews a `SystemContext` can therefore read the code, and a
+policy that reviews the `CodeGraph` can read the specs. `lib.specd` hides the
+inventory paths.
+
+## Storage: the orphan branch `open-policy/`
+
+Policies are stored like the architecture: a branch with no parent commit.
+
+```
+policies.yaml                    PolicyLibrary manifest: repository, version, testGlobs, default enforcement
+lib/specd.rego                   the shared library (refreshed by `specctl policy build`)
+lib/specd_test.rego              the library's own opa unit tests
+templates/<slug>/src.rego        the rule: package <slug>, violation[{"msg","details"}]
+templates/<slug>/src_test.rego   opa unit tests for the rule
+templates/<slug>/template.yaml   ConstraintTemplate header: names.kind, parameters schema, annotations
+constraints/<slug>.yaml          the constraint: match, parameters, enforcementAction
+tests/<slug>/suite.yaml          gator Suite (test.gatekeeper.sh/v1alpha1)
+tests/<slug>/inventory/*.yaml    case objects and inventory for the suite
+dist/<slug>.yaml                 built full ConstraintTemplate, libs inlined (generated)
+reports/<code-branch>.yaml       last audit report per code branch (generated)
+CATALOGUE.md                     rendered from template metadata (generated)
+```
+
+`specctl policy init` creates it; `specctl policy restore` (kcp side) loads it
+back. A repository without a policy branch falls back to
+`examples/policies/<repository>` so `eval` works before a branch exists.
+
+## lib.specd reference
+
+`lib.specd` is shipped by hydradb, inlined into every built template's
+`targets[].libs`, and written to `lib/specd.rego` by `init` and `build`. Import
+it with `import data.lib.specd`. It is written in Rego v0 (the engine pins
+`ast.RegoV0`), so `opa test` must run with `--v0-compatible`.
+
+Every helper below is a rule; call them as `specd.<name>`. `globs` are
+`glob.match` patterns matched against a repository-relative path (`**` matches
+across directories); `pattern` is an unanchored Rego regular expression
+(`re_match` is a partial match).
+
+### Object access
+
+| helper | returns |
+| --- | --- |
+| `specd.code_graph` | the reviewed repository's `CodeGraph` spec, or an empty graph |
+| `specd.repository` | the `Repository` object |
+| `specd.repository_name` | the repository name derived from the reviewed object |
+| `specd.arch` | the `Architecture` object |
+| `specd.contexts` | every `SystemContext` |
+| `specd.context(name)` | one `SystemContext` |
+| `specd.requirement(ctx, id)` | one requirement object from a context |
+
+```rego
+violation[specd.violation(msg, details)] {
+	req := specd.requirement("hono-bidder", "r.relay-only")
+	msg := sprintf("enforces %s", [req.id])
+	details := {}
+}
+```
+
+### File and node selection
+
+| helper | returns |
+| --- | --- |
+| `specd.files_matching(globs)` | file objects whose path matches |
+| `specd.tests_matching(globs)` | file objects that are tests and match |
+| `specd.tests_matching_text(globs, pattern)` | test files whose whole-file text matches |
+| `specd.files_matching_text(pattern)` | file objects whose whole-file text matches |
+| `specd.nodes_in_files(paths)` | nodes whose file is in `paths` |
+| `specd.nodes_in_context(name)` | nodes whose context is `name` |
+| `specd.nodes_named(pattern)` | nodes whose name matches |
+| `specd.nodes_qualified(pattern)` | nodes whose qualifiedName matches |
+| `specd.nodes_matching_text(pattern)` | nodes whose source text matches |
+| `specd.nodes_identified(pattern)` | nodes whose text, name or qualifiedName matches (a set) |
+| `specd.nodes_matching_globs(globs, pattern)` | nodes in matching files whose text matches |
+| `specd.node(id)` | one node by id |
+| `specd.file_node(path)` | the `file` node for a path |
+| `specd.nodes_with_id(ids)` | nodes whose id is in `ids` |
+| `specd.definition_node(node)` | true for a function/method/... node, false for `file` and `import` |
+
+### Graph walks
+
+| helper | returns |
+| --- | --- |
+| `specd.edge_kinds` | the default edge-kind list |
+| `specd.calls_from(id)` / `specd.callers_of(id)` | direct call neighbours |
+| `specd.reachable_from(ids, kinds)` | OPA `graph.reachable` over the selected edge kinds |
+| `specd.reaching(ids, kinds)` | the reverse walk |
+| `specd.closure_from(ids, kinds)` | `ids` plus everything reachable from them |
+| `specd.closure_reaching(ids, kinds)` | `ids` plus everything that reaches them |
+| `specd.paths_between(ids, kinds)` | reachable paths |
+| `specd.nodes_reachable_from(ids, kinds, pattern)` | reachable nodes whose text matches |
+
+`reachable_from` follows OPA's semantics: a vertex that appears in no selected
+edge is not a key of the adjacency map and is not returned, even when it is a
+root. Use `closure_from` / `closure_reaching` when the roots themselves must
+be considered (the usual case: "the emitter or anything it can reach").
+
+```rego
+violation[specd.violation(msg, details)] {
+	target := specd.nodes_reachable_from({"fn:emit"}, ["calls"], "\\.getNodeId\\s*\\(")[_]
+	msg := sprintf("%s reaches into the guest", [target.qualifiedName])
+	details := specd.location(target.file, specd.node_match_line(target, "\\.getNodeId\\s*\\("))
+}
+```
+
+### Text and lines
+
+| helper | returns |
+| --- | --- |
+| `specd.lines_matching(path, pattern)` | `[{line, text}]` for a whole file |
+| `specd.node_text_matches(node, pattern)` | true when the node's text matches |
+| `specd.first_line(path, pattern)` | the first 1-based file line that matches |
+| `specd.node_match_line(node, pattern)` | the first matching line, offset from `node.startLine` |
+
+`node_match_line` and `first_line` are what make a violation point at real
+code. A rule that matches a node's text should report
+`specd.location(node.file, specd.node_match_line(node, pattern))`.
+
+```rego
+violation[specd.violation(msg, details)] {
+	node := specd.nodes_matching_text("Deno\\.connect")[_]
+	msg := sprintf("%s dials directly", [node.qualifiedName])
+	details := specd.location(node.file, specd.node_match_line(node, "Deno\\.connect"))
+}
+```
+
+### Reporting
+
+| helper | returns |
+| --- | --- |
+| `specd.location(file, line)` | `{"file": ..., "line": ...}` |
+| `specd.violation(msg, details)` | `{"msg": ..., "details": ...}` |
+| `specd.matches_globs(globs, path)` | true when the path matches a glob |
+| `specd.globs_match(globs, path)` | the same, usable where a rule body is expected |
+
+The engine reads `details.location` or the flat `details.file` / `details.line`
+and fills `Violation.Location`, so `file:line` prints in the report and in
+`-o json`.
+
+## Writing a policy
+
+1. Create or check out a library. `--dir` writes a plain directory; `--path`
+   writes the orphan branch `open-policy/<repo>`.
+
+   ```bash
+   bin/specctl policy init --repo atproto-market --dir /tmp/policies
+   ```
+
+2. Scaffold a template, a constraint and a gator suite with one allowed case
+   and one denied case. `--pattern` is a first cut; edit the Rego after.
+
+   ```bash
+   bin/specctl policy new relay-only-ssh --kind RelayOnlySsh --dir /tmp/policies \
+     --title "integration tests ssh to a guest only over the relay" \
+     --pattern 'Deno\.connect' --glob 'test/**'
+   ```
+
+3. Edit `templates/<slug>/src.rego`. Keep the head
+   `violation[specd.violation(msg, details)]`, use `lib.specd` for selection
+   and for the line number, and put every knob in `input.parameters` so
+   another repository reuses the template by changing parameters only. Add the
+   parameters to `templates/<slug>/template.yaml`
+   (`spec.crd.spec.validation.openAPIV3Schema`) and their values to
+   `constraints/<slug>.yaml`.
+
+4. Write `templates/<slug>/src_test.rego`: opa unit tests in Rego v0 syntax
+   that call the rule with `with input as {...} with data.inventory as {...}`.
+   Cover the deny and the allow, and the boundary (no emitter, no test).
+
+5. Update the suite's inventories under `tests/<slug>/inventory/` and the
+   assertions in `tests/<slug>/suite.yaml`.
+
+6. Build and test.
+
+   ```bash
+   bin/specctl policy build --dir /tmp/policies
+   bin/specctl policy test --dir /tmp/policies
+   bin/specctl policy test --dir /tmp/policies --gator
+   ```
+
+7. Evaluate against real code (see below), read every violation, and fix the
+   calibration -- not the expectation.
+
+### A rule that must find a real line
+
+```rego
+package relayonlyssh
+
+import data.lib.specd
+
+violation[specd.violation(msg, details)] {
+	driver := specd.tests_matching_text(input.parameters.testGlobs, input.parameters.driverIdentifiers)[_]
+	reachable := specd.closure_from({specd.file_node(driver.path).id}, input.parameters.edgeKinds)
+	call := specd.nodes_with_id(reachable)[_]
+	specd.definition_node(call)
+	re_match(input.parameters.sshPattern, call.text)
+	not proxied(call)
+	msg := sprintf("ssh invocation %s reachable from %s carries no allowed ProxyCommand transport", [call.qualifiedName, driver.path])
+	details := specd.location(call.file, specd.node_match_line(call, input.parameters.sshPattern))
+}
+```
+
+### A "require" rule
+
+A requirement is a deny that fires when nothing satisfies it. Emit one
+violation anchored at the first file so it still carries a real line:
+
+```rego
+violation[specd.violation(msg, details)] {
+	files := specd.files_matching(input.parameters.guestGlobs)
+	count(files) > 0
+	not reports_out
+	file := files[0]
+	msg := sprintf("no module reports out: %s", [file.path])
+	details := specd.location(file.path, 1)
+}
+
+reports_out {
+	file := specd.files_matching(input.parameters.guestGlobs)[_]
+	re_match(input.parameters.reportPattern, specd.code_graph.spec.texts[file.path])
+}
+```
+
+## Testing
+
+`specctl policy test --dir D` builds the library (writing `dist/`, refreshing
+`lib/specd.rego`, rendering `CATALOGUE.md`), then runs:
+
+- the opa unit tests of the library and of every template, in process;
+- every `tests/*/suite.yaml` through the built-in Gatekeeper client.
+
+Add `--gator` (or `SPECD_GATOR`) to also shell out to the real
+`bin/gator verify`. `scripts/install-policy-tools.sh` installs pinned `opa` and
+`gator` binaries into `bin/` by sha256.
+
+Opa unit tests run in Rego v0 syntax:
+
+```rego
+package nodirectguestconnect
+
+inventory := {"namespace": {"default": {"specs.publicdomainrelay.dev/v1alpha1": {"CodeGraph": {"x": { ... }}}}}}
+review := {"kind": {"kind": "CodeGraph"}, "object": {"metadata": {"name": "x", "namespace": "default"}, "spec": {"repository": "x"}}}
+
+test_violation_when_the_pattern_matches {
+	call := {"parameters": {"globs": ["test/**"], "pattern": "Deno\\.connect"}, "review": review}
+	violations := violation with input as call with data.inventory as inventory
+	count(violations) == 1
+}
+```
+
+A gator suite names the built template and the constraint relative to the
+suite file, and asserts the violation count (and optionally a message
+substring) per case:
+
+```yaml
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata: {name: relay-only-ssh}
+tests:
+  - name: relay-only-ssh
+    template: ../../dist/relay-only-ssh.yaml
+    constraint: ../../constraints/relay-only-ssh.yaml
+    cases:
+      - name: allowed
+        object: inventory/codegraph-allowed.yaml
+        inventory: [inventory/codegraph-allowed.yaml]
+        assertions: [{violations: 0}]
+      - name: denied
+        object: inventory/codegraph-denied.yaml
+        inventory: [inventory/codegraph-denied.yaml]
+        assertions: [{violations: 2}]
+```
+
+The conformance test `impl/policyeval/conformance_test.go` runs every suite
+under `examples/` and `testdata/` through the built-in engine and through
+`bin/gator verify` and fails when the two disagree. `SPECD_REQUIRE_GATOR=1`
+makes a missing gator fatal instead of a skip:
+
+```bash
+SPECD_REQUIRE_GATOR=1 go test ./impl/policyeval/...
+```
+
+`impl/policyeval/example_fixture_test.go` evaluates
+`examples/policies/market-mini` against `fixtures/market-mini/{compliant,violating}`
+with the real codegraph: the compliant variant must have zero deny violations
+and the violating one must be denied by both policy groups. It skips when
+`codegraph` is not on `PATH`.
+
+## Evaluating
+
+```bash
+bin/specctl policy eval --worktree fixtures/market-mini/compliant
+bin/specctl policy eval --worktree fixtures/market-mini/violating -o json
+bin/specctl policy eval --repo atproto-market --commit 7a2e9d9 \
+  --path ~/clones/atproto-market --library examples/policies/atproto-market
+```
+
+- `--worktree P` indexes a checkout; `--commit C --path R` exports that commit
+  to a temporary directory and indexes it (the clone is never touched).
+- `--library D` reads the library from a directory instead of the policy
+  branch. Without it, the branch `open-policy/<repo>[--<branch slug>]` is
+  read, falling back to `examples/policies/<repo>`.
+- `--test-glob G` (repeatable) overrides the manifest's `testGlobs`.
+- `-o json` prints the full `policy.Report`; the default prints a table.
+- `--strict` exits 1 when a `deny` violation survives the repository's
+  enforcement cap.
+
+Reports name `policy`, `constraint`, `enforcementAction`, the reviewed object,
+`file:line` and the message; `-o json` also carries `details` and the violation
+`id`.
+
+## Troubleshooting
+
+- **`undefined function data.lib.specd.<name>`** -- the library in the
+  directory is older than the binary. Run `specctl policy build --dir D` (or
+  `init`) to refresh `lib/specd.rego`, and rebuild `bin/specctl`.
+- **A rule passes but should not** -- check the graph granularity: a
+  TypeScript closure is part of its enclosing node, and an interface method
+  call has no resolved edge. Anchor the pattern to a call syntax
+  (`.getNodeId\s*\(`) rather than a bare name, and remember that comments
+  inside the node's text are matched too.
+- **A violation prints `file:0`** -- the rule built `specd.location` with a
+  literal or no line. Use `specd.node_match_line` or `specd.first_line`.
+- **`policy test` fails on a suite but the opa unit test passes** -- the suite
+  runs the constraint's parameters from `constraints/<slug>.yaml` and the
+  first-match review object from `tests/<slug>/inventory/`, not the unit
+  test's inline parameters. Check globs and event identifiers against the
+  inventory's file paths.
+- **gator and the built-in engine disagree** -- they are the same client by
+  construction; a mismatch means a stale `dist/`. Rebuild.
+- **`no policies for <repo>`** -- create the library
+  (`specctl policy init --repo X`) or point `--library` at an example.
+
+## The two example policies
+
+`examples/policies/atproto-market` holds the phase B acceptance policies, with
+`examples/policies/market-mini` as the fixture-parameterized twin:
+
+- `relay-only-ssh` (P-relay): integration tests that drive a bidder and a
+  requester must make every ssh over the relay -- a `ProxyCommand` whose
+  transport is on the allowed list -- and must never dial a guest address
+  directly.
+- `guest-report-reach-in`, `guest-report-driven-emission`,
+  `guest-report-cloud-init` (P-guest-reports, one policy as a set of
+  templates): the host must not reach into the guest from the network emitter,
+  the guest's network identity must be emitted from an inbound guest report
+  rather than the provisioning lifecycle, and a cloud-init `UserDataModule`
+  must publish the guest's address or routing outbound.
+
+`docs/examples/atproto-market-policies.md` runs them against
+`publicdomainrelay/atproto-market` at three refs and records the real output.
