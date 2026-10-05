@@ -402,6 +402,10 @@ are pushed.
 
 ### D. Generation
 
+Folded into plan 0009 G6: generation targets the portable model layer, not
+CodeGraph identifiers. See `docs/plans/0009-portable-policies.md`.
+
+
 1. PolicyChange reconciler (harness: deepseek-claude, the same agent kinds as
    realize), with the checks in Lifecycle step 3, then `specctl policy
    generate|accept`.
