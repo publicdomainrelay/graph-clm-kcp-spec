@@ -53,7 +53,8 @@ export function specctlBridge(options: BridgeOptions = {}): StateBridge {
       return {
         delta,
         applied: result.stderr.includes("applied"),
-        folded: /folded into (\S+)/.exec(result.stderr)?.[1],
+        queued: /queued behind (\S+)/.exec(result.stderr)?.[1],
+        summary: deltaSummaryLines(result.stderr),
       };
     },
     async report(change, event: ProgressRecord) {
@@ -72,4 +73,15 @@ function parseJSON(text: string): unknown {
   } catch {
     return {};
   }
+}
+
+// The apply prints its delta by id on stderr before it lands, one line per
+// added, changed and removed entry; the host relays those lines so a model or
+// operator sees what the edit does rather than only its counts.
+export function deltaSummaryLines(stderr: string): string {
+  return stderr
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => /^[+~-] /.test(line))
+    .join("\n");
 }

@@ -4,6 +4,7 @@ import {
   applyArgv,
   bridgeArgv,
   contextSection,
+  deltaSummaryLines,
   parseReport,
   relativePath,
   renderArgv,
@@ -80,4 +81,14 @@ test("an architecture tool call without what it needs is answered, not run", () 
   expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_context`, {})).toBe("string");
   expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_edit`, { context: "calc", document: "  " })).toBe("string");
   expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_nothing`, {})).toBe("string");
+});
+
+test("the delta summary keeps only the lines the apply prints by id", () => {
+  const stderr = [
+    "- r.multiply",
+    "+ interface Subtract",
+    "specctl clm apply: calc applied (+1 -1), queued behind calc-s2c-abc",
+  ].join("\n");
+  expect(deltaSummaryLines(stderr)).toBe("- r.multiply\n+ interface Subtract");
+  expect(deltaSummaryLines("specctl clm apply: no change: the model zone says what the spec already says")).toBe("");
 });

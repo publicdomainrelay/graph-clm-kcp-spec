@@ -85,8 +85,12 @@ export function memoryNodeId(sessionKey: string, kind: string, title: string, bo
   return stableNodeId(nodeKey(sessionKey, "memory", `${kind}\u0001${title}\u0001${body}`));
 }
 
-function reportApplied(result: { error?: string } | undefined): void {
+function reportApplied(result: { applied?: boolean; queued?: string; summary?: string; error?: string } | undefined): void {
   if (result?.error) console.error(`pi-hydradb-clm: the spec edit was not applied: ${result.error}`);
+  else if (result?.applied) {
+    console.error(`pi-hydradb-clm: applied the spec edit${result.queued ? `, queued behind ${result.queued}` : ""}`);
+    if (result.summary) console.error(result.summary);
+  }
 }
 
 function text(content: string) {

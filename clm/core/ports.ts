@@ -28,7 +28,7 @@ export interface FileStore {
 export interface StateBridge {
   render(context: string): Promise<string>;
 
-  apply(context: string, modelZone: string): Promise<{ delta: unknown; applied: boolean; folded?: string }>;
+  apply(context: string, modelZone: string): Promise<{ delta: unknown; applied: boolean; queued?: string; summary?: string }>;
 
   report(change: string, event: ProgressRecord): Promise<{ progress: number; recorded: boolean }>;
 

@@ -6936,7 +6936,12 @@ var ClmHost = class {
         try {
           const applied = await this.options.bridge.apply(this.options.context, model);
           this.appliedModelZone = model;
-          result = { delta: applied.delta ?? {}, applied: applied.applied, folded: applied.folded };
+          result = {
+            delta: applied.delta ?? {},
+            applied: applied.applied,
+            queued: applied.queued,
+            summary: applied.summary
+          };
         } catch (error) {
           result = {
             delta: {},

@@ -33,7 +33,9 @@ export interface ApplyResult {
 
   applied: boolean;
 
-  folded?: string;
+  queued?: string;
+
+  summary?: string;
 
   error?: string;
 }
@@ -101,7 +103,12 @@ export class ClmHost {
         try {
           const applied = await this.options.bridge.apply(this.options.context, model);
           this.appliedModelZone = model;
-          result = { delta: (applied.delta ?? {}) as Delta, applied: applied.applied, folded: applied.folded };
+          result = {
+            delta: (applied.delta ?? {}) as Delta,
+            applied: applied.applied,
+            queued: applied.queued,
+            summary: applied.summary,
+          };
         } catch (error) {
           result = {
             delta: {},

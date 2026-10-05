@@ -95,7 +95,8 @@ export interface ProgressRecord {
 export interface AppliedDelta {
   delta: unknown;
   applied: boolean;
-  folded?: string;
+  queued?: string;
+  summary?: string;
   error?: string;
 }
 

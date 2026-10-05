@@ -281,6 +281,17 @@ export function parseReport(stdout: string): { progress: number; recorded: boole
   return { progress: match ? Number(match[1]) : 0, recorded: match?.[2] === "true" };
 }
 
+// The apply prints its delta by id on stderr before it lands, one line per
+// added, changed and removed entry, so the mod can surface what the edit does
+// rather than only its counts.
+export function deltaSummaryLines(stderr: string): string {
+  return stderr
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => /^[+~-] /.test(line))
+    .join("\n");
+}
+
 export const ARCH_TOOL_PREFIX = "mcp__cc-clm-mod__";
 
 export interface ArchTool {
@@ -309,7 +320,7 @@ export const ARCH_TOOLS: readonly ArchTool[] = [
   {
     name: "arch_edit",
     description:
-      "Change the spec of one system context in kcp: pass the whole context document as arch_context returned it, with the prose and the spec block edited. kcp records the structured delta and specd opens a SpecToCode change that edits the code to match, gated by the repository's tests. Returns the delta kcp recorded.",
+      "Change the spec of one system context in kcp: pass the whole context document as arch_context returned it, with the prose and the spec block edited. kcp records the structured delta and specd opens a SpecToCode change that edits the code to match, gated by the repository's tests. The tool prints the delta by id (+added ~changed -removed) before it lands. A requirement that goes missing is refused unless the document lists its id under `removed:` in the spec block, so a sliced document cannot silently drop requirements. If a change for this context is already running, the edit still lands and becomes its own change queued behind it. Returns the delta kcp recorded.",
     inputSchema: {
       type: "object",
       properties: {

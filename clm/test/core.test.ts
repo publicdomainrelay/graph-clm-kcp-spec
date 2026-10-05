@@ -26,6 +26,7 @@ import {
   type ObservedFacts,
   type SystemContextSpec,
 } from "../core/mod.ts";
+import { deltaSummaryLines } from "../adapters-node/mod.ts";
 
 function calcSpec(): SystemContextSpec {
   return {
@@ -254,4 +255,51 @@ test("an apply that failed is reported and tried again", async () => {
   const second = await host.finish("turn");
   assert.match(second?.error ?? "", /no such context/);
   assert.equal(attempts, 2);
+});
+
+test("an apply queued behind a running change reports the queue and the summary", async () => {
+  const document = renderModelZone("calc", "calc", calcSpec());
+  const files = new Map<string, string>([["/state/clm/calc/calc.md", document]]);
+  const host = new ClmHost({
+    context: "calc",
+    repoPath: "/repo",
+    docPath: "/state/clm/calc/calc.md",
+    files: {
+      exists: (path) => Promise.resolve(files.has(path)),
+      read: (path) => Promise.resolve(files.get(path) ?? ""),
+      write: (path, contents) => {
+        files.set(path, contents);
+        return Promise.resolve();
+      },
+      ancestors: () => Promise.resolve([]),
+    },
+    bridge: {
+      render: () => Promise.resolve(document),
+      apply: () =>
+        Promise.resolve({
+          delta: { requirements: [{ op: "removed", id: "r.multiply" }] },
+          applied: true,
+          queued: "calc-s2c-abc",
+          summary: "- r.multiply",
+        }),
+      report: () => Promise.resolve({ progress: 0, recorded: false }),
+    },
+  });
+  await host.start();
+  files.set("/state/clm/calc/calc.md", `${document}\n<!-- the model drops one requirement -->\n`);
+  const applied = await host.finish("turn");
+  assert.equal(applied?.applied, true);
+  assert.equal(applied?.queued, "calc-s2c-abc");
+  assert.equal(applied?.summary, "- r.multiply");
+});
+
+test("the delta summary keeps only the by-id lines", () => {
+  const stderr = [
+    "+ r.subtract",
+    "~ r.add (text)",
+    "- interface Multiply",
+    "specctl clm apply: calc applied (+1 ~1 -1), queued behind calc-s2c-abc",
+  ].join("\n");
+  assert.equal(deltaSummaryLines(stderr), "+ r.subtract\n~ r.add (text)\n- interface Multiply");
+  assert.equal(deltaSummaryLines("specctl clm apply: no change: nothing"), "");
 });

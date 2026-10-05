@@ -16,6 +16,7 @@ import {
   archInvocation,
   applyArgv,
   contextSection,
+  deltaSummaryLines,
   guardDenial,
   parseReport,
   relativePath,
@@ -128,7 +129,8 @@ function modBridge($: Engine, env: BridgeEnv, cwd: string): StateBridge {
       return {
         delta,
         applied: result.stderr.includes("applied"),
-        folded: /folded into (\S+)/.exec(result.stderr)?.[1],
+        queued: /queued behind (\S+)/.exec(result.stderr)?.[1],
+        summary: deltaSummaryLines(result.stderr),
       };
     },
     async report(change: string, event: ProgressRecord) {
@@ -190,7 +192,8 @@ async function settle($: Engine, session: Session): Promise<void> {
   try {
     const applied = await session.host.finish("turn");
     if (applied?.applied) {
-      $.ui.log(`clm: applied the spec edit${applied.folded ? ` into ${applied.folded}` : ""}`);
+      $.ui.log(`clm: applied the spec edit${applied.queued ? `, queued behind ${applied.queued}` : ""}`);
+      if (applied.summary) $.ui.log(applied.summary);
     } else if (applied?.error) {
       $.ui.log(`clm: the spec edit was not applied: ${applied.error}`);
     }
