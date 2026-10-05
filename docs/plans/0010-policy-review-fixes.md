@@ -126,6 +126,33 @@ S8. **`policy test` is read-only.** It does not rewrite `dist/`, the
 catalogue or the lock, and it does not commit when run against a branch.
 `policy build` does those things (0003 e).
 
+### Track S status
+
+Each item, its commit and its test. All commits are on `policy-fix-s`.
+
+| item | commit | test |
+| --- | --- | --- |
+| S1 | `fcda4df` | `factory/specd/policy_test.go`: `TestPolicySyncActionPicksTheSideThatMoved` (the decision table: only the side that moved is written, both-apart is a conflict). The status carries `kcpFingerprint` beside `policyCommit` as the recorded base. |
+| S2 | `128e7ef` | `impl/policykcp/policykcp_test.go`: `TestReadAndPruneAreScopedToOneRepository`. Objects carry `specs.publicdomainrelay.dev/repository`; `Read(ReadOptions{Repository})` and `prune` filter on it; the CLI grows `--repository` on `apply` and `ls`. |
+| S3 | `fcda4df` | `factory/specd/policy_test.go`: `TestPersistPolicyKeepsImportedTemplatesAsImports`. The branch library's `Imported` map carries across to the kcp library, so persist skips what the pack contributed. |
+| S4 | `128e7ef` | `impl/policykcp/policykcp_test.go`: `TestReadReportsANonNotFoundListError` and `TestReadTreatsANotFoundConstraintListAsNoConstraints`. Only a confirmed not-found is skipped; the read retries once; the sync logs and sets a condition instead of dropping the error. |
+| S5 | `baf3077` | `impl/policyeval/specgate_test.go`: `TestCheckSpecsHonorsDisabledAndTheEnforcementCap`, `TestCheckSpecsHonorsAnOverride`, `TestCheckSpecsReportsAMemberItCannotResolve`. Deltas apply in sequence in `factory/specd/specgate.go`; `CheckSpecs` builds the model through `BuildEvaluationModel` so members merge. |
+| S6 | `baf3077` | `abc/policy/baseline_test.go` (`TestDecideBaseline*`) and `impl/policyeval/specgate_test.go` (`TestCheckSpecsBaseline*`, including `TestCheckSpecsBaselineComparesAgainstThePreChangeSpec`). The realize half reads the base commit from a temporary detached worktree and is exercised by the live gate tests. `spec.policy.baseline: none` and `specd --no-baseline` restore whole-repo gating. |
+| S7 | `128e7ef` | `runPolicyRestore` defaults to `--prune=false`, matching the controller. |
+| S8 | `dbc49e8` | `cmd/specctl/policy_test.go`: `TestPolicyTestLeavesThePolicyDirectoryAlone` (fails before the fix: it rewrote `CATALOGUE.md`, `lib/specd.rego` and `dist/`). |
+
+### Track S limits
+
+- The offline `specctl policy eval --specs-only` has no base and stays
+  whole-repository. Recorded in `docs/policies.md` Limits.
+- The change-scope key is (constraint, object, site); a model-level violation
+  carries no site, so two of the same rule on one object share a key. Recorded
+  in `docs/policies.md` Limits.
+- No live test lands a pre-existing violation through the realize gate with a
+  second round; the inherited/denied split is unit-tested on the shared
+  decision function and the base evaluation runs in the live deny tests.
+  Recorded in `docs/policies.md` Limits.
+
 ## Track D: generation honesty, packaging, docs, style
 
 Status: done. Commits `02af779` (code fixes), `ce480b1` (layering, derived

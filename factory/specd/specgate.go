@@ -32,6 +32,7 @@ func (c *Controller) specGate(ctx context.Context, namespace string, repository 
 		return nil, err
 	}
 	applied := map[string]spec.SystemContextSpec{}
+	preChange := map[string]spec.SystemContextSpec{}
 	ordered := []spec.SystemContext{}
 	for _, context := range contexts {
 		if context.Spec.Repository != repository.Name {
@@ -49,14 +50,36 @@ func (c *Controller) specGate(ctx context.Context, namespace string, repository 
 		if err != nil {
 			return nil, err
 		}
-		applied[member.Spec.SystemContext] = delta.Apply(realizedSpecOf(&context), changeDelta)
+		// Two members of one batch apply in sequence: the second delta lands on
+		// the first's result, not on the pre-change spec. The base stays the
+		// realized spec the change started from, which the kcp object may
+		// already have moved past.
+		base := realizedSpecOf(&context)
+		if existing, ok := applied[member.Spec.SystemContext]; ok {
+			base = existing
+		}
+		if _, ok := preChange[member.Spec.SystemContext]; !ok {
+			preChange[member.Spec.SystemContext] = realizedSpecOf(&context)
+		}
+		applied[member.Spec.SystemContext] = delta.Apply(base, changeDelta)
 	}
-	result, err := policyeval.CheckSpecs(ctx, policyeval.SpecInput{
-		Repository: repository.Name,
-		Contexts:   ordered,
-		Applied:    applied,
-		Binding:    library.Manifest.Binding(),
-		Library:    library,
+	overrides := []policy.Override{}
+	for _, override := range repository.Spec.AcceptanceOverrides {
+		if parsed, ok := policy.ParseOverride(override.Step, override.Reason, override.By); ok {
+			overrides = append(overrides, parsed)
+		}
+	}
+	result, err := policyeval.CheckSpecsBaseline(ctx, policyeval.SpecInput{
+		Repository:     repository.Name,
+		Contexts:       ordered,
+		Applied:        applied,
+		Base:           preChange,
+		Binding:        library.Manifest.Binding(),
+		Library:        library,
+		Policy:         c.repositoryPolicy(repository),
+		Overrides:      overrides,
+		MemberCacheDir: c.opts.CacheDir,
+		Tool:           c.opts.Tool,
 	})
 	if err != nil {
 		return nil, err

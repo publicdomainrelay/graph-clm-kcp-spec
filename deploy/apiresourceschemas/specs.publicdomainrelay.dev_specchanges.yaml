@@ -567,6 +567,29 @@ spec:
                         type: string
                     type: object
                   type: array
+                inherited:
+                  description: violations the base already carried; reported, never
+                    blocking
+                  items:
+                    properties:
+                      constraint:
+                        type: string
+                      enforcementAction:
+                        type: string
+                      file:
+                        type: string
+                      line:
+                        type: integer
+                      msg:
+                        type: string
+                      object:
+                        type: string
+                      policy:
+                        type: string
+                      severity:
+                        type: string
+                    type: object
+                  type: array
                 message:
                   type: string
                 waived:

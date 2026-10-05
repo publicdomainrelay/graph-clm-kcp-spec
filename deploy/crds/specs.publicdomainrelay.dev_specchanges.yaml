@@ -455,6 +455,20 @@ spec:
                           object: {type: string}
                           file: {type: string}
                           line: {type: integer}
+                    inherited:
+                      type: array
+                      description: violations the base already carried; reported, never blocking
+                      items:
+                        type: object
+                        properties:
+                          policy: {type: string}
+                          constraint: {type: string}
+                          enforcementAction: {type: string}
+                          severity: {type: string}
+                          msg: {type: string}
+                          object: {type: string}
+                          file: {type: string}
+                          line: {type: integer}
                     message:
                       type: string
                 retryReason:

@@ -127,6 +127,11 @@ type Options struct {
 	// is a no-op.
 	PolicyLibrary string
 
+	// NoBaseline makes both policy gates whole-repository: every violation
+	// blocks, including one the base already carried. A repository's own
+	// spec.policy.baseline: none does the same for that repository.
+	NoBaseline bool
+
 	// LogDir keeps the full agent log and the raw verify output of a realized
 	// change. Empty means no log is kept; the change record carries the
 	// agent's report and the verify summary either way.

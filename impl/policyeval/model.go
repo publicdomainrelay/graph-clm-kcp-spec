@@ -20,11 +20,30 @@ type ModelRequest struct {
 
 	Library policy.Library
 
+	// Binding overrides the library's own binding for the model, so a caller
+	// that holds the binding besides the library (the spec-time gate, which
+	// reads declared facts) builds the same model the realize gate builds.
+	// Empty uses the library's manifest binding.
+	Binding policy.Binding
+
 	Members []ResolvedMember
 
 	Tool string
 }
 
+// binding is the binding the model is built from: the request's when it names
+// one, else the library manifest's.
+func (r ModelRequest) binding() policy.Binding {
+	if len(r.Binding.Roles) > 0 || len(r.Binding.Vocabulary.Classes()) > 0 || len(r.Binding.Imports) > 0 {
+		return r.Binding
+	}
+	return r.Library.Manifest.Binding()
+}
+
+// BuildEvaluationModel builds the ArchitectureModel of the repository and of
+// every member, and returns the member pins the report records. The member's
+// own roles merge into the library's binding, so a portable rule reads the
+// same abstract roles across repositories.
 func BuildEvaluationModel(ctx context.Context, request ModelRequest) (policy.ArchitectureModel, []policy.ReportMember, error) {
 	models := make([]policy.ModelMember, 0, len(request.Members))
 	pins := make([]policy.ReportMember, 0, len(request.Members))
@@ -41,7 +60,7 @@ func BuildEvaluationModel(ctx context.Context, request ModelRequest) (policy.Arc
 		Graph:      request.Graph,
 		Effects:    request.Effects,
 		Contexts:   request.Contexts,
-		Binding:    request.Library.Manifest.Binding(),
+		Binding:    request.binding(),
 		Members:    models,
 	})
 	if err != nil {
@@ -73,7 +92,7 @@ func memberModel(ctx context.Context, member ResolvedMember, request ModelReques
 	if err != nil {
 		return policy.ModelMember{}, fmt.Errorf("policyeval: effects of member %s: %w", member.Member.Name, err)
 	}
-	binding := request.Library.Manifest.Binding().Merge(policy.Binding{Roles: member.Member.Roles})
+	binding := request.binding().Merge(policy.Binding{Roles: member.Member.Roles})
 	return policy.ModelMember{
 		Name:    member.Member.Name,
 		Graph:   graph,

@@ -577,7 +577,7 @@ func (c *Controller) applyPolicyLibrary(ctx context.Context, cluster policykcp.C
 	if err != nil {
 		return err
 	}
-	return policykcp.Apply(ctx, cluster, generated, policykcp.ApplyOptions{CRDs: engine})
+	return policykcp.Apply(ctx, cluster, generated, policykcp.ApplyOptions{CRDs: engine, Repository: change.Spec.Repository})
 }
 
 // draftBranchLibrary reads the branch a draft is authored against. A bind-mode

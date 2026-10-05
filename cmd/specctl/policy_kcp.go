@@ -26,6 +26,7 @@ func runPolicyApply(args []string, stdout, stderr io.Writer) int {
 	files := stringsFlag{}
 	fs.Var(&files, "f", "Gatekeeper manifest to apply, - for stdin; repeatable")
 	library := fs.String("library", "", "policy directory to apply")
+	repository := fs.String("repository", "", "label the objects with the repository that owns them")
 	prune := fs.Bool("prune", false, "delete the templates and constraints kcp holds and the library does not")
 	options := addGlobals(fs)
 	if err := fs.Parse(args); err != nil {
@@ -67,7 +68,7 @@ func runPolicyApply(args []string, stdout, stderr io.Writer) int {
 	}
 	loaded.Sort()
 
-	existing, err := policykcp.Read(ctx, client)
+	existing, err := policykcp.Read(ctx, client, policykcp.ReadOptions{Repository: *repository})
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy apply: %v\n", err)
 		return exitError
@@ -93,7 +94,7 @@ func runPolicyApply(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl policy apply: %v\n", err)
 		return exitError
 	}
-	if err := policykcp.Apply(ctx, client, loaded, policykcp.ApplyOptions{Prune: *prune, CRDs: engine}); err != nil {
+	if err := policykcp.Apply(ctx, client, loaded, policykcp.ApplyOptions{Prune: *prune, CRDs: engine, Repository: *repository}); err != nil {
 		fmt.Fprintf(stderr, "specctl policy apply: %v\n", err)
 		return exitError
 	}
@@ -162,6 +163,7 @@ func runPolicyLs(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("specctl policy ls", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	output := fs.String("o", "table", "output format: table, json or name")
+	repository := fs.String("repository", "", "show one repository's objects only")
 	options := addGlobals(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
@@ -172,7 +174,7 @@ func runPolicyLs(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl policy ls: %v\n", err)
 		return exitError
 	}
-	library, err := policykcp.Read(ctx, client)
+	library, err := policykcp.Read(ctx, client, policykcp.ReadOptions{Repository: *repository})
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy ls: %v\n", err)
 		return exitError
@@ -285,7 +287,11 @@ func runPolicyRestore(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("specctl policy restore", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	target := addPolicyTargetFlags(fs)
-	prune := fs.Bool("prune", true, "delete the templates and constraints kcp holds and the branch does not")
+	// A restore never prunes by default: kcp serves every repository's
+	// policies, so a prune would delete another repository's, and a policy that
+	// just landed could be deleted by a hand-run restore. --prune says so
+	// explicitly.
+	prune := fs.Bool("prune", false, "delete this repository's templates and constraints that the branch does not hold")
 	options := addGlobals(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
@@ -316,7 +322,7 @@ func runPolicyRestore(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl policy restore: %v\n", err)
 		return exitError
 	}
-	if err := policykcp.Apply(ctx, client, library, policykcp.ApplyOptions{Prune: *prune, CRDs: engine}); err != nil {
+	if err := policykcp.Apply(ctx, client, library, policykcp.ApplyOptions{Prune: *prune, CRDs: engine, Repository: target.repo}); err != nil {
 		fmt.Fprintf(stderr, "specctl policy restore: %v\n", err)
 		return exitError
 	}

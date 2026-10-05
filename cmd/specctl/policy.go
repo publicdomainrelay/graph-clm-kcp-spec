@@ -679,15 +679,16 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 	}
 	target.resolveRepo()
 	ctx := context.Background()
-	if code := buildTarget(ctx, target, stdout, stderr, false, "", nil); code != exitOK {
-		return code
-	}
 
-	library, err := policyeval.Load(target.dir)
+	// A test reads: the dist, the catalogue and the lock are rendered into a
+	// scratch copy of the directory and the suites run there, so a test never
+	// rewrites the tree it judges. `policy build` is what writes.
+	dir, library, cleanup, err := renderTestTree(ctx, target)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy test: %v\n", err)
 		return exitError
 	}
+	defer cleanup()
 
 	failed := 0
 	modules := map[string]string{policy.LibPath: policyeval.Lib(), policy.LibTestPath: policyeval.LibTest()}
@@ -696,7 +697,7 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 		// The template came from the pack registry when the repository imports
 		// it, so the source the library resolved is the source to test.
 		modules[policy.TemplateSourcePath(slug)] = template.Rego
-		if test, ok := policyeval.TemplateTest(os.DirFS(target.dir), slug); ok {
+		if test, ok := policyeval.TemplateTest(os.DirFS(dir), slug); ok {
 			modules[policy.TemplateTestPath(slug)] = string(test)
 		}
 	}
@@ -716,7 +717,7 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "opa: %d/%d passed\n", passedUnits, len(unitResults))
 
-	suites, err := filepath.Glob(filepath.Join(target.dir, policy.TestsDir, "*", policy.SuiteName))
+	suites, err := filepath.Glob(filepath.Join(dir, policy.TestsDir, "*", policy.SuiteName))
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy test: %v\n", err)
 		return exitError
@@ -724,12 +725,12 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 	sort.Strings(suites)
 	passedCases, totalCases := 0, 0
 	for _, suite := range suites {
-		relative, err := filepath.Rel(target.dir, suite)
+		relative, err := filepath.Rel(dir, suite)
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl policy test: %v\n", err)
 			return exitError
 		}
-		result, err := policyeval.RunSuite(ctx, os.DirFS(target.dir), filepath.ToSlash(relative))
+		result, err := policyeval.RunSuite(ctx, os.DirFS(dir), filepath.ToSlash(relative))
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl policy test: %s: %v\n", relative, err)
 			return exitError
@@ -759,7 +760,7 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 	if *withGator {
 		if len(suites) == 0 {
 			fmt.Fprintf(stderr, "specctl policy test: gator: no suites under %s, nothing was verified\n",
-				filepath.Join(target.dir, policy.TestsDir))
+				filepath.Join(dir, policy.TestsDir))
 			failed++
 		} else {
 			bin := *gatorBin
@@ -769,7 +770,7 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 			if bin == "" {
 				bin = defaultGator
 			}
-			if code := runGator(bin, filepath.Join(target.dir, policy.TestsDir), stdout, stderr); code != exitOK {
+			if code := runGator(bin, filepath.Join(dir, policy.TestsDir), stdout, stderr); code != exitOK {
 				failed++
 			}
 		}
@@ -779,6 +780,53 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	return exitOK
+}
+
+// renderTestTree copies the policy directory to a scratch tree and renders the
+// files a build would write -- lib, dist, the catalogue -- into the copy, so
+// the suites read the rules the library resolves while the directory itself is
+// left exactly as it was.
+func renderTestTree(ctx context.Context, target *policyTarget) (string, policy.Library, func(), error) {
+	raw, err := target.loadRaw(ctx)
+	if err != nil {
+		return "", policy.Library{}, func() {}, err
+	}
+	library, _, err := resolveLibraryImports(raw, true)
+	if err != nil {
+		return "", policy.Library{}, func() {}, err
+	}
+	dist, err := policyeval.Dist(library)
+	if err != nil {
+		return "", policy.Library{}, func() {}, err
+	}
+	add := map[string][]byte{
+		policy.LibPath:     []byte(policyeval.Lib()),
+		policy.LibTestPath: []byte(policyeval.LibTest()),
+	}
+	maps.Copy(add, dist)
+	add[policy.CataloguePath] = policyeval.Catalogue(library)
+
+	dir, err := os.MkdirTemp("", "specctl-policy-test-")
+	if err != nil {
+		return "", policy.Library{}, func() {}, err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	if err := os.CopyFS(dir, os.DirFS(target.dir)); err != nil {
+		cleanup()
+		return "", policy.Library{}, func() {}, err
+	}
+	for name, data := range add {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			cleanup()
+			return "", policy.Library{}, func() {}, err
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			cleanup()
+			return "", policy.Library{}, func() {}, err
+		}
+	}
+	return dir, library, cleanup, nil
 }
 
 func runGator(bin, suites string, stdout, stderr io.Writer) int {

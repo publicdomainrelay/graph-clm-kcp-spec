@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -69,6 +70,11 @@ func (e *PolicyError) Error() string {
 // runPolicyGate evaluates the library against the worktree head and the
 // change's diff. The SpecChange is a reviewed object, so a policy may match it,
 // and it is in inventory, so a policy may read it.
+//
+// The gate is change-scoped: when the head denies, the base commit is
+// evaluated too and only a violation the base did not carry blocks. The base
+// sees the code facts of the base commit and not the diff or the SpecChanges,
+// which describe the change itself and are new by definition.
 func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Decision, policy.Report, error) {
 	gate := options.Policy
 	graph, err := buildGateGraph(ctx, options, dir)
@@ -85,10 +91,6 @@ func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Dec
 	diff.Spec.Repository = options.Repository.Name
 	diff.Spec.Base = options.Base
 
-	graphObject, err := policyObject(graph)
-	if err != nil {
-		return policy.Decision{}, policy.Report{}, err
-	}
 	diffObject, err := policyObject(diff)
 	if err != nil {
 		return policy.Decision{}, policy.Report{}, err
@@ -105,6 +107,27 @@ func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Dec
 			member.Cleanup()
 		}
 	}()
+	changeObjects := append([]*unstructured.Unstructured{diffObject}, gate.Reviewed...)
+	report, err := gateReport(ctx, options, graph, changeObjects, members)
+	if err != nil {
+		return policy.Decision{}, policy.Report{}, err
+	}
+	decision := policy.Decide(report, gate.Repository, gate.Overrides)
+	if !decision.Blocked || options.Base == "" || !gate.Repository.BaselineEnabled() {
+		return decision, report, nil
+	}
+	baseReport, err := baseGateReport(ctx, options, dir, members)
+	if err != nil {
+		return policy.Decision{}, policy.Report{}, err
+	}
+	return policy.DecideBaseline(report, baseReport, gate.Repository, gate.Overrides), report, nil
+}
+
+// gateReport builds the architecture model from one graph and evaluates the
+// library against it. changeObjects are reviewed and in inventory besides the
+// graph and the model.
+func gateReport(ctx context.Context, options Options, graph policy.CodeGraph, changeObjects []*unstructured.Unstructured, members []policyeval.ResolvedMember) (policy.Report, error) {
+	gate := options.Policy
 	model, memberPins, err := policyeval.BuildEvaluationModel(ctx, policyeval.ModelRequest{
 		Repository: options.Repository.Name,
 		Graph:      graph,
@@ -115,15 +138,18 @@ func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Dec
 		Tool:       options.Tool,
 	})
 	if err != nil {
-		return policy.Decision{}, policy.Report{}, fmt.Errorf("realize: build the architecture model: %w", err)
+		return policy.Report{}, fmt.Errorf("realize: build the architecture model: %w", err)
+	}
+	graphObject, err := policyObject(graph)
+	if err != nil {
+		return policy.Report{}, err
 	}
 	modelObject, err := policyObject(model)
 	if err != nil {
-		return policy.Decision{}, policy.Report{}, err
+		return policy.Report{}, err
 	}
-
-	reviewed := []*unstructured.Unstructured{graphObject, diffObject, modelObject}
-	reviewed = append(reviewed, gate.Reviewed...)
+	reviewed := []*unstructured.Unstructured{graphObject, modelObject}
+	reviewed = append(reviewed, changeObjects...)
 	inventory := append([]*unstructured.Unstructured{}, reviewed...)
 	inventory = append(inventory, gate.Inventory...)
 
@@ -135,11 +161,47 @@ func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Dec
 		Inventory:  inventory,
 	})
 	if err != nil {
-		return policy.Decision{}, policy.Report{}, fmt.Errorf("realize: evaluate the policies: %w", err)
+		return policy.Report{}, fmt.Errorf("realize: evaluate the policies: %w", err)
 	}
 	report.Members = memberPins
-	decision := policy.Decide(report, gate.Repository, gate.Overrides)
-	return decision, report, nil
+	return report, nil
+}
+
+// baseGateReport evaluates the library against the code facts of the base
+// commit, from a detached worktree of it. The members are the ones the head
+// evaluation resolved: they are pinned, so both reports read the same ones.
+func baseGateReport(ctx context.Context, options Options, dir string, members []policyeval.ResolvedMember) (policy.Report, error) {
+	baseDir, cleanup, err := baseWorktree(ctx, dir, options.Base)
+	if err != nil {
+		return policy.Report{}, err
+	}
+	defer cleanup()
+	graph, err := buildGateGraph(ctx, options, baseDir)
+	if err != nil {
+		return policy.Report{}, err
+	}
+	return gateReport(ctx, options, graph, nil, members)
+}
+
+// baseWorktree checks the base commit out into a temporary detached worktree,
+// so the gate can read the facts of the code before the change.
+func baseWorktree(ctx context.Context, dir, base string) (string, func(), error) {
+	parent, err := os.MkdirTemp("", "specd-policy-base-")
+	if err != nil {
+		return "", func() {}, err
+	}
+	target := filepath.Join(parent, "tree")
+	cleanup := func() {
+		_ = exec.Command("git", "-C", dir, "worktree", "remove", "--force", target).Run()
+		_ = os.RemoveAll(parent)
+	}
+	command := exec.CommandContext(ctx, "git", "-C", dir, "worktree", "add", "--detach", target, base)
+	if output, err := command.CombinedOutput(); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("realize: check out the policy gate base %s: %w: %s",
+			base, err, strings.TrimSpace(string(output)))
+	}
+	return target, cleanup, nil
 }
 
 // gateLock is the member pins the library's own policies.lock carries.
@@ -196,11 +258,12 @@ func policyObject(value any) (*unstructured.Unstructured, error) {
 
 func policyStatusOf(decision policy.Decision) *spec.PolicyGateStatus {
 	status := &spec.PolicyGateStatus{
-		Denied: policyViolations(decision.Denied),
-		Warned: policyViolations(decision.Warned),
-		DryRun: policyViolations(decision.DryRun),
-		Waived: policyViolations(decision.Waived),
-		Capped: policyViolations(decision.Capped),
+		Denied:    policyViolations(decision.Denied),
+		Warned:    policyViolations(decision.Warned),
+		DryRun:    policyViolations(decision.DryRun),
+		Waived:    policyViolations(decision.Waived),
+		Capped:    policyViolations(decision.Capped),
+		Inherited: policyViolations(decision.Inherited),
 	}
 	if len(decision.Denied) > 0 {
 		status.Message = fmt.Sprintf("%d deny violation(s)", len(decision.Denied))
