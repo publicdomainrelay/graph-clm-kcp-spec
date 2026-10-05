@@ -812,6 +812,78 @@ Plan-0008 phase D re-targeted to the model, plus `specctl policy bind`. The
 real run generates the two user sentences into model policies and a binding
 for atproto-market, and the results are compared with the hand-written pack.
 
+What is built:
+
+- **The contract.** `abc/policy` gains `GenerateRequest`, `GenerateResult`,
+  `Check` and the `Generator` interface a harness satisfies; `claudecli` and
+  `scriptedagent` implement it, and `agentfactory.GeneratorFor` builds one from
+  the same agent selection a realize uses (`deepseek-claude` by default,
+  `scripted:<file>` in tests). The harness writes a policy tree into the
+  request's directory, the way a realize edits a working tree.
+- **The checks.** `impl/policyeval` gains `CheckGenerated`: the mandatory
+  annotations (requirements, `generated-by` and the severity are written from
+  the request, not from the harness's memory), one template and one constraint
+  over the `ArchitectureModel`, a portable source, a strict compile, the opa
+  unit tests, the gator suite, the mutation check and the evaluation against
+  the head model. A failing check is feedback, not an error.
+- **The mutation check.** `abc/policy.Mutations` derives the cases a
+  model-level rule must deny from the suite's own allowed fixture: the host
+  reaching into the guest (a `host -> guest` flow with a `container.exec`
+  effect), the guest's report dropped, the host's emission driven from a
+  `proc.exec` root instead of the report handler, an unrelayed ssh outside the
+  guest, and a test dialing the guest. A rule that denies none of them is
+  refused. A flow's endpoints are roles, the way the model resolves them, so a
+  mutation speaks the model's language.
+- **The portability check.** `ForbiddenIdentifiers` names what a portable
+  source may not mention: the repository, its SystemContexts and the literal
+  segments of the role globs. Vocabulary terms are not forbidden -- they are
+  the language a portable rule is written in.
+- **The reconciler.** `factory/specd/policychange.go` drafts, checks, retries
+  (the refused attempt's messages are the next attempt's instruction), records
+  Evaluated with the head violations, and on `spec.apply` commits to the policy
+  branch with an append-only `changes/<name>.yaml` record and applies to kcp.
+  Kcp is written before the branch: the kcp/branch sync treats a branch
+  template kcp lacks as stale, and a restore no longer prunes, so a policy that
+  lands cannot be deleted by a concurrent reconcile.
+- **Bind mode.** `spec.pack` asks the harness for the roles and vocabulary of
+  `policies.yaml` instead of a rule. `CheckGeneratedBinding` refuses a binding
+  that drops the pack import, whose role selects no component, whose vocabulary
+  matches nothing at all, whose pack denies none of the cases derived from the
+  repository's model, or whose pack cannot evaluate against that model. A class
+  that no effect and no spec term speaks yet is a note, not a failure: a
+  repository with only specs has no code for it.
+- **`specctl policy generate|bind|accept|changes`**, and `policy ls` lists the
+  PolicyChanges next to the templates.
+- **The requirement linkage.** The generated template carries
+  `specs.publicdomainrelay.dev/requirements` from `spec.requirements`; the audit
+  records the templates enforcing a requirement of a context in
+  `SystemContext.status.enforcedBy`; `CHANGES.md` on the architecture branch
+  marks a guarded requirement `(policy-guarded)`.
+- **Tests.** Unit tests with a scripted harness cover the contract, the
+  mutations, the portability check, the binding report and the CLI flags;
+  `impl/policyeval/generated_test.go` covers every check including a vacuous
+  rule, a non-portable rule and a rule that does not compile. The live
+  `test/e2e/policy_generate_live_test.go` drives a private kcp: the harness's
+  first attempt fails the suite and the mutation checks, the second is accepted,
+  `specctl policy accept` applies it, the branch carries the template, the
+  suite, the tests and the change record, kcp holds the constraint, and
+  `lib-requester` records `status.enforcedBy`. `TestPolicyBindLive` does the
+  same for a binding on market-mini, refused once for dropping the pack import.
+
+Remaining, honestly:
+
+- The check the plan describes as "every vocabulary entry matches >= 1 effect
+  or spec term" fails a real repository: market-mini's hand-written binding has
+  three classes nothing in that fixture speaks (the relay channel is injected
+  as `transport.proxyCommand()`, there is no `event.emit` and no
+  `/v1/on-network` route), and a spec-only repository has no effects at all.
+  The check therefore fails a vocabulary that matches nothing and reports the
+  classes that match nothing, which is what the greenfield case needs.
+- The generated rule is accepted or refused by its own fixtures plus the
+  derived mutations; nothing proves the fixture models the repository's real
+  shape. The head evaluation records the violations, and the first audit on the
+  branch is the honest check.
+
 ### G7. Review and fix
 
 DeepSeek analysis plus an Opus review; then fix what they find.

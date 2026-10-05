@@ -566,24 +566,34 @@ are pushed.
    way `specctl policy eval` does, so a policy that reads effects behaves the
    same in kcp as offline.
 
-### D. Generation
+### D. Generation -- done
 
 Folded into plan 0009 G6: generation targets the portable model layer, not
-CodeGraph identifiers. See `docs/plans/0009-portable-policies.md`.
+CodeGraph identifiers. See `docs/plans/0009-portable-policies.md` for what was
+built and `docs/examples/atproto-market-policies.md` ("Generated") for the real
+run against atproto-market.
 
-
-1. PolicyChange reconciler (harness: deepseek-claude, the same agent kinds as
-   realize), with the checks in Lifecycle step 3, then `specctl policy
-   generate|accept`.
-2. `--requirement ctx#id`: the generated template carries the
-   `requirements` annotation. The SystemContext shows `enforcedBy` in status.
-   CHANGES.md names the requirement as policy-guarded.
-3. Real run, recorded in `docs/examples/atproto-market-policies.md`:
-   - generate both example policies from the two sentences at the top of this
-     plan, against atproto-market;
-   - show what the generator produced, its suite results and its head
-     violations;
-   - compare with the hand-written versions in B.
+1. **Done.** The PolicyChange reconciler runs the configured harness
+   (`deepseek-claude` by default, `scripted:<file>` in tests) and checks the
+   result before anything lands: compile, opa units, the gator suite, the
+   mutation check derived from the suite's own allowed fixture, portability,
+   and the evaluation against the head model. Refused attempts go back to the
+   harness with their messages; `specctl policy generate|bind|accept|changes`
+   drive it. One difference from the plan's Lifecycle step 3: the "denied case
+   still fails after the agent's own fixture is swapped for one specd mutates"
+   is implemented as a derived mutation of the **allowed** fixture case, and
+   specd requires the rule to deny at least one derived case rather than to
+   deny the specific fixture the harness wrote.
+2. **Done.** The generated template carries
+   `specs.publicdomainrelay.dev/requirements` from `spec.requirements` (specd
+   writes it from the request, not from the harness's output), the audit
+   records `status.enforcedBy` on the SystemContext, and CHANGES.md on the
+   architecture branch marks the requirement `(policy-guarded)`.
+3. **Done.** The real run is recorded in
+   `docs/examples/atproto-market-policies.md`: both sentences generated against
+   a fresh clone, the binding generated for the pack, the head violations at
+   the three refs, and the comparison with the hand-written templates of B and
+   the pack's G4 verdicts.
 
 ### E. Library port from opa-first-stab
 
