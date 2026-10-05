@@ -73,6 +73,43 @@ On the PR's branch, through `specctl clm apply` only:
 6. A live check if the baseline harness can be made green (its 401
    `cannot resolve signing key` at `pre-iroh`), else stated.
 
+## F4 - two tool defects the atproto-market round-2 run found
+
+Status: **done**. Source:
+[`docs/examples/atproto-market-iroh-pr.md`](../examples/atproto-market-iroh-pr.md#what-round-2-found-about-the-tool)
+(the two rows marked "new").
+
+1. **An apply that drops requirements is refused unless the removal is stated.**
+   `specctl clm apply` of a document an operator sliced removed five `test`
+   requirements silently (`-5 ~1`); only the rendered count revealed it. Now the
+   model zone may carry a `removed:` list in its spec block, and `apply` refuses
+   a delta that deletes a requirement unless each id is listed there or passed to
+   `--allow-remove r.a,r.b`. Either way the delta is printed by id
+   (`+added ~changed -removed`) on stderr before it lands. The guard lives in
+   `impl/clm.Apply`, so `cc-clm-mod`'s `arch_edit` tool and the `pi-hydradb-clm`
+   extension get it for free (both run `specctl clm apply`); both hosts relay the
+   summary and the refusal.
+2. **A second apply while a `SpecToCode` change is `Running` gets its own
+   change.** Before, the edit was "folded into the running change" and its delta
+   was dropped. Now the edit is always written, and specd raises one change per
+   spec hash (`spec.EpisodeOpen`), so the second edit becomes its own `Pending`
+   change. The per-repository serialization of plan 0002 B (`RepositoryBusy`)
+   leaves it queued until the running realization settles; it keeps its own
+   `SpecChange` record and its own `Spec-Change:` trailer. An apply that arrives
+   between "Running" and the agent reading the spec is realized by that change
+   (it reads the current desired state), and the queued change then finds nothing
+   to do; nothing is lost either way.
+
+| # | what landed | test |
+| --- | --- | --- |
+| 1 | `removed:` marker + `--allow-remove`; `delta.Details` prints the delta by id before apply; the refusal names the ids and the marker | `abc/delta` `TestDetailsNamesEveryEntryByID`, `TestDetailsOfAnEmptyDeltaIsEmpty`; `abc/clm` `TestADocumentReadsItsRemovalMarker`, `TestTheRenderedZoneNamesTheRemovalMarker`, `TestAnEmptyMarkerRemovesNothing`; `impl/clm` `TestApplyRefusesAnImplicitRemoval`, `TestApplyRemovesRequirementsTheDocumentNames`, `TestApplyRemovesRequirementsTheFlagAllows`, `TestApplyPrintsTheDeltaByIDBeforeItApplies`; live `test/e2e` `TestF4AnImplicitRequirementRemovalIsRefused` |
+| 1 | the hosts surface the summary and the refusal | `clm` `an apply queued behind a running change reports the queue and the summary`, `the delta summary keeps only the by-id lines`; `cc-clm-mod` `the delta summary keeps only the lines the apply prints by id` |
+| 2 | `EpisodeOpen` replaces the coarse `unfinished` gate; `impl/clm.Apply` writes the spec and reports `queued behind <change>` | `abc/spec` `TestEpisodeOpenBlocksTheSameTargetNotANewerOne`; `factory/specd` `TestASecondSpecEditWhileAChangeRunsGetsItsOwnChange`, `TestACLMSpecEditWhileAChangeRunsRaisesItsOwnChange`; `impl/clm` `TestApplyQueuesBehindARunningChangeAndWritesTheSpec`; live `test/e2e` `TestF4TwoQuickAppliesMakeTwoChanges` (two applies, two changes, one batch commit naming both) |
+
+The runnable example `make example-phase8` (and `scripts/example-phase8.sh`)
+shows the queue instead of the fold, and `test/e2e` `TestPhase8TheModPathReportsIntoKcp`
+asserts the third change.
+
 ## F1 - shipped (plan6-f1)
 
 | # | what landed | commits | test |

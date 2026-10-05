@@ -138,7 +138,7 @@ example-phase7: $(SPECCTL) $(SPECD) kcp-up
 	./scripts/example-phase7.sh
 
 # The mod path, deterministically: the context document rendered, the edit a
-# model would make applied as a Go-computed delta, the fold into a running
+# model would make applied as a Go-computed delta, the queue behind a running
 # change, and a progress report — the three verbs cc-clm-mod runs.
 example-phase8: $(SPECCTL) $(SPECD) kcp-up
 	./scripts/example-phase8.sh

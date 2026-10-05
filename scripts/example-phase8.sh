@@ -9,10 +9,11 @@
 #   render  prints the context document (prose intent + a fenced spec block +
 #           the resolved refs) -- what the mod writes to $SPECD_CLM_DOC_DIR/<repository>/calc.md, outside the tree
 #   apply   the model's spec edit becomes a delta computed in Go, written with
-#           origin: clm, and the controller raises ONE SpecToCode change
-#   fold    a model that refines the spec while its change is Running does not
-#           spawn a second change and does not move the target: the edit lands
-#           on the running change's record
+#           origin: clm, and the controller raises ONE SpecToCode change; the
+#           delta is printed by id (+added ~changed -removed) before it lands
+#   queue   a model that refines the spec while its change is Running lands the
+#           edit anyway and gets its OWN change queued behind the running one:
+#           the edit is never dropped and never folded into the other change
 #   report  progress grows while the change runs, with the files touched
 #
 # With LIVE_MODEL=1 the same phase runs for real: specd starts deepseek-claude
@@ -174,8 +175,10 @@ python3 "$REPO/scripts/clm-add-interface.py" "$WORK/model-zone.md" Subtract Divi
 
 S clm apply --context calc < "$WORK/model-zone.md" > "$WORK/delta2.json" 2> "$WORK/apply2.log"
 cat "$WORK/apply2.log"
-echo "  spec still declares: $(K get systemcontext calc -o jsonpath='{.spec.interfaces[*].name}')"
-echo "  spec changes for calc: $(K get specchanges -o jsonpath="{.items[?(@.spec.systemContext==\"calc\")].metadata.name}" | wc -w) (the running one; the edit folded)"
+echo "  spec declares: $(K get systemcontext calc -o jsonpath='{.spec.interfaces[*].name}') (the second edit landed; it is never dropped)"
+wait_for "the second edit's own change" \
+  '[ "$(K get specchanges -o jsonpath="{.items[?(@.spec.systemContext==\"calc\")].metadata.name}" | wc -w)" -ge 3 ]'
+echo "  spec changes for calc: $(K get specchanges -o jsonpath="{.items[?(@.spec.systemContext==\"calc\")].metadata.name}" | wc -w) (the running one, the first edit's, and the second edit's own, queued behind it)"
 
 echo "--- report: the file a tool touched, while the change runs ---"
 S clm report --change "$CHANGE" --event '{"turn":1,"tool":"Write","files":["calc/calc.go"],"note":"wrote Subtract"}'

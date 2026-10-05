@@ -614,8 +614,8 @@ with the requirement-by-requirement account above.
 
 | finding | state |
 | --- | --- |
-| an operator `clm apply` that drops requirements is accepted silently: a mis-sliced document removed five `test`-context requirements, the change showed `-5 ~1`, and specd realized it. Only the rendered requirement count revealed it. | new; not covered by plan 0006 F1.5/F1.6 (those cover no-op and code-less changes, not requirement loss) |
-| `specctl clm apply` folds a second apply of a *running* change into that change ("folded into the running change ..."), so the corrected document could not be re-applied until the batch settled | new; this is what made the `test` restore wait for a whole realize round |
+| an operator `clm apply` that drops requirements is accepted silently: a mis-sliced document removed five `test`-context requirements, the change showed `-5 ~1`, and specd realized it. Only the rendered requirement count revealed it. | fixed by plan 0006 F4.1: apply refuses a removal unless the document lists the id under `removed:` (or `--allow-remove` is passed) and prints the delta by id before it lands |
+| `specctl clm apply` folds a second apply of a *running* change into that change ("folded into the running change ..."), so the corrected document could not be re-applied until the batch settled | fixed by plan 0006 F4.2: the edit is always written and becomes its own Pending change queued behind the running one |
 | the realize commit subject still names one context (`realize lib-abc-requester: +10 ~17`) for a 12-context batch | plan 0006 F1.4, unchanged |
 
 ## hydradb defects this run found

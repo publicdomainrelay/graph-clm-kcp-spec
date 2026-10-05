@@ -592,9 +592,10 @@ graph.
 - `specctl clm render|apply|report` is the one state bridge, so kcp access, the
   delta authority and the graph writes have one implementation (Go) that both
   hosts and every language reach the same way. `apply` writes with
-  `origin: clm` and folds its edit into the context's running `SpecToCode`
-  change instead of moving the target that change is working to, so a realizing
-  agent can never spawn a change for itself.
+  `origin: clm`, prints the delta by id and refuses a requirement removal the
+  document does not state. When the context has a `SpecToCode` change `Running`,
+  the edit is still written and becomes its own change queued behind it, so the
+  edit is never lost and never folded into another change's delta.
 - `SpecChange.status.progress` is a bounded list of what the host reported while
   the change ran (turn, tool, files, note, time), and `report` writes the
   matching `TOUCHED` and `OCCURRED` edges into the graph, so
@@ -794,7 +795,7 @@ make example-phase4  # run specd, commit a change, watch drift and the SpecChang
 make example-phase5  # run specd with an agent, watch the spec fill itself in
 make example-phase6  # edit the spec, watch the agent land the code and the tests pass
 make example-phase7  # one manifest populates a codebase kcp has never seen
-make example-phase8  # the mod path: render, apply, fold, report
+make example-phase8  # the mod path: render, apply, queue, report
 make example-phase9  # two tenants, one export, the orphan branch, a branch edit and a conflict
 make example-phase13 # clone and go twice through one remote, two kcp instances on kernel ports
 scripts/example-deno-kcp-pr.sh # one sentence to a pull request on publicdomainrelay/deno-kcp (PUSH=0 by default)
@@ -1347,20 +1348,41 @@ the state the same way, by running `specctl clm`:
 ```
 specctl clm render --context <name>          the context document, from kcp
 specctl clm apply  --context <name> < zone   the model zone becomes a delta
+specctl clm apply  --allow-remove r.a,r.b    ... deleting r.a and r.b on purpose
 specctl clm report --change <name> --event   one progress record, and the edges
 ```
+
+`apply` prints the delta by id before it lands:
+
+```
++ r.subtract
+~ r.add (text)
+- r.multiply
+specctl clm apply: calc applied (+1 ~1 -1)
+```
+
+A removal has to be stated, either as `removed: [r.multiply]` in the model
+zone's spec block or on `--allow-remove`, so a document that lost a requirement
+to a bad slice is refused instead of realized.
 
 The bridge is Go on purpose. kcp access, the delta authority (`abc/delta`) and
 the graph writes then have one implementation, and a host needs neither a kube
 client nor a Bolt driver — which matters, because a mod has no Node and no
 sockets: it reaches the host only through `$.fs` and `$.process.run`.
 
-`apply` writes with `origin: clm`, which specd reads as a spec edit. The
-exception is a context whose own `SpecToCode` change is `Running`: there the
-edit is recorded on that change and the spec holds still, because the spec is
-the target that change is realizing, and a model rewriting it mid-realize would
-move the target while the code is being brought to it. That is also what makes
-it impossible for a realizing agent to spawn a change for itself.
+`apply` writes with `origin: clm`, which specd reads as a spec edit, and prints
+the delta by id (`+added ~changed -removed`) on stderr before it lands, so an
+operator sees what an edit does rather than only its counts. A requirement that
+goes missing is refused unless the document names its id under `removed:` in the
+spec block (or the caller passes `--allow-remove r.a,r.b`): a document an
+operator sliced cannot silently drop requirements, and a removal is always a
+stated decision.
+
+A context whose own `SpecToCode` change is `Running` does not hold the edit
+back. The edit is written, and specd raises it as its own Pending change queued
+behind the running one (the per-repository serialization of plan 0002 B admits
+it once the running realization settles), so the edit keeps its own record and
+its own `Spec-Change:` trailer and is never folded into another change's delta.
 
 `report` appends to `SpecChange.status.progress` — a bounded list of turn, tool,
 files, note and time — and writes `TOUCHED` and `OCCURRED` edges into the graph,
@@ -1396,7 +1418,7 @@ deny-list on spellings.
 
 `make example-phase8` shows the whole mod path deterministically, with no model:
 it renders the document, makes the edit a model would make, applies it, shows
-the one entry delta and the raised `SpecToCode` change, folds a second edit into
+the delta by id and the raised `SpecToCode` change, queues a second edit behind
 the running change, and reports a touched file. The gated live run —
 `SPECD_REQUIRE_LIVE=1 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase8LiveModel -count=1`
 — does the same with `deepseek-claude` and the mod actually loaded.
