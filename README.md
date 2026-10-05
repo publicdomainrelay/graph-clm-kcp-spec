@@ -812,7 +812,17 @@ bin/specctl policy test --dir /tmp/policies            # opa unit tests + gator 
 bin/specctl policy test --dir /tmp/policies --gator    # the real gator binary too
 bin/specctl policy eval --worktree fixtures/market-mini/compliant
 bin/specctl policy eval --worktree fixtures/market-mini/violating -o json
+bin/specctl policy effects --worktree fixtures/market-mini/compliant
+bin/specctl policy model --worktree fixtures/market-mini/compliant
 ```
+
+`policy effects` classifies the code into the fixed effect vocabulary
+(`net.dial`, `http.request`, `ssh.connect`, `container.exec`, ...) with the
+packs in `impl/effects/packs`; `policy model` builds the `ArchitectureModel`
+from that graph, the effects, the SystemContexts and the `roles` and
+`vocabulary` of `policies.yaml`, and prints the components, roles, flows and
+triggers. `eval` reviews the model as well, so a constraint can select it with
+`spec.kinds: [ArchitectureModel]`. `docs/policies.md` documents both.
 
 `policy eval` on `fixtures/market-mini/compliant` prints `violations: 0` and
 `clean`; the `violating` variant is denied by both example policies -- seven
