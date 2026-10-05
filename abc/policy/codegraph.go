@@ -54,6 +54,8 @@ type CodeGraphSpec struct {
 	Edges []CodeGraphEdge `json:"edges"`
 
 	Texts map[string]string `json:"texts,omitempty"`
+
+	Effects []Effect `json:"effects,omitempty"`
 }
 
 type ObjectMeta struct {
