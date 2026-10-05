@@ -1352,13 +1352,12 @@ specctl clm apply  --allow-remove r.a,r.b    ... deleting r.a and r.b on purpose
 specctl clm report --change <name> --event   one progress record, and the edges
 ```
 
-`apply` prints the delta by id before it lands:
+`apply` prints the delta by id before it lands, one line per entry (`+` added,
+`~` changed, `-` removed):
 
 ```
-+ r.subtract
-~ r.add (text)
 - r.multiply
-specctl clm apply: calc applied (+1 ~1 -1)
+specctl clm apply: calc applied (-1)
 ```
 
 A removal has to be stated, either as `removed: [r.multiply]` in the model
