@@ -340,11 +340,140 @@ Remaining, honestly:
 - `specctl policy effects` reports an empty context when the checkout has no
   SystemContexts; G2 maps components and roles onto that field.
 
-### G2. Model and bindings
+### G2. Model and bindings -- done
 
-The ArchitectureModel type (`abc/policy`), the builder, `roles` and
-`vocabulary` in `policies.yaml`, the role labels on SystemContext, and the
-`lib.specd` model helpers with unit tests.
+What is built:
+
+- `abc/policy/model.go`: `ModelComponent`, `ModelFlow`, `ModelTrigger`,
+  `ArchitectureModel` with `ComponentsWithRole`, `EffectsOfComponent`,
+  `FlowsWhere(FlowFilter)`, `TriggeredBy`, `Declared`, `Observed`, and the
+  `ArchitectureModelKind`.
+- `abc/policy/binding.go`: `Binding` = `roles` + `vocabulary` + `imports`
+  (the G4 placeholder), `RoleBinding` with `contexts`, `labels`, `globs`,
+  `symbols` and `targets` hints, `RoleTargets` with `hosts`, `nsids`, `routes`
+  and `symbols`. `PolicyLibrary` gained `roles`, `vocabulary` and `imports`, so
+  `policies.yaml` carries them and the model is built from the same file as the
+  rest of the library.
+- `abc/policy/modelbuild.go`: `BuildModel(ModelInput)` = CodeGraph + effects +
+  `[]ModelContext` (name + labels) + `Binding` + `[]DeclaredInteraction` ->
+  `ArchitectureModel`. Components are the SystemContexts and the role-owned
+  file groups (longest matching glob, then role name); roles come from
+  `contexts`, `labels`, `globs`, `symbols` and the
+  `specs.publicdomainrelay.dev/role` label. Observed flows resolve the target
+  role through the `http.handle` effects of the path or NSID, then the role
+  target hints, then a symbol hint over the effect's node text; `channel`,
+  `carries` and `purpose` come from the vocabulary, case-insensitive, over the
+  effect's node text and attributes. Triggers are calls/instantiates
+  reachability from `http.handle`, `event.receive`, `proc.exec`,
+  `container.exec` and `http.request` to the initiating effects, bounded at 3
+  hops and 4096 nodes, deterministic, self-sites dropped. Declared interactions
+  are merged and promote a matching observed flow to `both`.
+- `ArchitectureModel` is a reviewable kind: `specctl policy eval` puts it in
+  both the inventory and the reviewed set, so `match.kinds: [ArchitectureModel]`
+  works; `docs/policies.md` documents it, the binding and the helpers.
+- `specctl policy model --worktree P [--library D] [-o json]` prints
+  components, roles, flows and triggers.
+- `lib.specd` gained `architecture_model`, `model_components`, `model_flows`,
+  `model_triggers`, `components_with_role`, `roles_of`, `flows_where`,
+  `triggered_by`, `declared`, `observed`, with 14 new opa v0 unit tests (39 in
+  the library, all passing).
+- `examples/policies/atproto-market/policies.yaml` and
+  `examples/policies/market-mini/policies.yaml` carry roles and vocabulary;
+  the first is bound to atproto-market, the second to the fixture.
+- `abc/policy/modelbuild_test.go` covers components, roles, observed flows,
+  channels/payloads/purposes from the vocabulary, triggers, declared
+  interactions and the merge.
+
+#### The model on atproto-market
+
+Fresh clone under `/home/johnandersen777/policy-g2-work/atproto-market`, never
+edited or pushed, `specctl policy model --repo atproto-market --worktree ...
+--library examples/policies/atproto-market`:
+
+- master `7a2e9d9`, 204 effects, 5 components (guest, host, relay, requester,
+  test; no SystemContexts exist at this ref, so every component is
+  `source: observed` and named by its role). The reach-in is there:
+  `host -> guest initiator=host channel=relay carries=[network-info]
+  purpose=network-discovery` with evidence `container.exec
+  lib/market-bidder-compute/mod.ts:282`. That is exactly plan 0008 phase B's
+  `guest-report-reach-in` site, now derived from an effect instead of a regex.
+  The emission side is `host -> requester` with the `event.emit` sites
+  `lib/market-bidder-compute/mod.ts:257` (vm.onNetwork) and `:284`
+  (registerIdentity).
+- `spec/iroh-dumbpipe-20261004141803` `ffac22e`, 208 effects, 18 flows. The
+  guest reports out: `guest -> requester initiator=guest channel=relay
+  carries=[network-info] purpose=network-discovery`, evidence `http.request
+  lib/common/cloud-init-common/mod.ts:449` and `:450` -- the `curl` inside the
+  cloud-init template string. The handler side is `http.handle POST
+  /v1/on-network` at `lib/market-bidder/mod.ts:475`.
+- Triggers distinguish the two: at master there is no `/v1/on-network` handler
+  at all, so the vm.onNetwork emit is triggered only by provisioning-side
+  effects (`hono-bidder/mod.ts:428` and the compute calls); on the spec branch
+  the handler at `lib/market-bidder/mod.ts:475` triggers the emits at
+  `:490` and `:495`. The relation is coarse (see the docs): node granularity is
+  one node per declaration, so a policy that reads it must check the trigger's
+  `from` kind.
+
+#### Making the guest side visible
+
+G1 recorded that the cloud-init shell lives inside TypeScript strings and was
+therefore invisible. Fixed cheaply in the classifier:
+
+- `inStrings: true` on a command rule matches inside string literals only
+  (comments excluded), so `ts-string-curl` and `ts-string-ssh` classify the
+  guest's report and any ssh inside `user_data`. Verified on master: the three
+  real `curl` commands in cloud-init (`:88`, `:92`, `:376`) are
+  `http.request`, and nothing else is.
+- `command.args.regex` (new: the args matcher now also applies to commands)
+  keeps a `- curl` package entry and `systemctl enable --now ssh` out. Both
+  were false positives before the fix: four `ssh.connect` and three
+  `http.request` in cloud-init.
+- `call.any: true` matches bare and member calls, and the extra rules
+  (`callService`, `createRepoRecord`, `createSignedRepoRecord`, `putRecord`,
+  `getRecord`, `applyWrites`) carry an `args.regex` that rejects declarations.
+  Before this, the plan-0008 target itself was missed: `createRepoRecord(...)`
+  at `lib/market-bidder-compute/mod.ts:257` is a bare call, and the rules
+  required a member call. `applyWrites` was added for the same reason
+  (`lib/requester-xrpc/mod.ts:512`, `:542`, `:557`).
+- `compute-provider-guest-query` maps `getNodeId` to `container.exec`
+  (`inspect into a container or VM`), the effect that carries master's reach-in.
+
+#### Recall, hand-labelled
+
+The G1 calibration compared the classifier to grep rules that mirror it. This
+sample does not: `testdata/effects-recall/atproto-market-master.yaml` holds
+labels read from the source for four files,
+`scripts/effects-recall.py --worktree ... --labels ...` compares them with the
+classifier per kind (a label is found when the same kind is reported within one
+line):
+
+```
+kind              tp  fp  fn  precision   recall
+container.exec     1   0   0      1.000    1.000
+event.emit        17   0   0      1.000    1.000
+event.receive      2   0   0      1.000    1.000
+http.handle        4   0   0      1.000    1.000
+http.request      13   0   4      1.000    0.765
+net.dial           0   0   1      1.000    0.000
+proc.exec          3   0  40      1.000    0.070
+ssh.connect        2   0   0      1.000    1.000
+total             42   0  45      1.000    0.483
+```
+
+Honest reading:
+
+- Precision is 1.000 on these files after the fixes above; the sample is small,
+  four files and 42 true sites, so it bounds nothing globally.
+- `http.request` recall 0.765: the misses are indirect aliases, `s.fetchHandler`
+  (`lib/requester-xrpc/mod.ts:1522`, `:1539`) and `realFetch`
+  (`request-vm-ssh/mod.ts:45`, `:47`). Not cheaply fixable in a shared pack;
+  a repository pack can name them.
+- `proc.exec` recall 0.070: 40 shell commands inside the cloud-init template
+  strings (`systemctl`, `chmod`, `tar`, `rm`, ...) are not effects. The pack
+  now sees the two commands the flows need, `curl` and `ssh`; the rest stay a
+  recorded gap.
+- `net.dial` 0.000: `serve.addRelay` dials the relay websocket inside the serve
+  module; the caller never opens one, so there is no site to classify.
 
 ### G3. Declared interactions
 
