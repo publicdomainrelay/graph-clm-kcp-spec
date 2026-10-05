@@ -489,6 +489,15 @@ spec:
                 retryBy:
                   type: string
                   description: who asked for the retry
+                owner:
+                  type: string
+                  description: token of the specd process that drives the change while it is in flight
+                ownerPid:
+                  type: integer
+                  description: pid of that specd process; a change in flight with no live owner is recovered on the next start
+                ownerStartedAt:
+                  type: string
+                  description: when that specd process started, RFC 3339
                 acceptance:
                   type: array
                   description: the acceptance steps the realize ran after verify, one entry per step, on every member of the batch

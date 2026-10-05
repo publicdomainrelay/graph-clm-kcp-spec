@@ -144,6 +144,17 @@ spec:
             mode:
               description: Policy or bind; what the change authored.
               type: string
+            owner:
+              description: token of the specd process that drafts or applies the change
+                while it is in flight
+              type: string
+            ownerPid:
+              description: pid of that specd process; a change in flight with no live
+                owner is drafted again on the next start
+              type: integer
+            ownerStartedAt:
+              description: when that specd process started, RFC 3339
+              type: string
             phase:
               enum:
               - Drafting

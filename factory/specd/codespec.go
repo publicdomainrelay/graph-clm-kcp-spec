@@ -41,10 +41,11 @@ func (c *Controller) reconcileCodeToSpec(ctx context.Context, namespace, name st
 		return 0, nil
 	}
 
-	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, name, map[string]any{
+	status := claimOwner(map[string]any{
 		"phase":   specapi.PhaseRunning,
 		"message": "the agent is summarizing " + change.Spec.SystemContext,
-	}); err != nil {
+	}, c.owner)
+	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, name, status); err != nil {
 		return 0, err
 	}
 
@@ -65,11 +66,13 @@ func (c *Controller) reconcileCodeToSpec(ctx context.Context, namespace, name st
 	if !result.Applied {
 		message += "; the spec already said this"
 	}
-	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, name, map[string]any{
+	finished := map[string]any{
 		"phase":    specapi.PhaseSucceeded,
 		"message":  message,
 		"agentLog": tailMessage(agent.Report(result.Draft.Summary)),
-	}); err != nil {
+	}
+	clearOwner(finished)
+	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, name, finished); err != nil {
 		return 0, err
 	}
 	c.log.Info("code to spec done",
@@ -127,11 +130,13 @@ func (c *Controller) summarize(ctx context.Context, namespace string, change *sp
 }
 
 func (c *Controller) failChange(ctx context.Context, namespace string, change *spec.SpecChange, message string) {
-	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, change.Name, map[string]any{
+	status := map[string]any{
 		"phase":    specapi.PhaseFailed,
 		"message":  tailMessage(message),
 		"agentLog": tailMessage(message),
-	}); err != nil {
+	}
+	clearOwner(status)
+	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, change.Name, status); err != nil {
 		c.log.Error("could not record the failed change", "change", change.Name, "err", err)
 		return
 	}

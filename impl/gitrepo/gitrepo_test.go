@@ -495,3 +495,71 @@ func TestRebaseOntoAMovedBranch(t *testing.T) {
 		t.Fatalf("the aborted rebase left the worktree dirty: %q %v", out, err)
 	}
 }
+
+func staleWorktree(t *testing.T, repo, branch string) string {
+	t.Helper()
+	root, err := os.MkdirTemp("", worktreePrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	worktree := filepath.Join(root, filepath.Base(repo))
+	if err := WorktreeAdd(context.Background(), repo, worktree, branch, "HEAD"); err != nil {
+		t.Fatalf("worktree add: %v", err)
+	}
+	return worktree
+}
+
+func TestWorktreesListsTheRegisteredWorktrees(t *testing.T) {
+	ctx := context.Background()
+	repo := tempRepo(t)
+	if worktrees, err := Worktrees(ctx, repo); err != nil || len(worktrees) != 1 || worktrees[0] != repo {
+		t.Fatalf("worktrees = %v (%v), want the repository alone", worktrees, err)
+	}
+	worktree := staleWorktree(t, repo, "spec/calc/abcdef12")
+	worktrees, err := Worktrees(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(worktrees) != 2 || worktrees[1] != worktree {
+		t.Fatalf("worktrees = %v, want the repository and %s", worktrees, worktree)
+	}
+}
+
+func TestPruneWorktreesRemovesOnlyTheSpecdOnes(t *testing.T) {
+	ctx := context.Background()
+	repo := tempRepo(t)
+	stale := staleWorktree(t, repo, "spec/calc/abcdef12")
+	other := filepath.Join(t.TempDir(), "operator-worktree")
+	git(t, repo, "worktree", "add", "--force", "-B", "operator/branch", other, "HEAD")
+
+	if err := PruneWorktrees(ctx, repo); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("the specd worktree %s survived", stale)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Errorf("another tool's worktree was removed: %v", err)
+	}
+	worktrees, err := Worktrees(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(worktrees) != 2 || worktrees[1] != other {
+		t.Fatalf("worktrees = %v, want the repository and the operator's", worktrees)
+	}
+	// The branch the stale worktree held is free again.
+	if err := WorktreeAdd(ctx, repo, filepath.Join(t.TempDir(), "next"), "spec/calc/abcdef12", "HEAD"); err != nil {
+		t.Fatalf("worktree add on the freed branch: %v", err)
+	}
+}
+
+func TestDeleteBranchIfExistsIgnoresAMissingBranch(t *testing.T) {
+	ctx := context.Background()
+	repo := tempRepo(t)
+	if err := DeleteBranchIfExists(ctx, repo, "spec/ghost/deadbeef"); err != nil {
+		t.Fatalf("a missing branch must be a no-op: %v", err)
+	}
+}

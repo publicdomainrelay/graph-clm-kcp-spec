@@ -136,6 +136,15 @@ spec:
                   type: string
                 message:
                   type: string
+                owner:
+                  type: string
+                  description: token of the specd process that drafts or applies the change while it is in flight
+                ownerPid:
+                  type: integer
+                  description: pid of that specd process; a change in flight with no live owner is drafted again on the next start
+                ownerStartedAt:
+                  type: string
+                  description: when that specd process started, RFC 3339
                 conditions:
                   type: array
                   x-kubernetes-list-type: map

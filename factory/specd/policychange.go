@@ -85,6 +85,13 @@ func (c *Controller) reconcilePolicyChange(ctx context.Context, namespace, name 
 		return 0, fmt.Errorf("specd: %s is not a PolicyChange", name)
 	}
 
+	if c.policyChangeOwnedElsewhere(change) {
+		return 0, nil
+	}
+	if change.Status.Owner != "" && c.orphaned(change.Status.Owner, change.Status.OwnerPid) {
+		c.releasePolicyClaim(ctx, namespace, change)
+	}
+
 	switch change.Status.Phase {
 	case "", policy.PolicyPhaseDrafting, policy.PolicyPhaseTesting:
 		return c.draftPolicyChange(ctx, namespace, change)
@@ -94,6 +101,39 @@ func (c *Controller) reconcilePolicyChange(ctx context.Context, namespace, name 
 		}
 	}
 	return 0, nil
+}
+
+// policyChangeOwnedElsewhere reports whether another live specd is authoring or
+// applying this change, so a second controller does not draft it twice.
+func (c *Controller) policyChangeOwnedElsewhere(change *policy.PolicyChange) bool {
+	if change.Status.Owner == "" || c.owner.Owns(change.Status.Owner) {
+		return false
+	}
+	return !c.orphaned(change.Status.Owner, change.Status.OwnerPid)
+}
+
+// releasePolicyClaim clears the claim a dead specd left, and says so, so the
+// normal reconcile drafts the change again.
+func (c *Controller) releasePolicyClaim(ctx context.Context, namespace string, change *policy.PolicyChange) {
+	status := clearOwner(map[string]any{"message": RecoveredPolicyReason})
+	if _, err := c.client.PatchStatus(ctx, specapi.PolicyChangeGVR, namespace, change.Name, status); err != nil {
+		c.log.Error("could not release the policy change claim", "change", change.Name, "err", err)
+		return
+	}
+	c.log.Warn("released the claim a dead specd left on a policy change", "change", change.Name)
+}
+
+// claimPolicyChange records this process as the change's driver before the long
+// authoring or apply work starts, so a restart can tell the work is orphaned.
+// The phase stays the one the work belongs to, Drafting while it authors and
+// Evaluated while it applies.
+func (c *Controller) claimPolicyChange(ctx context.Context, namespace string, change *policy.PolicyChange, phase string) error {
+	status := claimOwner(map[string]any{"phase": phase}, c.owner)
+	if specapi.StatusMatches(change.Status, status) {
+		return nil
+	}
+	_, err := c.client.PatchStatus(ctx, specapi.PolicyChangeGVR, namespace, change.Name, status)
+	return err
 }
 
 func (c *Controller) draftPolicyChange(ctx context.Context, namespace string, change *policy.PolicyChange) (time.Duration, error) {
@@ -117,6 +157,9 @@ func (c *Controller) draftPolicyChange(ctx context.Context, namespace string, ch
 		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError,
 			"no agent is configured, so no policy can be authored")
 		return 0, nil
+	}
+	if err := c.claimPolicyChange(ctx, namespace, change, policy.PolicyPhaseDrafting); err != nil {
+		return 0, err
 	}
 
 	branchLibrary, policyCommit, err := c.draftBranchLibrary(ctx, change, repository)
@@ -438,6 +481,9 @@ func (c *Controller) applyPolicyChange(ctx context.Context, namespace string, ch
 		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError,
 			"the generated tree is gone; the change must be drafted again")
 		return 0, nil
+	}
+	if err := c.claimPolicyChange(ctx, namespace, change, policy.PolicyPhaseEvaluated); err != nil {
+		return 0, err
 	}
 	branchLibrary, _, err := c.policyBranchLibrary(ctx, repository)
 	if err != nil {
@@ -876,6 +922,7 @@ func (c *Controller) failPolicyChange(ctx context.Context, namespace string, cha
 		"message":    tailMessage(message),
 		"conditions": conditions,
 	}
+	clearOwner(status)
 	if specapi.StatusMatches(change.Status, status) {
 		return
 	}

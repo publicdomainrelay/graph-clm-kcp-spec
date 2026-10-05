@@ -21,6 +21,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/agentfactory"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/procowner"
 	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
@@ -159,6 +160,7 @@ func testController(cluster Cluster) *Controller {
 		opts:   Options{Namespace: specapi.DefaultNamespace, Resync: time.Second},
 		client: cluster,
 		queue:  workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[key]()),
+		owner:  procowner.New(),
 		log:    logging.Discard(),
 	}
 }
@@ -554,16 +556,20 @@ func TestSpecChangeReconcileMovesAnEmptyPhaseToPending(t *testing.T) {
 
 func TestSpecChangeReconcileAdmitsOneRunningChangePerContext(t *testing.T) {
 	cluster := newFakeCluster()
+	controller := testController(cluster)
 	for _, name := range []string{"calc-c2s-a", "calc-c2s-b"} {
 		apply(t, cluster, &spec.SpecChange{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: specapi.DefaultNamespace},
 			Spec: spec.SpecChangeSpec{
 				SystemContext: "calc", Direction: specapi.DirectionCodeToSpec, FromCommit: "c0", ToCommit: "c1",
 			},
-			Status: spec.SpecChangeStatus{Phase: specapi.PhaseRunning},
+			Status: spec.SpecChangeStatus{
+				Phase:    specapi.PhaseRunning,
+				Owner:    controller.owner.Token,
+				OwnerPid: controller.owner.Pid,
+			},
 		})
 	}
-	controller := testController(cluster)
 
 	for _, name := range []string{"calc-c2s-a", "calc-c2s-b"} {
 		if _, err := controller.reconcileSpecChange(context.Background(), specapi.DefaultNamespace, name); err != nil {

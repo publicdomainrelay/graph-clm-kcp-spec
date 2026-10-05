@@ -108,6 +108,12 @@ type PolicyChangeStatus struct {
 
 	Message string `json:"message,omitempty"`
 
+	Owner string `json:"owner,omitempty"`
+
+	OwnerPid int `json:"ownerPid,omitempty"`
+
+	OwnerStartedAt string `json:"ownerStartedAt,omitempty"`
+
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 

@@ -493,6 +493,17 @@ spec:
               x-kubernetes-list-type: set
             message:
               type: string
+            owner:
+              description: token of the specd process that drives the change while
+                it is in flight
+              type: string
+            ownerPid:
+              description: pid of that specd process; a change in flight with no live
+                owner is recovered on the next start
+              type: integer
+            ownerStartedAt:
+              description: when that specd process started, RFC 3339
+              type: string
             phase:
               enum:
               - Pending

@@ -160,10 +160,11 @@ func (c *Controller) runBatch(ctx context.Context, namespace string, repository 
 	}
 
 	for _, member := range members {
-		if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, member.Name, map[string]any{
+		status := claimOwner(map[string]any{
 			"phase":   specapi.PhaseRunning,
 			"message": batchRunningMessage(member, members),
-		}); err != nil {
+		}, c.owner)
+		if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, member.Name, status); err != nil {
 			return 0, err
 		}
 	}
@@ -287,6 +288,7 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 			"message":        batchSuccessMessage(member, members, result),
 			"agentLog":       tailMessage(changeAgentLog(result, len(repository.Spec.Verify) > 0)),
 		}
+		clearOwner(status)
 		if result.Commit != "" {
 			status["commit"] = result.Commit
 		}
@@ -468,6 +470,7 @@ func (c *Controller) recordBatchFailure(ctx context.Context, namespace string, m
 			"message":        tailMessage(message),
 			"agentLog":       tailMessage(changeAgentLog(result, verifyConfigured)),
 		}
+		clearOwner(status)
 		if len(result.Acceptance) > 0 {
 			status["acceptance"] = result.Acceptance
 		}

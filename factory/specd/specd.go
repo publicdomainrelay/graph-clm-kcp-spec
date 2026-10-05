@@ -21,6 +21,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/claudecli"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/exportwatch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/procowner"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/watchinformer"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/watchpoll"
 )
@@ -175,6 +176,8 @@ type Controller struct {
 
 	agents *agentfactory.Factory
 
+	owner procowner.Owner
+
 	log *slog.Logger
 }
 
@@ -267,6 +270,7 @@ func New(opts Options) (*Controller, error) {
 		client: client,
 		queue:  workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[key]()),
 		agents: agents,
+		owner:  procowner.New(),
 		log:    opts.Log,
 	}
 	if mode(opts) == ModeExport {
@@ -367,6 +371,8 @@ func (c *Controller) Run(ctx context.Context) error {
 			return err
 		}
 	}
+
+	c.recoverOrphans(runCtx)
 
 	watchErr := make(chan error, 1)
 	go func() {

@@ -127,6 +127,63 @@ func WorktreeRemove(ctx context.Context, repo, dir string) error {
 	return err
 }
 
+const worktreePrefix = "specd-worktree-"
+
+// Worktrees lists the worktrees git records for the repository.
+func Worktrees(ctx context.Context, repo string) ([]string, error) {
+	output, err := run(ctx, repo, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for _, line := range strings.Split(output, "\n") {
+		path, found := strings.CutPrefix(line, "worktree ")
+		if found && path != "" {
+			out = append(out, path)
+		}
+	}
+	return out, nil
+}
+
+// PruneWorktrees removes the realize worktrees a killed specd left behind: the
+// ones under a specd-worktree-* temporary directory, which are the only
+// worktrees this controller creates. A registered worktree that still holds the
+// realize branch makes the next worktree add fail with "cannot force update the
+// branch ... used by worktree", so it has to go before a change is re-driven.
+// Worktrees anywhere else, another tool's or an operator's, are left alone.
+func PruneWorktrees(ctx context.Context, repo string) error {
+	paths, err := Worktrees(ctx, repo)
+	if err != nil {
+		return err
+	}
+	roots := map[string]bool{}
+	for _, path := range paths {
+		root := filepath.Dir(path)
+		if !strings.HasPrefix(filepath.Base(root), worktreePrefix) {
+			continue
+		}
+		if err := WorktreeRemove(ctx, repo, path); err != nil {
+			return err
+		}
+		roots[root] = true
+	}
+	for root := range roots {
+		if err := os.RemoveAll(root); err != nil {
+			return fmt.Errorf("gitrepo: remove worktree root %s: %w", root, err)
+		}
+	}
+	return nil
+}
+
+// DeleteBranchIfExists deletes a branch, and reports no error when there is
+// nothing to delete.
+func DeleteBranchIfExists(ctx context.Context, repo, branch string) error {
+	if _, err := run(ctx, repo, "rev-parse", "--verify", "refs/heads/"+branch); err != nil {
+		return nil
+	}
+	return DeleteBranch(ctx, repo, branch)
+}
+
 func CommitAll(ctx context.Context, dir, message string) (string, error) {
 	if _, err := run(ctx, dir, "add", "-A"); err != nil {
 		return "", err

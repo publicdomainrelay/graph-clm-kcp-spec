@@ -29,6 +29,10 @@ func (c *Controller) reconcileSpecChange(ctx context.Context, namespace, name st
 		return 0, fmt.Errorf("specd: %s is not a SpecChange", name)
 	}
 
+	if change.Status.Phase == specapi.PhaseRunning && c.orphaned(change.Status.Owner, change.Status.OwnerPid) {
+		return 0, c.recoverRunningChange(ctx, namespace, change)
+	}
+
 	switch {
 	case change.Spec.Direction == specapi.DirectionCodeToSpec &&
 		change.Status.Phase == specapi.PhasePending && c.codeToSpecAgent(ctx, namespace, change):
