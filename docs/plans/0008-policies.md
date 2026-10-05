@@ -275,10 +275,26 @@ are pushed.
 
 ### A. Engine, CodeGraph, offline CLI (blocks everything)
 
-1. Decide the evaluation engine, and record the decision in this plan:
-   - **First choice:** Gatekeeper's own `github.com/open-policy-agent/frameworks/constraint`
-     client with the Gatekeeper K8s validation target, if it builds with our
-     k8s v0.36 deps.
+1. **Decided: the first choice.** The engine is
+   `github.com/open-policy-agent/frameworks/constraint/pkg/client` with
+   `github.com/open-policy-agent/gatekeeper/v3/pkg/target.K8sValidationTarget`
+   and the `drivers/rego` driver, pinned to `frameworks/constraint`
+   `v0.0.0-20260928232141-53076f8d5ce5` and `gatekeeper/v3` `v3.23.1`. This is
+   exactly the client `gator verify` builds in
+   `pkg/gator/opa.go` (`Targets(&target.K8sValidationTarget{})`, a `rego`
+   driver, `EnforcementPoints(util.GatorEnforcementPoint)`), so the offline
+   engine and the real `gator` agree by construction. It builds cleanly against
+   our k8s v0.36 deps: `gatekeeper/v3@v3.23.1` requires `k8s.io/apimachinery`
+   `v0.36.2` and the frameworks require `v0.36.4`, and MVS picks ours. A probe
+   proved the whole contract before any code was written: `input.review`
+   (kind/name/namespace/operation/object), `input.parameters`,
+   `data.inventory.namespace[ns][apiVersion][kind][name]` through `AddData`,
+   `libs` published under `data.lib.`, `spec.match.kinds` selection,
+   `enforcementAction`, and `violation[{"msg","details"}]` all behave as the
+   plan needs. Templates compile as **Rego v0** (`driver.go:227`
+   `rego.SetRegoVersion(ast.RegoV0)`), so `lib.specd` and every `src.rego` are
+   written in Rego v0 syntax, and `opa test` is run with `--v0-compatible`.
+   No fallback to bare `opa/v1/rego` was needed.
    - **Fallback:** `github.com/open-policy-agent/opa/v1/rego` implementing the
      exact Gatekeeper template contract (input.review, input.parameters,
      data.inventory, libs, violation set).
