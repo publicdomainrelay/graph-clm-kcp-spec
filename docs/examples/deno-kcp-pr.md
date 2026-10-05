@@ -980,3 +980,147 @@ The gate was relaxed to `gate: false` by hand for the provider realize, which ha
 to run while the acceptance could not yet pass with the code it was about to
 change, and restored to `gate: true` before the runs; part C of plan 0002's
 `specctl accept --override` escape still does not exist.
+
+## Policies: baseline of PR #1
+
+Plan 0008 phase H step 1. PR #1 was built before any policy existed. This
+section binds the policy library to deno-kcp, evaluates PR #1's head against
+`main`, and reads every violation: real or false positive. The retry under the
+gate is step 2 and its own round.
+
+### The binding
+
+`examples/policies/deno-kcp` is deno-kcp's policy library: the seven templates
+of `policies/library/` plus `relay-only-ssh` from the atproto-market portable
+set, re-bound by `policies.yaml`. Only `policies.yaml`, the constraints and the
+gator inventories differ from the library; `lib/`, `templates/` and `dist/` are
+the port's.
+
+| role | what it is in deno-kcp | selectors |
+| --- | --- | --- |
+| `host` | the provider and the workload reconcilers | `globs: api/*/*.go, cmd/*/*.go, internal/*/*.go, internal/*/*/*/*.go` |
+| `guest` | the DenoPod workload manifests, `declared: true` | `globs: deploy/examples/*.yaml, deploy/examples/*/*/*.yaml` |
+| `requester` | the example's market requester/bidder flow | `targets: hosts pds.default.*.svc.kcp.local, bidder.default.*.svc.kcp.local; nsids com.atproto.*` |
+| `relay` | kcp-libs' dnsshim and the relay listener, which are not in this repo | `targets: hosts relay.default.relay.svc.kcp.local; symbols dnsshim, dnsShim, serviceResolver` |
+| `test` | the integration harness | `globs: test/*/*.go` |
+
+`vocabulary` maps the project's names to the model's classes: the relay channel
+is `websocat`, `fedproxy`, `dumbpipe`, `iroh connect`, `tunnel-subscriber`,
+`dnsshim`; the payload is the service name (`.svc.kcp.local`, `ServiceDomain`);
+the purpose is `service-discovery` (`dnsshim`, `serviceResolver`).
+
+The globs are spelled `internal/*/*.go`, not `internal/**`, on purpose: `**`
+crosses directory separators in the Rego matcher, but the Go model builder uses
+`path.Match`, where it does not. A glob that crosses two levels works in the
+rules and silently owns nothing in the model.
+
+`specctl policy model` over the PR head with this binding reports 3 components
+(`guest`, `host`, `test`), 13 effects and 2 flows, both to an unresolved target.
+That is deno-kcp's real shape: the DenoPods are other repositories' code, this
+repo only reconciles them, and the relay and the requester are peers reached
+over the network rather than file groups, so they are targets and not
+components.
+
+### The run
+
+A fresh clone, never edited, never pushed.
+
+```bash
+git clone https://github.com/publicdomainrelay/deno-kcp && cd deno-kcp
+git fetch origin main spec/bidder-and-bob-pds
+bin/specctl policy eval --repo deno-kcp \
+  --commit dc4c717e1b925e0c074237ed32dc7f093880d843 \
+  --path "$PWD" --diff-base main \
+  --library examples/policies/deno-kcp
+```
+
+```
+repository: deno-kcp  commit: dc4c717e
+templates: 8  constraints: 8
+violations: 7 (deny 7, warn 0, dryrun 0)
+```
+
+The same run with `--library policies/library` (7 templates, no deno-kcp
+binding) reports the same seven. `main` itself, with and without `--diff-base`,
+is `clean`: 0 violations -- the CodeDiff rules have no diff to read, and
+`relay-only-ssh` has no ssh site in deno-kcp's tests to read. The script repeats
+all of it:
+
+```bash
+NAME=deno-kcp REPO=deno-kcp DIFF_BASE=main \
+  REFS=spec/bidder-and-bob-pds scripts/example-policies.sh
+```
+
+It clones into `$WORK/deno-kcp`, evaluates each ref in `REFS` against
+`DIFF_BASE`, and writes the text and JSON reports and a `summary.txt` to `$OUT`.
+`REPO` accepts a bare name, an `owner/name` or a URL; the same script with no
+environment is the atproto-market run of
+`docs/examples/atproto-market-policies.md`.
+
+### Every violation, read
+
+| file:line | rule | verdict | why |
+| --- | --- | --- | --- |
+| `deploy/examples/atproto/market/accept.sh:269` | security-disabled-verification | real | the acceptance's `http_code` helper fetches `https://…` with `curl -skS`: the check proves the TLS listener answers, not that the leaf is the one OpenBao issued for that service |
+| `deploy/examples/atproto/market/apply.sh:220` | security-disabled-verification | real | printed guidance: the block `apply.sh` prints tells the operator to health-check the port-forwarded plc with `curl -k` |
+| `deploy/examples/atproto/market/apply.sh:221` | security-disabled-verification | real | the same printed guidance for the relay |
+| `deploy/examples/atproto/market/apply.sh:222` | security-disabled-verification | real | the same printed guidance for alice's pds |
+| `deploy/examples/atproto/market/apply.sh:223` | security-disabled-verification | real | the same printed guidance for bob's pds |
+| `deploy/examples/atproto/market/apply.sh:224` | security-disabled-verification | real | the same printed guidance for the bidder |
+| `deploy/examples/atproto/market/apply.sh:227` | security-disabled-verification | real | the create-account example `apply.sh` prints uses `curl -k` |
+
+None of the seven is a false positive of the rule: every line names `curl` and
+`-k`, and certificate verification really is off in each. They are two shapes,
+one executed and six printed, and the printed six are the more interesting. The
+PR moved exactly these lines from `curl http://…` to `curl -k https://…` (the
+diff replaces `echo "  plc    curl http://127.0.0.1:2587/health"` with
+`echo "  plc     curl -k https://127.0.0.1:2587/health"`), so the change moved
+the guidance to TLS and defeated the point of moving it. The origin kept printed
+guidance in a separate warning rule, `safety-stale-tls-guidance`; the port has
+no such template yet, so printed guidance lands in the deny rule. Both shapes
+should be fixed in the retry: the executed check should verify against the CA
+the workspace's OpenBao authority issues from, and the printed commands should
+print one that does, rather than teaching `-k`.
+
+No policy in the bound library other than `security-disabled-verification`
+fires on this diff, and the `CodeGraph`/`ArchitectureModel` policies are clean.
+
+### The false positives the baseline found in the library
+
+The one known before the run was `security-disabled-verification` reading
+`kubectl … --validate=false` as disabled TLS verification. Schema validation is
+not TLS verification, and the origin's own pattern had it first. It is removed
+from the pattern set (the library now denies `--insecure`, `InsecureSkipVerify`,
+`rejectUnauthorized: false`, `NODE_TLS_REJECT_UNAUTHORIZED=0`,
+`--tls-verify=false` and `curl -k`), a gator case with three real
+`--validate=false` lines asserts 0 violations, and the three lines deno-kcp's
+own tree carries (`deploy/install-provider.sh:12`, `:21` and a live test) no
+longer deny.
+
+Reading the other six library rules against real code found two more classes of
+false positive, both fixed in `policies/library`:
+
+- **A comment that names the pattern.** The three provisioning CodeDiff rules
+  fired on comments (`// the websocat ProxyCommand.`,
+  `# ssh-keygen is replaced by the cloud-init module`) and on prose in READMEs
+  (`the legacy websocat ProxyCommand -> xrpc-relay -> …`). The origin had a
+  `code.is_comment` guard that the port carried into
+  `security-disabled-verification` only; the three rules now skip a comment line
+  and ignore `**/*.md` by default. Measured on the atproto-market iroh change
+  (`d20070c..ffac22e`) with `policies/library`, the whole run falls from 36
+  denies to 21: `provisioning-new-guest-transport` from 33 to 18, and
+  `provisioning-manual-key-material` stays at 3 -- its three findings are a
+  cloud-init module's own `authorized_keys` path, a test asserting it and a
+  fixture, which are the gap below, not prose.
+- **One line, several patterns.** A row could produce more than one violation
+  when two patterns matched it (`curl -k --insecure`). Each affected rule now
+  builds the matched-pattern list once per row, so a row is one violation.
+
+The remaining denies on real code are a recorded gap, not a fix: a substring
+over a diff cannot tell naming a transport from running one, so a
+transport-name selector (`sshHelperForTransport`) or a lexicon description still
+denies, and a cloud-init `UserDataModule`'s own `authorized_keys` path still
+denies unless the constraint's `allowPatterns` names it. Plan 0009's model form
+of the rules -- a `proc.exec` effect whose `argv0` is a transport the cloud-init
+does not deploy -- is what separates naming from running; it is G4, and this is
+the measurement that asks for it.

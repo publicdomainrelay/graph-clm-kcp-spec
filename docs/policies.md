@@ -311,7 +311,7 @@ bin/specctl policy test  --dir /tmp/policies --gator
 | `provisioning-manual-key-material` | `CodeDiff` | an added line writing `authorized_keys` or running `ssh-keygen` | `code_safety` |
 | `provisioning-cloud-init-bypass` | `CodeDiff` | an added line that names `user_data`/`cloud-init` and a skip/bypass marker | `code_safety` |
 | `provisioning-new-guest-transport` | `CodeDiff` | an added line naming `websocat`, `wstunnel`, `chisel`, `frpc/frps`, `autossh`, `rathole` or `socat` without a `UserDataModule` marker | `code_safety` |
-| `security-disabled-verification` | `CodeDiff` | an added line with `curl -k`, `--insecure`, `--validate=false`, `InsecureSkipVerify` or `rejectUnauthorized: false` | `change_security` |
+| `security-disabled-verification` | `CodeDiff` | an added line with `curl -k`, `--insecure` (which covers `--insecure-skip-tls-verify`), `InsecureSkipVerify`, `rejectUnauthorized: false`, `NODE_TLS_REJECT_UNAUTHORIZED=0` or `--tls-verify=false` | `change_security` |
 
 Every template carries two extra annotations: `specs.publicdomainrelay.dev/origin`
 names the source rule, and `specs.publicdomainrelay.dev/calibration` records
@@ -330,49 +330,61 @@ missing parameter narrows the rule rather than widening it.
 (`--commit`, or the worktree's `HEAD`) and adds the resulting `CodeDiff` to both
 the reviewed objects and the inventory, so the provisioning and
 disabled-verification templates have something to read. The run below is the
-real output against `publicdomainrelay/deno-kcp` at `0f1078d`, a commit that
-adds the deploy manifests, a restart-safe runner and a live kcp lifecycle test:
+real output for the plan-0008 phase-H baseline: `publicdomainrelay/deno-kcp`
+pull request #1 (`dc4c717e`) against `main` (`25d10f92`), on a clone that is
+never edited or pushed. It is the library alone; the bound library of
+`examples/policies/deno-kcp` reports the same seven violations, and the table
+that reads each one labels it real or false positive:
+`docs/examples/deno-kcp-pr.md`, section "Policies: baseline of PR #1".
 
 ```bash
+git clone https://github.com/publicdomainrelay/deno-kcp && cd deno-kcp
+git fetch origin main spec/bidder-and-bob-pds
 bin/specctl policy eval --repo deno-kcp \
-  --commit 0f1078d8ab68387d940bfea5e630e732716c7aa8 \
-  --diff-base 0f1078d8ab68387d940bfea5e630e732716c7aa8^ \
-  --path ~/src/publicdomainrelay-kcp/deno-kcp \
+  --commit dc4c717e1b925e0c074237ed32dc7f093880d843 \
+  --diff-base main \
+  --path "$PWD" \
   --library policies/library
 ```
 
 ```
-repository: deno-kcp  commit: 0f1078d8
+repository: deno-kcp  commit: dc4c717e
 templates: 7  constraints: 7
-violations: 5 (deny 5, warn 0, dryrun 0)
+violations: 7 (deny 7, warn 0, dryrun 0)
 
 deny     error      security-disabled-verification  CodeDiff default/deno-kcp
-         deploy/start-kcp.sh:21
-         added line deploy/start-kcp.sh:21 is "curl -sk \"https://127.0.0.1:${KCP_SECURE_PORT}/readyz\" >/dev/null 2>&1", which turns certificate verification off; a check that trusts any certificate checks nothing
+         deploy/examples/atproto/market/accept.sh:269
+         added line deploy/examples/atproto/market/accept.sh:269 is "code=$(curl -skS -o /dev/null -w '%{http_code}' --max-time 10 \"$1\" 2>/dev/null) || true", which turns certificate verification off; a check that trusts any certificate checks nothing
 deny     error      security-disabled-verification  CodeDiff default/deno-kcp
-         internal/provider/live_lifecycle_test.go:257
-         added line internal/provider/live_lifecycle_test.go:257 is "client.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}", which turns certificate verification off; a check that trusts any certificate checks nothing
+         deploy/examples/atproto/market/apply.sh:220
+         added line deploy/examples/atproto/market/apply.sh:220 is "echo \"  plc     curl -k https://127.0.0.1:2587/health\"", which turns certificate verification off; a check that trusts any certificate checks nothing
 deny     error      security-disabled-verification  CodeDiff default/deno-kcp
-         internal/provider/live_lifecycle_test.go:298
-         added line internal/provider/live_lifecycle_test.go:298 is "cmd := exec.Command(\"kubectl\", \"--kubeconfig\", kubeconfig, \"--server\", server, \"apply\", \"--validate=false\", \"-f\", \"-\")", which turns certificate verification off; a check that trusts any certificate checks nothing
-deny     error      security-disabled-verification  CodeDiff default/deno-kcp
-         deploy/install-provider.sh:12
-         added line deploy/install-provider.sh:12 is "KA() { \"$KUBECTL\" --kubeconfig=\"$KUBECONFIG_PATH\" apply --validate=false \"$@\"; }", which turns certificate verification off; a check that trusts any certificate checks nothing
-deny     error      security-disabled-verification  CodeDiff default/deno-kcp
-         deploy/install-provider.sh:21
-         added line deploy/install-provider.sh:21 is "KWA() { \"$KUBECTL\" --kubeconfig=\"$KUBECONFIG_PATH\" --server=\"$PROVIDER_SERVER\" apply --validate=false \"$@\"; }", which turns certificate verification off; a check that trusts any certificate checks nothing
+         deploy/examples/atproto/market/apply.sh:227
+         added line deploy/examples/atproto/market/apply.sh:227 is "echo \"  curl -k -sS -X POST https://127.0.0.1:2583/xrpc/com.atproto.server.createAccount \\\\\"", which turns certificate verification off; a check that trusts any certificate checks nothing
 ```
 
-One of the five is the class `RESULTS.md` found at `accept.sh:141`: a `curl -sk`
-probe of a TLS listener. The other four are three `--validate=false` on a
-`kubectl apply` (two in `deploy/install-provider.sh` helpers, one in the live
-test) and one `InsecureSkipVerify: true` in that test's http client. The
-`curl -sk` probe of a local kcp with a self-signed certificate is the known
-intentional case; a repository that means it silences the rule for those paths
-with the constraint's `allowPatterns`, which is why the parameter exists. The
-three `--validate=false` lines are the pattern the origin's own
-`disabled_verification_pattern` names first, so this run reproduces the
-calibration rather than discovering a new class.
+(three of the seven are shown; `apply.sh:221-224` are the same printed
+`curl -k` line for the relay and the three remaining services.)
+
+One is the class `RESULTS.md` found at atproto-market's `accept.sh:141`: a
+`curl -skS` probe of a TLS listener, here the acceptance's `http_code` helper,
+so the check proves the listener answers and not that the leaf is the one the
+workspace's OpenBao authority issued. The other six are the block `apply.sh`
+prints to tell an operator how to health-check each port-forwarded service, and
+the same PR moved exactly those lines from `curl http://…` to
+`curl -k https://…`. Both shapes are real: the probe of a local service with a
+self-signed certificate is the known intentional case a repository may silence
+with the constraint's `allowPatterns`, and the printed guidance is what the
+origin's separate `safety-stale-tls-guidance` warning rule was for -- the port
+has no such template, so it lands here.
+
+The run this section used to record was against deno-kcp `0f1078d`, a commit
+that no longer resolves on the remote (the history was rewritten), and it
+reported five violations, three of them `kubectl … --validate=false`. Those
+three are a false positive that is now fixed: `--validate=false` is schema
+validation, not TLS verification, and the pattern set no longer carries it
+(see the `security-disabled-verification` calibration note). A gator case with
+the three real `--validate=false` lines asserts 0 violations.
 
 The two `SpecChange` templates are exercised by their gator suites here
 (`specctl policy test --dir policies/library --gator`), and run against a live
@@ -776,3 +788,10 @@ Reports name `policy`, `constraint`, `enforcementAction`, the reviewed object,
 
 `docs/examples/atproto-market-policies.md` runs them against
 `publicdomainrelay/atproto-market` at three refs and records the real output.
+
+`examples/policies/deno-kcp` is the second bound library: the seven library
+templates plus `relay-only-ssh` re-bound to deno-kcp's roles and vocabulary
+(host = the DenoPod provider, guest = the DenoPod workload manifests, requester
+and relay = target roles, test = the integration harness). It is plan 0008
+phase H's baseline library; `docs/examples/deno-kcp-pr.md` records pull request
+#1's evaluation against it.
