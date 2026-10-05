@@ -192,13 +192,15 @@ spec:
       only through the relay\",\n\t\t[effect.component, relay_class, effect.file,
       object.get(effect, \"line\", 0)])\n\tdetails := {\"effect\": effect, \"relayClass\":
       relay_class, \"file\": effect.file, \"line\": object.get(effect, \"line\", 0)}\n}\n\n#
-      proxied keeps a compliant ssh whose proxy command is built elsewhere -- an\n#
-      injected transport object, a helper the walk does not reach -- out of the\n#
-      report. The ssh still has to be tunneled; the vocabulary names the tunnel\n#
-      when it can.\nproxied(effect) {\n\tproxy := object.get(object.get(effect, \"attrs\",
-      {}), \"proxyCommand\", \"\")\n\tproxy != \"\"\n}\n\nrelay_carried(id) {\n\tflow
-      := specd.model_flows[_]\n\tflow.evidence[_] == id\n\tflow.channel == relay_class\n}\n\nviolation[specd.violation(msg,
-      details)] {\n\teffect := specd.model_effects[_]\n\teffect.kind == \"net.dial\"\n\tspecd.component_in_role(effect.component,
+      proxied keeps an ssh whose proxy command names a transport the binding calls\n#
+      a relay out of the report. A proxy command that names no relay term -- a bare\n#
+      nc, an -W jump host, a tunnel the vocabulary does not know -- is not a relay,\n#
+      so the ssh is denied.\nproxied(effect) {\n\tproxy := object.get(object.get(effect,
+      \"attrs\", {}), \"proxyCommand\", \"\")\n\tproxy != \"\"\n\tterm := specd.vocabulary_terms(\"channels\",
+      relay_class)[_]\n\tcontains(lower(proxy), lower(term))\n}\n\nrelay_carried(id)
+      {\n\tflow := specd.model_flows[_]\n\tflow.evidence[_] == id\n\tflow.channel
+      == relay_class\n}\n\nviolation[specd.violation(msg, details)] {\n\teffect :=
+      specd.model_effects[_]\n\teffect.kind == \"net.dial\"\n\tspecd.component_in_role(effect.component,
       tester_role)\n\tflow := specd.model_flows[_]\n\tflow.evidence[_] == effect.id\n\tspecd.acted_on_in_role(flow,
       guest_role)\n\tmsg := sprintf(\"the test dials the guest directly: %s:%d\",
       [effect.file, object.get(effect, \"line\", 0)])\n\tdetails := {\"effect\": effect,

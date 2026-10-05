@@ -1,0 +1,49 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  roles:
+  - guest
+  - host
+  vocabulary:
+    channels:
+      relay:
+      - websocat
+    payloads:
+      network-info:
+      - address
+    purposes:
+      network-discovery:
+      - onNetwork
+    routes:
+      report:
+      - /v1/on-network
+  components:
+  - name: host
+    roles:
+    - host
+    source: observed
+  - name: guest
+    roles:
+    - guest
+    source: observed
+  effects:
+  - id: inspect
+    kind: container.exec
+    component: host
+    attrs:
+      runtime: container
+      verb: inspect
+    file: lib/compute-provider/mod.ts
+    line: 120
+  flows:
+  - from: host
+    to: unknown
+    initiator: host
+    source: observed
+    evidence:
+    - inspect
+  triggers: []

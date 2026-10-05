@@ -25,3 +25,9 @@ tests:
     - inventory/model-denied-test-dial.yaml
     assertions:
     - violations: 1
+  - name: denied-a-proxy-that-is-not-a-relay
+    object: inventory/model-denied-unrelayed-proxy.yaml
+    inventory:
+    - inventory/model-denied-unrelayed-proxy.yaml
+    assertions:
+    - violations: 1

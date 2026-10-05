@@ -19,13 +19,15 @@ violation[specd.violation(msg, details)] {
 	details := {"effect": effect, "relayClass": relay_class, "file": effect.file, "line": object.get(effect, "line", 0)}
 }
 
-# proxied keeps a compliant ssh whose proxy command is built elsewhere -- an
-# injected transport object, a helper the walk does not reach -- out of the
-# report. The ssh still has to be tunneled; the vocabulary names the tunnel
-# when it can.
+# proxied keeps an ssh whose proxy command names a transport the binding calls
+# a relay out of the report. A proxy command that names no relay term -- a bare
+# nc, an -W jump host, a tunnel the vocabulary does not know -- is not a relay,
+# so the ssh is denied.
 proxied(effect) {
 	proxy := object.get(object.get(effect, "attrs", {}), "proxyCommand", "")
 	proxy != ""
+	term := specd.vocabulary_terms("channels", relay_class)[_]
+	contains(lower(proxy), lower(term))
 }
 
 relay_carried(id) {

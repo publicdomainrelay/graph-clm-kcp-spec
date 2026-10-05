@@ -45,6 +45,7 @@ vocabulary:
     - fedproxy
     - dumbpipe
     - tunnel-subscriber
+    - relay-subscriber
   events:
     network-report:
     - vm.onNetwork
@@ -60,6 +61,9 @@ vocabulary:
     network-discovery:
     - getNodeId
     - nodeId
+  reachInExceptions:
+  - 127.0.0.1
+  - localhost
   routes:
     report:
     - /v1/on-network

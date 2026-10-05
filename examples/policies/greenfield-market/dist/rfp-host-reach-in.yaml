@@ -194,23 +194,41 @@ spec:
       \"guest\")\n\nnetwork_info_class := object.get(input.parameters, \"networkInfoClass\",
       \"network-info\")\n\nnetwork_discovery_class := object.get(input.parameters,
       \"networkDiscoveryClass\", \"network-discovery\")\n\ndefault_reach_in_kinds
-      := [\"container.exec\", \"ssh.connect\"]\n\nviolation[specd.violation(msg, details)]
-      {\n\tflow := specd.model_flows[_]\n\tspecd.initiator_in_role(flow, host_role)\n\tspecd.acted_on_in_role(flow,
-      guest_role)\n\tnetwork_flow(flow)\n\tmsg := sprintf(\"the host reaches into
-      the guest: %s -> %s (initiator %s, channel %s, purpose %s, carries %v)\",\n\t\t[flow.from,
-      flow.to, object.get(flow, \"initiator\", \"\"), object.get(flow, \"channel\",
-      \"\"), object.get(flow, \"purpose\", \"\"), object.get(flow, \"carries\", [])])\n\tdetails
-      := flow_details(flow, site_file(flow), site_line(flow))\n}\n\nviolation[specd.violation(msg,
+      := [\"container.exec\", \"ssh.connect\", \"net.dial\", \"http.request\"]\n\nviolation[specd.violation(msg,
+      details)] {\n\tflow := specd.model_flows[_]\n\tspecd.initiator_in_role(flow,
+      host_role)\n\treach_in_target(flow)\n\tnetwork_flow(flow)\n\tmsg := sprintf(\"the
+      host reaches into the guest: %s -> %s (initiator %s, channel %s, purpose %s,
+      carries %v)\",\n\t\t[flow.from, flow.to, object.get(flow, \"initiator\", \"\"),
+      object.get(flow, \"channel\", \"\"), object.get(flow, \"purpose\", \"\"), object.get(flow,
+      \"carries\", [])])\n\tdetails := flow_details(flow, site_file(flow), site_line(flow))\n}\n\nviolation[specd.violation(msg,
       details)] {\n\teffect := specd.model_effects[_]\n\treach_in_kind(effect.kind)\n\tspecd.component_in_role(effect.component,
-      host_role)\n\tflow := specd.model_flows[_]\n\tflow.evidence[_] == effect.id\n\tspecd.acted_on_in_role(flow,
-      guest_role)\n\tnot reported_as_flow(flow)\n\tmsg := sprintf(\"the host reaches
-      into the guest with %s: %s:%d\",\n\t\t[effect.kind, effect.file, object.get(effect,
-      \"line\", 0)])\n\tdetails := {\"effect\": effect, \"flow\": flow_details(flow,
-      effect.file, object.get(effect, \"line\", 0)), \"file\": effect.file, \"line\":
-      object.get(effect, \"line\", 0)}\n}\n\nreach_in_kind(kind) {\n\tkind == input.parameters.reachInKinds[_]\n}\n\nreach_in_kind(kind)
-      {\n\tnot configured_reach_in_kinds\n\tkind == default_reach_in_kinds[_]\n}\n\nconfigured_reach_in_kinds
+      host_role)\n\tflow := specd.model_flows[_]\n\tflow.evidence[_] == effect.id\n\tspecd.initiator_in_role(flow,
+      host_role)\n\treach_in_effect(flow, effect)\n\tnot reported_as_flow(flow)\n\tmsg
+      := sprintf(\"the host reaches into the guest with %s: %s:%d\",\n\t\t[effect.kind,
+      effect.file, object.get(effect, \"line\", 0)])\n\tdetails := {\"effect\": effect,
+      \"flow\": flow_details(flow, effect.file, object.get(effect, \"line\", 0)),
+      \"file\": effect.file, \"line\": object.get(effect, \"line\", 0)}\n}\n\n# reach_in_target
+      is the default: the host acting on the guest, and the host\n# acting on a target
+      the model could not resolve. The binding names the\n# exceptions -- the targets
+      a host reaches that are known not to be the guest --\n# so a new repository
+      does not have to rediscover its own reach-in verbs.\nreach_in_target(flow) {\n\tspecd.acted_on_in_role(flow,
+      guest_role)\n}\n\nreach_in_target(flow) {\n\tspecd.acted_on(flow) == \"unknown\"\n\tnot
+      reach_in_exception_flow(flow)\n}\n\nreach_in_effect(flow, effect) {\n\tspecd.acted_on_in_role(flow,
+      guest_role)\n}\n\nreach_in_effect(flow, effect) {\n\tspecd.acted_on(flow) ==
+      \"unknown\"\n\tnot reach_in_exception(effect)\n}\n\n# A flow whose evidence
+      is every effect the host reached with is excepted only\n# when each of those
+      effects names an excepted target: one exception must not\n# hide the rest of
+      a reach.\nreach_in_exception_flow(flow) {\n\tcount(flow.evidence) > 0\n\tnot
+      unexcepted_evidence(flow)\n}\n\nunexcepted_evidence(flow) {\n\teffect := specd.model_effect(flow.evidence[_])\n\tnot
+      reach_in_exception(effect)\n}\n\nreach_in_exception(effect) {\n\tpattern :=
+      reach_in_exception_patterns[_]\n\tglob.match(pattern, [\"/\"], effect.file)\n}\n\nreach_in_exception(effect)
+      {\n\tpattern := reach_in_exception_patterns[_]\n\tvalue := object.get(effect,
+      \"attrs\", {})[_]\n\tcontains(lower(value), lower(pattern))\n}\n\nreach_in_exception_patterns
+      := object.get(specd.model_vocabulary, \"reachInExceptions\", [])\n\nreach_in_kind(kind)
+      {\n\tkind == input.parameters.reachInKinds[_]\n}\n\nreach_in_kind(kind) {\n\tnot
+      configured_reach_in_kinds\n\tkind == default_reach_in_kinds[_]\n}\n\nconfigured_reach_in_kinds
       {\n\tcount(input.parameters.reachInKinds) > 0\n}\n\nreported_as_flow(flow) {\n\tspecd.initiator_in_role(flow,
-      host_role)\n\tspecd.acted_on_in_role(flow, guest_role)\n\tnetwork_flow(flow)\n}\n\nnetwork_flow(flow)
+      host_role)\n\treach_in_target(flow)\n\tnetwork_flow(flow)\n}\n\nnetwork_flow(flow)
       {\n\tobject.get(flow, \"purpose\", \"\") == network_discovery_class\n}\n\nnetwork_flow(flow)
       {\n\tobject.get(flow, \"carries\", [])[_] == network_info_class\n}\n\n# reach_in_evidence
       names where the reach-in happens: the evidence effect of\n# the flow that connects
