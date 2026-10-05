@@ -66,7 +66,7 @@ func TestMutationsDeriveEveryInvariantBreaker(t *testing.T) {
 func TestMutationHostReachesInCarriesTheRoleAndThePayload(t *testing.T) {
 	mutations := Mutations(modelFixture(), vocabularyFixture())
 	mutation := mutationNamed(t, mutations, "host-reaches-in")
-	flows := mutation.Model.FlowsWhere(FlowFilter{From: "bidder", To: "cloud-init"})
+	flows := mutation.Model.FlowsWhere(FlowFilter{From: "host", To: "guest"})
 	if len(flows) != 1 {
 		t.Fatalf("the mutation carries %d host to guest flows, want 1", len(flows))
 	}

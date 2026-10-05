@@ -69,6 +69,15 @@ type GenerateResult struct {
 	Files []string
 }
 
+// Check is one validation a generated policy passed or failed.
+type Check struct {
+	Name string `json:"name"`
+
+	Passed bool `json:"passed"`
+
+	Message string `json:"message,omitempty"`
+}
+
 // Generator is a policy harness: the same agent kinds a realize uses, asked to
 // author a policy or a binding instead of code.
 type Generator interface {
@@ -251,8 +260,8 @@ func Mutations(model ArchitectureModel, vocabulary MutationVocabulary) []ModelMu
 		effect := mutationEffect(EffectContainerExec, host, "mutation-host-reach-in", map[string]string{"verb": "getNodeId"})
 		mutated.Spec.Effects = append(mutated.Spec.Effects, effect)
 		mutated.Spec.Flows = append(mutated.Spec.Flows, ModelFlow{
-			From:      host,
-			To:        guest,
+			From:      vocabulary.HostRole,
+			To:        vocabulary.GuestRole,
 			Initiator: vocabulary.HostRole,
 			Channel:   vocabulary.Channel,
 			Carries:   oneIfSet(vocabulary.Payload),
@@ -272,7 +281,7 @@ func Mutations(model ArchitectureModel, vocabulary MutationVocabulary) []ModelMu
 		kept := []ModelFlow{}
 		dropped := 0
 		for _, flow := range mutated.Spec.Flows {
-			if roleOfComponent(model, flow.Initiator) == vocabulary.GuestRole &&
+			if flow.Initiator == vocabulary.GuestRole &&
 				(vocabulary.Payload == "" || containsString(flow.Carries, vocabulary.Payload)) {
 				dropped++
 				continue
@@ -337,8 +346,8 @@ func Mutations(model ArchitectureModel, vocabulary MutationVocabulary) []ModelMu
 		effect := mutationEffect(EffectNetDial, test, "mutation-test-dials-guest", map[string]string{"target": guest})
 		mutated.Spec.Effects = append(mutated.Spec.Effects, effect)
 		mutated.Spec.Flows = append(mutated.Spec.Flows, ModelFlow{
-			From:      test,
-			To:        guest,
+			From:      vocabulary.TestRole,
+			To:        vocabulary.GuestRole,
 			Initiator: vocabulary.TestRole,
 			Source:    SourceObserved,
 			Evidence:  []string{effect.ID},
@@ -405,26 +414,6 @@ func firstComponentInRole(model ArchitectureModel, role string) string {
 	for _, component := range model.Spec.Components {
 		if containsString(component.Roles, role) {
 			return component.Name
-		}
-	}
-	return ""
-}
-
-// roleOfComponent resolves a component name, or a role name a flow's initiator
-// carries, to the role the model knows.
-func roleOfComponent(model ArchitectureModel, name string) string {
-	for _, component := range model.Spec.Components {
-		if component.Name != name {
-			continue
-		}
-		if len(component.Roles) > 0 {
-			return component.Roles[0]
-		}
-		return ""
-	}
-	for _, role := range model.Spec.Roles {
-		if role == name {
-			return role
 		}
 	}
 	return ""
