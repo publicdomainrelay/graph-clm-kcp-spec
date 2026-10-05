@@ -1,0 +1,11 @@
+language: typescript
+version: "1"
+rules:
+- id: compute-provider-inspect-ip
+  kind: container.exec
+  call: {name: inspectIp, member: true}
+  attrs: {runtime: compute-provider, verb: inspectIp}
+- id: compute-provider-backend-exec
+  kind: container.exec
+  call: {name: exec, member: true}
+  attrs: {runtime: compute-provider, verb: backend.exec}

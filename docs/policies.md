@@ -136,6 +136,26 @@ it (plan 0008 phase C): the audit records the violations,
 `Repository.status.policy` totals them, and a `deny` in a realize fails the
 change with reason `PolicyDenied`.
 
+The manifest can override the action a constraint ships with. `enforcement` is
+a list of `<name glob>`/`action` pairs, applied in order, the last match
+winning:
+
+```yaml
+enforcement:
+- {name: '*', action: warn}
+- {name: provisioning-*, action: deny}
+```
+
+Every load applies the list -- `policy build`, `policy test`, `policy eval`, the
+spec-time gate and the audit alike -- to the library's own constraints and to
+the constraints an imported pack contributes. It is the only override that
+reaches a pack's constraints, which live in the pack and not in any file the
+repository holds, so it is what `scripts/example-pr.sh` writes for
+`POLICY_ENFORCEMENT`. The name is read as a glob (`path.Match`); a constraint
+nothing matches keeps the action it shipped with, and an action that is not
+`deny`, `warn` or `dryrun` fails the load. `CATALOGUE.md` shows the action in
+force after the override.
+
 ## The CodeGraph
 
 `CodeGraph` is one object per repository and commit. `impl/codegraphfacts`
@@ -322,8 +342,14 @@ bin/specctl policy model --repo market-mini --worktree fixtures/market-mini/comp
 ```
 
 The **spec-time gate** evaluates a `SpecToCode` change before the agent runs.
-`specd --policy-library DIR` builds the ArchitectureModel from the post-delta
-specs alone (declared facts, no code, no effects) and evaluates the library. A
+It builds the ArchitectureModel from the post-delta specs alone (declared
+facts, no code, no effects) and evaluates the library. `specd
+--policy-library DIR` overrides where that library is read from; without the
+flag the gate calls the same `loadPolicyGate` the realize gate and the audit
+use (`factory/specd/specgate.go:71`), so it reads the repository's
+`open-policy/<repo>` branch, else kcp, and a repository with no policy branch
+gets no gate. An audit, a realize and a spec-time deny can therefore never
+disagree about which policies are in force. A
 `deny` violation is recorded on the change as `phase: Failed`, the message
 names the constraints, and the condition `PolicyValid=False` carries
 `reason: PolicyDeniedAtSpec`; nothing is realized, no worktree branch is
@@ -491,6 +517,53 @@ imports:
 A missing role or class fails the build with the pack's name, which is the
 check behind "the binding is the only per-repository input".
 
+### Members: one model across repositories
+
+An invariant about a host and a guest does not always live in one checkout.
+`members:` names another repository the model is built over, with its own role
+binding, so a pack rule sees a flow whose two ends are in two repositories:
+
+```yaml
+members:
+- name: hono-compute-provider
+  url: https://github.com/publicdomainrelay/hono-compute-provider
+  ref: fb11e74
+  path: lib                      # optional; limits the member to a subdirectory
+  classifiers: [compute-provider.yaml]
+  roles:
+    host:
+      globs: ["lib/compute-provider-local/**"]
+    guest:
+      targets: {attrs: [inspectIp, backend.exec]}
+```
+
+- Each member is cloned into `$SPECD_CACHE_DIR/policy-members/<name>` (default
+  `.kcp-specd/cache/policy-members`), checked out at `ref`, and pinned to the
+  commit it resolved to. `policy eval` and `policy model` print the pins;
+  `policy build` writes them into `policies.lock` under `members:`. A build
+  verifies the pin and refuses a member that moved, the way it refuses a pack.
+- `--member name=path` clones the named member from a local checkout instead,
+  for a ref that is not on its public remote. The lock still records the
+  declared `url`.
+- The member's components are named `<member>/<context>`, its effects, files,
+  evidence and triggers carry the prefix, and its roles merge with the
+  library's, so a portable rule reads the same abstract roles across
+  repositories and never learns a repository name.
+- `classifiers:` names packs under the library's `classifiers/` directory. It
+  works on a member and on the library itself: a repository whose effect sites
+  the shared packs do not know names them from the policy branch rather than
+  editing code.
+
+The ArchitectureModel is built over the members wherever a library is
+evaluated -- `specctl policy eval` and `policy model`, the realize gate and the
+kcp audit -- so a rule over the model gates a realize and an audit, not only an
+offline run. The spec-time gate is declared-only: a member's observed reach-in
+is not a fact before code exists.
+
+`docs/examples/portable-policies.md` records the three bindings of the pack
+(one repository plus a member, a provider alone, a spec-only repository) and
+`scripts/example-portable-policies.sh` repeats them.
+
 ### The rfp-guest-isolation pack
 
 The first bound pack: the two rules the RFP flow exists to keep, written once.
@@ -516,10 +589,15 @@ Run the pack's own suites:
 
 ```bash
 bin/specctl policy test --dir policies/packs/rfp-guest-isolation --gator
-# opa: 82/82 passed
-# suites: 13/13 cases passed
+# opa: 83/83 passed
+# suites: 14/14 cases passed
 # PASS
 ```
+
+The reach-in rule fires on the *declared* shape too: a flow with no evidence --
+a spec that plans the host reaching in, before any code exists -- is denied at
+spec time. `denied-a-declared-reach-in-before-any-code` and
+`test_violation_when_a_declared_flow_has_no_evidence` pin it.
 
 ### Inventory
 
@@ -638,7 +716,8 @@ and `CHANGES.md` on the architecture branch marks a guarded requirement
 Policies are stored like the architecture: a branch with no parent commit.
 
 ```
-policies.yaml                    PolicyLibrary manifest: repository, version, testGlobs, default enforcement
+policies.yaml                    PolicyLibrary manifest: repository, version, testGlobs, default enforcement, enforcement overrides
+policies.lock                    the resolved pack digests a build pins (generated)
 lib/specd.rego                   the shared library (refreshed by `specctl policy build`)
 lib/specd_test.rego              the library's own opa unit tests
 templates/<slug>/src.rego        the rule: package <slug>, violation[{"msg","details"}]
@@ -670,6 +749,34 @@ bin/specctl policy init --repo atproto-market --dir /tmp/policies --with-library
 bin/specctl policy build --dir /tmp/policies
 bin/specctl policy test  --dir /tmp/policies --gator
 ```
+
+A library that already exists as a directory -- `examples/policies/<repo>`, or a
+branch of another repository -- is seeded with `--from`, which copies the
+directory's own templates, constraints and suites, keeps the `imports` its
+manifest declares and its `policies.lock`, takes `--repo` as the manifest's
+repository, and rebuilds the rest:
+
+```bash
+bin/specctl policy init  --path /path/to/clone --repo deno-kcp --branch spec/x \
+  --default-branch main --from examples/policies/deno-kcp
+bin/specctl policy build --path /path/to/clone --repo deno-kcp --branch spec/x \
+  --default-branch main
+```
+
+The first command writes the orphan branch `open-policy/deno-kcp--spec-x`
+(`--branch` picks the code branch the policy branch belongs to; without it the
+branch is `open-policy/deno-kcp`); the second refreshes `lib/specd.rego`,
+resolves the imports and renders `dist/` and `CATALOGUE.md` from what the branch
+now holds. Everything the source directory carries is copied except the
+generated files, so the result is what `specctl policy build` would have
+produced had the library been authored on the branch. An imported pack is the
+exception: its templates and constraints live in the pack, so the seed keeps
+only the `imports` entry and the lock that pins it, and `policy build` is what
+merges them -- the seed's own `dist/` and `CATALOGUE.md` cover the directory's
+own templates, and the build adds the pack's. `--enforcement SPEC` writes the
+manifest's enforcement overrides while it seeds
+(`--enforcement '*=warn,provisioning-*=deny'`), so a run's enforcement reaches
+the pack's constraints too.
 
 | slug | reviews | denies | origin |
 | --- | --- | --- | --- |
@@ -1108,6 +1215,73 @@ the triggers; `-o json` prints the `ArchitectureModel` object.
 Reports name `policy`, `constraint`, `enforcementAction`, the reviewed object,
 `file:line` and the message; `-o json` also carries `details` and the violation
 `id`.
+
+## Limits
+
+Known limits, stated rather than hidden. The first two bound what a policy can
+see; the third bounds the classifier a policy reads.
+
+### The indexer emits declarations, not bodies
+
+The CodeGraph is read from the external `codegraph` index
+(`@colbymchenry/codegraph`, `impl/codegraphsqlite`). That index holds one node
+per declaration -- `function`, `method`, `class`, `constant`, `variable`,
+`property`, `route`, `interface`, `struct`, `type_alias` -- plus one `file`
+node and one `import` node per import. There is no node for a closure, an arrow
+function or a call expression.
+
+A `Deno.test("...", () => { ... })` body is therefore invisible: a test file is
+its `file` node plus its imports, and nothing else. `new Deno.Command("ssh",
+...)` inside such a body becomes a *file-level* effect -- its `node` is
+`file:<path>`, its component is the file's role (the `test` role), and its only
+flow is `test -> unknown` with no channel. A rule that denies an ssh outside
+the guest role carried by no relay-channel flow still denies it (proved by the
+suite case `denied-ssh-inside-a-test-body`), but a rule that needs the
+declaring symbol, its line, or a channel from the test cannot see the body at
+all.
+
+This is the tool's limit, not the pack's: `codegraph 1.6.0` exposes no option,
+config file or environment variable to index bodies (`init`, `index` and `sync`
+take only `--force`, `--quiet`, `--verbose`, `--yes`), and its kind list has no
+closure or expression kind. The workaround a pack has is to move the transport
+into a named declaration the test calls, so the effect gets a real node (see
+plan 0009 G4 gap (a)). The same granularity caveat appears under "The
+CodeGraph" above: a callback is part of its enclosing node's text.
+
+### Effect recall is measured against hand labels
+
+The effect classifier (`impl/effects`) does not see every call. The honest
+number is the hand-labelled sample, not the earlier calibration, which compared
+the classifier against grep rules written from the classifier itself:
+
+| kind | tp | fp | fn | precision | recall |
+| --- | --- | --- | --- | --- | --- |
+| `http.request` | 13 | 0 | 4 | 1.000 | 0.765 |
+| `net.dial` | 0 | 0 | 1 | 1.000 | 0.000 |
+| `proc.exec` | 3 | 0 | 40 | 1.000 | 0.070 |
+| `ssh.connect` | 2 | 0 | 0 | 1.000 | 1.000 |
+| total | 42 | 0 | 45 | 1.000 | 0.483 |
+
+Precision is 1.000 on this sample -- the classifier does not invent effects --
+but recall is 0.483: `proc.exec` is the weak kind, and `net.dial` is not
+classified at all here. A policy that must catch every exec of a transport
+cannot rest on the classifier alone; the calibration commands and the label
+file are `scripts/effects-recall.py` and
+`testdata/effects-recall/atproto-market-master.yaml`, and the reading is
+recorded in plan 0009 G2.
+
+### A tunneled ssh whose transport the vocabulary does not name
+
+`relay-only-guest-ssh` denies an ssh outside the guest role that is carried by
+no `relay`-channel flow *and* carries no non-empty `proxyCommand`. The second
+half is deliberate -- an ssh whose proxy command is built elsewhere must stay
+out of the report -- but it also means the rule cannot check the transport of
+an ssh the model could not resolve a channel for. Such an ssh is not denied:
+the rule sees its `proxyCommand`, so it treats it as tunneled, and it cannot
+tell a relay from a transport the vocabulary does not name. What the rule
+still catches is the regression it guards -- a direct ssh with no tunnel at all
+-- plus any `net.dial` from a test that acts on the guest. `docs/plans/0009`
+G4 states the same limit; the pack's `CATALOGUE.md` states it beside the rule.
 
 ## Troubleshooting
 

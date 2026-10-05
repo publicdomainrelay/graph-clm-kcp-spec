@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -83,24 +84,36 @@ the spec objects and the code.
 
 usage:
   specctl policy init [--repo X] [--dir D | --path <git repo>] [--branch B] [--default-branch main]
-      [--with-library]
+      [--with-library | --from DIR] [--enforcement SPEC]
       create the policy tree: policies.yaml, lib/specd.rego, lib/specd_test.rego.
       --dir writes a plain directory; --path writes the orphan branch
       open-policy/X[--<branch slug>]; --with-library also copies the embedded
       policy library: the ported change-integrity, spec-structure, provisioning
-      and disabled-verification templates with their constraints and gator suites
+      and disabled-verification templates with their constraints and gator suites;
+      --from DIR seeds the tree from an existing policy directory instead: the
+      directory's own templates, constraints and suites are copied and its
+      imports and policies.lock are kept -- an imported pack is not copied, it
+      resolves when 'policy build' runs -- the manifest takes --repo as its
+      repository, and lib/, dist/ (the directory's own templates) and
+      CATALOGUE.md are rebuilt;
+      --enforcement SPEC writes the manifest's enforcement overrides, as
+      whitespace- or comma-separated <name glob>=<deny|warn|dryrun> entries
+      applied in order, the last match winning; a load applies them to the
+      library's own constraints and to an imported pack's alike
   specctl policy new <name> --kind <Kind> [--title T] [--level MUST] [--pattern P]
       [--dir D | --path <git repo>] [--repo X]
       scaffold src.rego, src_test.rego, template.yaml, the constraint and a
       gator suite (one allowed case, one denied case)
-  specctl policy build [--dir D | --path <git repo> --repo X]
-      write dist/, refresh lib/specd.rego, render CATALOGUE.md
+  specctl policy build [--dir D | --path <git repo> --repo X] [--relock]
+      [--cache-dir DIR] [--member NAME=PATH]
+      write dist/, refresh lib/specd.rego, render CATALOGUE.md, and pin the
+      imported packs and the members policies.yaml names
   specctl policy test [--dir D] [--gator] [--gator-bin <path>]
       opa unit tests and gator suites through the built-in engine; --gator also
       runs the real gator binary
   specctl policy eval --repo X [--worktree P | --commit C] [--path <git repo>]
       [--library D] [--branch B] [--diff-base REF] [--test-glob G]
-      [-o text|json] [--strict]
+      [--cache-dir DIR] [--member NAME=PATH] [-o text|json] [--strict]
       one-off audit of a checkout or a commit against the policy branch;
       --diff-base also derives a CodeDiff between REF and the evaluated commit,
       so the provisioning and disabled-verification templates have an object
@@ -117,10 +130,12 @@ usage:
       context and file. Classifier packs ship with specctl; a repository adds
       its own in <worktree>/classifiers/*.yaml or in --classifiers DIR
   specctl policy model [--worktree P | --commit C] [--repo X] [--path <git repo>]
-      [--library D] [--classifiers DIR] [--test-glob G] [-o text|json]
+      [--library D] [--classifiers DIR] [--test-glob G] [--cache-dir DIR]
+      [--member NAME=PATH] [-o text|json]
       build the ArchitectureModel (components, roles, effects, flows, triggers)
       from the CodeGraph, the effects, the SystemContexts and the roles and
-      vocabulary of policies.yaml
+      vocabulary of policies.yaml, plus every member repository the library
+      names (--member NAME=PATH clones one from a local checkout instead)
   specctl policy apply -f F | --library D [--prune]
       write ConstraintTemplates, their constraint CRDs and their constraints
       into kcp
@@ -223,9 +238,12 @@ func (t policyTarget) load(ctx context.Context) (policy.Library, error) {
 }
 
 // resolveLibraryImports merges the packs a library imports. The lock the
-// library carries pins them; verify refuses a pack that moved.
+// library carries pins them; verify refuses a pack that moved. The manifest's
+// enforcement rules are applied either way, so a library that imports nothing
+// still gets them.
 func resolveLibraryImports(library policy.Library, verify bool) (policy.Library, []policy.LockEntry, error) {
 	if len(library.Manifest.Imports) == 0 {
+		library.ApplyEnforcement()
 		return library, nil, nil
 	}
 	lock := policy.PackLock{}
@@ -267,12 +285,19 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 	testGlobs := stringsFlag{}
 	fs.Var(&testGlobs, "test-glob", "test file glob for the manifest; repeatable")
 	withLibrary := fs.Bool("with-library", false, "copy the embedded policy library into the new policy tree")
+	from := fs.String("from", "", "seed the new policy tree from an existing policy directory")
+	enforcement := fs.String("enforcement", "", "enforcement the library's constraints get, as <name glob>=<deny|warn|dryrun> entries applied in order, the last match winning")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
 	target.resolveRepo()
 	if target.onBranch() && !flagSet(fs, "repo") {
 		fmt.Fprintln(stderr, "specctl policy init: --repo is required when writing a policy branch")
+		return exitUsage
+	}
+	rules, err := parseEnforcementSpec(*enforcement)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy init: %v\n", err)
 		return exitUsage
 	}
 
@@ -293,19 +318,30 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 		TestGlobs:          testGlobs,
 		DefaultEnforcement: policy.EnforcementDryRun,
 	}
-	doc, err := yaml.Marshal(manifest)
-	if err != nil {
-		fmt.Fprintf(stderr, "specctl policy init: %v\n", err)
-		return exitError
-	}
-	add := map[string][]byte{
-		policy.PoliciesPath:      doc,
-		policy.LibPath:           []byte(policyeval.Lib()),
-		policy.LibTestPath:       []byte(policyeval.LibTest()),
-		policy.GitAttributesPath: []byte(policygit.GitAttributes),
-	}
+	add := map[string][]byte{}
 	copied := 0
-	if *withLibrary {
+	seeded := policy.Library{}
+	switch {
+	case *from != "":
+		seeded, err = policyeval.LoadRaw(os.DirFS(*from))
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl policy init: read %s: %v\n", *from, err)
+			return exitError
+		}
+		if len(seeded.Templates) == 0 {
+			fmt.Fprintf(stderr, "specctl policy init: %s holds no template\n", *from)
+			return exitError
+		}
+		add, err = policyFiles(*from)
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl policy init: %v\n", err)
+			return exitError
+		}
+		copied = len(add)
+		manifest = seeded.Manifest
+		manifest.Repository = target.repo
+		seeded.Manifest = manifest
+	case *withLibrary:
 		files, err := specdlib.Files()
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl policy init: %v\n", err)
@@ -313,6 +349,28 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 		}
 		maps.Copy(add, files)
 		copied = len(files)
+	}
+	if flagSet(fs, "enforcement") {
+		manifest.Enforcement = rules
+		seeded.Manifest = manifest
+	}
+	doc, err := yaml.Marshal(manifest)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy init: %v\n", err)
+		return exitError
+	}
+	add[policy.PoliciesPath] = doc
+	add[policy.LibPath] = []byte(policyeval.Lib())
+	add[policy.LibTestPath] = []byte(policyeval.LibTest())
+	add[policy.GitAttributesPath] = []byte(policygit.GitAttributes)
+	if len(seeded.Templates) > 0 {
+		dist, err := policyeval.Dist(seeded)
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl policy init: %v\n", err)
+			return exitError
+		}
+		maps.Copy(add, dist)
+		add[policy.CataloguePath] = policyeval.Catalogue(seeded)
 	}
 	message := fmt.Sprintf("policy(%s): init\n", target.repo)
 	commit, err := target.apply(ctx, add, nil, message)
@@ -328,10 +386,67 @@ func runPolicyInit(args []string, stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprintf(stdout, "%s ready\n", target.dir)
 	}
-	if *withLibrary {
+	if *from != "" {
+		fmt.Fprintf(stdout, "seeded from %s: %d files copied; dist/ and CATALOGUE.md are rendered\n", *from, copied)
+	} else if *withLibrary {
 		fmt.Fprintf(stdout, "library: %d files copied; run specctl policy build to render dist/ and CATALOGUE.md\n", copied)
 	}
 	return exitOK
+}
+
+// parseEnforcementSpec reads the --enforcement value: whitespace- or
+// comma-separated <name glob>=<deny|warn|dryrun> entries, applied in order, the
+// last match winning. It is the same syntax scripts/example-pr.sh passes.
+func parseEnforcementSpec(spec string) ([]policy.EnforcementRule, error) {
+	rules := []policy.EnforcementRule{}
+	for _, token := range strings.FieldsFunc(spec, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' }) {
+		name, action, found := strings.Cut(token, "=")
+		if !found || name == "" || !policy.Enforcement(action).Known() {
+			return nil, fmt.Errorf("%q is not <name glob>=<deny|warn|dryrun>", token)
+		}
+		rules = append(rules, policy.EnforcementRule{Name: name, Action: policy.Enforcement(action)})
+	}
+	return rules, nil
+}
+
+// policyFiles reads a policy directory: every file a user authored, and none
+// of the generated ones. lib/, dist/, CATALOGUE.md, .gitattributes and the
+// manifest are written by the caller, so an imported tree is rebuilt the same
+// way specctl policy build would rebuild it. policies.lock is authored -- it
+// pins the imports -- and is copied as it stands.
+func policyFiles(dir string) (map[string][]byte, error) {
+	add := map[string][]byte{}
+	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		switch {
+		case strings.HasPrefix(rel, policy.DistDir+"/"), strings.HasPrefix(rel, policy.ReportsDir+"/"):
+			return nil
+		case rel == policy.CataloguePath, rel == policy.GitAttributesPath:
+			return nil
+		case rel == policy.PoliciesPath, rel == policy.LibPath, rel == policy.LibTestPath:
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		add[rel] = data
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return add, nil
 }
 
 func runPolicyNew(args []string, stdout, stderr io.Writer) int {
@@ -450,6 +565,9 @@ func runPolicyBuild(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	target := addPolicyTargetFlags(fs)
 	relock := fs.Bool("relock", false, "write the resolved pack digests into "+policy.LockPath+" even when a pin moved")
+	cacheDir := fs.String("cache-dir", defaultCacheDir(), "where a member repository is cloned")
+	memberPathFlags := memberPaths{}
+	fs.Var(memberPathFlags, "member", "clone the named member from a local path instead of its url (name=path); repeatable")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -458,10 +576,10 @@ func runPolicyBuild(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "specctl policy build: --repo is required when writing a policy branch")
 		return exitUsage
 	}
-	return buildTarget(context.Background(), target, stdout, stderr, *relock)
+	return buildTarget(context.Background(), target, stdout, stderr, *relock, *cacheDir, memberPathFlags)
 }
 
-func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Writer, relock bool) int {
+func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Writer, relock bool, cacheDir string, memberPathFlags memberPaths) int {
 	raw, err := target.loadRaw(ctx)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy build: %v\n", err)
@@ -472,6 +590,17 @@ func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Wr
 		fmt.Fprintf(stderr, "specctl policy build: %v\n", err)
 		return exitError
 	}
+	members, err := policyeval.ResolveMembers(ctx, memberRefs(library, cacheDir), library, policyeval.MemberOptions{
+		CacheDir: cacheDir,
+		Lock:     lockOf(library),
+		Verify:   !relock,
+		Paths:    memberPathFlags,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy build: %v\n", err)
+		return exitError
+	}
+	defer cleanupMembers(members)
 	if len(library.Templates) == 0 && !target.onBranch() {
 		fmt.Fprintf(stderr, "specctl policy build: %s has no templates\n", target.dir)
 		return exitError
@@ -493,8 +622,18 @@ func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Wr
 	}
 	add[policy.CataloguePath] = policyeval.Catalogue(library)
 	written = append(written, policy.CataloguePath)
-	if len(entries) > 0 {
-		encoded, err := policyeval.EncodeLock(entries)
+	// A build that resolved no member -- `policy test`, which renders the
+	// library and reads no other repository -- keeps the pins the lock already
+	// carries instead of dropping them.
+	pins := []policy.MemberLock{}
+	if existing := lockOf(library); existing != nil {
+		pins = append(pins, existing.Members...)
+	}
+	for _, member := range members {
+		pins = append(pins, member.Lock())
+	}
+	if len(entries) > 0 || len(pins) > 0 {
+		encoded, err := policyeval.EncodeLockWithMembers(entries, pins)
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl policy build: %v\n", err)
 			return exitError
@@ -540,7 +679,7 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 	}
 	target.resolveRepo()
 	ctx := context.Background()
-	if code := buildTarget(ctx, target, stdout, stderr, false); code != exitOK {
+	if code := buildTarget(ctx, target, stdout, stderr, false, "", nil); code != exitOK {
 		return code
 	}
 
@@ -617,7 +756,7 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "suites: %d/%d cases passed\n", passedCases, totalCases)
 
-	if *withGator {
+	if *withGator && len(suites) > 0 {
 		bin := *gatorBin
 		if bin == "" {
 			bin = os.Getenv("SPECD_GATOR")
@@ -665,6 +804,9 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 	specsOnly := fs.Bool("specs-only", false, "evaluate the declared state alone: the ArchitectureModel from the specs, no code and no effects")
 	output := fs.String("o", "text", "text or json")
 	strict := fs.Bool("strict", false, "exit 1 when a deny violation survives the cap")
+	cacheDir := fs.String("cache-dir", defaultCacheDir(), "where a member repository is cloned")
+	memberPathFlags := memberPaths{}
+	fs.Var(memberPathFlags, "member", "clone the named member from a local path instead of its url (name=path); repeatable")
 	testGlobs := stringsFlag{}
 	fs.Var(&testGlobs, "test-glob", "test file glob; repeatable")
 	if err := fs.Parse(args); err != nil {
@@ -762,8 +904,14 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 		return exitError
 	}
+	libraryClassifiers, classifierCleanup, err := policyeval.LibraryClassifierDirs(library, codeDir, "")
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
+		return exitError
+	}
+	defer classifierCleanup()
 	computed, err := effects.Apply(&graph, effects.Options{
-		ClassifiersDirs: classifierDirs(codeDir, nil),
+		ClassifiersDirs: classifierDirs(codeDir, libraryClassifiers),
 		IncludeExtras:   true,
 	})
 	if err != nil {
@@ -799,12 +947,19 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		inventory = append(inventory, diffObject)
 	}
 
-	model, err := policy.BuildModel(policy.ModelInput{
+	members, err := policyeval.ResolveMembers(ctx, library.Manifest.Members, library, memberOptions(*cacheDir, memberPathFlags))
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
+		return exitError
+	}
+	defer cleanupMembers(members)
+	model, memberPins, err := policyeval.BuildEvaluationModel(ctx, policyeval.ModelRequest{
 		Repository: *repository,
 		Graph:      graph,
 		Effects:    computed,
 		Contexts:   modelContexts(contexts),
-		Binding:    library.Manifest.Binding(),
+		Library:    library,
+		Members:    members,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
@@ -847,6 +1002,7 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 		return exitError
 	}
+	report.Members = memberPins
 
 	if *output == "json" {
 		encoded, err := json.MarshalIndent(report, "", "  ")
@@ -1081,6 +1237,77 @@ func hasExampleLibrary(repository string) bool {
 	return err == nil
 }
 
+// defaultCacheDir is the state directory a member repository is cloned under,
+// the same one specd reads a Repository git source into.
+func defaultCacheDir() string {
+	if fromEnv := os.Getenv("SPECD_CACHE_DIR"); fromEnv != "" {
+		return fromEnv
+	}
+	return ".kcp-specd/cache"
+}
+
+// memberPaths is the repeatable `--member name=path` override: it clones a
+// named member from a local checkout, so an offline run reads the same commit
+// the declared ref names without reaching its url.
+type memberPaths map[string]string
+
+func (m memberPaths) String() string {
+	names := make([]string, 0, len(m))
+	for name := range m {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, name+"="+m[name])
+	}
+	return strings.Join(parts, ",")
+}
+
+func (m memberPaths) Set(value string) error {
+	name, path, ok := strings.Cut(value, "=")
+	if !ok || name == "" || path == "" {
+		return fmt.Errorf("--member wants name=path")
+	}
+	m[name] = path
+	return nil
+}
+
+// memberOptions says where a member checkout is cached. An empty cache dir
+// keeps the clone in a temporary directory the caller removes.
+func memberOptions(cacheDir string, paths memberPaths) policyeval.MemberOptions {
+	return policyeval.MemberOptions{CacheDir: cacheDir, Paths: paths}
+}
+
+// memberRefs is the members a build reads. `specctl policy test` builds
+// without a cache: it renders the library and never reads another repository,
+// so it pins nothing.
+func memberRefs(library policy.Library, cacheDir string) []policy.Member {
+	if cacheDir == "" {
+		return nil
+	}
+	return library.Manifest.Members
+}
+
+// lockOf is the lock a library carries, for the member pins a build verifies.
+func lockOf(library policy.Library) *policy.PackLock {
+	data, ok := library.Files[policy.LockPath]
+	if !ok {
+		return nil
+	}
+	lock, err := policyeval.ParseLock(data)
+	if err != nil {
+		return nil
+	}
+	return &lock
+}
+
+func cleanupMembers(members []policyeval.ResolvedMember) {
+	for _, member := range members {
+		member.Cleanup()
+	}
+}
+
 func marshalObject(value any) []byte {
 	encoded, err := yaml.Marshal(value)
 	if err != nil {
@@ -1107,6 +1334,9 @@ func defaultOr(value, fallback string) string {
 func printReport(out io.Writer, report policy.Report) {
 	fmt.Fprintf(out, "repository: %s  commit: %s\n", report.Repository, shortCommit(report.Commit))
 	fmt.Fprintf(out, "templates: %d  constraints: %d\n", report.Templates, report.Constraints)
+	for _, member := range report.Members {
+		fmt.Fprintf(out, "member: %s %s at %s\n", member.Name, member.Ref, shortCommit(member.Commit))
+	}
 	fmt.Fprintf(out, "violations: %d (deny %d, warn %d, dryrun %d)\n",
 		len(report.Violations),
 		report.Totals[policy.EnforcementDeny],

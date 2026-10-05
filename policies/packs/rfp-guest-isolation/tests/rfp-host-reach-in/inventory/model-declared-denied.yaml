@@ -1,0 +1,44 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  roles:
+  - guest
+  - host
+  vocabulary:
+    channels:
+      relay:
+      - websocat
+    payloads:
+      network-info:
+      - address
+    purposes:
+      network-discovery:
+      - onNetwork
+    routes:
+      report:
+      - /v1/on-network
+  components:
+  - name: host
+    roles:
+    - host
+    source: declared
+  - name: guest
+    roles:
+    - guest
+    source: declared
+  effects: []
+  flows:
+  - from: host
+    to: guest
+    initiator: host
+    channel: relay
+    carries:
+    - network-info
+    purpose: network-discovery
+    level: MUST
+    source: declared
+  triggers: []

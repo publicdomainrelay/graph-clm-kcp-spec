@@ -29,9 +29,10 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	leaks := Leaks()
 	for _, leak := range leaks {
-		fmt.Fprintf(os.Stderr, "kcpproc: leaked kcp %d and kine %d on the root %s\n", leak.KcpPid, leak.KinePid, leak.Root)
+		fmt.Fprintf(os.Stderr, "kcpproc: leaked kcp %d, kine %d and specd %d on the root %s\n", leak.KcpPid, leak.KinePid, leak.SpecdPid, leak.Root)
 		Terminate(leak.KcpPid, leak.Root)
 		Terminate(leak.KinePid, leak.Root)
+		Terminate(leak.SpecdPid, leak.Root)
 	}
 	if len(leaks) > 0 {
 		code = 1
@@ -342,5 +343,39 @@ func readHelperInstance(t *testing.T, stdout io.Reader) Instance {
 		case <-deadline:
 			t.Fatal("the starter helper did not report its kcp within 3 minutes")
 		}
+	}
+}
+
+func TestDieWithPidReadsTheEnv(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  int
+	}{
+		{"", 0},
+		{"0", 0},
+		{"1", 0},
+		{" 4242 ", 4242},
+		{"not-a-pid", 0},
+		{"-3", 0},
+	} {
+		t.Setenv(DieWithEnv, test.value)
+		if got := DieWithPid(); got != test.want {
+			t.Errorf("DieWithPid() with %q = %d, want %d", test.value, got, test.want)
+		}
+	}
+}
+
+func TestRecordSpecdAppendsToTheLedger(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ledger")
+	t.Setenv(LedgerEnv, path)
+	root := filepath.Join(t.TempDir(), "kcp")
+	RecordSpecd(root, 4242)
+	RecordSpecd(root, 0)
+	entries := Ledger()
+	if len(entries) != 1 {
+		t.Fatalf("Ledger() = %+v, want the one specd entry", entries)
+	}
+	if entries[0].Root != root || entries[0].SpecdPid != 4242 || entries[0].KcpPid != 0 || entries[0].KinePid != 0 {
+		t.Fatalf("the ledger entry = %+v, want the root and the specd pid alone", entries[0])
 	}
 }

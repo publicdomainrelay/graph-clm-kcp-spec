@@ -92,6 +92,17 @@ site_line(flow) = line {
 	line := object.get(effect, "line", 0)
 }
 
+# A declared flow carries no evidence until the first realize. The site is
+# empty then, and the rule still has to fire: a spec that plans the reach-in is
+# denied before any code exists.
+site_file(flow) = "" {
+	not reach_in_evidence(flow)
+}
+
+site_line(flow) = 0 {
+	not reach_in_evidence(flow)
+}
+
 flow_details(flow, file, line) = details {
 	details := {
 		"file": file,

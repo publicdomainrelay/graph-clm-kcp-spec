@@ -57,7 +57,8 @@ type ImportedPack struct {
 
 // ResolveImports merges every pack a library imports into it. The templates
 // and constraints of a pack are the pack's; the roles and the vocabulary stay
-// the importing repository's.
+// the importing repository's. The manifest's enforcement rules are applied
+// last, so they reach the pack's constraints as they reach the library's own.
 func ResolveImports(library policy.Library, opts ImportOptions) (policy.Library, []policy.LockEntry, error) {
 	entries := []policy.LockEntry{}
 	for _, imp := range library.Manifest.Imports {
@@ -70,6 +71,7 @@ func ResolveImports(library policy.Library, opts ImportOptions) (policy.Library,
 			return policy.Library{}, nil, err
 		}
 	}
+	library.ApplyEnforcement()
 	return library, entries, nil
 }
 
@@ -163,7 +165,12 @@ func mergePack(library *policy.Library, resolved ImportedPack, imp policy.PackIm
 	}
 	for _, constraint := range resolved.Library.Constraints {
 		if existing, ok := library.Constraint(constraint.Name); ok {
-			if sameConstraint(existing, constraint) {
+			// A library that already carries the pack -- a branch seeded from a
+			// resolved library, or a second resolution of the same tree -- is
+			// not a collision when the copy is the pack's. The copy is the
+			// pack's when the first resolution already marked it so, which
+			// also covers an enforcement rule the first pass rewrote.
+			if library.ImportedFrom(constraint.Name) == reference || sameConstraint(existing, constraint) {
 				library.Imported[constraint.Name] = reference
 				continue
 			}
@@ -413,9 +420,18 @@ func ParseLock(data []byte) (policy.PackLock, error) {
 
 // EncodeLock writes a lock with its imports in a stable order.
 func EncodeLock(entries []policy.LockEntry) ([]byte, error) {
+	return EncodeLockWithMembers(entries, nil)
+}
+
+// EncodeLockWithMembers pins the imported packs and the member repositories a
+// library reads, so a second build evaluates the same cross-repository model.
+func EncodeLockWithMembers(entries []policy.LockEntry, members []policy.MemberLock) ([]byte, error) {
 	lock := policy.PackLock{Imports: []policy.LockEntry{}}
 	for _, entry := range entries {
 		lock.Set(entry)
+	}
+	for _, member := range members {
+		lock.SetMember(member)
 	}
 	return yaml.Marshal(lock)
 }

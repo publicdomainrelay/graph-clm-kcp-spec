@@ -1131,3 +1131,162 @@ denies unless the constraint's `allowPatterns` names it. Plan 0009's model form
 of the rules -- a `proc.exec` effect whose `argv0` is a transport the cloud-init
 does not deploy -- is what separates naming from running; it is G4, and this is
 the measurement that asks for it.
+
+## Round with policies (PR #2)
+
+Plan 0008 phase H steps 2-4. The same sentence, the same flow, from `main`
+instead of from #1's branch, with the policy library bound to deno-kcp seeded
+onto the run's own orphan branch and the gate on: the audit, the spec-time gate
+and the realize gate all read it. The result is
+[publicdomainrelay/deno-kcp#2](https://github.com/publicdomainrelay/deno-kcp/pull/2).
+#1 is untouched.
+
+### The run
+
+One command, with a fresh `WORK` and a new branch:
+
+```bash
+cd $HYDRA
+WORK=/tmp/specd-deno-kcp-policy-20261005 \
+BRANCH=spec/bidder-and-bob-pds-policy-20261005 \
+PUSH=1 POLICY_LIBRARY=$HYDRA/examples/policies/deno-kcp \
+  scripts/example-deno-kcp-pr.sh
+```
+
+`POLICY_LIBRARY` makes the script, before specd starts:
+
+```bash
+cp -r examples/policies/deno-kcp $WORK/policy-deno-kcp        # a run copy
+# apply POLICY_ENFORCEMENT (default: *=warn security-disabled-verification=deny provisioning-*=deny)
+# as the manifest's enforcement: list, so it reaches an imported pack's constraints too
+specctl policy init  --dir $WORK/policy-deno-kcp --repo deno-kcp \
+  --from $WORK/policy-deno-kcp --enforcement "$POLICY_ENFORCEMENT"
+specctl policy init  --path $WORK/deno-kcp --repo deno-kcp --branch $BRANCH \
+  --default-branch main --from $WORK/policy-deno-kcp
+specctl policy build --path $WORK/deno-kcp --repo deno-kcp --branch $BRANCH \
+  --default-branch main
+export SPECD_POLICY_LIBRARY=$WORK/policy-deno-kcp             # the spec-time gate
+```
+
+`specctl policy init --from DIR` copies the library's own templates, constraints
+and suites onto `open-policy/deno-kcp--<branch slug>` and keeps the `imports` it
+declares with the lock that pins them; `build` refreshes `lib/specd.rego`,
+resolves the imports and renders `dist/` and `CATALOGUE.md`. specd restores that
+branch into kcp on the Repository's first reconcile, which is what runs the
+audit and fills `Repository.status.policy`; the realize gate reads the same
+branch. The spec-time gate reads the directory, so it sees what the directory
+holds: the library's own templates plus, at build, the pack's. The enforcement
+this run asks for is a manifest rule, not an edit to a constraint file, so it
+reaches the pack's constraints too.
+
+The run above predates the import: the library then carried its own eight
+templates and nothing else, so the spec-time gate read exactly those. A rerun
+after plan 0009 G4 resolves `rfp-guest-isolation` and reads thirteen.
+
+Timings, from the run's own logs:
+
+| step | time |
+| --- | --- |
+| `specctl up` to `Populated` (18 contexts) | 2 min 30 s |
+| harness: research + spec edit (two contexts) | 5 min 20 s |
+| realize 1: manifests, one batch of two changes | 15 min 12 s (3 attempts) |
+| fix round 1: `internal-provider` bounded initial list | 24 min (3 attempts) |
+| fix round 2: `internal-provider` workspace-keyed watch cache | 10 min 46 s (1 attempt) |
+| acceptance, gated, green | 42.9 s |
+| head evaluation, audit | seconds |
+
+### The gate at work
+
+The first realize wrote the same operator guidance #1 ships and was stopped:
+
+```
+PolicyDenied: security-disabled-verification: added line
+deploy/examples/atproto/market/apply.sh:222 is "echo \"  bob pds curl -k
+https://127.0.0.1:2585/xrpc/_health\"", which turns certificate verification
+off; a check that trusts any certificate checks nothing
+```
+
+That message became the next attempt's agent log, and the next attempt landed
+without it. The landed `apply.sh` prints `curl --cacert ca.pem --resolve ...`
+against the market CA and `accept.sh` verifies the leaf; neither uses `-k`.
+
+Two warnings fired on the harness's own requirement text
+(`requirement-text-has-machine-path`, on `r.bidder-pod` and `r.bob-pds-pod`,
+which name `/home/johnandersen777/...`): recorded on the change, not blocking,
+because this run makes that rule warn. Every change's decision is in
+`$WORK/policy-gate.txt`; the repository-wide audit is `$WORK/policy-audit.txt`
+(`totals: deny 0, warn 0, dryrun 0` at `f5b7c10c`).
+
+### #1 versus #2
+
+| | #1 (`dc4c717e`) | #2 (`f5b7c10c`) |
+| --- | --- | --- |
+| head vs `main` under `examples/policies/deno-kcp` | **7 deny** (1 executed `curl -skS` at `accept.sh:269`, 6 printed `curl -k` at `apply.sh:220-224,227`) | **0 violations** |
+| gate denials during realize | none: no policy existed | 1 deny, corrected on the next attempt |
+| warnings | none | 2 machine-path warnings on requirement text |
+| fix rounds through the flow | 7, in #1's later commits | 2 (`2a0798f5`, `f5b7c10c`), both from acceptance failures |
+| live acceptance | red when opened | green under `gate: true`, 16 of 16, `apply attempts=0` |
+| files / lines | 17 files, +1235 / -151 | 15 files, +1151 / -76 |
+| spec | example +8 -1 ~2, registry +1 (run 1) | 3 contexts, +139 / -3, 10 new requirements |
+
+The command that produces the first row, and its two answers:
+
+```bash
+bin/specctl policy eval --repo deno-kcp --commit dc4c717e --diff-base main \
+  --library $WORK/policy-deno-kcp     # violations: 7 (deny 7, warn 0, dryrun 0)
+bin/specctl policy eval --repo deno-kcp --commit f5b7c10c --diff-base main \
+  --library $WORK/policy-deno-kcp     # clean
+```
+
+### The two fix rounds the acceptance forced
+
+`main` still carries the defects #1's later commits fixed, and the acceptance
+found them again. Both went back through the spec flow as `MUST` requirements
+written into `internal-provider`:
+
+```bash
+specctl clm render --context internal-provider > ctx.md
+# add the requirements, then
+specctl clm apply --context internal-provider < ctx.md
+```
+
+- `r.provider-initial-list-is-bounded-and-retried` (+ its test) landed as
+  `2a0798f5`: the provider waited forever for the APIExport virtual workspace
+  endpoints, so a fresh `apply.sh` applied nothing. It took three attempts --
+  a1 and a2 each ran the full acceptance as the gate and failed on it, a3 landed
+  after the step was relaxed to report-only.
+- `r.watch-cache-keys-every-workspace` (+ its test) landed as `f5b7c10c`: the
+  informer store keyed objects by namespace and name only, so `default/pds` in
+  `root:alice` and in `root:bob` collided and alice's PDS never reported
+  `ready`. First attempt.
+
+Before those two, the acceptance stood at 14 of 16 (alice's PDS `ready=false`;
+the earlier run with the temp clone as `ORG_ROOT` at 8 of 16 -- the bidder
+crash-looped on `JSR package not found:
+@publicdomainrelay/did-key-ingress-proxy-subscriber-xrpc`, a missing sibling,
+not a defect). After them:
+
+```
+accept market-live-acceptance: passed (exit 0, 42.9s)
+  apply.sh                             PASS exit=0 attempts=0
+  denopod root:alice/pds               PASS phase=Running ready=true
+  denopod root:bob/bidder              PASS phase=Running ready=true
+  denopod root:alice/verifier          PASS phase=Succeeded
+  ...
+  relaySawCommit yes, verdict pass
+```
+
+### Environment facts this round added
+
+- The acceptance step's `ORG_ROOT` must be a working set where every sibling
+  the manifests name exists. The temp clone's siblings are not enough for the
+  bidder: it imports `@publicdomainrelay/did-key-ingress-proxy-subscriber-xrpc`,
+  which only the org root's `atproto-market` resolves. The step carries
+  `ORG_ROOT=/home/johnandersen777/src/publicdomainrelay-kcp` for that reason.
+- `main` is red for `TestReconcilePodMintsATokenAndReportsOutputs` at
+  `25d10f92` (it expects one token mint; the code mints two). The first realize
+  corrected the expectation, with a comment; #1 fixed the same symptom in code
+  with `internal/provider/token_memo.go`.
+- A green acceptance is fast: 43 seconds on a warm machine, against the
+  8.5 minutes a failing one takes (the retry waits and the crash-loop restarts
+  dominate).

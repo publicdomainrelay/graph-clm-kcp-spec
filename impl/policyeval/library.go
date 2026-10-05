@@ -1,6 +1,7 @@
 package policyeval
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -24,6 +25,7 @@ func LoadFS(fsys fs.FS) (policy.Library, error) {
 		return policy.Library{}, err
 	}
 	if len(library.Manifest.Imports) == 0 {
+		library.ApplyEnforcement()
 		return library, nil
 	}
 	resolved, _, err := ResolveImports(library, ImportOptions{})
@@ -63,6 +65,14 @@ func LoadRaw(fsys fs.FS) (policy.Library, error) {
 }
 
 func loadTree(fsys fs.FS, manifest policy.PolicyLibrary, manifestPath string, manifestData []byte) (policy.Library, error) {
+	for _, rule := range manifest.Enforcement {
+		if strings.TrimSpace(rule.Name) == "" {
+			return policy.Library{}, fmt.Errorf("policyeval: an enforcement rule names no constraint")
+		}
+		if !rule.Action.Known() {
+			return policy.Library{}, fmt.Errorf("policyeval: the enforcement rule %s asks for %q, which is not deny, warn or dryrun", rule.Name, rule.Action)
+		}
+	}
 	library := policy.Library{Manifest: manifest, Files: map[string][]byte{}}
 	if manifestPath != "" {
 		library.Files[manifestPath] = manifestData
@@ -83,6 +93,21 @@ func loadTree(fsys fs.FS, manifest policy.PolicyLibrary, manifestPath string, ma
 				return policy.Library{}, err
 			}
 			library.Templates = append(library.Templates, template)
+		}
+	}
+
+	entries, err = fs.ReadDir(fsys, policy.ClassifiersDir)
+	if err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+				continue
+			}
+			file := path.Join(policy.ClassifiersDir, entry.Name())
+			data, err := fs.ReadFile(fsys, file)
+			if err != nil {
+				return policy.Library{}, err
+			}
+			library.Files[file] = data
 		}
 	}
 

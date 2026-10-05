@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"path"
 	"sort"
 	"strings"
 
@@ -19,6 +20,8 @@ const (
 	TemplatesDir = "templates"
 
 	ConstraintsDir = "constraints"
+
+	ClassifiersDir = "classifiers"
 
 	TestsDir = "tests"
 
@@ -129,6 +132,23 @@ type PolicyLibrary struct {
 	Vocabulary *Vocabulary `json:"vocabulary,omitempty"`
 
 	Imports []PackImport `json:"imports,omitempty"`
+
+	// Enforcement overrides the enforcementAction of the constraints the library
+	// holds, matched by constraint name in order, the last match winning. It is
+	// applied when the library is loaded, after the imports resolve, so a rule
+	// reaches an imported pack's constraints exactly as it reaches the
+	// repository's own: a run softens a pack's deny without editing the pack.
+	Enforcement []EnforcementRule `json:"enforcement,omitempty"`
+
+	// Members are other repositories the model is built over besides this one,
+	// so a rule sees a flow that crosses a repository boundary.
+	Members []Member `json:"members,omitempty"`
+
+	// Classifiers names classifier packs under the library's classifiers/
+	// directory that apply to this repository's code, so a repository whose
+	// effect sites the shared packs do not know can name them without editing
+	// its code. Empty reads the checkout's own classifiers/ directory.
+	Classifiers []string `json:"classifiers,omitempty"`
 }
 
 func (l PolicyLibrary) EnforcementFallback() Enforcement {
@@ -136,6 +156,15 @@ func (l PolicyLibrary) EnforcementFallback() Enforcement {
 		return l.DefaultEnforcement
 	}
 	return EnforcementDryRun
+}
+
+// EnforcementRule gives the constraints whose name matches Name the action.
+// Name is a glob, the way `path.Match` reads one; a constraint name carries no
+// slash, so `*` matches every constraint and `provisioning-*` one family.
+type EnforcementRule struct {
+	Name string `json:"name"`
+
+	Action Enforcement `json:"action"`
 }
 
 type Library struct {
@@ -162,6 +191,25 @@ type Library struct {
 // ImportedFrom names the pack a template slug or a constraint name came from.
 func (l Library) ImportedFrom(key string) string {
 	return l.Imported[key]
+}
+
+// ApplyEnforcement rewrites the enforcementAction of every constraint the
+// library holds -- its own and the ones an imported pack contributed -- with
+// the last matching rule of the manifest's enforcement list. A constraint no
+// rule matches keeps the action it shipped with. A rule whose action is not
+// deny, warn or dryrun is ignored.
+func (l *Library) ApplyEnforcement() {
+	for index := range l.Constraints {
+		for _, rule := range l.Manifest.Enforcement {
+			if !rule.Action.Known() {
+				continue
+			}
+			matched, err := path.Match(rule.Name, l.Constraints[index].Name)
+			if err == nil && matched {
+				l.Constraints[index].Enforcement = rule.Action
+			}
+		}
+	}
 }
 
 func (l Library) Constraint(name string) (Constraint, bool) {

@@ -19,6 +19,12 @@ tests:
     - inventory/model-denied.yaml
     assertions:
     - violations: 1
+  - name: denied-a-declared-reach-in-before-any-code
+    object: inventory/model-declared-denied.yaml
+    inventory:
+    - inventory/model-declared-denied.yaml
+    assertions:
+    - violations: 1
   - name: denied-host-ssh-into-the-guest
     object: inventory/model-denied-effect.yaml
     inventory:

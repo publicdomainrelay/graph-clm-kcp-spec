@@ -120,6 +120,30 @@ func seedPolicyBranch(t *testing.T, repoPath, repository string, library policy.
 	}
 }
 
+// concreteOnly drops the pack import: the repository's own templates and
+// constraints alone. A test about enforcement wants the rule it enforces to be
+// the only one firing, and the pack's model rules are a different subject.
+func concreteOnly(library policy.Library) policy.Library {
+	out := library
+	out.Manifest.Imports = nil
+	out.Imported = nil
+	templates := make([]policy.Template, 0, len(library.Templates))
+	for _, template := range library.Templates {
+		if library.ImportedFrom(policy.TemplateSlug(template)) == "" {
+			templates = append(templates, template)
+		}
+	}
+	constraints := make([]policy.Constraint, 0, len(library.Constraints))
+	for _, constraint := range library.Constraints {
+		if library.ImportedFrom(constraint.Name) == "" {
+			constraints = append(constraints, constraint)
+		}
+	}
+	out.Templates = templates
+	out.Constraints = constraints
+	return out
+}
+
 func examplePolicyLibrary(t *testing.T) policy.Library {
 	t.Helper()
 	library, err := policyeval.Load(filepath.Join(repoRoot(t), "examples", "policies", "market-mini"))
@@ -777,7 +801,7 @@ func TestPolicyWarnRecordsWithoutBlocking(t *testing.T) {
 
 	const repository = "policy-warn"
 	repoPath := policyMarketMini(t, repository)
-	seedPolicyBranch(t, repoPath, repository, withEnforcement(examplePolicyLibrary(t), policy.EnforcementWarn))
+	seedPolicyBranch(t, repoPath, repository, withEnforcement(concreteOnly(examplePolicyLibrary(t)), policy.EnforcementWarn))
 	forgetObjects(t, ctx, client, []string{repository}, policyContextNames)
 	forgetPolicies(t, ctx, client)
 	t.Cleanup(func() {
@@ -851,9 +875,13 @@ func TestPolicyOverrideWaivesADeny(t *testing.T) {
 	})
 
 	scenario := filepath.Join(t.TempDir(), "scenario.yaml")
-	contexts := startPolicyGateFixture(t, ctx, client, repository, repoPath, scenario, 3, []spec.AcceptanceOverride{{
-		Step: "policy:relay-only-ssh", Reason: "a migration, tracked in issue 12", By: "operator",
-	}})
+	// Two constraints deny the violating requester: the repository's own
+	// relay-only-ssh and the pack's RfpRelayOnlyGuestSsh, which reads the same
+	// fact from the model. The operator waives both.
+	contexts := startPolicyGateFixture(t, ctx, client, repository, repoPath, scenario, 3, []spec.AcceptanceOverride{
+		{Step: "policy:relay-only-ssh", Reason: "a migration, tracked in issue 12", By: "operator"},
+		{Step: "policy:rfp-relay-only-guest-ssh", Reason: "a migration, tracked in issue 12", By: "operator"},
+	})
 	writeViolatingScenario(t, scenario, contexts)
 
 	owner := requesterContext(t, ctx, client, repository)

@@ -14,6 +14,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphfacts"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/effects"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
 )
 
 func runPolicyModel(args []string, stdout, stderr io.Writer) int {
@@ -28,6 +29,9 @@ func runPolicyModel(args []string, stdout, stderr io.Writer) int {
 	libraryDir := fs.String("library", "", "read the policy library from this directory instead of the branch")
 	output := fs.String("o", "text", "text or json")
 	propose := fs.Bool("propose-interactions", false, "print a YAML interactions block per context, proposed from the observed flows")
+	cacheDir := fs.String("cache-dir", defaultCacheDir(), "where a member repository is cloned")
+	memberPathFlags := memberPaths{}
+	fs.Var(memberPathFlags, "member", "clone the named member from a local path instead of its url (name=path); repeatable")
 	classifiers := stringsFlag{}
 	fs.Var(&classifiers, "classifiers", "directory of extra classifier packs; repeatable")
 	testGlobs := stringsFlag{}
@@ -88,8 +92,18 @@ func runPolicyModel(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl policy model: %v\n", err)
 		return exitError
 	}
+	libraryClassifiers, classifierCleanup, err := policyeval.LibraryClassifierDirs(library, codeDir, "")
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy model: %v\n", err)
+		return exitError
+	}
+	defer classifierCleanup()
+	explicit := classifiers
+	if len(explicit) == 0 {
+		explicit = libraryClassifiers
+	}
 	computed, err := effects.Apply(&graph, effects.Options{
-		ClassifiersDirs: classifierDirs(codeDir, classifiers),
+		ClassifiersDirs: classifierDirs(codeDir, explicit),
 		IncludeExtras:   true,
 	})
 	if err != nil {
@@ -97,12 +111,19 @@ func runPolicyModel(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 
-	model, err := policy.BuildModel(policy.ModelInput{
+	members, err := policyeval.ResolveMembers(ctx, library.Manifest.Members, library, memberOptions(*cacheDir, memberPathFlags))
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy model: %v\n", err)
+		return exitError
+	}
+	defer cleanupMembers(members)
+	model, _, err := policyeval.BuildEvaluationModel(ctx, policyeval.ModelRequest{
 		Repository: *repository,
 		Graph:      graph,
 		Effects:    computed,
 		Contexts:   modelContexts(contexts),
-		Binding:    library.Manifest.Binding(),
+		Library:    library,
+		Members:    members,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy model: %v\n", err)
@@ -122,7 +143,7 @@ func runPolicyModel(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, string(encoded))
 		return exitOK
 	}
-	printModel(stdout, resolved, model)
+	printModel(stdout, resolved, model, members)
 	return exitOK
 }
 
@@ -283,8 +304,11 @@ func slug(value string) string {
 	return strings.Trim(builder.String(), "-")
 }
 
-func printModel(out io.Writer, commit string, model policy.ArchitectureModel) {
+func printModel(out io.Writer, commit string, model policy.ArchitectureModel, members []policyeval.ResolvedMember) {
 	fmt.Fprintf(out, "repository: %s  commit: %s\n", model.Metadata.Name, shortCommit(commit))
+	for _, member := range members {
+		fmt.Fprintf(out, "member: %s %s at %s\n", member.Member.Name, member.Member.Ref, shortCommit(member.Commit))
+	}
 	fmt.Fprintf(out, "components: %d\n", len(model.Spec.Components))
 	for _, component := range model.Spec.Components {
 		context := component.Context

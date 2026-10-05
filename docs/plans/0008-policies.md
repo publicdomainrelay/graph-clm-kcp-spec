@@ -255,7 +255,7 @@ of each PolicyChange, as for specs.
 
 | command | does |
 | --- | --- |
-| `specctl policy init --repo X` | create `open-policy/X` with policies.yaml and `lib/specd.rego` |
+| `specctl policy init --repo X [--with-library \| --from DIR]` | create `open-policy/X` with policies.yaml and `lib/specd.rego`; `--from DIR` seeds it from an existing policy directory |
 | `specctl policy new <name> --kind K --review CodeGraph` | scaffold src.rego, test, template.yaml, constraint, suite |
 | `specctl policy build [--dir D]` | build `dist/`, refresh lib, render CATALOGUE.md |
 | `specctl policy test [--dir D]` | `opa test` on src + gator verify on suites (built-in engine; `--gator` also shells out to the real `gator`) |
@@ -636,6 +636,108 @@ run against atproto-market.
 - Opus review of `open-policy/atproto-market*` and the hydradb diff.
 - Fix what they find.
 
+#### Fix list 1
+
+The coordinator's review/fix-phase list (this phase with plan 0009 G7), worked
+through on `fix-list-1`. A parallel worker holds `factory/specd`'s
+`SpecChange`/PolicyChange code, so nothing here touches it.
+
+**1. A test's `specctl up` left specd, kcp and kine behind.** A run under
+`/tmp` (started 01:40, 2026-10-05) left a `specd` with ppid 1 plus the kcp and
+kine of a `specctl up` root alive for three hours. Both existing guards miss
+it: `Pdeathsig` cannot span a process that exits, and `specctl up` exits by
+design, so the chain from the test binary to the daemons is broken; and the
+ledger check runs in the test process's `TestMain`, so a test binary killed
+abnormally never reaches it. `specd` was not in the ledger at all.
+
+Fix, on `fix-list-1` (`6a82e68`):
+
+- `specctl up` reads `SPECD_DIE_WITH` (a test-only env; unset in production,
+  so `specctl up` daemons stay detached). When it is set and `up` has just
+  started the kcp, `up` starts a detached *keeper* for the root
+  (`cmd/specctl/keeper.go`, `specctl keeper --root R --die-with PID`).
+  `kcpproc.Watch` polls PID every 200 ms and, when it dies, terminates every
+  kcp, kine and specd whose command line names the root; it also returns as
+  soon as none is left, so `specctl down` ends it too. The keeper is spawned
+  after the kcp starts, before `install-specs.sh` and specd, so a failure
+  part-way still leaves the daemons covered.
+- `kcpproc.RecordSpecd` appends specd to the same `SPECD_KCP_LEDGER` file, and
+  `kcpproc.Leaks` names it beside the kcp and kine, so `impl/kcpproc`,
+  `impl/runlock` and `test/e2e` `TestMain`s kill a leaked specd and fail the
+  package.
+- `kcpproc.ScanPids` and the keeper's scan share one `/proc` walk and one set
+  of name matches (`namesKcp`, `namesKine`, `namesSpecd`).
+
+Why a keeper and not `Pdeathsig`: Linux delivers `Pdeathsig` when the parent
+*thread* dies, and the parent of the daemons is `specctl up`, which must
+return for the caller to continue. No `Pdeathsig` chain can therefore span
+`specctl up`, and a pid-watching keeper can. `Pdeathsig` remains the mechanism
+for `kcpproc.Start` in process (plan 0007 item 8); the two cover different
+shapes.
+
+Proof: `test/e2e/keeper_live_test.go`. `TestSpecctlUpDiesWithItsStarter`
+re-execs the test binary as `TestSpecctlUpHelper`
+(`SPECD_E2E_HELPER=1`, so `TestMain` skips the cluster setup), which runs a
+real `specctl up` with `SPECD_DIE_WITH=its own pid` and reports the session;
+the parent SIGKILLs it and asserts kcp, kine and specd are gone within 10 s.
+Measured twice: with `DieWithPid` forced to 0 the three survive the SIGKILL
+and the test fails (`kcp ..., kine ... and specd ... (alive true/true/true)
+outlived the process that started them`); with the keeper they die, and the
+test passes.
+
+**2. codegraph does not index `Deno.test` bodies.** Not an option: `codegraph
+1.6.0` (`@colbymchenry/codegraph`, the external indexer
+`impl/codegraphsqlite` shells out to) exposes no flag, config file or env var
+to index bodies -- `init`, `index` and `sync` take only `--force`, `--quiet`,
+`--verbose` and `--yes` -- and its kind list has no closure, arrow or
+expression kind. The limit is now stated in a new `docs/policies.md` section,
+"Limits" ("The indexer emits declarations, not bodies"): a `Deno.test` body
+has no node, its effects are file-level (`node: file:...`, component = the
+file's role, flow `test -> unknown` with no channel), and a rule that needs
+the declaring symbol or a channel cannot see it. Plan 0009 G4 gap (a) is the
+measurement; the suite case `denied-ssh-inside-a-test-body` is the proof that
+the rule still fires.
+
+**3. The spec-time gate's library.** Verified unified, no code change:
+`Controller.specGateLibrary` (`factory/specd/specgate.go:71-84`) uses
+`--policy-library` only as an override and otherwise calls the same
+`loadPolicyGate` the realize gate and the audit use, so a repository with no
+policy branch gets no gate and the three can never disagree. `docs/policies.md`
+("Declared interactions and the spec-time gate") now says so and names the
+override. Not pinned by a test: the live gate test passes `PolicyLibrary`
+explicitly, so the fallback branch is read from the code, and `factory/specd`
+is the parallel worker's file.
+
+**4. A tunneled ssh whose transport the vocabulary does not name.** Documented
+in the pack, in `policies/packs/rfp-guest-isolation/README.md` (new; the
+`CATALOGUE.md` is generated and byte-compared by
+`TestExampleDistAndCatalogueAreCurrent`, so free text cannot go there), with a
+short statement in the `docs/policies.md` "Limits" section: the rule sees a
+non-empty `proxyCommand` and treats the ssh as tunneled, so an ssh whose
+channel the model did not resolve is outside its reach; it still denies a
+direct ssh and a test's `net.dial` on the guest.
+
+**Verification.** `gofmt -l .` clean, `go vet ./...` clean, `go test ./...
+-short -count=1` green, and `TMPDIR=/home/johnandersen777/e2e-tmp
+SPECD_REQUIRE_LIVE=1 go test ./... -count=1` green in chunks (the whole
+non-`test/e2e` set in one run; `test/e2e` split by `-run`, every test of the
+package covered). One flake seen once and not reproduced:
+`TestPhase7OneManifestPopulatesAnUnknownCodebase` reported `changes = 5, want
+one per context` because one `CodeToSpec` change had a second, no-op attempt
+(`...-a2`, "the spec already said this"); it passed on a rerun of the same
+chunk and alone. It is the same reconcile-race class as the known
+`TestPhase5CodeToSpecWithTheScriptedAgent` flake and is not item 1's
+regression. No kcp, kine or specd whose root is under a test temp directory
+was alive after the runs (checked `/proc` for root paths under `e2e-tmp`; the
+only live instances belong to other agents' roots).
+
+**5. The hand-labelled recall numbers.** They are in plan 0009 G2 ("Recall,
+hand-labelled": 42 tp, 0 fp, 45 fn; precision 1.000, recall 0.483;
+`proc.exec` 0.070, `net.dial` 0.000) and the same table and reading is now in
+`docs/policies.md` "Limits", so a policy author reads the weak kinds beside
+the vocabulary instead of only in the plan. The circular G1 comparison
+against grep rules is named there as not being the recall claim.
+
 ### H. Retry deno-kcp#1 under policies, as a new PR
 
 The user asked whether the policies improve
@@ -693,22 +795,60 @@ with the gate on. The result is a new pull request; #1 stays as it is.
    which is what plan 0009's model form (a `proc.exec` effect whose `argv0` the
    cloud-init does not deploy) is for.
 
-   Step 2 (the retry under the gate) and step 3 (publish) are not done.
-2. **Retry.**
-   - `scripts/example-deno-kcp-pr.sh` with the same PROMPT and BRIEF, and
-     `open-policy/deno-kcp` seeded from the bound library.
-   - Real-run constraints are deny: TLS verification and provisioning.
-     Style and quality constraints are warn.
-   - The realize gate feeds deny messages back to the agent.
-   - Live acceptance runs as before.
-3. **Publish** as a new PR against deno-kcp (`spec/bidder-and-bob-pds-policy-<date>`),
-   with a body that compares it to #1:
-   - violations in #1 vs violations in the new PR;
-   - gate denials during realize, with the attempts it took;
-   - the acceptance result;
-   - the spec and diff size.
-4. **Record.** `docs/examples/deno-kcp-pr.md` gets a "with policies" round
-   holding the commands, the timings and the table.
+   Baselines for steps 2-4, on the branch the retry starts from: `main`
+   `25d10f92` is red for `internal/provider`'s
+   `TestReconcilePodMintsATokenAndReportsOutputs` (one mint expected, two
+   made), and the defects #1's later commits fixed -- the provider's unbounded
+   initial list and its namespace-and-name-only informer store key -- are still
+   on `main`, which is why the retry's acceptance had to find and fix them
+   again.
+2. **Done.** `specctl policy init --from DIR` (new) writes an existing policy
+   directory onto a tree or orphan branch, and `scripts/example-pr.sh` gained
+   `POLICY_LIBRARY` (a directory, off by default) and `POLICY_ENFORCEMENT`
+   (`<name glob>=<deny|warn|dryrun>`, last match wins; default
+   `*=warn security-disabled-verification=deny provisioning-*=deny`), so a run
+   seeds `open-policy/<repo>[--<branch slug>]` before specd starts, hands the
+   same directory to specd as `SPECD_POLICY_LIBRARY` for the spec-time gate,
+   pushes the policy branch with `PUSH=1`, and records the audit, every
+   change's gate decision, the head evaluation and a summary into `$WORK`.
+   Two script bugs the run exposed are fixed with it: the push of a fresh
+   clone's `open-architecture/<repo>` baseline is not a fast-forward against
+   the remote's (only this run's own branch is pushed now), and `policy report`
+   needs `--repo`.
+   - Run:
+     `WORK=/tmp/specd-deno-kcp-policy-20261005 BRANCH=spec/bidder-and-bob-pds-policy-20261005
+     PUSH=1 POLICY_LIBRARY=$HYDRA/examples/policies/deno-kcp scripts/example-deno-kcp-pr.sh`,
+     same PROMPT and BRIEF as #1, with the `kcp-libs` sibling on
+     `fix/openbao-no-default-issuer` (kcp-libs#1) and the `hono-pds` crawler
+     commit from hono-pds#1 carried as a working-tree patch.
+   - The spec-time gate denied nothing. The realize gate denied once:
+     `security-disabled-verification` on `apply.sh:222`
+     (`echo "  bob pds curl -k https://..."`), the messages went back to the
+     agent as the next attempt's agent log, and the next attempt landed
+     `f31ce445` without it: one deny out of three attempts for that batch. Two
+     `requirement-text-has-machine-path` warnings were recorded (the harness's
+     own requirement text names `/home/johnandersen777/...`), not blocking.
+   - Two fix rounds, both acceptance-driven and both through the spec flow as
+     `MUST` requirements on `internal-provider`:
+     `r.provider-initial-list-is-bounded-and-retried` (`2a0798f5`, three
+     attempts, two of them gated on the failing acceptance) and
+     `r.watch-cache-keys-every-workspace` (`f5b7c10c`, first attempt).
+3. **Published** as
+   [publicdomainrelay/deno-kcp#2](https://github.com/publicdomainrelay/deno-kcp/pull/2)
+   on `spec/bidder-and-bob-pds-policy-20261005`, with the orphan branches
+   `open-architecture/deno-kcp--spec-bidder-and-bob-pds-policy-20261005` and
+   `open-policy/deno-kcp--spec-bidder-and-bob-pds-policy-20261005`. The body
+   compares it to #1: 7 deny (all `security-disabled-verification`) versus 0;
+   the one gate denial and the agent's correction; two fix rounds through the
+   flow; live acceptance green under `gate: true` (16 of 16 checks, 42.9 s,
+   `apply attempts=0`, `relaySawCommit yes`); 15 files +1151/-76 against #1's
+   17 files +1235/-151, and 10 new requirements over 3 contexts (+139/-3).
+4. **Recorded** in `docs/examples/deno-kcp-pr.md`, section "Round with policies
+   (PR #2)": the one-command run, what `POLICY_LIBRARY` does to the branch, the
+   timings, the gate denial and its correction, the #1-versus-#2 table, the two
+   fix rounds, and the environment facts this round added (the acceptance
+   step's `ORG_ROOT` must be the org root; a green acceptance is 43 s, a
+   failing one 8.5 minutes).
 
 Order: after phase C's gate is fixed and merged (`policy-cm`).
 

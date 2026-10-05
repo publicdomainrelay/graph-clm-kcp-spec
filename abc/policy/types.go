@@ -395,6 +395,10 @@ type Report struct {
 
 	Reviewed []ObjectRef `json:"reviewed,omitempty"`
 
+	// Members name the other repositories the model was built over, each with
+	// the commit it was read at.
+	Members []ReportMember `json:"members,omitempty"`
+
 	Violations []Violation `json:"violations"`
 
 	Totals map[Enforcement]int `json:"totals"`
