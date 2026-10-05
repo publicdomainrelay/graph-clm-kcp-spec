@@ -262,6 +262,14 @@ in-process ledger check, so a kcp that `specctl up` started inside it and nobody
 stopped is only covered when the test process exits normally. Its private kcp
 and kine are covered by `Pdeathsig` in every case.
 
+Closed later, on `fix-list-1` (`6a82e68`, plan 0008 "F. Review and fix / Fix
+list 1"): a test that sets `SPECD_DIE_WITH=<pid>` makes `specctl up` start a
+detached keeper for the root, and the keeper kills every kcp, kine and specd
+whose command line names that root when the pid dies. `specd` also joins
+`SPECD_KCP_LEDGER`, so the `TestMain` check names it. `Pdeathsig` cannot do
+this job: it fires on the parent *thread*, and `specctl up` must exit, so no
+chain spans it; the keeper covers the case `Pdeathsig` cannot.
+
 ## Order
 
 1, 2 and 5 are CLI and persistence and are independent. 3 and 4 touch

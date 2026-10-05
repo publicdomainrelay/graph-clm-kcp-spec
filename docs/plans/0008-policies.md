@@ -626,6 +626,94 @@ CodeGraph identifiers. See `docs/plans/0009-portable-policies.md`.
 - Opus review of `open-policy/atproto-market*` and the hydradb diff.
 - Fix what they find.
 
+#### Fix list 1
+
+The coordinator's review/fix-phase list (this phase with plan 0009 G7), worked
+through on `fix-list-1`. A parallel worker holds `factory/specd`'s
+`SpecChange`/PolicyChange code, so nothing here touches it.
+
+**1. A test's `specctl up` left specd, kcp and kine behind.** A run under
+`/tmp` (started 01:40, 2026-10-05) left a `specd` with ppid 1 plus the kcp and
+kine of a `specctl up` root alive for three hours. Both existing guards miss
+it: `Pdeathsig` cannot span a process that exits, and `specctl up` exits by
+design, so the chain from the test binary to the daemons is broken; and the
+ledger check runs in the test process's `TestMain`, so a test binary killed
+abnormally never reaches it. `specd` was not in the ledger at all.
+
+Fix, on `fix-list-1` (`6a82e68`):
+
+- `specctl up` reads `SPECD_DIE_WITH` (a test-only env; unset in production,
+  so `specctl up` daemons stay detached). When it is set and `up` has just
+  started the kcp, `up` starts a detached *keeper* for the root
+  (`cmd/specctl/keeper.go`, `specctl keeper --root R --die-with PID`).
+  `kcpproc.Watch` polls PID every 200 ms and, when it dies, terminates every
+  kcp, kine and specd whose command line names the root; it also returns as
+  soon as none is left, so `specctl down` ends it too. The keeper is spawned
+  after the kcp starts, before `install-specs.sh` and specd, so a failure
+  part-way still leaves the daemons covered.
+- `kcpproc.RecordSpecd` appends specd to the same `SPECD_KCP_LEDGER` file, and
+  `kcpproc.Leaks` names it beside the kcp and kine, so `impl/kcpproc`,
+  `impl/runlock` and `test/e2e` `TestMain`s kill a leaked specd and fail the
+  package.
+- `kcpproc.ScanPids` and the keeper's scan share one `/proc` walk and one set
+  of name matches (`namesKcp`, `namesKine`, `namesSpecd`).
+
+Why a keeper and not `Pdeathsig`: Linux delivers `Pdeathsig` when the parent
+*thread* dies, and the parent of the daemons is `specctl up`, which must
+return for the caller to continue. No `Pdeathsig` chain can therefore span
+`specctl up`, and a pid-watching keeper can. `Pdeathsig` remains the mechanism
+for `kcpproc.Start` in process (plan 0007 item 8); the two cover different
+shapes.
+
+Proof: `test/e2e/keeper_live_test.go`. `TestSpecctlUpDiesWithItsStarter`
+re-execs the test binary as `TestSpecctlUpHelper`
+(`SPECD_E2E_HELPER=1`, so `TestMain` skips the cluster setup), which runs a
+real `specctl up` with `SPECD_DIE_WITH=its own pid` and reports the session;
+the parent SIGKILLs it and asserts kcp, kine and specd are gone within 10 s.
+Measured twice: with `DieWithPid` forced to 0 the three survive the SIGKILL
+and the test fails (`kcp ..., kine ... and specd ... (alive true/true/true)
+outlived the process that started them`); with the keeper they die, and the
+test passes.
+
+**2. codegraph does not index `Deno.test` bodies.** Not an option: `codegraph
+1.6.0` (`@colbymchenry/codegraph`, the external indexer
+`impl/codegraphsqlite` shells out to) exposes no flag, config file or env var
+to index bodies -- `init`, `index` and `sync` take only `--force`, `--quiet`,
+`--verbose` and `--yes` -- and its kind list has no closure, arrow or
+expression kind. The limit is now stated in a new `docs/policies.md` section,
+"Limits" ("The indexer emits declarations, not bodies"): a `Deno.test` body
+has no node, its effects are file-level (`node: file:...`, component = the
+file's role, flow `test -> unknown` with no channel), and a rule that needs
+the declaring symbol or a channel cannot see it. Plan 0009 G4 gap (a) is the
+measurement; the suite case `denied-ssh-inside-a-test-body` is the proof that
+the rule still fires.
+
+**3. The spec-time gate's library.** Verified unified, no code change:
+`Controller.specGateLibrary` (`factory/specd/specgate.go:71-84`) uses
+`--policy-library` only as an override and otherwise calls the same
+`loadPolicyGate` the realize gate and the audit use, so a repository with no
+policy branch gets no gate and the three can never disagree. `docs/policies.md`
+("Declared interactions and the spec-time gate") now says so and names the
+override. Not pinned by a test: the live gate test passes `PolicyLibrary`
+explicitly, so the fallback branch is read from the code, and `factory/specd`
+is the parallel worker's file.
+
+**4. A tunneled ssh whose transport the vocabulary does not name.** Documented
+in the pack, in `policies/packs/rfp-guest-isolation/README.md` (new; the
+`CATALOGUE.md` is generated and byte-compared by
+`TestExampleDistAndCatalogueAreCurrent`, so free text cannot go there), with a
+short statement in the `docs/policies.md` "Limits" section: the rule sees a
+non-empty `proxyCommand` and treats the ssh as tunneled, so an ssh whose
+channel the model did not resolve is outside its reach; it still denies a
+direct ssh and a test's `net.dial` on the guest.
+
+**5. The hand-labelled recall numbers.** They are in plan 0009 G2 ("Recall,
+hand-labelled": 42 tp, 0 fp, 45 fn; precision 1.000, recall 0.483;
+`proc.exec` 0.070, `net.dial` 0.000) and the same table and reading is now in
+`docs/policies.md` "Limits", so a policy author reads the weak kinds beside
+the vocabulary instead of only in the plan. The circular G1 comparison
+against grep rules is named there as not being the recall claim.
+
 ### H. Retry deno-kcp#1 under policies, as a new PR
 
 The user asked whether the policies improve

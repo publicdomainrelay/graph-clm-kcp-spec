@@ -2000,6 +2000,11 @@ SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase14OneInstancePerBranch -c
 # two git worktrees on two branches with their specds running at the same time
 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase14TwoWorktreesRunAtTheSameTime -count=1 -v
 
+# a test's own specctl up leaves nothing behind: SPECD_DIE_WITH makes up start
+# a keeper for the root, and SIGKILLing the starter takes its kcp, kine and
+# specd with it within 10 s
+SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestSpecctlUpDiesWithItsStarter -count=1 -v
+
 # the effectiveness harness, with no cluster in it: every scenario's realize
 # steps are applied to a copy of its fixture and its own tests must pass
 go test ./impl/eval/ -run TestScriptedScenarios -count=1 -v
@@ -2178,7 +2183,8 @@ flowchart LR
   B -->|specctl down / make kcp-down| X["stopped: only processes whose cmdline names this root"]
   T["go test (live)"] -->|DieWithStarter| P["private kcp + kine in a temp root"]
   P -->|"Pdeathsig SIGKILL<br/>(forking thread pinned)"| Y["die with the test binary, even on timeout or kill -9"]
-  T -->|SPECD_KCP_LEDGER| Z["TestMain: still alive at the end? name it, kill it, fail the package"]
+  T -->|"SPECD_DIE_WITH, then specctl up"| W["keeper for the root: its kcp, kine and specd die with the test binary"]
+  T -->|SPECD_KCP_LEDGER| Z["TestMain: kcp, kine or specd still alive at the end? name it, kill it, fail the package"]
 ```
 
 All the services involved, and their ports:

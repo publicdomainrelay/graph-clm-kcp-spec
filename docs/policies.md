@@ -316,8 +316,14 @@ bin/specctl policy model --repo market-mini --worktree fixtures/market-mini/comp
 ```
 
 The **spec-time gate** evaluates a `SpecToCode` change before the agent runs.
-`specd --policy-library DIR` builds the ArchitectureModel from the post-delta
-specs alone (declared facts, no code, no effects) and evaluates the library. A
+It builds the ArchitectureModel from the post-delta specs alone (declared
+facts, no code, no effects) and evaluates the library. `specd
+--policy-library DIR` overrides where that library is read from; without the
+flag the gate calls the same `loadPolicyGate` the realize gate and the audit
+use (`factory/specd/specgate.go:71`), so it reads the repository's
+`open-policy/<repo>` branch, else kcp, and a repository with no policy branch
+gets no gate. An audit, a realize and a spec-time deny can therefore never
+disagree about which policies are in force. A
 `deny` violation is recorded on the change as `phase: Failed`, the message
 names the constraints, and the condition `PolicyValid=False` carries
 `reason: PolicyDeniedAtSpec`; nothing is realized, no worktree branch is
@@ -1061,6 +1067,73 @@ the triggers; `-o json` prints the `ArchitectureModel` object.
 Reports name `policy`, `constraint`, `enforcementAction`, the reviewed object,
 `file:line` and the message; `-o json` also carries `details` and the violation
 `id`.
+
+## Limits
+
+Known limits, stated rather than hidden. The first two bound what a policy can
+see; the third bounds the classifier a policy reads.
+
+### The indexer emits declarations, not bodies
+
+The CodeGraph is read from the external `codegraph` index
+(`@colbymchenry/codegraph`, `impl/codegraphsqlite`). That index holds one node
+per declaration -- `function`, `method`, `class`, `constant`, `variable`,
+`property`, `route`, `interface`, `struct`, `type_alias` -- plus one `file`
+node and one `import` node per import. There is no node for a closure, an arrow
+function or a call expression.
+
+A `Deno.test("...", () => { ... })` body is therefore invisible: a test file is
+its `file` node plus its imports, and nothing else. `new Deno.Command("ssh",
+...)` inside such a body becomes a *file-level* effect -- its `node` is
+`file:<path>`, its component is the file's role (the `test` role), and its only
+flow is `test -> unknown` with no channel. A rule that denies an ssh outside
+the guest role carried by no relay-channel flow still denies it (proved by the
+suite case `denied-ssh-inside-a-test-body`), but a rule that needs the
+declaring symbol, its line, or a channel from the test cannot see the body at
+all.
+
+This is the tool's limit, not the pack's: `codegraph 1.6.0` exposes no option,
+config file or environment variable to index bodies (`init`, `index` and `sync`
+take only `--force`, `--quiet`, `--verbose`, `--yes`), and its kind list has no
+closure or expression kind. The workaround a pack has is to move the transport
+into a named declaration the test calls, so the effect gets a real node (see
+plan 0009 G4 gap (a)). The same granularity caveat appears under "The
+CodeGraph" above: a callback is part of its enclosing node's text.
+
+### Effect recall is measured against hand labels
+
+The effect classifier (`impl/effects`) does not see every call. The honest
+number is the hand-labelled sample, not the earlier calibration, which compared
+the classifier against grep rules written from the classifier itself:
+
+| kind | tp | fp | fn | precision | recall |
+| --- | --- | --- | --- | --- | --- |
+| `http.request` | 13 | 0 | 4 | 1.000 | 0.765 |
+| `net.dial` | 0 | 0 | 1 | 1.000 | 0.000 |
+| `proc.exec` | 3 | 0 | 40 | 1.000 | 0.070 |
+| `ssh.connect` | 2 | 0 | 0 | 1.000 | 1.000 |
+| total | 42 | 0 | 45 | 1.000 | 0.483 |
+
+Precision is 1.000 on this sample -- the classifier does not invent effects --
+but recall is 0.483: `proc.exec` is the weak kind, and `net.dial` is not
+classified at all here. A policy that must catch every exec of a transport
+cannot rest on the classifier alone; the calibration commands and the label
+file are `scripts/effects-recall.py` and
+`testdata/effects-recall/atproto-market-master.yaml`, and the reading is
+recorded in plan 0009 G2.
+
+### A tunneled ssh whose transport the vocabulary does not name
+
+`relay-only-guest-ssh` denies an ssh outside the guest role that is carried by
+no `relay`-channel flow *and* carries no non-empty `proxyCommand`. The second
+half is deliberate -- an ssh whose proxy command is built elsewhere must stay
+out of the report -- but it also means the rule cannot check the transport of
+an ssh the model could not resolve a channel for. Such an ssh is not denied:
+the rule sees its `proxyCommand`, so it treats it as tunneled, and it cannot
+tell a relay from a transport the vocabulary does not name. What the rule
+still catches is the regression it guards -- a direct ssh with no tunnel at all
+-- plus any `net.dial` from a test that acts on the guest. `docs/plans/0009`
+G4 states the same limit; the pack's `CATALOGUE.md` states it beside the rule.
 
 ## Troubleshooting
 

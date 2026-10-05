@@ -869,6 +869,21 @@ for atproto-market, and the results are compared with the hand-written pack.
 
 DeepSeek analysis plus an Opus review; then fix what they find.
 
+The coordinator's fix list for this phase (with plan 0008 F) is worked through
+on `fix-list-1` and recorded in plan 0008, "F. Review and fix / Fix list 1".
+Three of its items close gaps named here:
+
+- Gap (a) -- the `Deno.test` body the indexer does not see -- is confirmed as
+  the external indexer's limit, not a setting: `codegraph 1.6.0` has no option
+  to index bodies. It is now stated in `docs/policies.md`, "Limits", and in
+  the pack's `README.md`.
+- Gap (c) -- the spec-time gate's library -- is verified in code
+  (`factory/specd/specgate.go:71-84`) and stated in `docs/policies.md`.
+- The unnamed-transport limit and the hand-labelled recall table (G2) are now
+  in `docs/policies.md`, "Limits", and the transport limit is also in the
+  pack's `README.md`.
+
+
 ## Order with plan 0008
 
 - 0008 A, B, C and E stand: the engine, the concrete layer, kcp, the gate and
