@@ -501,6 +501,50 @@ to a child app after `parent.route("/", child)` is reachable (it is not - the
 first round had mounted the report endpoint exactly there). Full walkthrough:
 [`docs/examples/atproto-market-iroh-pr.md`](docs/examples/atproto-market-iroh-pr.md#round-2-after-review-0002).
 
+**Round 3 (plan 0006 F3).** Round 2 left two gaps: no live ssh over dumbpipe in
+the harness, and a report endpoint authorised only by the public accept ref.
+Round 3 closed both, and the first gap was not what Round 2 said it was. Docker
+is present and the container-mode provider works; four defects stood in the way,
+none of them "this environment".
+
+The harness raced the contract against a 40 s timer and then ran its `finally`
+cleanup, aborting the dispatcher while the bidder was still provisioning, so its
+record resolve rejected as `TypeError: fetch failed` after the assertions. Then
+the guest: its report script read the provisioning JWT's `sub` with a fixed `==`
+pad (as the secrets module does), but this provider's token payload is 435
+base64url characters -- three short of a multiple of four -- so `base64 -d`
+failed, no workload token was minted and the report was never sent. That was the
+decisive blocker, and only the live guest showed it. The listener unit also
+could not run under the container-mode `systemctl` shim, which re-quotes nothing
+(a quoted `ExecStart` dies `unexpected EOF while looking for matching '`) and has
+neither `ExecStartPost` nor `StandardOutput=append:`; `ExecStart` is now one bare
+path to a helper script that owns the identity, the log and the reporter. Last,
+the harness needed the OAuth suite's two-listener wiring (plain for the
+in-process subscribers, TLS with `relay.localhost` / `*.relay.localhost` SANs for
+the guest) with the fetch interceptor on the **TLS** port and the CA, because the
+requester fetches the portless `issuer_uri`'s JWKS. The second gap is closed by
+binding the report to the guest's workload identity -- the token the guest
+exchanges at the provider's `/v1/oidc/issue`, verified by the requester against
+the provider's JWKS with the same injected-fetch discipline
+`createSecretsAuthorizer` uses, requiring issuer, audience and subject from the
+winning bid's `bid_config`. No new service, and no credential in cloud-init,
+which is published inside the `compute.vm` record. All of it went through the same
+spec flow as Round 2 -- requirements rendered, ids diffed, applied with `specctl
+clm apply`, realized by specd, gated by verify and the container acceptance.
+
+The acceptance is now a real ssh proof: `specctl accept` -> `1 passed | 0
+failed` in 32 s, `POST /v1/on-network` 200, ssh ready on the first poll with
+`ProxyCommand=dumbpipe connect <ticket>`, `SSH_OK_VIA_IROH` printed inside the
+guest, exit 0. Realized as `2630773` (fixture) and `ffac22e` (module + requester +
+harness, 8 files, `Acceptance: acceptance passed (gate)`) -- **33 files,
++2021/-193** against `pre-iroh`. Two of these findings are the tool's, not the
+repository's: an apply during a `Running` change was answered `no change: folded
+into the running change ...` and silently dropped the edit from kcp (plan 0006
+F4, already on `main`, makes that apply its own queued change; the live instance
+here still ran the pre-F4 binary), and three realize attempts were spent on a
+plain/TLS port mixup (`invalid HTTP version parsed`) before the wiring
+requirement was concrete.
+
 ## Status
 
 All ten phases are done: **kcp holds specs, code becomes facts in `status`

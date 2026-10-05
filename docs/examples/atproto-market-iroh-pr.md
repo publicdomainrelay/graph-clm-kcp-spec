@@ -625,6 +625,154 @@ with the requirement-by-requirement account above.
 | CodeGraph ids are line-sensitive, so a realize that rewrites a file leaves other requirements' `codeRefs` unresolved and the context pinned at `CodeSynced=False` (`CodeRefsUnresolved` on `lib-common-cloud-init-common` and `lib-market-bidder-compute`) | already recorded as plan 0004 E2; this run is fresh evidence, recorded in [plan 0005](../plans/0005-atproto-market-iroh.md) |
 | `specctl get <kind> -o json` returns a `List` wrapper, so an operator patching a Repository has to unwrap `items[0]` before `specctl apply` accepts it (`specapi: unknown kind "List"`) | recorded in plan 0005 |
 | the sibling-view heuristic in the example script (not hydradb proper) fell through to GitHub for worktree siblings; fixed in `scripts/example-pr.sh` | fixed here |
+| a `clm apply` while that context's change is `Running` is answered `no change: folded into the running change ...` and the edit is silently dropped from kcp, so an operator amendment can vanish without an error; render-and-grep the context after every apply | fixed by plan 0006 F4 (the apply is now written and gets its own queued change); this run still used the pre-F4 binary, and [plan 0006](../plans/0006-atproto-market-review-fixes.md) records the live evidence |
+
+## Round 3: F3 closes the two gaps Round 2 left
+
+Round 2 ended with two gaps written into the pull request: no live ssh over
+dumbpipe in the harness, and a report endpoint whose only authorisation was the
+public accept ref. Round 3 is plan 0006 F3, and it started by trying to reproduce
+the first gap instead of trusting its description.
+
+The run below is the third pass over these two gaps: the previous session had
+diagnosed them and written the requirement edits, but died before the edits were
+applied (the scratch documents under the run's `TMPDIR` hold its work, and the
+rendered requirement ids showed exactly what had and had not landed). Round 3
+picked the diagnosis up, corrected two of its conclusions, applied the amended
+requirements, and drove the flow to a green acceptance.
+
+### The first gap was not the environment
+
+`docker info` is green (29.8.2) and the container-mode provider provisions. Four
+defects stood between the harness and a green run, and the live container names
+each of them.
+
+**1. The harness tore down during provisioning.** `test/bidder_container_integration_test.ts`
+raced the contract against a 40 s timer and then ran its `finally` cleanup. The
+contract promise resolves when the receipt verifies; the bidder provisions
+*after* it writes that receipt, in the background. The teardown therefore aborted
+the dispatcher while provisioning was in flight, and the bidder's payload resolve
+rejected. The stack says so exactly:
+
+```
+TypeError: fetch failed
+    at async fetch
+    at async Object.resolve (lib/market-atproto/records.ts:170:19)
+    at async lib/market-bidder-compute/mod.ts:185:27
+```
+
+That is a record resolve, not container code. The realized harness awaits the
+whole contract with no cap and asserts `sshReady === true` and an
+`execProgram` exit code that can only succeed inside the guest.
+
+**2. The guest could not mint its report token, and that was the decisive
+blocker.** The report script read the `sub` claim from the provider-provisioned
+JWT with a fixed `==` pad:
+
+```
+_sub=$(printf '%s' "$_wid_token" | cut -d. -f2 | tr '_-' '/+' | sed -e 's/$/==/' | base64 -d ...)
+```
+
+The provider mints tokens whose payload length varies; this guest's provisioning
+token payload is 435 base64url characters, i.e. three short of a multiple of
+four, so the fixed pad failed `base64 -d`, `_sub` came out empty, the script
+minted no token and never sent the report -- five attempts, all counted as
+failures, while the listener itself was healthy. It is the same fixed pad the
+secrets module uses, where the token length happens to work out. The fix pads to
+a multiple of four (`case $((${#_payload} % 4))`: 2 -> `==`, 3 -> `=`, 1 ->
+`===`). Found by reading the live guest, not the offline gate.
+
+**3. The listener unit could not run under the container-mode `systemctl` shim.**
+The shim runs `ExecStart` through bash without re-quoting it, so a quoted
+`/bin/sh -c '...'` died with `unexpected EOF while looking for matching quote`;
+it also implements neither `ExecStartPost` nor a `StandardOutput=append:`
+redirect, so the log the ticket is extracted from stayed empty. `ExecStart` is
+now one bare path to `iroh-listen.sh`, which prepares and sources the identity,
+owns the log through its own redirect and starts the reporter -- one unit that
+satisfies real systemd and the shim.
+
+**4. The harness needed the gateway-reachable wiring the OAuth suite already
+had, in one specific shape.** The dispatcher serves one app on two `0.0.0.0`
+listeners -- plain HTTP for the in-process subscribers and the other in-process
+components, TLS for the guest -- with a certificate whose SANs are
+`relay.localhost` and `*.relay.localhost` (a single-label `*.localhost` wildcard
+is rejected by TLS stacks). `ingressProxyHost` is `relay.localhost:<plainPort>`,
+which `hostnameOnly` reduces to the portless requester ingress URL. The shared
+fetch interceptor must be installed with the **TLS** port and the CA, not the
+plain port: the requester verifies the reporter token by fetching the provider's
+discovery document and JWKS at the portless `issuer_uri`, and a plain-port
+interceptor downgrades that fetch to `http` against the TLS listener. The
+provider receives `guestTlsPort`, `caCertPem` and the OIDC provisioning enricher,
+so it rewrites the guest's `https://*.localhost` URLs to that port, resolves the
+names to the container gateway and installs the CA.
+
+The pass before this one had a fifth symptom: the harness set `tls: true` (or
+mixed the plain and TLS ports) so the in-process subscriber spoke HTTPS to the
+plain listener and died in the first 0.3 s with `invalid HTTP version parsed`.
+The submitted wiring above is the one that survives.
+
+One claim from the earlier diagnosis did not survive: the guest's `/root/.curlrc`
+rule is port-scoped (`resolve = *:<tlsPort>:<gateway>`), so it does not touch the
+`github.com:443` archive download. The live guest extracted `./dumbpipe` on the
+run that still had no `-q`, and the unit started. The `-q` flag was applied
+anyway (it is harmless and the requirement asks for it), but it was not the
+cause of anything.
+
+Result: `specctl accept` on the realized branch, `ok | 1 passed | 0 failed` in
+32 s (and 26 s on a second run): the guest booted from the RFP flow's cloud-init,
+reported its ticket to `POST /v1/on-network` (200), ssh came ready on the first
+poll with `ProxyCommand=dumbpipe connect <ticket>`, the exec program printed
+`SSH_OK_VIA_IROH` from inside the guest, and ssh exited 0.
+
+### The second gap: the report carries the guest's workload identity
+
+The accept ref cannot authenticate the reporter -- it is public, and so is the
+requester's ingress URL. Every piece needed to bind the report instead already
+exists in the repository, so no new service was needed: the guest mints the
+exchanged workload-identity token the winning provider issued it (read
+`bid_config` out of the accept bundle, read the provisioning token at its
+`token_path`, echo its `sub`, exchange at the provider's `url_route`, exactly as
+the secrets module does), and the requester verifies it against the provider's
+published JWKS through the injected fetch (`jose`, the same injected-fetch
+discipline as `createSecretsAuthorizer` in `lib/secrets-oidc`). The requester
+fails closed with 401 unless issuer == `bid_config.issuer_uri`, audience ==
+`api://ATProto?actx=<requester DID>` and subject == the provider tag-derived
+subject -- all three from the same `deriveGrantVars` the secrets grant uses. No
+credential goes into the cloud-config, which is published inside the `compute.vm`
+record. The private-report suite now also proves the 401 case and the JWKS
+verification.
+
+### Through the spec, as before
+
+Every change is a requirement applied with `specctl clm apply` on the orphan
+branch, with the full document rendered first and the requirement ids diffed
+before applying (a document missing requirements silently deletes them). No file
+in atproto-market was edited by hand.
+
+| requirement | context | what it asks for |
+| --- | --- | --- |
+| `r.container-harness-proves-live-ssh-over-iroh` | test | the harness awaits the whole contract with `skipSsh: false`, keeps every service alive, asserts a guest-side `execProgram` exit code, and carries the two-listener TLS + gateway wiring with the interceptor on the TLS port |
+| `r.iroh-unit-runs-under-container-shim` | lib-common-cloud-init-common | the listener unit starts and reports under the container-mode shim: bare-path ExecStart, the script owns its log, the script launches the reporter |
+| `r.iroh-install-ignores-guest-curlrc` | lib-common-cloud-init-common | the archive download ignores `/root/.curlrc` |
+| `r.iroh-report-carries-workload-token` | lib-common-cloud-init-common | the report POST mints and sends the guest's workload-identity token, padding the JWT payload to a multiple of four before decoding |
+| `r.iroh-report-workload-identity` | lib-requester-xrpc | the report endpoint verifies that token (issuer, audience, subject, JWKS) and fails closed |
+| `r.iroh-fixture` | test-fixtures-cloud-init | the fixture is regenerated byte-exact with the module |
+
+Three realize attempts failed before the amendments landed: two on the
+plain/TLS port mixup (`invalid HTTP version parsed` at the subscriber's nonce
+fetch) and one on the 15-minute agent cap after it had provisioned a container.
+The amended requirements -- the concrete wiring and the dynamic pad -- then
+realized in one batch as `ffac22e` with `Acceptance: acceptance passed (gate)`,
+eight files. The fixture (`2630773`) realized on its own first, because its own
+requirement text already described the new module.
+
+The apply defect from Round 2 bit again, in a sharper form: applying a
+cloud-init-common amendment while that context's change was `Running` was
+answered `no change: folded into the running change ...`, and the amendment was
+silently **not** written to kcp -- the rendered document still had no
+`r.iroh-install-ignores-guest-curlrc` and no pad text. Only a render-and-grep
+after the apply revealed it. The amendment had to wait for every attempt of that
+context to settle before it could land.
 
 ## How this run was kicked off
 

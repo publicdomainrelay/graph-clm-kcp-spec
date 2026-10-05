@@ -73,6 +73,81 @@ On the PR's branch, through `specctl clm apply` only:
 6. A live check if the baseline harness can be made green (its 401
    `cannot resolve signing key` at `pre-iroh`), else stated.
 
+## F3 - the two gaps F2 left, closed through the same spec flow
+
+Status: **done** (2026-10-04, hydradb `516497a`, clone
+`/home/johnandersen777/specd-atproto-iroh-f2`, branch
+`spec/iroh-dumbpipe-20261004141803` at `ffac22e`, pushed; PR #1 rewritten). The
+branch and its orphan `open-architecture/atproto-market--spec-iroh-dumbpipe-20261004141803`
+branch are on origin; every change is a requirement applied with
+`specctl clm apply` (full document rendered, ids diffed before applying),
+realized by specd, gated by `spec.verify` and the `spec.acceptance` container
+harness. Full account: [`docs/examples/atproto-market-iroh-pr.md`](../examples/atproto-market-iroh-pr.md#round-3-f3-closes-the-two-gaps-round-2-left).
+
+**Gap 1: live ssh over dumbpipe, proven by the acceptance.** `specctl accept` on
+the realized branch: `ok | 1 passed | 0 failed` in 32 s (26 s on a repeat). The
+guest is born from the RFP flow's cloud-init, installs dumbpipe, reports its
+ticket to the requester's `POST /v1/on-network` (200), and ssh with
+`ProxyCommand=dumbpipe connect <ticket>` runs `test -x /usr/local/bin/dumbpipe &&
+echo SSH_OK_VIA_IROH` inside the guest, exit 0. Four defects had to go, all
+observed in the live run, none of them "the environment" (`docker info` green):
+
+1. **The harness tore down during provisioning** -- a `Promise.race` cap plus the
+   `finally` cleanup aborted the dispatcher while the bidder was mid-provision,
+   and the in-flight record resolve rejected as `TypeError: fetch failed`.
+2. **The guest could not mint its report token** -- the decisive blocker. The
+   report script read the provisioning JWT's `sub` with a fixed `==` pad (as the
+   secrets module does); this provider's token payload is 435 base64url chars
+   (three short of a multiple of four), so `base64 -d` failed, `_sub` was empty,
+   no token was minted and the report was never sent. Fixed by padding to a
+   multiple of four.
+3. **The listener unit could not run under the container-mode `systemctl` shim**
+   -- a quoted `ExecStart` dies with `unexpected EOF while looking for matching
+   quote`, and the shim has neither `ExecStartPost` nor a `StandardOutput=append:`
+   redirect. `ExecStart` is now a bare path to `iroh-listen.sh`, which owns the
+   identity, the log and the reporter.
+4. **The harness wiring** -- two `0.0.0.0` listeners (plain for the in-process
+   subscribers, TLS for the guest) with SANs `relay.localhost` /
+   `*.relay.localhost`; the fetch interceptor installed with the **TLS** port and
+   the CA, because the requester fetches the portless `issuer_uri`'s discovery +
+   JWKS; the provider given `guestTlsPort`, `caCertPem` and the OIDC provisioning
+   enricher.
+
+One earlier diagnosis did not survive: `/root/.curlrc`'s `resolve` rule is
+port-scoped, so it never touched the `github.com:443` archive download; the live
+guest extracted `./dumbpipe` before `-q` existed. `-q` was applied anyway.
+
+Requirements: `r.container-harness-proves-live-ssh-over-iroh` (test),
+`r.iroh-unit-runs-under-container-shim` and `r.iroh-install-ignores-guest-curlrc`
+and the pad rule in `r.iroh-report-carries-workload-token`
+(lib-common-cloud-init-common), `r.iroh-fixture` (test-fixtures-cloud-init).
+Realized as `2630773` (fixture, 3 files) and `ffac22e` (module + requester +
+harness, 8 files, `Acceptance: acceptance passed (gate)`).
+
+**Gap 2: the report carries the guest's workload identity.** With no new
+service: the guest mints the exchanged workload-identity token the winning
+provider issued it, and the requester verifies it against the provider's
+published JWKS through the injected fetch (`jose`), failing closed with 401
+unless issuer == `bid_config.issuer_uri`, audience ==
+`api://ATProto?actx=<requester DID>` and subject == the provider tag-derived
+subject. `r.iroh-report-workload-identity` (lib-requester-xrpc) and
+`r.iroh-report-carries-workload-token`; `r.iroh-report-endpoint` now points at
+them instead of stating the race as a residual gap. The private-report suite adds
+the 401 case and the JWKS-verification case (36 verify tests total, green).
+
+Operator note: three realize attempts failed first (two on a plain/TLS port
+mixup at the subscriber's nonce fetch, `invalid HTTP version parsed`; one on the
+15-minute agent cap). `clm apply` during a `Running` change is answered `no
+change: folded into the running change ...` and silently does not write the
+amendment -- render and grep the context after every apply. This run's
+`bin/specctl` predates F4 (below), which makes such an apply its own queued
+change instead; the F4 work was already on `main`, and the live instance here
+still ran the older binary.
+
+Not in scope, unchanged: `lib/cocore-api` `CodeSynced=False`
+(`InterfacesMissing`) and the three `CodeRefsUnresolved` contexts after a
+realize (plan 0004 E2).
+
 ## F4 - two tool defects the atproto-market round-2 run found
 
 Status: **done**. Source:
