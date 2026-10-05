@@ -64,3 +64,24 @@ driven_by_report_handler(effect) {
 	handler.kind == "http.handle"
 	specd.route_class(handler, report_route_class)
 }
+
+# The emitted payload must come from the guest's report, not from a source the
+# host reads itself. Where the model can show a host source on the emitter's
+# call chain, the emission is denied whatever drives it; where it cannot, the
+# trigger check above is all the rule can read (recorded in docs/policies.md).
+violation[specd.violation(msg, details)] {
+	effect := specd.model_effects[_]
+	specd.component_in_role(effect.component, host_role)
+	specd.event_class(effect, network_event_class)
+	host_source_feeds(effect)
+	msg := sprintf("the host builds the network report %q from a source it reads itself, not from the guest's report: %s:%d",
+		[object.get(object.get(effect, "attrs", {}), "type", ""), effect.file, object.get(effect, "line", 0)])
+	details := {"effect": effect, "file": effect.file, "line": object.get(effect, "line", 0)}
+}
+
+host_source_feeds(effect) {
+	ancestors := specd.closure_reaching({effect.node}, input.parameters.edgeKinds)
+	reader := specd.model_effects[_]
+	reader.kind == "file.read"
+	ancestors[reader.node]
+}

@@ -17,6 +17,7 @@ spec:
     emitterPatterns: REGISTER_IDENTITY|emitRegisterIdentity|computeIdentity
     subject: the guest identity
     handlerPatterns: OnNetworkReport|IdentityReport|on-network|guest-report
+    hostSourcePatterns: readTextFile|readFileSync|dnsmasq|virsh|container inspect|execSync|getNodeId
     edgeKinds:
     - calls
     - imports

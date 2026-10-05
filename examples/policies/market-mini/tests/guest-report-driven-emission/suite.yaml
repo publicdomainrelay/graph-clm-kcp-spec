@@ -18,4 +18,4 @@ tests:
         inventory:
           - inventory/codegraph-denied.yaml
         assertions:
-          - violations: 1
+          - violations: 2

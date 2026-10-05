@@ -24,6 +24,8 @@ spec:
               type: string
             handlerPatterns:
               type: string
+            hostSourcePatterns:
+              type: string
             edgeKinds:
               type: array
               items:

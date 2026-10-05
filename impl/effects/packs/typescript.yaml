@@ -111,6 +111,19 @@ rules:
     call: {name: Deno.listen}
     extract:
       - {attr: port, regex: 'port\s*:\s*([0-9]+)'}
+  - id: deno-read-text-file
+    kind: file.read
+    call: {name: Deno.readTextFile}
+    target: path
+  - id: deno-read-file
+    kind: file.read
+    call: {name: Deno.readFile}
+    target: path
+  - id: node-read-file-sync
+    kind: file.read
+    requiresImport: '^node:fs$'
+    call: {name: readFileSync}
+    target: path
   - id: fetch
     kind: http.request
     call: {name: fetch}

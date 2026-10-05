@@ -1,0 +1,34 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeGraph
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  files:
+  - path: hono-bidder/mod.ts
+    test: false
+  - path: lib/market-bidder-compute/mod.ts
+    test: false
+  nodes:
+  - id: function:provision
+    kind: function
+    name: onProvisionResolved
+    qualifiedName: onProvisionResolved
+    file: hono-bidder/mod.ts
+    startLine: 55
+    text: |
+      const leases = await Deno.readTextFile("/var/lib/libvirt/dnsmasq/virbr0.status");
+  - id: function:emit
+    kind: function
+    name: emitVmOnNetwork
+    qualifiedName: emitVmOnNetwork
+    file: lib/market-bidder-compute/mod.ts
+    startLine: 250
+    text: |
+      return { type: COMPUTE_EVENTS_VM_ONNETWORK_NSID, address };
+  edges:
+  - source: function:provision
+    target: function:emit
+    kind: calls
+    line: 62

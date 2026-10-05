@@ -89,6 +89,7 @@ func TestViolatingVariantsDeny(t *testing.T) {
 		{name: "violating-vn5-test-dial", policy: "rfp-relay-only-guest-ssh", constraint: "rfp-relay-only-guest-ssh"},
 		{name: "violating-vn6-sh-container", policy: "rfp-host-reach-in", constraint: "rfp-host-reach-in"},
 		{name: "violating-vn6-child-process", policy: "rfp-host-reach-in", constraint: "rfp-host-reach-in"},
+		{name: "violating-vn8-dhcp", policy: "guest-report-driven-emission", constraint: "guest-report-driven-onnetwork"},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
 			dir := fixture.CopyTree(t, filepath.Join("market-mini", variant.name))

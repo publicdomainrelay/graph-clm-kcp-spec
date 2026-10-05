@@ -26,6 +26,8 @@ spec:
               items:
                 type: string
               type: array
+            hostSourcePatterns:
+              type: string
             subject:
               type: string
           type: object
@@ -202,5 +204,16 @@ spec:
       lifecycle, not from an inbound guest report\", [emitter.qualifiedName, subject])\n\tdetails
       := specd.location(emitter.file, specd.node_match_line(emitter, input.parameters.emitterPatterns))\n}\n\ndriven_by_handler(emitter)
       {\n\thandler := specd.nodes_identified(input.parameters.handlerPatterns)[_]\n\tspecd.definition_node(handler)\n\tspecd.closure_from({handler.id},
-      input.parameters.edgeKinds)[emitter.id]\n}\n"
+      input.parameters.edgeKinds)[emitter.id]\n}\n\n# The payload must come from the
+      guest's report, not from a source the host\n# reads itself. An emitter the host's
+      own source reaches -- a DHCP lease file,\n# a virsh query, a container inspect
+      -- carries an address the guest never\n# reported, so the emission is denied
+      even though the report handler is on the\n# path (review 0006 N8).\nviolation[specd.violation(msg,
+      details)] {\n\temitter := specd.nodes_matching_globs(input.parameters.hostGlobs,
+      input.parameters.emitterPatterns)[_]\n\tspecd.definition_node(emitter)\n\tsource
+      := specd.nodes_identified(input.parameters.hostSourcePatterns)[_]\n\tspecd.definition_node(source)\n\tspecd.closure_from({source.id},
+      input.parameters.edgeKinds)[emitter.id]\n\tmsg := sprintf(\"%s emits %s from
+      a source the host reads itself, not from the guest's report\", [emitter.qualifiedName,
+      subject])\n\tdetails := specd.location(emitter.file, specd.node_match_line(emitter,
+      input.parameters.emitterPatterns))\n}\n"
     target: admission.k8s.gatekeeper.sh

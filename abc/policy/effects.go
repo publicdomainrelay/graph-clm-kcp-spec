@@ -21,6 +21,7 @@ const (
 	EffectEventReceive  EffectKind = "event.receive"
 	EffectSecretRead    EffectKind = "secret.read"
 	EffectFileWrite     EffectKind = "file.write"
+	EffectFileRead      EffectKind = "file.read"
 )
 
 var EffectVocabulary = []EffectKind{
@@ -35,6 +36,7 @@ var EffectVocabulary = []EffectKind{
 	EffectEventReceive,
 	EffectSecretRead,
 	EffectFileWrite,
+	EffectFileRead,
 }
 
 func KnownEffectKind(kind EffectKind) bool {

@@ -17,6 +17,7 @@ spec:
     emitterPatterns: ON_NETWORK_EVENT|emitVmOnNetwork
     subject: the vm.onNetwork event
     handlerPatterns: OnNetworkReport|IdentityReport|on-network|guest-report
+    hostSourcePatterns: readTextFile|readFileSync|dnsmasq|virsh|container inspect|execSync|getNodeId
     edgeKinds:
     - calls
     - imports

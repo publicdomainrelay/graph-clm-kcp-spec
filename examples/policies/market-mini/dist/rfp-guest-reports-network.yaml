@@ -3,9 +3,10 @@ kind: ConstraintTemplate
 metadata:
   annotations:
     specs.publicdomainrelay.dev/calibration: 'reads the ArchitectureModel: a declared
-      or observed flow the guest initiates that carries network information must exist,
-      and every event.emit of the network-report class in a host component must be
-      triggered by the http.handle of the report route'
+      or observed flow the guest initiates that carries network information must exist;
+      every event.emit of the network-report class in a host component must be triggered
+      by the http.handle of the report route; and where the model can show a file
+      read on the emitter''s call chain, the emission is denied as host-sourced'
     specs.publicdomainrelay.dev/level: MUST
     specs.publicdomainrelay.dev/origin: plan 0009 G4, pack rfp-guest-isolation v1
     specs.publicdomainrelay.dev/title: the guest reports its network information and
@@ -19,6 +20,10 @@ spec:
       validation:
         openAPIV3Schema:
           properties:
+            edgeKinds:
+              items:
+                type: string
+              type: array
             guestRole:
               type: string
             hostRole:
@@ -226,5 +231,17 @@ spec:
       \"line\": object.get(effect, \"line\", 0)}\n}\n\ndriven_by_report_handler(effect)
       {\n\ttrigger := specd.model_triggers[_]\n\ttrigger.to == effect.id\n\thandler
       := specd.model_effect(trigger.from)\n\thandler.kind == \"http.handle\"\n\tspecd.route_class(handler,
-      report_route_class)\n}\n"
+      report_route_class)\n}\n\n# The emitted payload must come from the guest's report,
+      not from a source the\n# host reads itself. Where the model can show a host
+      source on the emitter's\n# call chain, the emission is denied whatever drives
+      it; where it cannot, the\n# trigger check above is all the rule can read (recorded
+      in docs/policies.md).\nviolation[specd.violation(msg, details)] {\n\teffect
+      := specd.model_effects[_]\n\tspecd.component_in_role(effect.component, host_role)\n\tspecd.event_class(effect,
+      network_event_class)\n\thost_source_feeds(effect)\n\tmsg := sprintf(\"the host
+      builds the network report %q from a source it reads itself, not from the guest's
+      report: %s:%d\",\n\t\t[object.get(object.get(effect, \"attrs\", {}), \"type\",
+      \"\"), effect.file, object.get(effect, \"line\", 0)])\n\tdetails := {\"effect\":
+      effect, \"file\": effect.file, \"line\": object.get(effect, \"line\", 0)}\n}\n\nhost_source_feeds(effect)
+      {\n\tancestors := specd.closure_reaching({effect.node}, input.parameters.edgeKinds)\n\treader
+      := specd.model_effects[_]\n\treader.kind == \"file.read\"\n\tancestors[reader.node]\n}\n"
     target: admission.k8s.gatekeeper.sh
