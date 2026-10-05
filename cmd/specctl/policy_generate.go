@@ -26,7 +26,7 @@ func runPolicyGenerate(args []string, stdout, stderr io.Writer) int {
 	requirements := stringsFlag{}
 	fs.Var(&requirements, "requirement", "requirement the policy enforces, as ctx#id; repeatable")
 	contexts := stringsFlag{}
-	fs.Var(&contexts, "context", "SystemContext the generation is given; repeatable")
+	fs.Var(&contexts, "systemcontext", "SystemContext the generation is given; repeatable")
 	enforcement := fs.String("enforcement", "", "deny, warn or dryrun (default deny)")
 	slug := fs.String("slug", "", "template slug; default derives from the prompt")
 	apply := fs.Bool("apply", false, "commit and apply the policy once the checks pass")
@@ -72,7 +72,7 @@ func runPolicyBind(args []string, stdout, stderr io.Writer) int {
 	pack := fs.String("pack", "", "pack the binding targets")
 	version := fs.String("pack-version", "", "pack version; default is the version the repository imports")
 	contexts := stringsFlag{}
-	fs.Var(&contexts, "context", "SystemContext the generation is given; repeatable")
+	fs.Var(&contexts, "systemcontext", "SystemContext the generation is given; repeatable")
 	apply := fs.Bool("apply", false, "commit and apply the binding once the checks pass")
 	wait := fs.Bool("wait", false, "wait for the change to reach Evaluated, Applied or Failed")
 	timeout := fs.Duration("timeout", policyWaitTimeout, "how long --wait waits")

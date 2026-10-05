@@ -251,8 +251,8 @@ func TestCheckBindingRefusesAVocabularyThatMatchesNothing(t *testing.T) {
 	if report.OK() {
 		t.Fatal("a vocabulary that matches nothing was accepted")
 	}
-	if len(report.Notes()) != 0 {
-		t.Errorf("a refused binding carries notes: %v", report.Notes())
+	if report.MatchedVocabulary != 0 {
+		t.Errorf("%d classes matched, want 0", report.MatchedVocabulary)
 	}
 	if !strings.Contains(strings.Join(report.Messages(), "; "), "maps onto nothing") {
 		t.Errorf("the messages read %v", report.Messages())

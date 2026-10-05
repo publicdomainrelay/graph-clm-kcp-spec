@@ -204,9 +204,19 @@ func TestPolicyGenerateLive(t *testing.T) {
 		t.Errorf("the recorded agent log does not carry the refused attempt: %q", evaluated.Status.AgentLog)
 	}
 
-	// The change is accepted: apply, wait for Applied.
-	evaluated.Spec.Apply = true
-	applyTyped(t, ctx, client, evaluated)
+	// The CLI lists it, and `policy accept` applies it.
+	specctl, _ := buildSpecctlAndSpecd(t)
+	listed := runSpecctl(t, ctx, specctl, repoPath, nil, "policy", "changes", "--repo", repository)
+	if !strings.Contains(listed, name) || !strings.Contains(listed, policy.PolicyPhaseEvaluated) {
+		t.Errorf("policy changes = %q", listed)
+	}
+	if held := runSpecctl(t, ctx, specctl, repoPath, nil, "policy", "ls"); !strings.Contains(held, name) {
+		t.Errorf("policy ls does not list the change: %q", held)
+	}
+	accepted := runSpecctl(t, ctx, specctl, repoPath, nil, "policy", "accept", name, "--timeout", "3m")
+	if !strings.Contains(accepted, policy.PolicyPhaseApplied) {
+		t.Errorf("policy accept = %q", accepted)
+	}
 	waitForState(t, ctx, "the PolicyChange to be applied", func() bool {
 		held := livePolicyChange(t, ctx, client, name)
 		return held != nil && held.Status.Phase == policy.PolicyPhaseApplied

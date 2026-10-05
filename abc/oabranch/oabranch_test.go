@@ -1005,3 +1005,34 @@ superseded:
 		t.Fatalf("superseded attempt lost the episode's spec: %+v", older.Spec)
 	}
 }
+
+// TestFeatureBranchMarksAGuardedRequirement pins the requirement linkage: a
+// requirement a constraint template enforces is marked in CHANGES.md.
+func TestFeatureBranchMarksAGuardedRequirement(t *testing.T) {
+	snapshot := calcSnapshot()
+	snapshot.Branch = "open-architecture/calc--spec-bob"
+	snapshot.Baseline = &Baseline{Contexts: calcSnapshot().Contexts}
+	snapshot.Contexts[0].Spec.Requirements = append(snapshot.Contexts[0].Spec.Requirements,
+		spec.Requirement{ID: "r.sub", Level: spec.LevelMust, Text: "Subtract returns the difference."})
+	snapshot.Guarded = map[string][]string{"calc": {"r.sub"}}
+	files, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := string(files[ChangesDocPath])
+	if !strings.Contains(document, "added `r.sub` (MUST): \"Subtract returns the difference.\" (policy-guarded)") {
+		t.Errorf("CHANGES.md does not mark the guarded requirement:\n%s", document)
+	}
+	unguarded := calcSnapshot()
+	unguarded.Branch = "open-architecture/calc--spec-bob"
+	unguarded.Baseline = &Baseline{Contexts: calcSnapshot().Contexts}
+	unguarded.Contexts[0].Spec.Requirements = append(unguarded.Contexts[0].Spec.Requirements,
+		spec.Requirement{ID: "r.sub", Level: spec.LevelMust, Text: "Subtract returns the difference."})
+	plain, err := Files(unguarded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain[ChangesDocPath]), "policy-guarded") {
+		t.Errorf("an unguarded requirement is marked:\n%s", plain[ChangesDocPath])
+	}
+}

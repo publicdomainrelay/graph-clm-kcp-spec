@@ -19,6 +19,12 @@ suite passes or fails identically under `specctl policy test` and
 from deno-kcp's `opa-first-stab` and embedded in `specctl`; see
 [The policy library](#the-policy-library).
 
+A policy can also be **generated**: a `PolicyChange` carries one sentence, the
+configured harness writes the rule over the portable model, and specd refuses
+anything that does not compile, does not pass its own suite, or denies none of
+the cases derived from the allowed fixture. See
+[Generating a policy](#generating-a-policy).
+
 ## Concepts
 
 ### Gatekeeper objects
@@ -533,6 +539,99 @@ constraint may select either with `spec.match.kinds`.
 A policy that reviews a `SystemContext` can therefore read the code, and a
 policy that reviews the `CodeGraph` can read the specs. `lib.specd` hides the
 inventory paths.
+
+## Generating a policy
+
+A `PolicyChange` is the spec object that authors a policy: a person writes the
+invariant in one sentence, the configured harness writes the rule, and specd
+checks it before anything lands.
+
+```bash
+bin/specctl policy generate --repo atproto-market \
+  --prompt "integration tests with bidder and requester MUST always make ssh connections over the relay" \
+  --requirement lib-requester-xrpc#r.relay --wait
+bin/specctl policy accept atproto-market-relay-only-ssh
+```
+
+The harness is the same agent a realize runs (`--agent scripted:<file>` in
+tests, `deepseek-claude` by default). It works in a scratch directory under the
+state dir and writes one policy tree there:
+`templates/<slug>/{src.rego,src_test.rego,template.yaml}`,
+`constraints/<slug>.yaml`, `tests/<slug>/suite.yaml` and its inventory. The rule
+reads the `ArchitectureModel` and the binding's vocabulary only, never a
+repository, a context, a path or a symbol.
+
+specd then checks the tree, and a failing check goes back to the harness as the
+next attempt's instruction:
+
+| check | refuses |
+| --- | --- |
+| `annotations` | a tree without the template header; the requirements the operator named, `generated-by` and the severity are written from the request, not from the harness's memory |
+| `shape` | anything but one template and one constraint, a slug that is not the change's, an unknown enforcement action, or a constraint that does not review the `ArchitectureModel` |
+| `portable` | a source that names the repository, one of its contexts or one of the role globs |
+| `compile` | a source the constraint client cannot compile |
+| `units` | a failing `src_test.rego` |
+| `suite` | a failing gator suite |
+| `mutation` | a rule that denies none of the cases specd derives from the suite's own allowed fixture |
+| `head evaluation` | an engine error against the head model; its violations are recorded, not fatal |
+
+The **mutation check** is what keeps a generated rule honest. specd takes the
+`ArchitectureModel` of the allowed case and derives the invariants a rule about
+roles, effects and flows exists to catch: the host reaching into the guest, the
+guest's report dropped, the host's emission driven from the provisioning
+lifecycle, an unrelayed ssh outside the guest, and a test dialing the guest. A
+rule that denies none of them recognizes the words of the sentence and nothing
+else, so it is refused. The derived cases are named in the failure, so the next
+attempt knows what it missed.
+
+`status.checks` carries the outcome of every check, `status.attempt` the
+attempt that passed (2 means the first was refused), `status.violations` what
+the accepted policy finds against the head model, and `status.agentLog` keeps
+the refused attempt's messages.
+
+### Binding a pack to a repository
+
+```bash
+bin/specctl policy bind --repo atproto-market --pack rfp-guest-isolation --wait
+```
+
+Bind mode asks the same harness for the other half of a portable policy: the
+`roles` and the `vocabulary` of `policies.yaml` for one repository. specd then
+checks the proposed binding:
+
+- every role the pack requires selects at least one component;
+- the binding keeps the pack import;
+- the pack's own suites pass;
+- the pack denies a case specd derives from the **repository's** model, so a
+  binding that leaves the invariants unreadable is refused;
+- the pack evaluates against the repository's model without an engine error
+  (its violations are the head violations).
+
+`status.binding` holds the proposal, `status.checks` the outcome. A vocabulary
+class that no effect and no spec term speaks yet is a note in the check's
+message, not a failure: a repository with only specs has no code for a class
+the pack reads. A vocabulary that matches nothing at all fails.
+
+### What a PolicyChange records
+
+| field | meaning |
+| --- | --- |
+| `spec.repository`, `spec.branch` | where the policy lands |
+| `spec.slug` | the template's directory, kind and constraint name |
+| `spec.prompt`, `spec.requirements`, `spec.contexts` | what the harness is asked for |
+| `spec.pack` | bind mode: the pack the binding targets |
+| `spec.enforcementAction` | the constraint's enforcementAction (default `dryrun`) |
+| `spec.apply` | commit and apply as soon as the checks pass |
+
+`status.phase` moves `Drafting` -> `Testing` -> `Evaluated` -> `Applied`, or
+`Failed` with the reason. An accepted change is committed to the policy branch
+as the template, its dist, its catalogue and an append-only
+`changes/<name>.yaml` record, and applied to kcp.
+
+An applied policy reaches the specs too: the audit records the templates whose
+requirements annotation names a context in `SystemContext.status.enforcedBy`,
+and `CHANGES.md` on the architecture branch marks a guarded requirement
+`(policy-guarded)`.
 
 ## Storage: the orphan branch `open-policy/`
 

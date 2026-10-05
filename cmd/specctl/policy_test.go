@@ -50,3 +50,53 @@ func TestPolicyInitWithoutLibraryCopiesNoTemplates(t *testing.T) {
 		t.Errorf("templates/ exists without --with-library: %v", err)
 	}
 }
+
+func TestPolicyGenerateRequiresAPrompt(t *testing.T) {
+	stdout := &strings.Builder{}
+	stderr := &strings.Builder{}
+	if code := runPolicyGenerate([]string{"--repo", "calc"}, stdout, stderr); code != exitUsage {
+		t.Fatalf("a generate without a prompt returned %d", code)
+	}
+	if !strings.Contains(stderr.String(), "--prompt is required") {
+		t.Errorf("the usage message reads %q", stderr.String())
+	}
+}
+
+func TestPolicyGenerateRefusesAMalformedRequirement(t *testing.T) {
+	stdout := &strings.Builder{}
+	stderr := &strings.Builder{}
+	code := runPolicyGenerate([]string{"--repo", "calc", "--prompt", "a sentence", "--requirement", "no-id"}, stdout, stderr)
+	if code != exitUsage {
+		t.Fatalf("a malformed requirement returned %d", code)
+	}
+	if !strings.Contains(stderr.String(), "ctx#id") {
+		t.Errorf("the usage message reads %q", stderr.String())
+	}
+}
+
+func TestPolicyBindRequiresARepositoryAndAPack(t *testing.T) {
+	stdout := &strings.Builder{}
+	stderr := &strings.Builder{}
+	if code := runPolicyBind([]string{"--repo", "calc"}, stdout, stderr); code != exitUsage {
+		t.Fatalf("a bind without a pack returned %d", code)
+	}
+	if !strings.Contains(stderr.String(), "--repo and --pack are required") {
+		t.Errorf("the usage message reads %q", stderr.String())
+	}
+}
+
+func TestDefaultSlugIsKebabAndBounded(t *testing.T) {
+	slug := defaultSlug("", "integration tests with bidder and requester MUST always make ssh connections over the relay")
+	if strings.Contains(slug, "_") || strings.Contains(slug, " ") || strings.Contains(slug, "must") {
+		t.Errorf("the slug is %q", slug)
+	}
+	if len(slug) > 40 {
+		t.Errorf("the slug is %d characters: %q", len(slug), slug)
+	}
+	if slug != defaultSlug("", "integration tests with bidder and requester MUST always make ssh connections over the relay") {
+		t.Error("the slug is not deterministic")
+	}
+	if given := defaultSlug("relay-only-ssh", "anything"); given != "relay-only-ssh" {
+		t.Errorf("an explicit slug became %q", given)
+	}
+}

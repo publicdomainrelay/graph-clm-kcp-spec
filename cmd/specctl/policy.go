@@ -127,13 +127,13 @@ usage:
   specctl policy restore --repo X [--path <git repo>] [--branch B] [--prune]
       load the policy branch open-policy/X[--<branch slug>] into kcp; specd
       does the same when a Repository is created
-  specctl policy generate --repo X --prompt "..." [--requirement ctx#id] [--context C]
+  specctl policy generate --repo X --prompt "..." [--requirement ctx#id] [--systemcontext C]
       [--enforcement deny|warn|dryrun] [--slug S] [--apply] [--wait] [--timeout D]
       create a PolicyChange: specd's harness authors a template over the
       ArchitectureModel, checks it (compile, opa tests, gator suite, mutation
       check, head evaluation) and records it as Evaluated. --apply commits it to
       the open-policy branch and applies it to kcp
-  specctl policy bind --repo X --pack P [--pack-version V] [--context C]
+  specctl policy bind --repo X --pack P [--pack-version V] [--systemcontext C]
       [--apply] [--wait] [--timeout D]
       create a PolicyChange in bind mode: the harness proposes the roles and the
       vocabulary of policies.yaml for the pack, and specd checks that every
