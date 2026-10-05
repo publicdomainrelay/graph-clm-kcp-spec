@@ -700,12 +700,16 @@ func MigrateDeclared(declared spec.SystemContextSpec, observed spec.ObservedFact
 	if len(rewrites) == 0 {
 		return declared
 	}
+	present := make(map[string]bool, len(declared.Interfaces))
+	for _, entry := range declared.Interfaces {
+		present[entry.Name] = true
+	}
 	out := declared
 	interfaces := declared.Interfaces
 	copiedInterfaces := false
 	for index, entry := range declared.Interfaces {
 		key, ok := rewrites[entry.Name]
-		if !ok {
+		if !ok || present[key] {
 			continue
 		}
 		if !copiedInterfaces {
