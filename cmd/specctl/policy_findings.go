@@ -53,6 +53,17 @@ type codeEvaluation struct {
 	Members memberPaths
 }
 
+// diffRepo is the repository a CodeDiff is read from. A `--worktree` is
+// itself a checkout, so the refs resolve there; a `--commit` is exported to a
+// temporary directory that holds no git history, so the refs resolve in the
+// clone the commit came from.
+func (e codeEvaluation) diffRepo() string {
+	if e.Commit != "" && e.Path != "" {
+		return e.Path
+	}
+	return e.CodeDir
+}
+
 func evaluateCode(ctx context.Context, e codeEvaluation) (policy.Report, error) {
 	contexts := loadContexts(ctx, e.Path, e.Repository, e.Branch, e.DefaultBranch)
 	graph, err := codegraphfacts.Build(ctx, e.CodeDir, codegraphfacts.Options{
@@ -87,7 +98,7 @@ func evaluateCode(ctx context.Context, e codeEvaluation) (policy.Report, error) 
 	inventory = append(inventory, graphObject)
 	reviewed := []*unstructured.Unstructured{graphObject}
 	if e.DiffBase != "" {
-		diff, err := codediff.Build(ctx, e.CodeDir, e.DiffBase, e.Commit)
+		diff, err := codediff.Build(ctx, e.diffRepo(), e.DiffBase, e.Commit)
 		if err != nil {
 			return policy.Report{}, err
 		}

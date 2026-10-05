@@ -98,3 +98,6 @@ vocabulary:
   routes:
     report:
     - /v1/*/on-network
+  reachInExceptions:
+  - internal/provider/live_helpers_test.go
+  - test/integration/fixture_test.go

@@ -1123,6 +1123,19 @@ false positive, both fixed in `policies/library`:
   when two patterns matched it (`curl -k --insecure`). Each affected rule now
   builds the matched-pattern list once per row, so a row is one violation.
 
+Round 2 changed two things in this run and both are the rules reading
+correctly. `net.DialTimeout` in a test helper is now a reach-in: the pack's
+host rule denied `internal/provider/live_helpers_test.go:131` (the file is
+under `internal/*/*.go`, so the binding makes it a host file) and its test-dial
+clause denied `test/integration/fixture_test.go:162`. Both are generic
+`tcpOpen(addr)` probes with an address the model cannot resolve, so the
+documented workflow applies -- the binding names what is not the guest -- and
+`examples/policies/deno-kcp/policies.yaml` now lists both files under
+`vocabulary.reachInExceptions`. The pack's require fires once because the
+library subscribes to it by importing the pack and deno-kcp declares no
+guest-report flow; a repository that does not provision guests does not import
+the pack.
+
 The remaining denies on real code are a recorded gap, not a fix: a substring
 over a diff cannot tell naming a transport from running one, so a
 transport-name selector (`sshHelperForTransport`) or a lexicon description still
@@ -1222,6 +1235,7 @@ because this run makes that rule warn. Every change's decision is in
 | | #1 (`dc4c717e`) | #2 (`f5b7c10c`) |
 | --- | --- | --- |
 | head vs `main` under `examples/policies/deno-kcp` | **7 deny** (1 executed `curl -skS` at `accept.sh:269`, 6 printed `curl -k` at `apply.sh:220-224,227`) | **0 violations** |
+| the same run after round 2 (review 0006) | **8 deny**: the same seven, plus the pack's `rfp-guest-reports-network` require -- the library imports `rfp-guest-isolation`, and deno-kcp's tree declares no flow the guest initiates carrying network information | **0 violations** |
 | gate denials during realize | none: no policy existed | 1 deny, corrected on the next attempt |
 | warnings | none | 2 machine-path warnings on requirement text |
 | fix rounds through the flow | 7, in #1's later commits | 2 (`2a0798f5`, `f5b7c10c`), both from acceptance failures |
