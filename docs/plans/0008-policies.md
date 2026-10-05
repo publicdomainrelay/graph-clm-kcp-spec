@@ -255,7 +255,7 @@ of each PolicyChange, as for specs.
 
 | command | does |
 | --- | --- |
-| `specctl policy init --repo X` | create `open-policy/X` with policies.yaml and `lib/specd.rego` |
+| `specctl policy init --repo X [--with-library \| --from DIR]` | create `open-policy/X` with policies.yaml and `lib/specd.rego`; `--from DIR` seeds it from an existing policy directory |
 | `specctl policy new <name> --kind K --review CodeGraph` | scaffold src.rego, test, template.yaml, constraint, suite |
 | `specctl policy build [--dir D]` | build `dist/`, refresh lib, render CATALOGUE.md |
 | `specctl policy test [--dir D]` | `opa test` on src + gator verify on suites (built-in engine; `--gator` also shells out to the real `gator`) |
@@ -683,22 +683,60 @@ with the gate on. The result is a new pull request; #1 stays as it is.
    which is what plan 0009's model form (a `proc.exec` effect whose `argv0` the
    cloud-init does not deploy) is for.
 
-   Step 2 (the retry under the gate) and step 3 (publish) are not done.
-2. **Retry.**
-   - `scripts/example-deno-kcp-pr.sh` with the same PROMPT and BRIEF, and
-     `open-policy/deno-kcp` seeded from the bound library.
-   - Real-run constraints are deny: TLS verification and provisioning.
-     Style and quality constraints are warn.
-   - The realize gate feeds deny messages back to the agent.
-   - Live acceptance runs as before.
-3. **Publish** as a new PR against deno-kcp (`spec/bidder-and-bob-pds-policy-<date>`),
-   with a body that compares it to #1:
-   - violations in #1 vs violations in the new PR;
-   - gate denials during realize, with the attempts it took;
-   - the acceptance result;
-   - the spec and diff size.
-4. **Record.** `docs/examples/deno-kcp-pr.md` gets a "with policies" round
-   holding the commands, the timings and the table.
+   Baselines for steps 2-4, on the branch the retry starts from: `main`
+   `25d10f92` is red for `internal/provider`'s
+   `TestReconcilePodMintsATokenAndReportsOutputs` (one mint expected, two
+   made), and the defects #1's later commits fixed -- the provider's unbounded
+   initial list and its namespace-and-name-only informer store key -- are still
+   on `main`, which is why the retry's acceptance had to find and fix them
+   again.
+2. **Done.** `specctl policy init --from DIR` (new) writes an existing policy
+   directory onto a tree or orphan branch, and `scripts/example-pr.sh` gained
+   `POLICY_LIBRARY` (a directory, off by default) and `POLICY_ENFORCEMENT`
+   (`<name glob>=<deny|warn|dryrun>`, last match wins; default
+   `*=warn security-disabled-verification=deny provisioning-*=deny`), so a run
+   seeds `open-policy/<repo>[--<branch slug>]` before specd starts, hands the
+   same directory to specd as `SPECD_POLICY_LIBRARY` for the spec-time gate,
+   pushes the policy branch with `PUSH=1`, and records the audit, every
+   change's gate decision, the head evaluation and a summary into `$WORK`.
+   Two script bugs the run exposed are fixed with it: the push of a fresh
+   clone's `open-architecture/<repo>` baseline is not a fast-forward against
+   the remote's (only this run's own branch is pushed now), and `policy report`
+   needs `--repo`.
+   - Run:
+     `WORK=/tmp/specd-deno-kcp-policy-20261005 BRANCH=spec/bidder-and-bob-pds-policy-20261005
+     PUSH=1 POLICY_LIBRARY=$HYDRA/examples/policies/deno-kcp scripts/example-deno-kcp-pr.sh`,
+     same PROMPT and BRIEF as #1, with the `kcp-libs` sibling on
+     `fix/openbao-no-default-issuer` (kcp-libs#1) and the `hono-pds` crawler
+     commit from hono-pds#1 carried as a working-tree patch.
+   - The spec-time gate denied nothing. The realize gate denied once:
+     `security-disabled-verification` on `apply.sh:222`
+     (`echo "  bob pds curl -k https://..."`), the messages went back to the
+     agent as the next attempt's agent log, and the next attempt landed
+     `f31ce445` without it: one deny out of three attempts for that batch. Two
+     `requirement-text-has-machine-path` warnings were recorded (the harness's
+     own requirement text names `/home/johnandersen777/...`), not blocking.
+   - Two fix rounds, both acceptance-driven and both through the spec flow as
+     `MUST` requirements on `internal-provider`:
+     `r.provider-initial-list-is-bounded-and-retried` (`2a0798f5`, three
+     attempts, two of them gated on the failing acceptance) and
+     `r.watch-cache-keys-every-workspace` (`f5b7c10c`, first attempt).
+3. **Published** as
+   [publicdomainrelay/deno-kcp#2](https://github.com/publicdomainrelay/deno-kcp/pull/2)
+   on `spec/bidder-and-bob-pds-policy-20261005`, with the orphan branches
+   `open-architecture/deno-kcp--spec-bidder-and-bob-pds-policy-20261005` and
+   `open-policy/deno-kcp--spec-bidder-and-bob-pds-policy-20261005`. The body
+   compares it to #1: 7 deny (all `security-disabled-verification`) versus 0;
+   the one gate denial and the agent's correction; two fix rounds through the
+   flow; live acceptance green under `gate: true` (16 of 16 checks, 42.9 s,
+   `apply attempts=0`, `relaySawCommit yes`); 15 files +1151/-76 against #1's
+   17 files +1235/-151, and 10 new requirements over 3 contexts (+139/-3).
+4. **Recorded** in `docs/examples/deno-kcp-pr.md`, section "Round with policies
+   (PR #2)": the one-command run, what `POLICY_LIBRARY` does to the branch, the
+   timings, the gate denial and its correction, the #1-versus-#2 table, the two
+   fix rounds, and the environment facts this round added (the acceptance
+   step's `ORG_ROOT` must be the org root; a green acceptance is 43 s, a
+   failing one 8.5 minutes).
 
 Order: after phase C's gate is fixed and merged (`policy-cm`).
 
