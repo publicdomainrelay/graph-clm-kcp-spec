@@ -403,7 +403,7 @@ deny. That is deliberate: it evaluates a state, not a change.
 A repository that has been developing for a while already violates something.
 The change-scoped gates keep that from blocking every edit, but somebody has to
 decide, one violation at a time, whether it gets fixed or accepted. Three verbs
-do that, and both work on a checkout, a commit or the policy branch.
+do that, and all of them work on a checkout, a commit or the policy branch.
 
 **1. List them.**
 
