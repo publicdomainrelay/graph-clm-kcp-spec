@@ -11,12 +11,12 @@ spec:
   nodes:
   - id: "fn:emit"
     kind: function
-    name: emitRegisterIdentity
-    qualifiedName: emitRegisterIdentity
+    name: emitVmOnNetwork
+    qualifiedName: emitVmOnNetwork
     file: hono-bidder/mod.ts
-    startLine: 39
+    startLine: 30
     text: |
       const nodeId = await provider.getNodeId(providerId)
-      return { type: REGISTER_IDENTITY_EVENT, vmId, nodeId }
+      return { type: ON_NETWORK_EVENT, vmId, address: nodeId }
   edges: []
   texts: {}

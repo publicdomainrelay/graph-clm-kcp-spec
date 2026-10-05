@@ -4,6 +4,8 @@ export const RELAY_TRANSPORT = "ws-relay";
 
 export const ON_NETWORK_EVENT = "vm.onNetwork";
 
+export const REGISTER_IDENTITY_EVENT = "vm.registerIdentity";
+
 export const ON_NETWORK_REPORT_PATH = "/v1/on-network";
 
 export interface CloudInitContext {
@@ -25,6 +27,7 @@ export interface VmNetworkReport {
   vmId: string;
   address: string;
   transport: string;
+  nodeId: string;
 }
 
 export interface VmOnNetworkEvent {
@@ -32,6 +35,12 @@ export interface VmOnNetworkEvent {
   vmId: string;
   address: string;
   transport: string;
+}
+
+export interface VmIdentityEvent {
+  type: typeof REGISTER_IDENTITY_EVENT;
+  vmId: string;
+  nodeId: string;
 }
 
 export function relayServiceName(vmId: string): string {

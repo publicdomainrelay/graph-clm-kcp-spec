@@ -11,23 +11,23 @@ spec:
   nodes:
   - id: "fn:emit"
     kind: function
-    name: emitRegisterIdentity
-    qualifiedName: emitRegisterIdentity
+    name: emitVmOnNetwork
+    qualifiedName: emitVmOnNetwork
     file: hono-bidder/mod.ts
-    startLine: 39
+    startLine: 30
     text: |
-      return { type: REGISTER_IDENTITY_EVENT, vmId: report.vmId, nodeId: report.nodeId }
+      return { type: ON_NETWORK_EVENT, vmId: report.vmId, address: report.address }
   - id: "fn:handler"
     kind: function
-    name: handleIdentityReport
-    qualifiedName: handleIdentityReport
+    name: handleOnNetworkReport
+    qualifiedName: handleOnNetworkReport
     file: hono-bidder/mod.ts
-    startLine: 52
+    startLine: 48
     text: |
-      return emitRegisterIdentity(report)
+      return emitVmOnNetwork(report)
   edges:
   - source: "fn:handler"
     target: "fn:emit"
     kind: calls
-    line: 53
+    line: 49
   texts: {}

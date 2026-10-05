@@ -17,13 +17,21 @@ Deno.test("bidder and requester provision over the relay", async () => {
 
   await bidder.provider.provision(contract);
 
-  const event = bidder.handleOnNetworkReport({
+  const report = {
     vmId: contract.vmId,
     address: "relay://vm-fixture",
     transport: "ws-relay",
-  });
+    nodeId: "iroh-node-fixture",
+  };
+
+  const event = bidder.handleOnNetworkReport(report);
   if (event.address !== "relay://vm-fixture") {
     throw new Error("guest report was not used for the event");
+  }
+
+  const identity = bidder.handleIdentityReport(report);
+  if (identity.nodeId !== "iroh-node-fixture") {
+    throw new Error("guest report was not used for the identity");
   }
 
   const result = await runComputeContract(contract);

@@ -14,8 +14,9 @@ spec:
     hostGlobs:
     - hono-bidder/**
     - lib/compute-provider/**
-    emitterPatterns: ON_NETWORK_EVENT|emitVmOnNetwork
-    handlerPatterns: handleOnNetworkReport|OnNetworkReport|on-network
+    emitterPatterns: REGISTER_IDENTITY|emitRegisterIdentity|computeIdentity
+    subject: the guest identity
+    handlerPatterns: OnNetworkReport|IdentityReport|on-network|guest-report
     edgeKinds:
     - calls
     - imports

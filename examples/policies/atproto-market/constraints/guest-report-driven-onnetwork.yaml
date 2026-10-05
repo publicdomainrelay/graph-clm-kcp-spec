@@ -1,7 +1,7 @@
 apiVersion: constraints.gatekeeper.sh/v1beta1
-kind: GuestReportReachIn
+kind: GuestReportDrivenEmission
 metadata:
-  name: guest-report-reach-in
+  name: guest-report-driven-onnetwork
 spec:
   enforcementAction: deny
   match:
@@ -12,13 +12,13 @@ spec:
       - CodeGraph
   parameters:
     hostGlobs:
+    - lib/market-bidder/**
+    - lib/market-bidder-compute/**
     - hono-bidder/**
     - lib/compute-provider/**
-    emitterPatterns: ON_NETWORK_EVENT|emitVmOnNetwork|REGISTER_IDENTITY|emitRegisterIdentity|computeIdentity
-    reachInPatterns:
-    - \.getNodeId\s*\(
-    - Deno\.connect\(\{[^}]*guest
-    - guest-agent
+    emitterPatterns: COMPUTE_EVENTS_VM_ONNETWORK_NSID
+    subject: the vm.onNetwork event
+    handlerPatterns: guest\.onNetwork|mountOnNetworkReport|OnNetworkReport|onNetworkReportEntries|/v1/on-network
     edgeKinds:
     - calls
     - imports
