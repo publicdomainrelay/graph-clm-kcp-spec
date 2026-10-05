@@ -400,6 +400,10 @@ edited or pushed, `specctl policy model --repo atproto-market --worktree ...
   The emission side is `host -> requester` with the `event.emit` sites
   `lib/market-bidder-compute/mod.ts:257` (vm.onNetwork) and `:284`
   (registerIdentity).
+- `pre-iroh` `d20070c`, 189 effects, 15 flows: no `host -> guest` flow at all,
+  which is plan 0008 phase B's zero-violation verdict at that ref. The model
+  reproduces the three refs' verdicts, so G4's pack can be calibrated against
+  it.
 - `spec/iroh-dumbpipe-20261004141803` `ffac22e`, 208 effects, 18 flows. The
   guest reports out: `guest -> requester initiator=guest channel=relay
   carries=[network-info] purpose=network-discovery`, evidence `http.request
