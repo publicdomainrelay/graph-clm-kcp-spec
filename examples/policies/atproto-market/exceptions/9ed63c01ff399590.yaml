@@ -1,0 +1,8 @@
+constraint: guest-report-driven-onnetwork
+file: lib/market-bidder-compute/mod.ts
+key: 9ed63c01ff399590
+line: 304
+object: CodeGraph default/atproto-market
+owner: john
+reason: host-emitted vm.onNetwork carries the provisioned IP; it may be a public IPv4
+  the client judges; kept by decision
