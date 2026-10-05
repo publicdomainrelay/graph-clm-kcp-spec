@@ -610,7 +610,7 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "suites: %d/%d cases passed\n", passedCases, totalCases)
 
-	if *withGator {
+	if *withGator && len(suites) > 0 {
 		bin := *gatorBin
 		if bin == "" {
 			bin = os.Getenv("SPECD_GATOR")

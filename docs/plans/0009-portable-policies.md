@@ -785,26 +785,79 @@ Remaining, honestly:
   `RfpGuestTransportProvenance` treats the guest role's files as allowed
   wholesale rather than checking that the transport is a `UserDataModule`.
 
-### G5. Cross-project and greenfield proof
+### G5. Cross-project and greenfield proof -- done
 
-- Bind the same pack to a second real repository and run it.
-- Greenfield: a new spec-only repo whose specs declare a host-to-guest exec
-  flow is denied at spec time. Fixing the spec lets the change through.
-  Realize then generates code, and the observed flows conform.
-- Both runs are recorded in `docs/examples/portable-policies.md` with
-  `scripts/example-portable-policies.sh`.
-- **One model across several repositories.** B2 found the real reach-in for
-  atproto-market in a different repository. `hono-compute-provider`'s
-  `compute-provider-local` reads the guest address with `container inspect`
-  (`inspectIp`) and polls ssh with `pollSshExec`. A CodeGraph of one repository
-  cannot see that code. Two changes are needed:
-  - `policies.yaml` gains `members:` (other repositories, each with a git URL,
-    a ref and a role binding);
-  - the ArchitectureModel is built over every member, so `no-host-reach-in`
-    sees the provider's `container.exec` effect.
+What is built:
 
-  Proof: atproto-market plus hono-compute-provider at `pre-iroh` / `fb11e74`
-  denies the `inspectIp` reach-in.
+- **`members:`.** `policies.yaml` gained a member list (name, url, ref,
+  optional path, its own role binding, the classifier packs its code is read
+  with, optional test globs) and `PolicyLibrary.Classifiers` names the
+  classifier packs for the repository's own code. `impl/policyeval/members.go`
+  clones each member into `$SPECD_CACHE_DIR/policy-members/<name>`, checks out
+  the ref, resolves the commit and verifies it against `policies.lock`;
+  `policies.lock` gained a `members:` pin list and the report gained a
+  `members:` field, so an evaluation names every checkout it read.
+  `impl/policyeval/model.go` builds a model per member and
+  `policy.BuildModel` merges them: components are `<member>/<context>`,
+  effects, files, evidence and trigger ids carry the prefix, a member's roles
+  merge with the importing library's (`Binding.Merge`), and a flow of the same
+  shape merges its evidence instead of doubling. `--member name=path` clones a
+  member from a local checkout and still records the declared url.
+- **The model is built wherever a library is evaluated.** It was in
+  `specctl policy eval`/`model` and the spec-time gate only; the realize gate
+  (`impl/realize/policy.go`) and the kcp audit (`factory/specd/policy.go`) now
+  build it too and review it, so the pack's model rules gate a realize and an
+  audit, not only an offline run.
+- **Proof A (cross-repo).** atproto-market `pre-iroh` `d20070c` plus
+  hono-compute-provider `fb11e74` as a member: 347 effects, 19 flows, and the
+  pack denies `host -> guest` with evidence at
+  `hono-compute-provider/lib/compute-provider-local/mod.ts:455` (plus `:381`,
+  `:539` and `:186` in the same flow). Without the member the same repository
+  has no `host -> guest` flow at all. Reading it honestly: `inspectIp` is the
+  `container inspect` address read and `backend.exec` inside `pollSshExec` is a
+  `container.exec` into the guest, not an ssh, so `RfpRelayOnlyGuestSsh` has
+  nothing to say about it; `pollSsh`'s raw `net.dial` to port 22 is a reach-in
+  the pack misses, recorded as a gap. The `inspectIp`/`exec` classifier rules
+  live in the library's `classifiers/compute-provider.yaml`, not in the shared
+  TypeScript pack.
+- **Proof B (second real repository).** hono-compute-provider alone, the same
+  pack, only `policies.yaml` differs: 2 denies. `rfp-host-reach-in` is real
+  (`lib/compute-provider-local/mod.ts:455`); `rfp-guest-reports-network` is
+  false for this checkout, because the guest's report is written in another
+  repository -- which is what `members:` exists for, and A binds it.
+- **Proof C (greenfield).** The pack could not deny a declared flow at all:
+  `RfpHostReachIn` read its site through the flow's evidence, so a declared
+  flow with no evidence left `site_file` undefined and the rule head
+  unsatisfied. The site now falls back to empty, pinned by the suite case
+  `denied-a-declared-reach-in-before-any-code`, the unit test
+  `test_violation_when_a_declared_flow_has_no_evidence` (83/83 unit tests,
+  14/14 suite cases) and the fixture `model-declared-denied.yaml`.
+  `examples/policies/greenfield-market` binds the pack to the spec-only fixture
+  by context name: `specctl policy eval --specs-only --strict` exits 1 on the
+  host-initiated spec and 0 on the guest-initiated one.
+  `test/e2e/policy_portable_live_test.go` writes the portable library to the
+  repository's own `open-policy/greenfield-market` branch and drives the loop
+  under kcp: the violating edit is `PolicyValid=False/PolicyDeniedAtSpec` with
+  HEAD unmoved, the fixed spec realizes with the scripted agent
+  (`examples/policy-gate/scenario-greenfield-portable.yaml` writes the guest's
+  report and the host's report handler), and the audit reads the observed model
+  and finds it clean. Green in 13 s.
+- `docs/examples/portable-policies.md` and
+  `scripts/example-portable-policies.sh` repeat all three; the README links
+  them.
+
+Remaining, honestly:
+
+- `pollSsh`'s `Deno.connect` to the guest is not in the reach-in kind list.
+- A repository that holds one side of a guest/host split must bind the other as
+  a member or accept a false require; there is no "this role is not here"
+  declaration.
+- The spec-time gate is declared-only: a member's observed reach-in is not a
+  fact at spec time.
+- The `members:` clone happens even when a run only needs the primary library's
+  own templates; `policy test` skips it (it passes no cache dir), `policy eval`
+  and `policy model` do not.
+- `git:` and `oci:` pack sources still have no test that pulls a pack.
 
 ### G6. Portable generation
 

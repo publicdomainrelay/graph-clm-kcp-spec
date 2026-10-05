@@ -4,8 +4,3 @@ imports:
   sha256: 93dd9ea2d6d555c35b6a5257a8dde03600302ca01af2dfece5eb0ab77a7dcd41
   source: embedded
   version: v1
-members:
-- commit: fb11e740185ef27e870b361c414f1e4aee9a11cd
-  name: hono-compute-provider
-  ref: fb11e74
-  url: https://github.com/publicdomainrelay/hono-compute-provider

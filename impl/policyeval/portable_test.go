@@ -94,7 +94,7 @@ func TestMembersMergeIntoOneModel(t *testing.T) {
 			},
 		},
 		Members: []policy.ModelMember{{
-			Name: "provider",
+			Name:    "provider",
 			Binding: memberBinding.Merge(policy.Binding{Roles: binding.Roles}),
 			Graph: policy.CodeGraph{
 				Spec: policy.CodeGraphSpec{

@@ -957,6 +957,17 @@ including `spec/iroh-dumbpipe-20261004141803` (atproto-market#1), which emits
 `vm.onNetwork` from the provisioning lifecycle even though the guest reports
 its ticket separately.
 
+`policies/packs/rfp-guest-isolation` is the same two invariants written once
+over roles, effects and flows, and bound three times -- to atproto-market with
+`hono-compute-provider` beside it as a `members:` repository, to that provider
+alone, and to the spec-only `greenfield-market` fixture -- with only
+`policies.yaml` differing. `docs/examples/portable-policies.md` records the
+three runs (the cross-repository reach-in the provider's `inspectIp` makes, the
+one real and one false violation a provider-only binding reports, and the pack
+denying a declared host-to-guest flow before any code exists); the live half is
+`test/e2e/policy_portable_live_test.go`, and
+`scripts/example-portable-policies.sh` repeats them.
+
 ## Requirements
 
 `go` (1.26 or newer), `kcp` v0.33, `kine`, `kubectl`, `codegraph` on `PATH` for
