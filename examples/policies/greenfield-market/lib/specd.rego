@@ -436,7 +436,41 @@ event_class(effect, class) {
 	emitted := object.get(object.get(effect, "attrs", {}), "type", "")
 	emitted != ""
 	term := vocabulary_terms("events", class)[_]
-	contains(lower(emitted), lower(term))
+	term_in(emitted, term)
+}
+
+# term_in matches a vocabulary term as a whole token. The comparison is
+# case-insensitive; a term that is part of a longer word is not the class.
+term_in(text, term) {
+	term != ""
+	lowered := lower(text)
+	needle := lower(term)
+	start := indexof(lowered, needle)
+	start >= 0
+	token_before(lowered, start)
+	token_after(lowered, start + count(needle))
+}
+
+token_before(text, index) {
+	index == 0
+}
+
+token_before(text, index) {
+	index > 0
+	not is_token_char(substring(text, index-1, 1))
+}
+
+token_after(text, index) {
+	index == count(text)
+}
+
+token_after(text, index) {
+	index < count(text)
+	not is_token_char(substring(text, index, 1))
+}
+
+is_token_char(char) {
+	contains("abcdefghijklmnopqrstuvwxyz0123456789_", char)
 }
 
 # route_class is an http.handle on a route the binding wrote for a route class.

@@ -71,6 +71,14 @@ test_no_violation_when_the_emit_is_not_of_the_network_report_class {
 	count(violations) == 0
 }
 
+test_no_violation_when_the_emitted_type_only_contains_the_term {
+	# A term is a whole token: `PREFIX_COMPUTE_EVENTS_VM_ONNETWORK_NSID_SUFFIX`
+	# is not the event class the vocabulary named.
+	near := {"id": "emit", "kind": "event.emit", "component": "host", "attrs": {"type": "PREFIX_COMPUTE_EVENTS_VM_ONNETWORK_NSID_SUFFIX"}, "file": "hono-bidder/mod.ts", "line": 364}
+	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [report, handler, near], [report_flow], [])
+	count(violations) == 0
+}
+
 test_report_peer_roles_narrow_the_flow {
 	call := {"parameters": {"guestRole": "guest", "networkInfoClass": "network-info", "networkEventClass": "network-report", "reportRouteClass": "report", "reportPeerRoles": ["host"]}, "review": review}
 	violations := violation with input as call with data.inventory as model(roles, [report, handler], [report_flow], [])

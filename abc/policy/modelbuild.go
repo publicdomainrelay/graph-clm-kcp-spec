@@ -910,11 +910,39 @@ func (i *flowIndex) purpose(effect Effect) string {
 	return ""
 }
 
+// containsFold matches a vocabulary term as a whole token: `address` is a
+// payload class, `guestAddress` is not. A substring match made almost any
+// guest call carry network-info (0003 B8).
 func containsFold(text, term string) bool {
 	if term == "" {
 		return false
 	}
-	return strings.Contains(strings.ToLower(text), strings.ToLower(term))
+	lowerText := strings.ToLower(text)
+	lowerTerm := strings.ToLower(term)
+	for offset := 0; offset <= len(lowerText)-len(lowerTerm); {
+		found := strings.Index(lowerText[offset:], lowerTerm)
+		if found < 0 {
+			return false
+		}
+		start := offset + found
+		end := start + len(lowerTerm)
+		if termBoundary(lowerText, start, end) {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+func termBoundary(text string, start, end int) bool {
+	if start > 0 && isTermByte(text[start-1]) {
+		return false
+	}
+	return end >= len(text) || !isTermByte(text[end])
+}
+
+func isTermByte(char byte) bool {
+	return char == '_' || (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9')
 }
 
 func mergeDeclaredFlows(observed []ModelFlow, interactions []DeclaredInteraction, rolesOf map[string][]string) []ModelFlow {
@@ -967,9 +995,7 @@ func dedupeFlows(flows []ModelFlow) []ModelFlow {
 			if merged.Source != flow.Source {
 				merged.Source = SourceBoth
 			}
-			if len(merged.Carries) == 0 {
-				merged.Carries = flow.Carries
-			}
+			merged.Carries = dedupeStrings(append(merged.Carries, flow.Carries...))
 			merged.Level = strongerLevel(merged.Level, flow.Level)
 			out[position] = merged
 			continue
@@ -1059,12 +1085,19 @@ func effectTriggers(graph CodeGraph, effects []Effect, edgeKinds []string, maxRe
 		}
 	}
 
+	nodes := map[string]CodeGraphNode{}
+	for _, node := range graph.Spec.Nodes {
+		nodes[node.ID] = node
+	}
 	out := []ModelTrigger{}
 	seen := map[string]bool{}
 	for _, root := range roots {
 		reachable := reachableNodes(root.Node, adjacency, maxReach, maxHops)
 		for _, leaf := range leaves {
 			if root.ID == leaf.ID || !reachable[leaf.Node] {
+				continue
+			}
+			if leaf.Node == root.Node && !sameNodeDrives(nodes[leaf.Node], leaf) {
 				continue
 			}
 			key := root.ID + "\x00" + leaf.ID
@@ -1082,6 +1115,17 @@ func effectTriggers(graph CodeGraph, effects []Effect, edgeKinds []string, maxRe
 		return out[left].To < out[right].To
 	})
 	return out
+}
+
+// sameNodeDrives keeps a root and a leaf that share a node only when that node
+// is a real declaration and the leaf sits inside it. A file node is a whole
+// file, so an event.emit anywhere in a file with an http.handle would otherwise
+// count as driven by it; a trigger needs a call edge, not a shared node.
+func sameNodeDrives(node CodeGraphNode, leaf Effect) bool {
+	if node.Kind == "file" || node.StartLine <= 0 {
+		return false
+	}
+	return leaf.Line == 0 || (leaf.Line >= node.StartLine && leaf.Line <= node.EndLine)
 }
 
 func reachableNodes(root string, adjacency map[string][]string, maxReach, maxHops int) map[string]bool {

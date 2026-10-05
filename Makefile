@@ -40,7 +40,9 @@ $(BIN)/.commit: FORCE
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 
-$(SPECCTL): $(shell find cmd/specctl abc common impl -name '*.go') go.mod $(BIN)/.commit
+POLICY_EMBEDS := $(shell find impl/policyeval/lib impl/effects/packs policies/packs -type f)
+
+$(SPECCTL): $(shell find cmd/specctl abc common impl -name '*.go') $(POLICY_EMBEDS) go.mod $(BIN)/.commit
 	@mkdir -p $(BIN)
 	go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/specctl
 

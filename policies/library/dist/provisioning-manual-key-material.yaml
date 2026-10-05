@@ -174,25 +174,33 @@ spec:
       and one\n# way: the emitted type carries the vocabulary term, as a constant
       name carries\n# the NSID it stands for.\nevent_class(effect, class) {\n\teffect.kind
       == \"event.emit\"\n\temitted := object.get(object.get(effect, \"attrs\", {}),
-      \"type\", \"\")\n\temitted != \"\"\n\tterm := vocabulary_terms(\"events\", class)[_]\n\tcontains(lower(emitted),
-      lower(term))\n}\n\n# route_class is an http.handle on a route the binding wrote
-      for a route class.\nroute_class(effect, class) {\n\teffect.kind == \"http.handle\"\n\troute
-      := object.get(object.get(effect, \"attrs\", {}), \"path\", \"\")\n\troute !=
-      \"\"\n\tterm := vocabulary_terms(\"routes\", class)[_]\n\tterm == route\n}\n\nroute_class(effect,
+      \"type\", \"\")\n\temitted != \"\"\n\tterm := vocabulary_terms(\"events\", class)[_]\n\tterm_in(emitted,
+      term)\n}\n\n# term_in matches a vocabulary term as a whole token. The comparison
+      is\n# case-insensitive; a term that is part of a longer word is not the class.\nterm_in(text,
+      term) {\n\tterm != \"\"\n\tlowered := lower(text)\n\tneedle := lower(term)\n\tstart
+      := indexof(lowered, needle)\n\tstart >= 0\n\ttoken_before(lowered, start)\n\ttoken_after(lowered,
+      start + count(needle))\n}\n\ntoken_before(text, index) {\n\tindex == 0\n}\n\ntoken_before(text,
+      index) {\n\tindex > 0\n\tnot is_token_char(substring(text, index-1, 1))\n}\n\ntoken_after(text,
+      index) {\n\tindex == count(text)\n}\n\ntoken_after(text, index) {\n\tindex <
+      count(text)\n\tnot is_token_char(substring(text, index, 1))\n}\n\nis_token_char(char)
+      {\n\tcontains(\"abcdefghijklmnopqrstuvwxyz0123456789_\", char)\n}\n\n# route_class
+      is an http.handle on a route the binding wrote for a route class.\nroute_class(effect,
       class) {\n\teffect.kind == \"http.handle\"\n\troute := object.get(object.get(effect,
       \"attrs\", {}), \"path\", \"\")\n\troute != \"\"\n\tterm := vocabulary_terms(\"routes\",
-      class)[_]\n\tglob.match(term, [], route)\n}\n\ndeclared(flow) {\n\tflow.source
-      == \"declared\"\n}\n\ndeclared(flow) {\n\tflow.source == \"both\"\n}\n\nobserved(flow)
-      {\n\tflow.source == \"observed\"\n}\n\nobserved(flow) {\n\tflow.source == \"both\"\n}\n\nforbidden(flow)
-      {\n\tflow.forbidden == true\n}\n\nflow_level(flow, level) {\n\tflow.level ==
-      level\n}\n\n# same_flow is the directed shape two flows share when one is a
-      declared\n# must-never and the other is a declared or observed flow that violates
-      it: the\n# initiating role, the role it acts on, the channel and the purpose.
-      A flow's\n# from is the context that declared it and its to is the peer, so
-      the role the\n# initiator acts on is the endpoint that is not the initiator.
-      The level, the\n# forbidden marker, the carried payloads, the source and the
-      evidence are not\n# part of the shape.\nsame_flow(left, right) {\n\tinitiator_of(left)
-      == initiator_of(right)\n\tacted_on(left) == acted_on(right)\n\tobject.get(left,
+      class)[_]\n\tterm == route\n}\n\nroute_class(effect, class) {\n\teffect.kind
+      == \"http.handle\"\n\troute := object.get(object.get(effect, \"attrs\", {}),
+      \"path\", \"\")\n\troute != \"\"\n\tterm := vocabulary_terms(\"routes\", class)[_]\n\tglob.match(term,
+      [], route)\n}\n\ndeclared(flow) {\n\tflow.source == \"declared\"\n}\n\ndeclared(flow)
+      {\n\tflow.source == \"both\"\n}\n\nobserved(flow) {\n\tflow.source == \"observed\"\n}\n\nobserved(flow)
+      {\n\tflow.source == \"both\"\n}\n\nforbidden(flow) {\n\tflow.forbidden == true\n}\n\nflow_level(flow,
+      level) {\n\tflow.level == level\n}\n\n# same_flow is the directed shape two
+      flows share when one is a declared\n# must-never and the other is a declared
+      or observed flow that violates it: the\n# initiating role, the role it acts
+      on, the channel and the purpose. A flow's\n# from is the context that declared
+      it and its to is the peer, so the role the\n# initiator acts on is the endpoint
+      that is not the initiator. The level, the\n# forbidden marker, the carried payloads,
+      the source and the evidence are not\n# part of the shape.\nsame_flow(left, right)
+      {\n\tinitiator_of(left) == initiator_of(right)\n\tacted_on(left) == acted_on(right)\n\tobject.get(left,
       \"channel\", \"\") == object.get(right, \"channel\", \"\")\n\tobject.get(left,
       \"purpose\", \"\") == object.get(right, \"purpose\", \"\")\n}\n\ninitiator_of(flow)
       = initiator {\n\tinitiator := object.get(flow, \"initiator\", \"\")\n}\n\nacted_on(flow)
