@@ -1,7 +1,6 @@
 package policyeval
 
 import (
-	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -155,15 +154,4 @@ func SplitDocuments(data []byte) [][]byte {
 		out = append(out, []byte(trimmed))
 	}
 	return out
-}
-
-func unmarshalYAML(data []byte, value any) error {
-	if err := yaml.Unmarshal(data, value); err != nil {
-		return fmt.Errorf("yaml: %w", err)
-	}
-	return nil
-}
-
-func marshalYAML(value any) ([]byte, error) {
-	return yaml.Marshal(value)
 }

@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -19,6 +18,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	orasoci "oras.land/oras-go/v2/content/oci"
 	"oras.land/oras-go/v2/registry/remote"
+	"sigs.k8s.io/yaml"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	packsregistry "github.com/publicdomainrelay/graph-clm-kcp-spec/policies/packs"
@@ -247,7 +247,7 @@ func gitPackFS(imp policy.PackImport, source policy.PackSource, opts ImportOptio
 	if _, err := os.Stat(filepath.Join(nested, policy.PackManifestPath)); err == nil {
 		root = nested
 	}
-	return dirFS(root), cleanup, nil
+	return os.DirFS(root), cleanup, nil
 }
 
 // ociPackFS pulls an OCI artifact and lays its layers out as a directory, so a
@@ -293,7 +293,7 @@ func ociPackFS(imp policy.PackImport, source policy.PackSource, opts ImportOptio
 		innerCleanup()
 		return nil, func() {}, err
 	}
-	return dirFS(out), innerCleanup, nil
+	return os.DirFS(out), innerCleanup, nil
 }
 
 func materializeOCI(ctx context.Context, store *orasoci.Store, tag, dir string) error {
@@ -337,10 +337,6 @@ func materializeOCI(ctx context.Context, store *orasoci.Store, tag, dir string) 
 		return fmt.Errorf("policyeval: oci artifact %s carries no titled layer", tag)
 	}
 	return nil
-}
-
-func dirFS(dir string) fs.FS {
-	return os.DirFS(dir)
 }
 
 // PackDigest is the sha256 of a pack's sources: pack.yaml, the templates, the
@@ -409,7 +405,7 @@ func ReadLock(dir string) (policy.PackLock, bool, error) {
 
 func ParseLock(data []byte) (policy.PackLock, error) {
 	var lock policy.PackLock
-	if err := unmarshalYAML(data, &lock); err != nil {
+	if err := yaml.Unmarshal(data, &lock); err != nil {
 		return policy.PackLock{}, fmt.Errorf("policyeval: %s: %w", policy.LockPath, err)
 	}
 	return lock, nil
@@ -421,14 +417,5 @@ func EncodeLock(entries []policy.LockEntry) ([]byte, error) {
 	for _, entry := range entries {
 		lock.Set(entry)
 	}
-	return marshalYAML(lock)
-}
-
-func importedNames(entries []policy.LockEntry) []string {
-	out := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		out = append(out, entry.Pack+"@"+entry.Version)
-	}
-	slices.Sort(out)
-	return out
+	return yaml.Marshal(lock)
 }
