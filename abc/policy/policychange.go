@@ -1,6 +1,8 @@
 package policy
 
 import (
+	"fmt"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
@@ -89,6 +91,19 @@ type PolicyChange struct {
 	Spec PolicyChangeSpec `json:"spec,omitempty"`
 
 	Status PolicyChangeStatus `json:"status,omitempty"`
+}
+
+func ValidatePolicyChange(c *PolicyChange) error {
+	if c.Name == "" {
+		return fmt.Errorf("policy: metadata.name is required")
+	}
+	if c.Spec.Repository == "" {
+		return fmt.Errorf("policy: %s names no repository", c.Name)
+	}
+	if c.Spec.EnforcementAction != "" && !c.Spec.EnforcementAction.Known() {
+		return fmt.Errorf("policy: %s enforcementAction %q is not deny, warn or dryrun", c.Name, c.Spec.EnforcementAction)
+	}
+	return nil
 }
 
 func (c *PolicyChange) SetDefaults() {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/watch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policykcp"
 )
 
 type clusterRouter struct {
@@ -120,6 +121,68 @@ func (r *clusterRouter) Create(ctx context.Context, object *unstructured.Unstruc
 		return nil, err
 	}
 	return client.Create(ctx, object)
+}
+
+// clusterTarget upgrades the routed client to one that can read and write
+// cluster scoped objects such as ConstraintTemplates and constraints.
+func (r *clusterRouter) clusterTarget(ctx context.Context) (policykcp.Cluster, error) {
+	client, err := r.target(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cluster, ok := client.(policykcp.Cluster)
+	if !ok {
+		return nil, fmt.Errorf("specd: %T cannot serve cluster scoped objects", client)
+	}
+	return cluster, nil
+}
+
+func (r *clusterRouter) GetCluster(ctx context.Context, gvr schema.GroupVersionResource, name string) (*unstructured.Unstructured, error) {
+	client, err := r.clusterTarget(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.GetCluster(ctx, gvr, name)
+}
+
+func (r *clusterRouter) ListCluster(ctx context.Context, gvr schema.GroupVersionResource) (*unstructured.UnstructuredList, error) {
+	client, err := r.clusterTarget(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.ListCluster(ctx, gvr)
+}
+
+func (r *clusterRouter) ApplyCluster(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	client, err := r.clusterTarget(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.ApplyCluster(ctx, object)
+}
+
+func (r *clusterRouter) CreateCluster(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	client, err := r.clusterTarget(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.CreateCluster(ctx, object)
+}
+
+func (r *clusterRouter) DeleteCluster(ctx context.Context, gvr schema.GroupVersionResource, name string) error {
+	client, err := r.clusterTarget(ctx)
+	if err != nil {
+		return err
+	}
+	return client.DeleteCluster(ctx, gvr, name)
+}
+
+func (r *clusterRouter) PatchStatusCluster(ctx context.Context, gvr schema.GroupVersionResource, name string, status map[string]any) (*unstructured.Unstructured, error) {
+	client, err := r.clusterTarget(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.PatchStatusCluster(ctx, gvr, name, status)
 }
 
 func (r *clusterRouter) PatchStatus(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, status map[string]any) (*unstructured.Unstructured, error) {

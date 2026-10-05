@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
 
@@ -330,6 +331,24 @@ func gvrOf(object *unstructured.Unstructured) schema.GroupVersionResource {
 	return schema.GroupVersionResource{
 		Group:    gvk.Group,
 		Version:  gvk.Version,
-		Resource: specapi.ResourceForKind(gvk.Kind),
+		Resource: resourceOf(gvk),
 	}
+}
+
+// resourceOf names the resource of a kind this client writes. The spec kinds
+// come from specapi; the policy kinds are Gatekeeper's, whose constraint
+// resource is the lower cased kind rather than a plural.
+func resourceOf(gvk schema.GroupVersionKind) string {
+	if resource := specapi.ResourceForKind(gvk.Kind); resource != "" {
+		return resource
+	}
+	switch gvk.Group {
+	case "apiextensions.k8s.io":
+		return "customresourcedefinitions"
+	case policy.ConstraintTemplateGroup:
+		return policy.ConstraintTemplateResource
+	case policy.ConstraintGroup:
+		return policy.ConstraintResource(gvk.Kind)
+	}
+	return ""
 }

@@ -73,6 +73,8 @@ const (
 	ConditionFilesOutsideContext = "FilesOutsideContext"
 
 	ConditionPolicyCompliant = "PolicyCompliant"
+
+	ConditionPolicyReady = "PolicyReady"
 )
 
 const (

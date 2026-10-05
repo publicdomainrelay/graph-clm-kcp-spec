@@ -16,6 +16,7 @@ import (
 	"github.com/open-policy-agent/gatekeeper/v3/pkg/util"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/yaml"
@@ -289,6 +290,10 @@ func crdToUnstructured(internal *apiextensions.CustomResourceDefinition) (*unstr
 	converted := &apiextensionsv1.CustomResourceDefinition{}
 	if err := scheme.Convert(internal, converted, nil); err != nil {
 		return nil, fmt.Errorf("policyeval: convert the constraint CRD: %w", err)
+	}
+	converted.TypeMeta = metav1.TypeMeta{
+		APIVersion: apiextensionsv1.SchemeGroupVersion.String(),
+		Kind:       "CustomResourceDefinition",
 	}
 	content, err := runtime.DefaultUnstructuredConverter.ToUnstructured(converted)
 	if err != nil {

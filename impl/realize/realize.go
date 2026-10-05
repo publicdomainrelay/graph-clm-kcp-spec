@@ -101,6 +101,8 @@ type Options struct {
 	Members []Member
 
 	Coverage *coverage.Judge
+
+	Policy *PolicyGateOptions
 }
 
 func (o Options) batch() []Member {
@@ -136,6 +138,10 @@ type Result struct {
 	Coverage map[string][]coverage.Verdict
 
 	CoverageError string
+
+	Policy *spec.PolicyGateStatus
+
+	PolicyWaived []string
 }
 
 type VerifyError struct {
@@ -278,7 +284,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		return result, err
 	}
 
-	if err := runGates(ctx, options.Repository, options.Worktree, options.VerifyTimeout, options.AcceptanceTimeout, &result); err != nil {
+	if err := runGates(ctx, options, options.Worktree, options.VerifyTimeout, options.AcceptanceTimeout, &result); err != nil {
 		return result, err
 	}
 
@@ -294,7 +300,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 			if err != nil {
 				return result, fmt.Errorf("realize: %s moved under the change and the change does not rebase onto it: %w", branch, err)
 			}
-			if err := runGates(ctx, options.Repository, options.Worktree, options.VerifyTimeout, options.AcceptanceTimeout, &result); err != nil {
+			if err := runGates(ctx, options, options.Worktree, options.VerifyTimeout, options.AcceptanceTimeout, &result); err != nil {
 				return result, err
 			}
 			commit = rebased
@@ -414,7 +420,8 @@ func readContext(ctx context.Context, cluster Cluster, namespace, name string) (
 	return systemContext, nil
 }
 
-func runGates(ctx context.Context, repository *spec.Repository, dir string, verifyTimeout, acceptanceTimeout time.Duration, result *Result) error {
+func runGates(ctx context.Context, options Options, dir string, verifyTimeout, acceptanceTimeout time.Duration, result *Result) error {
+	repository := options.Repository
 	started := time.Now()
 	exitCode, output := verify(ctx, repository.Spec.Verify, dir, verifyTimeout)
 	result.VerifyExitCode = exitCode
@@ -422,6 +429,17 @@ func runGates(ctx context.Context, repository *spec.Repository, dir string, veri
 	result.VerifyDuration = time.Since(started)
 	if exitCode != 0 {
 		return &VerifyError{Command: repository.Spec.Verify, ExitCode: exitCode, Output: output}
+	}
+	if options.Policy != nil {
+		decision, _, err := runPolicyGate(ctx, options, dir)
+		if err != nil {
+			return err
+		}
+		result.Policy = policyStatusOf(decision)
+		result.PolicyWaived = policyOverrideSteps(decision)
+		if decision.Blocked {
+			return &PolicyError{Decision: decision, Messages: decision.Messages()}
+		}
 	}
 	results := RunAcceptance(ctx, repository.Spec.Acceptance, dir, acceptanceTimeout)
 	spec.ApplyOverrides(results, repository.Spec.AcceptanceOverrides)

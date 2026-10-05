@@ -14,6 +14,7 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/yaml"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
@@ -103,6 +104,8 @@ func Typed(object *unstructured.Unstructured) (any, error) {
 		return decode(object, func() any { return &spec.SystemContext{} })
 	case specapi.SpecChangeKind:
 		return decode(object, func() any { return &spec.SpecChange{} })
+	case specapi.PolicyChangeKind:
+		return decode(object, func() any { return &policy.PolicyChange{} })
 	}
 	return nil, fmt.Errorf("kcpclient: kind %q is not a spec object", object.GetKind())
 }

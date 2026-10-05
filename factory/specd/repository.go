@@ -63,6 +63,8 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 		return c.opts.Resync, nil
 	}
 
+	c.reconcileRepositoryPolicy(ctx, namespace, repository, path, commit)
+
 	running, err := c.anyRunningRealize(ctx, namespace)
 	if err != nil {
 		return 0, err

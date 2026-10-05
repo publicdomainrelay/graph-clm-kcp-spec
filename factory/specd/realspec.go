@@ -183,7 +183,11 @@ func (c *Controller) underTheAttemptCap(ctx context.Context, namespace string, m
 	kept := make([]*spec.SpecChange, 0, len(members))
 	for _, member := range members {
 		if !withinAttemptCap(member, c.attemptsTaken(ctx, namespace, member), c.opts.MaxAttempts) {
-			c.failChange(ctx, namespace, member, fmt.Sprintf("attempt cap: %s already has %d attempts", episodeBase(member), c.opts.MaxAttempts))
+			message := fmt.Sprintf("attempt cap: %s already has %d attempts", episodeBase(member), c.opts.MaxAttempts)
+			if c.episodeWasPolicyDenied(ctx, namespace, member) {
+				message = specapi.ReasonPolicyDenied + ": " + message
+			}
+			c.failChange(ctx, namespace, member, message)
 			continue
 		}
 		kept = append(kept, member)
@@ -275,6 +279,9 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 		if len(result.Acceptance) > 0 {
 			status["acceptance"] = result.Acceptance
 		}
+		if result.Policy != nil && !result.Policy.Empty() {
+			status["policy"] = result.Policy
+		}
 		conditions := condition.Copy(member.Status.Conditions)
 		conditionsChanged := false
 		if verdicts, found := result.Coverage[member.Name]; found && len(verdicts) > 0 {
@@ -296,7 +303,7 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 				specapi.ReasonFilesOutsideContext, outsideContextsMessage(outside))
 			conditionsChanged = true
 		}
-		if overrides := spec.OverriddenSteps(result.Acceptance); len(overrides) > 0 {
+		if overrides := append(spec.OverriddenSteps(result.Acceptance), result.PolicyWaived...); len(overrides) > 0 {
 			condition.SetTrue(&conditions, member.GetGeneration(), specapi.ConditionAcceptanceOverridden,
 				specapi.ReasonAcceptanceOverridden, overriddenMessage(overrides, result.Acceptance))
 			conditionsChanged = true
@@ -322,7 +329,7 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 		c.log.Warn("the realize touched files another context owns",
 			"repository", repository.Name, "files", outsideContextsMessage(outside))
 	}
-	if overrides := spec.OverriddenSteps(result.Acceptance); len(overrides) > 0 {
+	if overrides := append(spec.OverriddenSteps(result.Acceptance), result.PolicyWaived...); len(overrides) > 0 {
 		c.consumeOverrides(ctx, namespace, repository, overrides)
 		logged = append(logged, "acceptanceOverridden", strings.Join(overrides, ","))
 	}
@@ -432,6 +439,9 @@ func (c *Controller) recordBatchFailure(ctx context.Context, namespace string, m
 		message = fmt.Sprintf("acceptance %s failed (gate): exit %d: %s",
 			acceptanceErr.Result.Name, acceptanceErr.Result.ExitCode, tailMessage(acceptanceErr.Result.OutputTail))
 	}
+	if policyErr, ok := errors.AsType[*realize.PolicyError](failure); ok {
+		message = specapi.ReasonPolicyDenied + ": " + strings.Join(policyErr.Messages, "; ")
+	}
 	for _, member := range members {
 		c.writeFullLog(member.Name, result)
 		status := map[string]any{
@@ -443,6 +453,9 @@ func (c *Controller) recordBatchFailure(ctx context.Context, namespace string, m
 		}
 		if len(result.Acceptance) > 0 {
 			status["acceptance"] = result.Acceptance
+		}
+		if result.Policy != nil && !result.Policy.Empty() {
+			status["policy"] = result.Policy
 		}
 		if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, member.Name, status); err != nil {
 			c.log.Error("could not record the failed change", "change", member.Name, "err", err)
@@ -510,6 +523,11 @@ func (c *Controller) batchOptions(ctx context.Context, namespace string, reposit
 			Delta:   changeDelta,
 		})
 	}
+	gate, err := c.realizePolicyGate(ctx, namespace, repository, members, base)
+	if err != nil {
+		return realize.Options{}, err
+	}
+	options.Policy = gate
 	return options, nil
 }
 

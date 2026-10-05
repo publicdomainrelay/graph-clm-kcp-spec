@@ -24,6 +24,8 @@ type Cluster interface {
 	ApplyCluster(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error)
 
 	DeleteCluster(ctx context.Context, gvr schema.GroupVersionResource, name string) error
+
+	PatchStatusCluster(ctx context.Context, gvr schema.GroupVersionResource, name string, status map[string]any) (*unstructured.Unstructured, error)
 }
 
 const SlugAnnotation = policy.AnnotationSlug
@@ -57,6 +59,7 @@ func withSlug(annotations map[string]string, slug string) map[string]string {
 
 func ParseTemplateObject(object *unstructured.Unstructured) (policy.Template, error) {
 	rego := ""
+	libs := []string{}
 
 	header := object.DeepCopy()
 	targets, found, err := unstructured.NestedSlice(header.Object, "spec", "targets")
@@ -71,6 +74,13 @@ func ParseTemplateObject(object *unstructured.Unstructured) (policy.Template, er
 			}
 			if value, ok := mapping["rego"].(string); ok && value != "" {
 				rego = value
+			}
+			if raw, ok := mapping["libs"].([]any); ok {
+				for _, entry := range raw {
+					if lib, ok := entry.(string); ok {
+						libs = append(libs, lib)
+					}
+				}
 			}
 			delete(mapping, "rego")
 			delete(mapping, "libs")
@@ -92,6 +102,9 @@ func ParseTemplateObject(object *unstructured.Unstructured) (policy.Template, er
 	}
 	if template.Slug == "" {
 		template.Slug = template.Name
+	}
+	if len(libs) > 0 {
+		template.Libs = libs
 	}
 	return template, nil
 }
@@ -182,11 +195,21 @@ func Apply(ctx context.Context, cluster Cluster, library policy.Library, options
 		}
 		wanted[template.Name] = true
 		crd, err := engine.ConstraintCRD(ctx, template)
-		if err != nil {
-			return err
+		if err == nil {
+			_, err = cluster.ApplyCluster(ctx, crd)
 		}
-		if _, err := cluster.ApplyCluster(ctx, crd); err != nil {
-			return fmt.Errorf("policykcp: apply constraint CRD for %s: %w", template.Kind, err)
+		if err != nil {
+			cluster.PatchStatusCluster(ctx, policy.ConstraintTemplateGVR(), template.Name, map[string]any{
+				"created": false,
+				"errors":  []any{err.Error()},
+			})
+			return fmt.Errorf("policykcp: constraint CRD for %s: %w", template.Kind, err)
+		}
+		if _, statusErr := cluster.PatchStatusCluster(ctx, policy.ConstraintTemplateGVR(), template.Name, map[string]any{
+			"created": true,
+			"errors":  []any{},
+		}); statusErr != nil {
+			return fmt.Errorf("policykcp: record the constraint CRD of %s: %w", template.Name, statusErr)
 		}
 	}
 	for _, constraint := range library.Constraints {
@@ -286,8 +309,18 @@ func Stale(existing map[string][]byte, library policy.Library) []string {
 	for name := range files {
 		keep[name] = true
 	}
+	slugs := map[string]bool{}
+	for _, template := range library.Templates {
+		slugs[policy.TemplateSlug(template)] = true
+	}
 	out := []string{}
 	for name := range existing {
+		if slug, ok := distSlug(name); ok {
+			if !slugs[slug] {
+				out = append(out, name)
+			}
+			continue
+		}
 		if !managed(name) || keep[name] {
 			continue
 		}
@@ -295,6 +328,14 @@ func Stale(existing map[string][]byte, library policy.Library) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func distSlug(name string) (string, bool) {
+	prefix := policy.DistDir + "/"
+	if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".yaml") {
+		return "", false
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(name, prefix), ".yaml"), true
 }
 
 func managed(name string) bool {
