@@ -21,21 +21,34 @@ What shipped, item by item:
   `abc/sync.ReanchorRefs` held as written, no fix was needed.
 - 7: this document, the README's phase count and "what is next", the two worked
   examples' headline diffs, and the plan statuses.
+- 8, added after the first pass: a kcp or kine a test starts can no longer
+  outlive the test. `kcpproc.Options.DieWithStarter` sets `Pdeathsig` on both,
+  the spawn pins the forking thread, every live package fails and kills whatever
+  its ledger still names running, and the kcp and kine logs are capped.
 
 Tests: unit tests for every item, and live tests
-`TestRestoreRebuildsTheChangeHistoryLive` and
-`TestReanchorKeepsUntouchedRequirementsCodeSyncedLive`. `gofmt`, `go vet ./...`
+`TestRestoreRebuildsTheChangeHistoryLive`,
+`TestReanchorKeepsUntouchedRequirementsCodeSyncedLive` and, for item 8,
+`TestKcpDiesWithItsStarter` plus the `TestMain` leak check in every live
+package. `gofmt`, `go vet ./...`
 and every package's tests are green, offline and live, except
 `TestPhase2IngestAndGraph/hydradb` on this machine: the shared HydraDB instance
 lost its SlateDB objects during the session (a stray `rm` of `/tmp/hdb` while
 freeing tmpfs space; the token file was restored), so its reads fail with
 `object store error ... .sst not found`. ArcadeDB, the default backend, passes,
-and so does every other live test.
+and so does every other live test. `TestPhase5CodeToSpecWithTheScriptedAgent` is
+intermittent on this machine and is not item 8's regression: it failed three of
+six full `test/e2e` runs, once on unchanged `main` with item 8 stashed, and it
+passes on its own. Its `Drifted` assertion fires when the drift reconciler
+observes the graph after the CodeToSpec write has landed, so a re-observe that
+races the status write turns it red.
 
 Source: the follow-ups left open by plans 0002, 0004, 0005 and 0006, each named
-there with evidence and never closed. Every item ships with tests; `gofmt`,
+there with evidence and never closed, plus item 8, which the coordinator found
+after the plan closed: orphaned kcp and kine processes whose starter was gone. Every item ships with tests; `gofmt`,
 `go vet ./...`, the offline `go test ./...` and the live suite with `TMPDIR` on
-a real disk are green, except the one HydraDB subtest named above.
+a real disk are green, except the one HydraDB subtest and the intermittent
+CodeToSpec test named above.
 
 ## 1 - `get -o json|yaml` returns the object, `apply` takes a `List`
 
@@ -194,6 +207,60 @@ before the move) until it passes.
 - Plan statuses: 0002, 0003, 0004 and 0006 are done and say so in their bodies;
   their headers still read `active`. Mark them done, and mark 0005's items
   closed by this plan (1-6) with the one-line evidence.
+
+## 8 - a test's kcp and kine die with the test
+
+Found by the coordinator after this plan closed, and added to it. Five `kcp
+start --root-directory=/tmp/<TestName...>` processes with parent 1 and a root
+directory that no longer existed: one from `TestStartStopStartResumesOnOneRoot`,
+two from `TestPhase14TwoWorktreesRunAtTheSameTime`, and the private
+`specd-e2e-kcp-*` instances of the live suite. Each kept writing its `kcp.log`
+into the deleted file until `/tmp`'s 24 GB tmpfs quota was full, one log at
+6 GB; the `kine` processes leaked with them. Two ways in: a `go test` timeout
+kills the test binary without its `t.Cleanup`, and a test that stops a kcp only
+on the success path never reaches it.
+
+- `kcpproc.Options.DieWithStarter` sets `SysProcAttr.Pdeathsig` on the kcp and
+  on the kine a test starts, so a starter that dies without unwinding takes both
+  with it. The signal is **SIGKILL**, not the SIGTERM this item first named:
+  measured, kcp's SIGTERM shutdown blocks for 10.3-11.5 s when the kine it talks
+  to dies at the same instant (the etcd client retries), and it never completes
+  at all when the starter dies while the `kcp-start-controllers` post-start hook
+  is still running, so SIGTERM cannot meet the 10 s the proof below asserts. The
+  spawn also pins the forking thread with `runtime.LockOSThread` while the child
+  lives: Linux delivers `Pdeathsig` when the parent *thread* dies, and without
+  the pin the kine died while the kcp survived.
+- Detached daemons stay detached, by design. `specctl up` and `specctl kcp
+  start` leave `DieWithStarter` false because they must outlive the CLI that
+  writes their PID files; `specctl down` and `specctl kcp stop` remain their
+  lifecycle. `kcpproc` is the only place in this tree that starts a long-lived
+  server; HydraDB and ArcadeDB are external and are never started here.
+- `SPECD_KCP_LEDGER` names a file, and every successful `kcpproc.Start` appends
+  its root and the two pids to it. Subprocesses inherit the variable, so a kcp
+  that `specctl up` started inside a test is recorded too. `impl/kcpproc`,
+  `impl/runlock` and `test/e2e` set the variable in `TestMain` and, when the
+  package ends, `kcpproc.Leaks()` names every recorded process still alive,
+  `Terminate` kills it, and the package exits 1 even if every test passed. The
+  ledger is per process, so two live suites running side by side never see each
+  other's kcp.
+- `Options.MaxLogBytes`, 16 MiB by default, caps the kcp and kine logs: `spawn`
+  opens them `O_APPEND` and trims each to its last half whenever it grows past
+  the cap, so an orphan that somehow escapes the two guards above still cannot
+  fill a filesystem. The kcp log was the only big writer.
+- Every test that starts a kcp passes `DieWithStarter: true` and registers its
+  `t.Cleanup` immediately after the start, before any other call can fail.
+
+Tests: `TestKcpDiesWithItsStarter` re-execs the test binary as
+`TestKcpStarterHelper` (`KCPPROC_HELPER=1`), which starts a kcp with
+`DieWithStarter`, reports the two pids and blocks; the parent SIGKILLs it and
+asserts that both are gone within 10 s. A deliberate-orphan probe, run once and
+removed, showed `kcpproc.Leaks` naming the survivor, `Terminate` killing it, and
+the package exiting 1 while the probe's own test passed.
+
+Residual, stated rather than hidden: a live suite killed outright loses the
+in-process ledger check, so a kcp that `specctl up` started inside it and nobody
+stopped is only covered when the test process exits normally. Its private kcp
+and kine are covered by `Pdeathsig` in every case.
 
 ## Order
 
