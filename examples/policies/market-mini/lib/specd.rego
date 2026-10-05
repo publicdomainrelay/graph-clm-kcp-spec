@@ -259,6 +259,106 @@ effect_targets(kind) = out {
 	]
 }
 
+default architecture_model = {"spec": {"components": [], "effects": [], "flows": [], "triggers": []}}
+
+architecture_model = obj {
+	obj := data.inventory.namespace[namespace][api_version]["ArchitectureModel"][repository_name]
+}
+
+default model_components = []
+
+model_components = out {
+	out := architecture_model.spec.components
+}
+
+default model_flows = []
+
+model_flows = out {
+	out := architecture_model.spec.flows
+}
+
+default model_triggers = []
+
+model_triggers = out {
+	out := architecture_model.spec.triggers
+}
+
+components_with_role(role) = out {
+	out := [component | component := model_components[_]; component.roles[_] == role]
+}
+
+roles_of(component) = out {
+	out := [role | entry := model_components[_]; entry.name == component; role := entry.roles[_]]
+}
+
+flows_where(filter) = out {
+	out := [flow | flow := model_flows[_]; flow_filter_matches(flow, filter)]
+}
+
+flow_filter_matches(flow, filter) {
+	not flow_filter_key_fails(flow, filter)
+}
+
+flow_filter_key_fails(flow, filter) {
+	key := [name | _ = filter[name]][_]
+	not flow_filter_key_matches(flow, filter, key)
+}
+
+flow_filter_key_matches(flow, filter, "from") {
+	flow.from == filter.from
+}
+
+flow_filter_key_matches(flow, filter, "to") {
+	flow.to == filter.to
+}
+
+flow_filter_key_matches(flow, filter, "initiator") {
+	flow.initiator == filter.initiator
+}
+
+flow_filter_key_matches(flow, filter, "channel") {
+	flow.channel == filter.channel
+}
+
+flow_filter_key_matches(flow, filter, "purpose") {
+	flow.purpose == filter.purpose
+}
+
+flow_filter_key_matches(flow, filter, "source") {
+	flow.source == filter.source
+}
+
+flow_filter_key_matches(flow, filter, "carries") {
+	is_string(filter.carries)
+	flow.carries[_] == filter.carries
+}
+
+flow_filter_key_matches(flow, filter, "carries") {
+	is_array(filter.carries)
+	wanted := filter.carries[_]
+	flow.carries[_] == wanted
+}
+
+triggered_by(effect_id) = out {
+	out := [trigger | trigger := model_triggers[_]; trigger.to == effect_id]
+}
+
+declared(flow) {
+	flow.source == "declared"
+}
+
+declared(flow) {
+	flow.source == "both"
+}
+
+observed(flow) {
+	flow.source == "observed"
+}
+
+observed(flow) {
+	flow.source == "both"
+}
+
 location(file, line) = {"file": file, "line": line}
 
 violation(msg, details) = result {
