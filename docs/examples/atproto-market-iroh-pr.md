@@ -896,23 +896,24 @@ fix both readings were `2 new`.
 | --- | --- |
 | hydradb | `d6334cc` (the anchor fix `e12560a` and the two waivers `d6334cc`) |
 | clone + 9 siblings | 15 s |
-| `specctl up` to `Populated` | 46 contexts, 46 summarized, 8 min |
-| policy branch | `open-policy/atproto-market--spec-iroh-dumbpipe-policy2-20261005`, seeded at `bddba0c` |
+| `specctl up` to `Populated` | 54 contexts, 54 summarized, restored from the branch |
+| policy branch | `open-policy/atproto-market--spec-iroh-dumbpipe-policy2-20261005`, at `bd9a663` |
 | policy tests at seed time | opa 67/67, suites 11/11 |
-| harness: research + spec edit | 4 SpecToCode changes in 5 min |
-| realize rounds | 11 automatic attempts for the longest change; see the gate table below |
+| first session | 5 realize commits over 11 automatic attempts, 3 requirement amendments, 7 `specctl retry` rounds; stopped with `sshReady: false` |
+| second session (this one) | 3 `clm apply`, 1 recovery, 1 `specctl retry`, 2 automatic attempts: acceptance green 55 min after `up` |
 | acceptance | `deno test --allow-all test/bidder_container_integration_test.ts`, gated, 1800 s per step |
 
 ### The gate, per attempt
 
 Every attempt is recorded on its change; the table is the two columns the policy
-decision fills.
+decision fills, across both sessions.
 
 | what the gate did | attempts | evidence |
 | --- | --- | --- |
-| waived the two accepted findings | every attempt, 34 of them | `status.policy.waived` carries `guest-report-driven-onnetwork` and `rfp-guest-reports-network` at `lib/market-bidder-compute/mod.ts:304` on each change, including the two that landed |
-| denied a new violation | the `-a2`/`-a4` attempts of all three contexts | `PolicyDenied: rfp-relay-only-guest-ssh: ssh from test reaches the guest directly: test/bidder_container_integration_test.ts:251` |
-| audit | 3 runs | `violations 2, deny 2, waived 2` |
+| waived the two accepted findings | every attempt that reached the gate, 41 of them (35 failed, 6 landed) | `status.policy.waived` carries `guest-report-driven-onnetwork` and `rfp-guest-reports-network` at `lib/market-bidder-compute/mod.ts:304` on each change, including the three that landed |
+| denied a new violation | 4 attempts, the `-a2`/`-a4` of the first episodes | `PolicyDenied: rfp-relay-only-guest-ssh: ssh from test reaches the guest directly: test/bidder_container_integration_test.ts:251` |
+| audit at the landed head | `specctl policy eval` and `policy report` | `violations 2 (deny 2, warn 0, dryrun 0)`, both the accepted emission at `lib/market-bidder-compute/mod.ts:304` |
+| findings at the landed head vs `pre-iroh` | `specctl policy findings --base pre-iroh` | `findings: 0 new, 0 inherited, 2 waived` |
 
 The deny is the interesting one. The code agent's rewritten harness ssh'd the
 guest with no ProxyCommand; `relay-only-ssh` saw the ssh and denied it. The
@@ -921,6 +922,51 @@ cloud-init deployed, and no later attempt was denied by that rule. In
 `factory/specd` terms the gate consumed the waivers as the change's
 `acceptanceOverridden: policy:guest-report-driven-onnetwork,policy:rfp-guest-reports-network`,
 which is what a durable exception looks like on a landed change.
+
+### Where the first session stopped, and what unblocked it
+
+The first session ended with `sshReady: false` and read the portless report URL as
+the cause. That reading was half right, and the fix it implied was the wrong one.
+`r.iroh-ticket-delivery` builds the report URL from the requester's own relay
+ingress, and the relay registers a portless `did:web:` name, so
+`https://did-key-<...>.localhost/iroh-ticket/<token>` is *correct* -- it is the
+same portless name the rest of the run addresses the requester by. What was
+missing was the other half of the reachability, and it lives in the harness, not in
+the requester: a guest container resolves neither a `*.localhost` name nor a port
+that is not in the URL. The provisioning backend already supplies both -- it
+rewrites a portless `*.localhost` URL in the user_data to the guest TLS port, maps
+the host to the container gateway in `/etc/hosts`, and hands the guest's curl the
+CA -- but only when the harness has built the two-listener TLS dispatcher and
+passed `guestTlsPort` and `caCertPem` to the provider. `test/oauth_session_transfer_test.ts`
+already built exactly that for its own guest. So the fix was a requirement, applied
+to three contexts:
+
+- `r.iroh-acceptance-guest-reachable-report` (atproto-market, added): the suite must
+  build the reachability the OAuth suite already has -- the two-label
+  `relay.localhost` (never single-label `localhost`), `createRelayFactory({ hostname,
+  additionalHosts: [gateway] })`, the one app on a plain and a TLS `0.0.0.0`
+  listener, a certificate covering `relay.localhost` and `*.relay.localhost`,
+  `ingressProxyHost` = the plain `host:port` for the requester, bidder and provider,
+  the fetch interceptor on the TLS port with the CA, and `caCertPem` plus
+  `guestTlsPort` on the local provider.
+- `r.iroh-ticket-report` (lib-common-cloud-init-common, amended) and
+  `r.iroh-ticket-delivery` (lib-requester-xrpc, amended): the caller bakes its own
+  ingress URL, invents no host and no port, and falls back to no loopback address;
+  the provisioning backend substitutes the guest-reachable port.
+
+Two more things ended the run:
+
+- The first attempt of the second session was green on the transport and red on one
+  assertion: `ProxyCommand must be the dumbpipe connect command for the reported
+  ticket, got /tmp/dumbpipe-94ad9d432e87ca3b/dumbpipe connect endpoint...`. The
+  requirement meant the command; the harness had pinned the bare string, and the
+  provider resolves an absolute `dumbpipePath`. The `-a2` attempt landed.
+- The previous `specd` was killed mid-flight, so three changes were left `Running`
+  on the branch, and a restarted `specd` never re-drives a `Running` change: the
+  queue behind them deadlocked and nothing moved for 20 minutes. Marking them
+  `Failed` with the message the tool itself uses on restore (`restored: the branch
+  recorded this change as Running`) released the queue. A `Running` change with no
+  live realize is a defect worth fixing in `specd`; it cost about 25 minutes here.
 
 ### Fix rounds, all through the spec flow
 
@@ -935,7 +981,9 @@ reason is what the code agent reads on its next attempt.
 | 4 | the policy deny above | the direct ssh got the dumbpipe ProxyCommand |
 | 5-6 | the harness asserted on its own test double (`did:key fast path ...`) | requirement amended: the fake PLC exists so registration is not 401, and the suite asserts only run-level facts |
 | 7 | `readTarGz` deadlocked a `DecompressionStream`: `writer.write(archive)` then `await writer.close()` with nothing reading `ds.readable` | reproduced standalone in a sentence; the suite then ran the real flow for the first time |
-| 8-10 | the guest's report never lands: the URL `https://did-key-<...>.localhost/iroh-ticket/<ref>` names no port, so the reporter dials 443 where nothing listens | requirement amended (`r.iroh-ticket-report`): the URL names the guest-reachable port and the CA is installed; the reporter fails fast |
+| 8-10 | the guest's report never lands: the URL `https://did-key-<...>.localhost/iroh-ticket/<ref>` names no port, so the reporter dials 443 where nothing listens | `r.iroh-ticket-report` amended: a reachable URL, the CA, a fast failure |
+| 11 (second session) | the diagnosis above: the portless name is right; the harness must build the gateway-reachable report path the OAuth suite already has, and the requester must invent no host or port | `r.iroh-acceptance-guest-reachable-report` added, `r.iroh-ticket-report` and `r.iroh-ticket-delivery` amended; `-a1` then `-a2`, which landed |
+| 12 | `lib-did-key-ingress-proxy`'s episode had hit its attempt cap while the acceptance was red | `specctl retry`: realized, `the agent changed nothing, the baseline moved` |
 
 The two spec amendments that changed cloud-init are the ones that landed:
 `r.iroh-dumbpipe-install` (the archive holds `./dumbpipe`; extract the whole
@@ -944,9 +992,10 @@ fast failure). Both were applied with `specctl clm apply` after the live evidenc
 was read, and the code agent that realized them produced exactly the install the
 requirement now describes.
 
-### What landed, and what did not
+### What landed
 
-Landed on the branch:
+Three realize commits carry the whole change, `13 files changed, 1057 insertions(+), 143 deletions(-)`
+against `pre-iroh`:
 
 - `8b36a2b realize lib-abc-requester: +2 ~5` -- the transport-neutral requester
   interface: the address is opaque, the session provider owns the ProxyCommand,
@@ -955,16 +1004,37 @@ Landed on the branch:
   a pinned dumbpipe install that extracts the archive's `./dumbpipe` behind a
   bounded retry, the listener in front of the guest's own sshd, the ticket file,
   and, when `ctx.irohReportUrl` is set, the reporter unit.
+- `ffe23fa realize lib-common-cloud-init-common, lib-requester-xrpc, atproto-market: +6 ~3`
+  -- the requester's per-contract ticket-report route and the iroh session provider
+  (`dumbpipe connect <ticket>`, `ensureDumbpipe` bootstrapping the pinned binary),
+  and the acceptance harness rebuilt on the gateway-reachable topology, ending
+  `receiptOk: true, sshReady: true, sshExitCode: 0, sshProxyCommand
+  /tmp/dumbpipe-.../dumbpipe connect endpoint...`, with `SSH_OK_VIA_IROH` printed
+  from inside the guest. The commit records `Acceptance: acceptance passed (gate)`.
 
-Not landed, and why: the three remaining contexts
-(`atproto-market`, `lib-did-key-ingress-proxy`, `lib-requester-xrpc`) never
-passed the acceptance gate. The live evidence from the kept guest containers says
-the transport itself works -- the guest boots from the RFP cloud-init, the
-dumbpipe listener runs, the ticket is extracted, and the guest-side reporter
-starts -- but the report never reaches the requester, so `sshReady` stays false
-and the suite fails on `guest must become reachable`. The failing rounds ended
-`receiptOk: true, bids: 1, sshReady: false` in 5 minutes. Eleven automatic
-attempts, three requirement amendments and seven `specctl retry --reason` rounds
-is where this session stopped; the change-scoped gate is what stopped it, and that is the
-gate working.
+`lib-did-key-ingress-proxy` needed no code: its amended requirement described the
+control plane the unchanged wrapper already is, and the retry recorded that.
+
+The host-emitted `vm.onNetwork` in `lib/market-bidder-compute/mod.ts` is untouched
+at line 304, exactly as decided, and the only two findings the audit reports at the
+landed head are that emission, both waived.
+
+### Acceptance
+
+`spec.acceptance` = `deno test --allow-all test/bidder_container_integration_test.ts`,
+gated, 1800 s per step. It is **green** on the branch head `ffe23fa`:
+
+```
+accept acceptance: passed (exit 0, 28.9s)
+  [acceptance] iroh: RFP -> bid -> accept -> SSH over the guest's own ticket ... ok (27s)
+  ok | 1 passed | 0 failed (27s)
+```
+
+The suite drives `runComputeContract` through RFP, bid, accept and cloud-init with
+`skipSsh: false`, awaits the whole contract with no `Promise.race` and no deadline,
+tears down only after it settles, and proves the transport the RFP cloud-init
+deployed: the guest reports its own ticket, ssh comes ready on the first poll with
+`ProxyCommand=<dumbpipe> connect <ticket>`, and a program run inside the guest
+prints `SSH_OK_VIA_IROH` and exits 0. No host-side read of the guest's ticket or
+address is involved.
 

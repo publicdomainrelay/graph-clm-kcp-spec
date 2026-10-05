@@ -882,16 +882,18 @@ https://github.com/publicdomainrelay/atproto-market/pull/1 (iroh/dumbpipe, head
      specd starts, one `exceptions/<key>.yaml` per finding, recorded with
      `specctl policy waive` (the commands are in the example doc).
    - The acceptances for the emission are what the gate reported: `waived` on
-     every attempt, including the two changes that landed, and the audit read
-     `violations 2, deny 2, waived 2`.
-3. **Published.** [atproto-market#2](https://github.com/publicdomainrelay/atproto-market/pull/2), #1 untouched. Its body compares it
-   to #1 (findings at the base, inherited and waived; new violations in #1's
-   diff against this branch's diff; the gate denials and the corrections;
-   acceptance; the spec and diff size) and states plainly that the host-emitted
-   `vm.onNetwork` is kept by decision.
+     every attempt that reached the gate, including the three that landed; the
+     audit at the landed head reads `violations 2 (deny 2)`, both the emission.
+3. **Published.** [atproto-market#2](https://github.com/publicdomainrelay/atproto-market/pull/2), #1 untouched, head `ffe23fa`, on
+   `spec/iroh-dumbpipe-policy2-20261005` with the orphan branches
+   `open-architecture/...` at `bdbaa21` and `open-policy/...` at `bd9a663`. Its
+   body compares it to #1 (findings at the base, inherited and waived; new
+   violations in #1's diff against this branch's diff; the gate denials and the
+   corrections; acceptance, green; the spec and diff size) and states plainly
+   that the host-emitted `vm.onNetwork` is kept by decision.
 4. **Recorded.** `docs/examples/atproto-market-iroh-pr.md`, "Round with policies
    (PR #2)": the one-command run, the waiver commands, the anchor measurement,
-   the per-attempt gate table, all ten attempts and their reasons, and what
+   the per-attempt gate table, both sessions' rounds and their reasons, and what
    landed.
 5. **Still open.** Bind `hono-compute-provider` and report the `inspectIp` /
    `pollSshExec` reach-in once the 0009 G5 multi-repository model lands; that fix
@@ -907,17 +909,47 @@ https://github.com/publicdomainrelay/atproto-market/pull/1 (iroh/dumbpipe, head
    baseline and a waiver read the anchor; the two refs now give identical keys
    and #1's head reads `0 new, 2 inherited`.
 
-   **What the run did not finish.** Two changes landed
+   **Finished in the second session.** The first session landed two changes
    (`8b36a2b` lib-abc-requester, `924781f` the iroh cloud-init module, whose
-   install extracts the archive's `./dumbpipe` behind a bounded retry). The
-   three contexts that carry the requester flow and the container harness never
-   passed the acceptance gate: the guest boots from the RFP cloud-init, the
-   dumbpipe listener runs and the ticket is extracted, but the guest's report
-   never reaches the requester, so `sshReady` stays false. Eleven automatic
-   attempts, three requirement amendments and seven `specctl retry --reason`
-   rounds is where the session stopped; the change-scoped gate is what stopped it, and the deny it
-   raised (a direct ssh in the harness, `rfp-relay-only-guest-ssh`) is the one
-   the plan asked to see.
+   install extracts the archive's `./dumbpipe` behind a bounded retry) and then
+   stopped: the three contexts that carry the requester flow and the container
+   harness never passed the acceptance gate, because the guest's report never
+   reached the requester and `sshReady` stayed false.
+
+   The second session read the first session's portless-URL diagnosis as half
+   right and fixed the other half, which was a spec change and not a code change:
+   the portless report URL is correct (the relay registers a portless `did:web:`
+   name), and what was missing was the harness building the gateway-reachable path
+   the OAuth suite already has. `r.iroh-acceptance-guest-reachable-report` (added),
+   `r.iroh-ticket-report` and `r.iroh-ticket-delivery` (amended) say so. Two
+   automatic attempts and one `specctl retry` later, all four contexts are
+   realized:
+
+   - `ffe23fa realize lib-common-cloud-init-common, lib-requester-xrpc, atproto-market: +6 ~3`,
+     `13 files changed, 1057 insertions(+), 143 deletions(-)` against `pre-iroh`,
+     the landed head `ffe23fa`, `lib-did-key-ingress-proxy` unchanged (`the agent
+     changed nothing, the baseline moved`).
+   - acceptance green: `accept acceptance: passed (exit 0, 28.9s)`,
+     `ok | 1 passed | 0 failed (27s)`; `receiptOk: true, sshReady: true,
+     sshExitCode: 0`, `ProxyCommand=<dumbpipe> connect <ticket>`, and
+     `SSH_OK_VIA_IROH` printed from inside the guest.
+   - the gate, across both sessions: 41 attempts carried the two accepted
+     `vm.onNetwork` findings as `waived` (35 failed, 6 landed), and 4 attempts
+     were denied by `rfp-relay-only-guest-ssh` at
+     `test/bidder_container_integration_test.ts:251`. `policy findings --base
+     pre-iroh` reads `0 new, 0 inherited, 2 waived` at the landed head; the
+     emission is untouched at `lib/market-bidder-compute/mod.ts:304`.
+
+   Second-session timings, `specctl up` to the last realized change: 55 min, of
+   which about 25 min were lost to the recovery below.
+
+   **Two defects the second session found.** A `specd` killed mid-realize leaves
+   its `SpecChange`s `Running` on the branch, and a restarted `specd` never
+   re-drives a `Running` change, so the queue behind them deadlocks; marking them
+   `Failed` with the message the tool itself uses on restore
+   (`restored: the branch recorded this change as Running`) released it. And the
+   whole-run record is only as good as its last attempt: worth a fix in `specd`,
+   not in the run.
 
 Order: after `policy-cm` and 0009 G3 are merged, and after phase H (deno-kcp)
 has proved the gate on a real run.
