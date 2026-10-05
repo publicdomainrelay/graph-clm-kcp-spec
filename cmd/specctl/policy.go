@@ -941,14 +941,14 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 			result.Report.Commit = tip
 		}
 		if *output == "json" {
-			encoded, err := json.MarshalIndent(result.Report, "", "  ")
+			encoded, err := json.MarshalIndent(evalReport{Report: result.Report, Waived: waivedRefs(result.Decision.Waived)}, "", "  ")
 			if err != nil {
 				fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 				return exitError
 			}
 			fmt.Fprintln(stdout, string(encoded))
 		} else {
-			printReport(stdout, result.Report)
+			printReportDecision(stdout, result.Report, result.Decision.Waived)
 			fmt.Fprintf(stdout, "spec gate: %s\n", specGateVerdict(result.Decision))
 		}
 		if *strict && result.Decision.Blocked {
@@ -1018,23 +1018,72 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		})
 	}
 
+	waivers := evalWaivers(library, stderr)
+	decision := policy.Decide(report, policy.RepositoryPolicy{}, waivers)
 	if *output == "json" {
-		encoded, err := json.MarshalIndent(report, "", "  ")
+		encoded, err := json.MarshalIndent(evalReport{Report: report, Waived: waivedRefs(decision.Waived)}, "", "  ")
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 			return exitError
 		}
 		fmt.Fprintln(stdout, string(encoded))
 	} else {
-		printReport(stdout, report)
+		printReportDecision(stdout, report, decision.Waived)
 	}
-	if *strict {
-		decision := policy.Decide(report, policy.RepositoryPolicy{}, nil)
-		if decision.Blocked {
-			return exitError
-		}
+	if *strict && decision.Blocked {
+		return exitError
 	}
 	return exitOK
+}
+
+// evalReport is `policy eval -o json`: the report the branches and kcp carry,
+// plus the violations a durable exception waives. The extra key is additive, so
+// a reader of policy.Report still reads the same object.
+type evalReport struct {
+	policy.Report
+
+	Waived []waivedRef `json:"waived,omitempty"`
+}
+
+type waivedRef struct {
+	Key string `json:"key"`
+
+	Constraint string `json:"constraint"`
+
+	Site string `json:"site,omitempty"`
+
+	Reason string `json:"reason,omitempty"`
+
+	Owner string `json:"owner,omitempty"`
+}
+
+func waivedRefs(violations []policy.Violation) []waivedRef {
+	out := make([]waivedRef, 0, len(violations))
+	for _, violation := range violations {
+		file, line := policy.Site(violation)
+		site := ""
+		if file != "" {
+			site = fmt.Sprintf("%s:%d", file, line)
+		}
+		out = append(out, waivedRef{
+			Key:        policy.Key(violation),
+			Constraint: violation.Constraint,
+			Site:       site,
+		})
+	}
+	return out
+}
+
+// evalWaivers is the durable exceptions of a library as the overrides an
+// evaluation reads. An exception that has expired is reported, never dropped
+// silently.
+func evalWaivers(library policy.Library, stderr io.Writer) []policy.Override {
+	waivers, expired := policyeval.Waivers(library, nil, time.Now())
+	for _, exception := range expired {
+		fmt.Fprintf(stderr, "specctl policy eval: the exception for %s expired %s and is not honoured\n",
+			exception.Constraint, exception.Expires)
+	}
+	return waivers
 }
 
 type inheritedOptions struct {
@@ -1429,16 +1478,34 @@ func defaultOr(value, fallback string) string {
 }
 
 func printReport(out io.Writer, report policy.Report) {
+	printReportDecision(out, report, nil)
+}
+
+// printReportDecision is printReport with the decision's durable exceptions
+// folded in: a waived violation is printed as waived and not counted as a deny,
+// so the offline evaluation reads the same way the gates do.
+func printReportDecision(out io.Writer, report policy.Report, waived []policy.Violation) {
+	waivedKeys := map[string]bool{}
+	for _, violation := range waived {
+		waivedKeys[policy.Key(violation)] = true
+	}
 	fmt.Fprintf(out, "repository: %s  commit: %s\n", report.Repository, shortCommit(report.Commit))
 	fmt.Fprintf(out, "templates: %d  constraints: %d\n", report.Templates, report.Constraints)
 	for _, member := range report.Members {
 		fmt.Fprintf(out, "member: %s %s at %s\n", member.Name, member.Ref, shortCommit(member.Commit))
 	}
-	fmt.Fprintf(out, "violations: %d (deny %d, warn %d, dryrun %d)\n",
+	denies := 0
+	for _, violation := range report.Violations {
+		if violation.Enforcement == policy.EnforcementDeny && !waivedKeys[policy.Key(violation)] {
+			denies++
+		}
+	}
+	fmt.Fprintf(out, "violations: %d (deny %d, warn %d, dryrun %d, waived %d)\n",
 		len(report.Violations),
-		report.Totals[policy.EnforcementDeny],
+		denies,
 		report.Totals[policy.EnforcementWarn],
 		report.Totals[policy.EnforcementDryRun],
+		len(waivedKeys),
 	)
 	if len(report.Violations) == 0 {
 		fmt.Fprintln(out, "clean")
@@ -1446,7 +1513,11 @@ func printReport(out io.Writer, report policy.Report) {
 	}
 	fmt.Fprintln(out)
 	for _, violation := range report.Violations {
-		fmt.Fprintf(out, "%-8s %-10s %s  %s\n", violation.Enforcement, violation.Severity, violation.Constraint, violation.Object)
+		action := string(violation.Enforcement)
+		if waivedKeys[policy.Key(violation)] {
+			action = "waived"
+		}
+		fmt.Fprintf(out, "%-8s %-10s %s  %s\n", action, violation.Severity, violation.Constraint, violation.Object)
 		if violation.Location != nil {
 			fmt.Fprintf(out, "         %s:%d\n", violation.Location.File, violation.Location.Line)
 		}

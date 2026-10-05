@@ -110,6 +110,66 @@ func TestPolicyWaiveRecordsAnExceptionAndFindingsReportItWaived(t *testing.T) {
 	}
 }
 
+// A durable exception is honoured by the plain offline evaluation, not only by
+// `findings` and `--inherited` (review 0006 N7).
+func TestPolicyEvalHonoursADurableException(t *testing.T) {
+	requireCodegraph(t)
+	library := findingsLibrary(t)
+	findings := runFindings(t, library)
+	if len(findings) < 2 {
+		t.Skip("the fixture carries too few findings to waive them all")
+	}
+	// The waive verb is exercised by its own test; here the exceptions are
+	// written directly so the whole fixture can be waived in one run.
+	directory := filepath.Join(library, "exceptions")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, finding := range findings {
+		body := "constraint: " + finding.Constraint + "\nkey: " + finding.Key +
+			"\nobject: " + finding.Object + "\nreason: accepted for this measurement\n"
+		if err := os.WriteFile(filepath.Join(directory, finding.Key+".yaml"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	code, stdout, stderr := runWith("policy", "eval", "--repo", "market-mini",
+		"--worktree", violatingFixture(t), "--library", library)
+	if code != exitOK {
+		t.Fatalf("eval: code %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "waived") {
+		t.Errorf("eval does not report a violation as waived:\n%s", stdout)
+	}
+
+	code, stdout, stderr = runWith("policy", "eval", "--repo", "market-mini",
+		"--worktree", violatingFixture(t), "--library", library, "--strict", "-o", "json")
+	if code != exitOK {
+		t.Errorf("--strict fails on waived violations: code %d, stderr %q\n%s", code, stderr, firstLines(stdout, 3))
+	}
+	var output struct {
+		Waived []struct {
+			Key        string `json:"key"`
+			Constraint string `json:"constraint"`
+			Site       string `json:"site"`
+		} `json:"waived"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &output); err != nil {
+		t.Fatalf("eval output is not JSON: %v\n%s", err, firstLines(stdout, 3))
+	}
+	if len(output.Waived) != len(findings) {
+		t.Errorf("the JSON output carries %d waivers, want %d", len(output.Waived), len(findings))
+	}
+}
+
+func firstLines(text string, n int) string {
+	lines := strings.SplitN(text, "\n", n+1)
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	return strings.Join(lines, "\n")
+}
+
 func TestPolicyFindingsRefusesAnExceptionWithAnUnknownField(t *testing.T) {
 	requireCodegraph(t)
 	library := findingsLibrary(t)
