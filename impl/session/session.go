@@ -85,7 +85,7 @@ func KcpRoot(repo, branch string) string {
 	return filepath.Join(BranchDir(repo, branch), "kcp")
 }
 
-func DeployDir() string {
+func deployParentDir() string {
 	return filepath.Join(statedir.Dir(), "deploy")
 }
 
@@ -261,9 +261,67 @@ func Remove(repo, branch string) error {
 	return nil
 }
 
-func ExtractDeploy() (string, error) {
-	target := DeployDir()
-	err := fs.WalkDir(deploy.Files, ".", func(path string, entry fs.DirEntry, err error) error {
+func deployContentHash(fsys fs.FS) (string, error) {
+	sum := sha256.New()
+	err := fs.WalkDir(fsys, ".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		data, err := fs.ReadFile(fsys, path)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(sum, "%s\x00%d\x00", path, len(data))
+		sum.Write(data)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(sum.Sum(nil))[:12], nil
+}
+
+func deployFileMode(path string) os.FileMode {
+	if strings.HasSuffix(path, ".sh") {
+		return 0o755
+	}
+	return 0o644
+}
+
+func deployDirComplete(fsys fs.FS, dir string) bool {
+	err := fs.WalkDir(fsys, ".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		destination := filepath.Join(dir, path)
+		if entry.IsDir() {
+			info, err := os.Stat(destination)
+			if err != nil || !info.IsDir() {
+				return fs.ErrNotExist
+			}
+			return nil
+		}
+		source, err := fs.Stat(fsys, path)
+		if err != nil {
+			return err
+		}
+		info, err := os.Stat(destination)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || info.Size() != source.Size() {
+			return fs.ErrNotExist
+		}
+		return nil
+	})
+	return err == nil
+}
+
+func writeDeployDir(fsys fs.FS, target string) error {
+	return fs.WalkDir(fsys, ".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -271,20 +329,50 @@ func ExtractDeploy() (string, error) {
 		if entry.IsDir() {
 			return os.MkdirAll(destination, 0o755)
 		}
-		data, err := deploy.Files.ReadFile(path)
+		data, err := fs.ReadFile(fsys, path)
 		if err != nil {
 			return err
-		}
-		mode := os.FileMode(0o644)
-		if strings.HasSuffix(path, ".sh") {
-			mode = 0o755
 		}
 		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(destination, data, mode)
+		return os.WriteFile(destination, data, deployFileMode(path))
 	})
-	return target, err
+}
+
+func extractDeployFS(fsys fs.FS) (string, error) {
+	hash, err := deployContentHash(fsys)
+	if err != nil {
+		return "", err
+	}
+	parent := deployParentDir()
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return "", err
+	}
+	target := filepath.Join(parent, hash)
+	if deployDirComplete(fsys, target) {
+		return target, nil
+	}
+	temp, err := os.MkdirTemp(parent, "."+hash+"-")
+	if err != nil {
+		return "", err
+	}
+	if err := writeDeployDir(fsys, temp); err != nil {
+		os.RemoveAll(temp)
+		return "", err
+	}
+	if err := os.Rename(temp, target); err != nil {
+		os.RemoveAll(temp)
+		if deployDirComplete(fsys, target) {
+			return target, nil
+		}
+		return "", fmt.Errorf("session: publish deploy %s: %w", hash, err)
+	}
+	return target, nil
+}
+
+func ExtractDeploy() (string, error) {
+	return extractDeployFS(deploy.Files)
 }
 
 func Alive(pid int, want string) bool {

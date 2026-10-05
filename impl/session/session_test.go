@@ -1,10 +1,16 @@
 package session
 
 import (
+	"bytes"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
+	"testing/fstest"
+
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/deploy"
 )
 
 func initRepo(t *testing.T) string {
@@ -113,4 +119,125 @@ func TestExtractDeployWritesTheScriptsAndCRDs(t *testing.T) {
 			t.Fatalf("%s is not executable", path)
 		}
 	}
+	if got := filepath.Dir(dir); got != deployStateParent(t) {
+		t.Fatalf("the deploy directory %s is not under %s", dir, got)
+	}
+	if len(filepath.Base(dir)) != 12 {
+		t.Fatalf("the deploy directory %s is not named for a 12 hex digit hash", dir)
+	}
+}
+
+func deployStateParent(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(statedirPath(t), "deploy")
+}
+
+func checkDeployTree(t *testing.T, fsys fs.FS, dir string) {
+	t.Helper()
+	err := fs.WalkDir(fsys, ".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		want, err := fs.ReadFile(fsys, path)
+		if err != nil {
+			return err
+		}
+		got, err := os.ReadFile(filepath.Join(dir, path))
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s differs from the embedded file", path)
+		}
+		info, err := os.Stat(filepath.Join(dir, path))
+		if err != nil {
+			return err
+		}
+		wantMode := os.FileMode(0o644)
+		if filepath.Ext(path) == ".sh" {
+			wantMode = 0o755
+		}
+		if info.Mode().Perm() != wantMode {
+			t.Errorf("%s mode = %v, want %v", path, info.Mode().Perm(), wantMode)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExtractDeployConcurrentlyProducesOneCompleteDirectory(t *testing.T) {
+	t.Setenv("SPECD_STATE_DIR", t.TempDir())
+	const workers = 32
+	results := make([]string, workers)
+	errs := make([]error, workers)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range workers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			results[i], errs[i] = ExtractDeploy()
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	dir := results[0]
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("worker %d: %v", i, err)
+		}
+		if results[i] != dir {
+			t.Fatalf("worker %d returned %s, worker 0 returned %s", i, results[i], dir)
+		}
+	}
+	checkDeployTree(t, deploy.Files, dir)
+	entries, err := os.ReadDir(deployStateParent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(dir) {
+		names := []string{}
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		t.Fatalf("the deploy parent holds %v, want only %s", names, filepath.Base(dir))
+	}
+}
+
+func TestExtractDeploySeparatesTwoContents(t *testing.T) {
+	t.Setenv("SPECD_STATE_DIR", t.TempDir())
+	first := fstest.MapFS{
+		"install-specs.sh": &fstest.MapFile{Data: []byte("echo first\n")},
+		"crds/one.yaml":    &fstest.MapFile{Data: []byte("kind: One\n")},
+	}
+	second := fstest.MapFS{
+		"install-specs.sh": &fstest.MapFile{Data: []byte("echo second\n")},
+		"crds/one.yaml":    &fstest.MapFile{Data: []byte("kind: One\n")},
+	}
+	firstDir, err := extractDeployFS(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondDir, err := extractDeployFS(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstDir == secondDir {
+		t.Fatalf("two different contents landed in %s", firstDir)
+	}
+	again, err := extractDeployFS(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != firstDir {
+		t.Fatalf("the same content landed in %s then %s", firstDir, again)
+	}
+	checkDeployTree(t, first, firstDir)
+	checkDeployTree(t, second, secondDir)
 }
