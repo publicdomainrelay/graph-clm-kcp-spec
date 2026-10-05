@@ -362,3 +362,56 @@ in-cluster Gatekeeper) stay as they were; both already have a Limits entry.
   derived (a different repository, or a perturbed copy) or record it.
 - **Low items:** vD/B9/A3/G6/D3 from 0003; the `pack.yaml` text "three rules"
   becomes "two rules"; the 55 new comment lines in `abc/policy` are removed.
+
+## Found in phase I (2026-10-05): a specd killed mid-realize deadlocks the queue
+
+The phase I retry of `atproto-market` (the run in
+`docs/examples/atproto-market-iroh-pr.md`, "Round with policies (PR #2)") lost
+about 25 minutes to a recovery defect: the previous `specd` was killed
+mid-realize, three `SpecChange`s were left `Running`, a restarted `specd` never
+re-drove a `Running` change, and the per-repository batch queue behind them
+deadlocked. The operator marked them `Failed` by hand with the message the
+restore path uses before the queue moved.
+
+The fix is `docs/plans/0010`'s track R/S/D work applied to the controller
+itself, on branch `fix-running-recovery`:
+
+- A change in flight records its driver: `status.owner` (a token unique to the
+  specd process), `status.ownerPid` and `status.ownerStartedAt`. `SpecToCode`
+  records it in the same patch that sets `Running`, `CodeToSpec` in its
+  summarize patch, and a `PolicyChange` claims `Drafting` (or `Evaluated` while
+  it applies) the same way, so there is no in-flight window without an owner.
+  Both CRDs (and the derived APIResourceSchemas) carry the three fields.
+- On startup, before the workers, and on every reconcile of a `Running`
+  change, specd treats a change whose owner is not this process and whose pid is
+  gone (or that has no owner at all, from before this fix) as orphaned.
+- Recovery removes the stale `specd-worktree-*` worktree that still holds the
+  realize branch (`git worktree add` refuses the branch otherwise:
+  `cannot force update the branch ... used by worktree`) and the branch, marks
+  the orphan `Failed` with `specd restarted mid-realize`, and creates the next
+  attempt `Pending` with the attempt counted, so the cap still applies and the
+  queue moves. Only worktrees under a `specd-worktree-*` temporary directory are
+  touched.
+- A `PolicyChange` whose owner is gone has its claim released and is drafted
+  again; its `Drafting` and `Testing` phases were already re-driven by the
+  normal reconcile. The acceptance steps run inside the realize, so a specd
+  killed during one leaves the change `Running` and the same recovery re-drives
+  it; the acceptance process itself is not signalled and can outlive the specd
+  until its own timeout (recorded as a limit).
+
+Tests:
+
+- `impl/procowner/procowner_test.go`: the owner decision table (own token,
+  another dead token, another live token, no token) and pid liveness.
+- `impl/gitrepo/gitrepo_test.go`: `Worktrees` and `PruneWorktrees`.
+- `factory/specd/recovery_test.go`: a `Running` change with a dead owner is
+  requeued with the next attempt and the reason; a change with no owner is
+  recovered; a change owned by this process or by another live process is left
+  alone; the attempt is counted and the episode name kept; the stale worktree
+  and branch are pruned and the branch accepts a fresh worktree; the startup
+  sweep handles both a `SpecChange` and a `PolicyChange`.
+- `test/e2e/recovery_live_test.go`, live against a private kcp: a scripted
+  agent realizes a change while a scripted verify blocks, so the change is
+  `Running`; a second spec edit queues behind it; specd is SIGKILLed; a fresh
+  specd starts, fails the orphan with the reason, re-drives the episode, and
+  both changes land.

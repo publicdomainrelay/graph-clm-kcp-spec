@@ -1387,6 +1387,49 @@ marked `Failed` instead of racing. `SpecToCode` admission is keyed by
 the repository leads and the rest of its pending changes join the same batch
 (see [Spec becomes code, driven by a delta](#spec-becomes-code-driven-by-a-delta)).
 
+### A specd killed mid-realize does not deadlock the queue
+
+A change that is in flight records its driver in `status.owner`,
+`status.ownerPid` and `status.ownerStartedAt`: the token and pid of the specd
+process that took it from `Pending` to `Running`, and when that process started.
+`SpecToCode` records the claim with the `Running` patch, before the agent runs,
+so there is no window in which a change is `Running` with no owner; `CodeToSpec`
+does the same with its summarize patch, and a `PolicyChange` claims
+`Drafting` (or `Evaluated` while it applies) the same way.
+
+On startup, and whenever it reconciles a `Running` change, specd asks whether
+the owner is still this process. A change whose owner token is this process's is
+in flight and is left alone. A change whose owner is gone (its pid is not
+running), or one written before owner tracking existed, is orphaned. A killed
+specd leaves such a change `Running` forever, and because a repository with a
+`Running` `SpecToCode` change is busy, every pending change behind it waits too.
+That is the defect a phase I run hit: after a `specd` was killed mid-realize,
+three changes stayed `Running`, the queue behind them deadlocked, and the
+operator had to mark them `Failed` by hand before anything moved, about 25
+minutes later.
+
+specd now recovers an orphan instead:
+
+1. It removes what the killed realize left in the repository: the
+   `specd-worktree-*` temporary worktree that still holds the realize branch
+   (without this the next `git worktree add` fails with `cannot force update
+   the branch ... used by worktree`), and the branch itself. A worktree anywhere
+   else, an operator's or another tool's, is never touched.
+2. It marks the orphan `Failed` with the message `specd restarted mid-realize`,
+   so the record says why.
+3. It creates the change's next attempt, `Pending`, with the same spec and the
+   attempt counted (`<base>-a<N+1>`), so the attempt cap still applies to it and
+   the repository's queue moves again.
+
+The sweep runs before the workers on every start, and each `SpecChange`
+reconcile repeats it for a `Running` change it does not own, so a process that
+dies while another specd is up is also recovered. A `PolicyChange` whose owner
+is gone is released the same way and drafted again; its `Drafting` and `Testing`
+phases were already re-driven by the normal reconcile. The acceptance steps run
+inside the realize, so a specd killed during one leaves the change `Running` and
+the same recovery re-drives it; the acceptance process itself is not signalled,
+so it can outlive the specd that started it until its own timeout.
+
 ```bash
 bin/specd --workspace root:specs --resync 5s --watch informer
 bin/specd --watch poll --poll-interval 2s      # list instead of watch
