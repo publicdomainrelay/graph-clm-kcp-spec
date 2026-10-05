@@ -16,8 +16,6 @@ const (
 	GenerateModeBind = "bind"
 )
 
-// GenerateContext is one SystemContext the generator is told about: its name,
-// its labels and the requirements a generated policy can carry.
 type GenerateContext struct {
 	Name string `json:"name"`
 
@@ -26,10 +24,6 @@ type GenerateContext struct {
 	Requirements []string `json:"requirements,omitempty"`
 }
 
-// GenerateRequest is what a policy harness is asked for. Policy mode authors a
-// template over the ArchitectureModel and the vocabulary; bind mode authors the
-// roles and vocabulary of one repository for a pack. Either way the harness
-// writes a policy tree under Dir and specd validates it.
 type GenerateRequest struct {
 	Mode string
 
@@ -70,7 +64,6 @@ type GenerateResult struct {
 	Files []string
 }
 
-// Check is one validation a generated policy passed or failed.
 type Check struct {
 	Name string `json:"name"`
 
@@ -79,16 +72,10 @@ type Check struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Generator is a policy harness: the same agent kinds a realize uses, asked to
-// author a policy or a binding instead of code.
 type Generator interface {
 	Generate(ctx context.Context, request GenerateRequest) (GenerateResult, error)
 }
 
-// ForbiddenIdentifiers names the strings a portable source must not mention:
-// the repository, its context names, the literal segments of the role globs,
-// the repository's classifier packs and the role target hints. Vocabulary terms
-// are not forbidden -- they are the language a portable rule is written in.
 func ForbiddenIdentifiers(binding Binding, classifiers []string, repository string, contexts []string) []string {
 	out := []string{}
 	if repository != "" {
@@ -122,9 +109,6 @@ func ForbiddenIdentifiers(binding Binding, classifiers []string, repository stri
 	return dedupeStrings(out)
 }
 
-// classifierLiterals names a classifier pack by its file name and by its stem,
-// so `compute-provider.yaml` forbids both `compute-provider.yaml` and
-// `compute-provider` in a portable source.
 func classifierLiterals(classifier string) []string {
 	name := strings.TrimSpace(classifier)
 	if name == "" {
@@ -137,10 +121,6 @@ func classifierLiterals(classifier string) []string {
 	return out
 }
 
-// globLiterals names the directory and file names of a glob, without its
-// wildcards: `lib/common/cloud-init-common/**` yields `lib`, `common` and
-// `cloud-init-common`. Single-character and generic segments are dropped, so
-// `lib` does not forbid a rule that writes `lib.specd`.
 func globLiterals(glob string) []string {
 	out := []string{}
 	for _, segment := range strings.FieldsFunc(glob, func(char rune) bool {
@@ -154,8 +134,6 @@ func globLiterals(glob string) []string {
 	return out
 }
 
-// PortabilityFindings reports which forbidden identifiers a generated source
-// mentions. A finding is the identifier, once.
 func PortabilityFindings(source string, forbidden []string) []string {
 	found := map[string]bool{}
 	out := []string{}
@@ -177,9 +155,6 @@ func PortabilityFindings(source string, forbidden []string) []string {
 	return out
 }
 
-// MutationVocabulary names the roles and the vocabulary classes a derived
-// mutation speaks. A class left empty makes the mutations that need it
-// inapplicable.
 type MutationVocabulary struct {
 	HostRole string
 
@@ -197,8 +172,6 @@ type MutationVocabulary struct {
 
 	Route string
 
-	// EventTerms are the terms of the event class, so a derived mutation drives
-	// the emit that really carries the report.
 	EventTerms []string
 }
 
@@ -243,8 +216,6 @@ func classNames(classes map[string][]string) []string {
 	return out
 }
 
-// MutationVocabularyOf reads the roles a pack requires and the binding's
-// vocabulary into the names derived mutations use.
 func MutationVocabularyOf(binding Binding, roles []string) MutationVocabulary {
 	names := make([]string, 0, len(roles))
 	for _, role := range roles {
@@ -264,8 +235,6 @@ func MutationVocabularyOf(binding Binding, roles []string) MutationVocabulary {
 	}
 }
 
-// ModelMutation is the input model with one invariant-breaking change, so a
-// rule that denies none of them is vacuous.
 type ModelMutation struct {
 	Name string
 
@@ -274,11 +243,6 @@ type ModelMutation struct {
 	Model ArchitectureModel
 }
 
-// Mutations derives the cases a model-level rule must deny: the host reaching
-// into the guest, the guest's report dropped, the host's emission driven by the
-// provisioning lifecycle, an unrelayed ssh outside the guest and a test dialing
-// the guest. A mutation whose roles or components the model does not carry is
-// not derived at all.
 func Mutations(model ArchitectureModel, vocabulary MutationVocabulary) []ModelMutation {
 	out := []ModelMutation{}
 	host := firstComponentInRole(model, vocabulary.HostRole)
@@ -392,8 +356,6 @@ func Mutations(model ArchitectureModel, vocabulary MutationVocabulary) []ModelMu
 	return out
 }
 
-// modelClassNames names the vocabulary classes the model itself resolved: the
-// channel, the carried payloads and the purpose of every flow.
 func modelClassNames(model ArchitectureModel) []string {
 	out := []string{}
 	for _, flow := range model.Spec.Flows {
@@ -494,18 +456,11 @@ func cloneVocabulary(vocabulary Vocabulary) Vocabulary {
 	return out
 }
 
-// BindingReport says whether a proposed binding maps onto the repository it is
-// written for: the pack declarations it lacks, the roles that select no
-// component, and the vocabulary classes that match no effect and no spec term.
 type BindingReport struct {
 	Missing []string
 
 	EmptyRoles []string
 
-	// UnmatchedVocabulary names the classes nothing in this repository speaks.
-	// One of them is a note -- a repository with only specs has no code for a
-	// class the pack reads yet -- but a vocabulary that matches nothing at all
-	// is a binding that maps onto nothing.
 	UnmatchedVocabulary []string
 
 	MatchedVocabulary int
@@ -531,7 +486,6 @@ func (r BindingReport) Messages() []string {
 	return out
 }
 
-// Notes names what the report accepted but the operator should see.
 func (r BindingReport) Notes() []string {
 	if len(r.UnmatchedVocabulary) == 0 {
 		return nil
@@ -539,10 +493,6 @@ func (r BindingReport) Notes() []string {
 	return []string{"no effect and no spec term speaks these vocabulary classes yet: " + strings.Join(r.UnmatchedVocabulary, ", ")}
 }
 
-// CheckBinding validates a binding against the model it produces and the terms
-// the specs and the effects carry: every role of the pack selects at least one
-// component, and every vocabulary class matches at least one effect or spec
-// term. The pack's own required roles and classes are read from the manifest.
 func CheckBinding(model ArchitectureModel, binding Binding, pack *PackManifest, terms []string) BindingReport {
 	report := BindingReport{Selectors: map[string][]string{}}
 	if pack != nil {
@@ -613,10 +563,6 @@ func vocabularyClasses(vocabulary Vocabulary) []vocabularyClass {
 	return out
 }
 
-// vocabularyMatches reports whether a class is meaningful for the model: a
-// term of it appears in an effect of the model or in a spec term, or the class
-// name appears in a flow attribute the model resolved (the modelbuild resolves
-// an effect's text into a class name, not into the term).
 func vocabularyMatches(class vocabularyClass, model ArchitectureModel, terms []string) bool {
 	if class.name != "" && slices.Contains(modelClassNames(model), class.name) {
 		return true
@@ -647,7 +593,6 @@ func vocabularyMatches(class vocabularyClass, model ArchitectureModel, terms []s
 	return false
 }
 
-// RequirementRef is one `ctx#id` requirement a policy enforces.
 type RequirementRef struct {
 	Context string
 
@@ -662,8 +607,6 @@ func ParseRequirement(ref string) (RequirementRef, error) {
 	return RequirementRef{Context: context, ID: id}, nil
 }
 
-// RequirementRefs parses a requirement list, keeping the order and refusing a
-// malformed entry.
 func RequirementRefs(refs []string) ([]RequirementRef, error) {
 	out := make([]RequirementRef, 0, len(refs))
 	for _, ref := range refs {
@@ -676,8 +619,6 @@ func RequirementRefs(refs []string) ([]RequirementRef, error) {
 	return out, nil
 }
 
-// GuardedByContext names the requirement ids a library enforces, by the context
-// whose spec declares them.
 func GuardedByContext(library Library) map[string][]string {
 	out := map[string][]string{}
 	for _, template := range library.Templates {
@@ -696,9 +637,6 @@ func GuardedByContext(library Library) map[string][]string {
 	return out
 }
 
-// TemplatesForRequirement names the templates whose requirements annotation
-// enforces a requirement of one context. It is what a SystemContext's
-// status.enforcedBy carries.
 func TemplatesForRequirement(library Library, context string) []string {
 	out := []string{}
 	for _, template := range library.Templates {

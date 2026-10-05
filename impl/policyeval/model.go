@@ -9,9 +9,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/effects"
 )
 
-// ModelRequest is everything an evaluation needs to build the
-// ArchitectureModel: the repository's own graph, effects and contexts, plus
-// the other repositories the library names, already cloned and pinned.
 type ModelRequest struct {
 	Repository string
 
@@ -28,10 +25,6 @@ type ModelRequest struct {
 	Tool string
 }
 
-// BuildEvaluationModel builds the ArchitectureModel of the repository and of
-// every member, and returns the member pins the report records. The member's
-// own roles merge into the library's binding, so a portable rule reads the
-// same abstract roles across repositories.
 func BuildEvaluationModel(ctx context.Context, request ModelRequest) (policy.ArchitectureModel, []policy.ReportMember, error) {
 	models := make([]policy.ModelMember, 0, len(request.Members))
 	pins := make([]policy.ReportMember, 0, len(request.Members))

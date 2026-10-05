@@ -11,12 +11,8 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 )
 
-// MembersDir is the cache subdirectory a member checkout lives in.
 const MembersDir = "policy-members"
 
-// MemberOptions says where a member is cloned: under CacheDir when it is set,
-// in a temporary directory otherwise. Verify checks the resolved commit
-// against the lock a build wrote.
 type MemberOptions struct {
 	CacheDir string
 
@@ -26,14 +22,9 @@ type MemberOptions struct {
 
 	Verify bool
 
-	// Paths clones a named member from a local checkout instead of its url. The
-	// pin a build records still names the declared url, so an offline run does
-	// not rewrite the lock.
 	Paths map[string]string
 }
 
-// ResolvedMember is one member cloned at a pinned commit: the code root, the
-// commit it was read at, and the classifier directory its code is read with.
 type ResolvedMember struct {
 	Member policy.Member
 
@@ -62,8 +53,6 @@ func (m ResolvedMember) Report() policy.ReportMember {
 	return policy.ReportMember{Name: m.Member.Name, URL: m.Member.URL, Ref: m.Member.Ref, Commit: m.Commit}
 }
 
-// ResolveMembers clones every member and pins it to the commit its ref names.
-// The caller owns the result and must call Cleanup on each.
 func ResolveMembers(ctx context.Context, members []policy.Member, library policy.Library, opts MemberOptions) ([]ResolvedMember, error) {
 	out := make([]ResolvedMember, 0, len(members))
 	for _, member := range members {
@@ -128,9 +117,6 @@ func resolveMember(ctx context.Context, member policy.Member, library policy.Lib
 	}, nil
 }
 
-// memberCheckout puts the member at the commit its ref names, in a cache under
-// the state dir. An existing checkout is fetched and moved; a missing one is
-// cloned first.
 func memberCheckout(ctx context.Context, member policy.Member, opts MemberOptions) (string, string, func(), error) {
 	removeCache := false
 	cache := opts.CacheDir
@@ -158,9 +144,7 @@ func memberCheckout(ctx context.Context, member policy.Member, opts MemberOption
 			return "", "", func() {}, fmt.Errorf("policyeval: clone member %s: %v: %s", member.Name, err, strings.TrimSpace(out))
 		}
 	}
-	// A branch ref moves; fetch first so the checkout reads the current remote.
 	if _, err := runGit(ctx, dir, "fetch", "--quiet", "--tags", "origin"); err != nil {
-		// An unreachable remote still resolves a commit the cache already has.
 		if _, revErr := memberRevision(ctx, dir, member.Ref); revErr != nil {
 			cleanup()
 			return "", "", func() {}, fmt.Errorf("policyeval: fetch member %s: %v", member.Name, err)
@@ -183,8 +167,6 @@ func memberCheckout(ctx context.Context, member policy.Member, opts MemberOption
 	return dir, commit, cleanup, nil
 }
 
-// memberRevision resolves a ref the way a member names one: a branch, a tag, a
-// commit, or the branch as it stands on the remote the fetch just read.
 func memberRevision(ctx context.Context, dir, ref string) (string, error) {
 	if ref == "" {
 		ref = "HEAD"
@@ -198,15 +180,10 @@ func memberRevision(ctx context.Context, dir, ref string) (string, error) {
 	return "", fmt.Errorf("ref %s resolves to no commit", ref)
 }
 
-// memberClassifiers is the classifier directory a member's code is read with.
-// A member that names its packs reads them from the library's classifiers/
-// directory; a member that names none reads its own.
 func memberClassifiers(member policy.Member, library policy.Library, dir string, opts MemberOptions) (string, func(), error) {
 	return namedClassifiers(member.Classifiers, library, dir, opts.WorkDir, "member "+member.Name)
 }
 
-// LibraryClassifierDirs is the classifier directory the repository's own code
-// is read with: the packs the library names, or its checkout's own directory.
 func LibraryClassifierDirs(library policy.Library, dir, workDir string) ([]string, func(), error) {
 	named, cleanup, err := namedClassifiers(library.Manifest.Classifiers, library, dir, workDir, "library "+library.Manifest.Repository)
 	if err != nil || named == "" {
@@ -244,8 +221,6 @@ func namedClassifiers(names []string, library policy.Library, dir, workDir, owne
 	return temp, cleanup, nil
 }
 
-// cloneURL is where a member is cloned from: its declared url, or the local
-// checkout an invocation named for it.
 func cloneURL(member policy.Member, opts MemberOptions) string {
 	if path, ok := opts.Paths[member.Name]; ok && path != "" {
 		return path

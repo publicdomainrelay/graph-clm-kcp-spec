@@ -31,9 +31,6 @@ const (
 	imageTitleAnnotation = "org.opencontainers.image.title"
 )
 
-// ImportOptions says where an imported pack comes from: the embedded registry
-// by default, a scratch directory for a git clone or an OCI pull, and the lock
-// a build verifies the resolution against.
 type ImportOptions struct {
 	Embedded fs.FS
 
@@ -44,8 +41,6 @@ type ImportOptions struct {
 	Verify bool
 }
 
-// ImportedPack is one resolved import: what it was, what it resolved to, and
-// the digest a lock pins.
 type ImportedPack struct {
 	Import policy.PackImport
 
@@ -56,10 +51,6 @@ type ImportedPack struct {
 	Entry policy.LockEntry
 }
 
-// ResolveImports merges every pack a library imports into it. The templates
-// and constraints of a pack are the pack's; the roles and the vocabulary stay
-// the importing repository's. The manifest's enforcement rules are applied
-// last, so they reach the pack's constraints as they reach the library's own.
 func ResolveImports(library policy.Library, opts ImportOptions) (policy.Library, []policy.LockEntry, error) {
 	entries := []policy.LockEntry{}
 	for _, imp := range library.Manifest.Imports {
@@ -76,8 +67,6 @@ func ResolveImports(library policy.Library, opts ImportOptions) (policy.Library,
 	return library, entries, nil
 }
 
-// ResolveImport resolves one import to its pack: the embedded registry, a git
-// ref, or an OCI artifact.
 func ResolveImport(imp policy.PackImport, opts ImportOptions) (ImportedPack, error) {
 	if strings.TrimSpace(imp.Pack) == "" {
 		return ImportedPack{}, fmt.Errorf("policyeval: an import names no pack")
@@ -147,9 +136,6 @@ func mergePack(library *policy.Library, resolved ImportedPack, imp policy.PackIm
 	for _, template := range resolved.Library.Templates {
 		slug := policy.TemplateSlug(template)
 		if existing, ok := library.Template(template.Name); ok {
-			// A library that already carries the pack -- a branch seeded from a
-			// resolved library, or a second resolution of the same tree -- is
-			// not a collision when the copy is the pack's.
 			if sameTemplate(existing, template) {
 				library.Imported[slug] = reference
 				continue
@@ -166,11 +152,6 @@ func mergePack(library *policy.Library, resolved ImportedPack, imp policy.PackIm
 	}
 	for _, constraint := range resolved.Library.Constraints {
 		if existing, ok := library.Constraint(constraint.Name); ok {
-			// A library that already carries the pack -- a branch seeded from a
-			// resolved library, or a second resolution of the same tree -- is
-			// not a collision when the copy is the pack's. The copy is the
-			// pack's when the first resolution already marked it so, which
-			// also covers an enforcement rule the first pass rewrote.
 			if library.ImportedFrom(constraint.Name) == reference || sameConstraint(existing, constraint) {
 				library.Imported[constraint.Name] = reference
 				continue
@@ -258,8 +239,6 @@ func gitPackFS(imp policy.PackImport, source policy.PackSource, opts ImportOptio
 	return os.DirFS(root), cleanup, nil
 }
 
-// ociPackFS pulls an OCI artifact and lays its layers out as a directory, so a
-// pack published as an artifact is a pack directory like any other.
 func ociPackFS(imp policy.PackImport, source policy.PackSource, opts ImportOptions) (fs.FS, func(), error) {
 	reference := source.Ref
 	if imp.Pack != "" && !strings.Contains(path.Base(reference), imp.Pack) && !strings.Contains(reference, "/") {
@@ -269,9 +248,6 @@ func ociPackFS(imp policy.PackImport, source policy.PackSource, opts ImportOptio
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("policyeval: oci reference %s: %w", reference, err)
 	}
-	// A registry on the loopback address is plain HTTP, the way a local
-	// docker or oras registry is: a test or a development machine has no
-	// certificate for it.
 	if isLoopbackRegistry(repository.Reference.Registry) {
 		repository.PlainHTTP = true
 	}
@@ -366,9 +342,6 @@ func materializeOCI(ctx context.Context, store *orasoci.Store, tag, dir string) 
 	return nil
 }
 
-// PackDigest is the sha256 of a pack's sources: pack.yaml, the templates, the
-// constraints and the suites. The generated dist, the catalogue and the shared
-// library are not part of it, so a build does not break a pin.
 func PackDigest(fsys fs.FS) (string, int, error) {
 	paths := []string{}
 	err := fs.WalkDir(fsys, ".", func(name string, entry fs.DirEntry, err error) error {
@@ -438,13 +411,10 @@ func ParseLock(data []byte) (policy.PackLock, error) {
 	return lock, nil
 }
 
-// EncodeLock writes a lock with its imports in a stable order.
 func EncodeLock(entries []policy.LockEntry) ([]byte, error) {
 	return EncodeLockWithMembers(entries, nil)
 }
 
-// EncodeLockWithMembers pins the imported packs and the member repositories a
-// library reads, so a second build evaluates the same cross-repository model.
 func EncodeLockWithMembers(entries []policy.LockEntry, members []policy.MemberLock) ([]byte, error) {
 	lock := policy.PackLock{Imports: []policy.LockEntry{}}
 	for _, entry := range entries {

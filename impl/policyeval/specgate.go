@@ -13,9 +13,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
 
-// SpecInput is the spec-time state of one repository: every context as the
-// delta leaves it. Applied carries the post-delta spec of a context whose kcp
-// object has not moved yet; a context without an entry is taken as it stands.
 type SpecInput struct {
 	Repository string
 
@@ -28,8 +25,6 @@ type SpecInput struct {
 	Library policy.Library
 }
 
-// SpecResult is what a policy library said about one repository's declared
-// state: the model the rules read, the report and the gate decision.
 type SpecResult struct {
 	Model policy.ArchitectureModel
 
@@ -42,10 +37,6 @@ func (r SpecResult) Messages() []string {
 	return r.Decision.Messages()
 }
 
-// CheckSpecs builds the ArchitectureModel from declared facts only (the specs,
-// the binding, no code) and evaluates the policy library against it. It is the
-// spec-time half of the gate: nothing is realized here, and the caller decides
-// what a blocked result means.
 func CheckSpecs(ctx context.Context, input SpecInput) (SpecResult, error) {
 	if len(input.Library.Templates) == 0 {
 		return SpecResult{}, fmt.Errorf("policyeval: the library of %s has no templates", input.Repository)

@@ -8,8 +8,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// ConstraintCRDBuilder builds the constraint CRD a template's kind needs, so
-// the kcp writer depends on the contract and not on the evaluation engine.
 type ConstraintCRDBuilder interface {
 	ConstraintCRD(ctx context.Context, template Template) (*unstructured.Unstructured, error)
 }

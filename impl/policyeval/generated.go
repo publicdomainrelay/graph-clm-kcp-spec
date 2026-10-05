@@ -18,9 +18,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 )
 
-// GeneratedInput is one generated policy tree and everything the checks need:
-// the binding it must stay portable over, the repository it joins and the head
-// model it is evaluated against.
 type GeneratedInput struct {
 	Dir string
 
@@ -47,8 +44,6 @@ type GeneratedInput struct {
 	Inventory []*unstructured.Unstructured
 }
 
-// GeneratedResult is what the checks found: the library the tree holds, one
-// record per check and the violations the rule raises against the head model.
 type GeneratedResult struct {
 	Library policy.Library
 
@@ -90,11 +85,6 @@ func (r GeneratedResult) Constraint() (policy.Constraint, bool) {
 	return r.Library.Constraints[0], true
 }
 
-// CheckGenerated author-policy checks a generated tree: the annotations the
-// request demands, a portable source, a strict compile, the opa unit tests,
-// the gator suite, the mutation check and the evaluation against the head
-// model. A failed check is a result, not an error; the error is reserved for a
-// tree that cannot be read at all.
 func CheckGenerated(ctx context.Context, input GeneratedInput) (GeneratedResult, error) {
 	result := GeneratedResult{}
 	if err := AnnotateGenerated(input.Dir, input.Slug, input.Requirements, input.GeneratedBy); err != nil {
@@ -177,9 +167,6 @@ func CheckGenerated(ctx context.Context, input GeneratedInput) (GeneratedResult,
 	return result, nil
 }
 
-// BindingInput is one generated binding: the policies.yaml the harness wrote,
-// the pack it binds, the model the binding has to make readable and the branch
-// manifest it must keep.
 type BindingInput struct {
 	Dir string
 
@@ -204,8 +191,6 @@ type BindingInput struct {
 	Inventory []*unstructured.Unstructured
 }
 
-// BindingResult is what the binding checks found: the manifest the harness
-// wrote, one record per check and the pack's violations against the model.
 type BindingResult struct {
 	Manifest policy.PolicyLibrary
 
@@ -233,11 +218,6 @@ func (r BindingResult) Failures() []string {
 	return out
 }
 
-// CheckGeneratedBinding checks a generated binding: the manifest keeps the
-// pack import, every role the pack requires selects a component, every
-// vocabulary class matches an effect or a spec term, the pack's own suites
-// pass, the pack denies a model derived from the bound model, and the pack
-// evaluates against the model without an engine error.
 func CheckGeneratedBinding(ctx context.Context, input BindingInput) (BindingResult, error) {
 	result := BindingResult{}
 	data, err := os.ReadFile(filepath.Join(input.Dir, filepath.FromSlash(policy.PoliciesPath)))
@@ -349,9 +329,6 @@ func runPackSuites(ctx context.Context, fsys fs.FS) (policy.Check, error) {
 	return policy.Check{Name: "suites", Passed: true, Message: fmt.Sprintf("%d case(s)", cases)}, nil
 }
 
-// bindingMutationCheck mutates the model the binding produced: a binding that
-// leaves the pack's invariants unreadable fails here, because no derived case
-// denies.
 func bindingMutationCheck(ctx context.Context, input BindingInput, binding policy.Binding) policy.Check {
 	var roles []string
 	if input.Pack != nil {
@@ -390,8 +367,6 @@ func bindingMutationCheck(ctx context.Context, input BindingInput, binding polic
 	return policy.Check{Name: "mutation", Passed: true, Message: "denies " + strings.Join(denied, ", ")}
 }
 
-// EmbeddedPack resolves one embedded pack to its library and its tree, so a
-// checker can run the pack's own suites.
 func EmbeddedPack(name, version string) (policy.Library, fs.FS, error) {
 	imp := policy.PackImport{Pack: name, Version: version, Source: policy.SourceEmbedded}
 	fsys, cleanup, err := packSourceFS(imp, policy.PackSource{Kind: policy.SourceEmbedded}, ImportOptions{})
@@ -409,10 +384,6 @@ func EmbeddedPack(name, version string) (policy.Library, fs.FS, error) {
 	return library, fsys, nil
 }
 
-// AnnotateGenerated writes the annotations the request demands into the
-// generated template, so the requirements the operator named and the
-// PolicyChange that generated it are recorded even when the harness left them
-// out, and the severity follows the level.
 func AnnotateGenerated(dir, slug string, requirements []string, generatedBy string) error {
 	name := filepath.Join(dir, filepath.FromSlash(policy.TemplateHeaderPath(slug)))
 	data, err := os.ReadFile(name)
@@ -433,9 +404,6 @@ func AnnotateGenerated(dir, slug string, requirements []string, generatedBy stri
 		annotations = map[string]any{}
 		metadata["annotations"] = annotations
 	}
-	// The slug is the directory name, not an annotation: the branch keeps it in
-	// the path and kcp drops it from the header, so writing it here would make
-	// the two forms differ and the sync would rewrite the branch every pass.
 	if generatedBy != "" {
 		annotations[policy.AnnotationGeneratedBy] = generatedBy
 	}
@@ -546,9 +514,6 @@ func suiteFailure(result SuiteResult) string {
 	return strings.Join(problems, "; ")
 }
 
-// mutationCheck derives a denying case from the allowed fixture of the suite
-// and refuses a rule that denies none of them: a rule that only recognizes the
-// words of the sentence is vacuous.
 func mutationCheck(ctx context.Context, input GeneratedInput, library policy.Library) policy.Check {
 	model, found, err := allowedFixture(input.Dir)
 	if err != nil {
@@ -573,9 +538,6 @@ func mutationCheck(ctx context.Context, input GeneratedInput, library policy.Lib
 		if err != nil {
 			return failCheck("mutation", err.Error())
 		}
-		// The rule reads the model from the inventory, so the mutated case is
-		// both the reviewed object and the inventory entry, the way a suite
-		// case lists its own object.
 		if err := engine.AddInventory(ctx, []*unstructured.Unstructured{object}); err != nil {
 			return failCheck("mutation", err.Error())
 		}
@@ -607,8 +569,6 @@ func modelObject(model policy.ArchitectureModel) (*unstructured.Unstructured, er
 	return policy.Unstructured(encoded)
 }
 
-// allowedFixture finds the ArchitectureModel of a suite case that asserts zero
-// violations, and its inventory.
 func allowedFixture(dir string) (policy.ArchitectureModel, bool, error) {
 	suites, err := filepath.Glob(filepath.Join(dir, policy.TestsDir, "*", policy.SuiteName))
 	if err != nil {

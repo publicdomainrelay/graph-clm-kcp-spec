@@ -59,9 +59,6 @@ func withSlug(annotations map[string]string, slug string) map[string]string {
 	return out
 }
 
-// normalizeMetadata drops the annotations kcp adds to every object it serves,
-// so a template read back from kcp compares equal to the branch it came from
-// and the sync does not write cluster metadata into the branch.
 func normalizeMetadata(object *unstructured.Unstructured) {
 	annotations := object.GetAnnotations()
 	if len(annotations) == 0 {
@@ -128,8 +125,6 @@ func ParseTemplateObject(object *unstructured.Unstructured) (policy.Template, er
 	if template.Slug == "" {
 		template.Slug = template.Name
 	}
-	// The slug lives in the branch path, not in the header the branch holds, so
-	// it is dropped here too and the kcp and branch forms stay comparable.
 	delete(template.Annotations, policy.AnnotationSlug)
 	if len(libs) > 0 {
 		template.Libs = libs
@@ -160,9 +155,6 @@ func ParseConstraintObject(object *unstructured.Unstructured, templateName strin
 	return constraint, nil
 }
 
-// Read loads the templates and constraints kcp holds. A constraint list that
-// answers "no such resource" means the CRD has not been created yet, so the
-// kind simply has no constraints.
 func Read(ctx context.Context, cluster Cluster) (policy.Library, error) {
 	library := policy.Library{}
 	listed, err := cluster.ListCluster(ctx, policy.ConstraintTemplateGVR())
@@ -199,19 +191,9 @@ func Read(ctx context.Context, cluster Cluster) (policy.Library, error) {
 type ApplyOptions struct {
 	Prune bool
 
-	// CRDs builds the constraint CRD of each template's kind. It is the
-	// caller's, so this package never imports the evaluation engine.
 	CRDs policy.ConstraintCRDBuilder
 }
 
-// Apply writes the library into kcp: each ConstraintTemplate, the constraint
-// CRD its kind needs and every constraint. With Prune, templates and
-// constraints kcp holds and the library does not are deleted.
-//
-// One broken template or constraint never stops the rest: every member is
-// attempted, the failing template records the error in its status, and the
-// returned error names each failure. A caller that only reports the error
-// therefore still leaves kcp holding everything that could be applied.
 func Apply(ctx context.Context, cluster Cluster, library policy.Library, options ApplyOptions) error {
 	if options.CRDs == nil {
 		return fmt.Errorf("policykcp: Apply needs a constraint CRD builder")
@@ -265,8 +247,6 @@ func Apply(ctx context.Context, cluster Cluster, library policy.Library, options
 	return errors.Join(failures...)
 }
 
-// recordTemplateStatus writes the simplified byPod status Gatekeeper reports,
-// so the reason a template did not establish is readable from kcp.
 func recordTemplateStatus(ctx context.Context, cluster Cluster, name string, created bool, failure error) error {
 	if _, err := cluster.PatchStatusCluster(ctx, policy.ConstraintTemplateGVR(), name,
 		constraintTemplateStatus(created, failure)); err != nil {
@@ -282,13 +262,8 @@ func appendStatus(failures []error, err error) []error {
 	return append(failures, err)
 }
 
-// ConstraintCRDTimeout bounds how long Apply waits for kcp to serve a
-// constraint kind after its CRD was applied.
 const ConstraintCRDTimeout = 15 * time.Second
 
-// waitForConstraintKind waits until the constraint resource of a kind answers:
-// applying a CRD and creating an object of it in one breath races the API
-// server's establishment of the new kind.
 func waitForConstraintKind(ctx context.Context, cluster Cluster, kind string) error {
 	deadline := time.Now().Add(ConstraintCRDTimeout)
 	for {
@@ -307,8 +282,6 @@ func waitForConstraintKind(ctx context.Context, cluster Cluster, kind string) er
 	}
 }
 
-// constraintTemplateStatus is the simplified byPod status Gatekeeper reports:
-// whether specd created the constraint CRD, and why not when it could not.
 func constraintTemplateStatus(created bool, failure error) map[string]any {
 	byPod := map[string]any{"id": "specd"}
 	errors := []any{}
@@ -358,9 +331,6 @@ func prune(ctx context.Context, cluster Cluster, library policy.Library, wantedT
 	return nil
 }
 
-// Files renders the branch files a kcp library owns: the template header, the
-// rule source and the constraints. The manifest, the shared lib, the tests and
-// the dist stay as the branch holds them.
 func Files(library policy.Library) (map[string][]byte, error) {
 	add := map[string][]byte{}
 	for _, template := range library.Templates {
@@ -371,8 +341,6 @@ func Files(library policy.Library) (map[string][]byte, error) {
 		stripped := template
 		stripped.Rego = ""
 		stripped.Libs = nil
-		// The branch carries the slug in the directory name, the way
-		// specctl policy build writes it, not as an annotation.
 		header, err := stripped.Header()
 		if err != nil {
 			return nil, fmt.Errorf("policykcp: template %s: %w", template.Name, err)
@@ -393,8 +361,6 @@ func Files(library policy.Library) (map[string][]byte, error) {
 	return add, nil
 }
 
-// Stale names the managed branch paths the library no longer covers. Tests,
-// the dist, the catalogue, the reports and the manifest are never stale here.
 func Stale(existing map[string][]byte, library policy.Library) []string {
 	keep := map[string]bool{}
 	files, err := Files(library)
@@ -438,8 +404,6 @@ func managed(name string) bool {
 		strings.HasPrefix(name, policy.ConstraintsDir+"/")
 }
 
-// Distinct reports whether a kcp library differs from a branch library, by
-// template and constraint content rather than by commit.
 func Distinct(kcp, branch policy.Library) bool {
 	return fingerprint(kcp) != fingerprint(branch)
 }

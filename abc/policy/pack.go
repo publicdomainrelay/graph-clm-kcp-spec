@@ -20,8 +20,6 @@ const (
 	SourceOCI = "oci"
 )
 
-// PackManifest is a pack's pack.yaml: what the pack is, which binding it
-// needs, and which vocabulary classes its templates read.
 type PackManifest struct {
 	Name string `json:"name"`
 
@@ -44,8 +42,6 @@ func (m PackManifest) Reference() string {
 	return name + "@" + m.Version
 }
 
-// Missing names the roles and the vocabulary classes a pack needs and a
-// binding does not declare.
 func (m PackManifest) Missing(binding Binding) []string {
 	out := []string{}
 	for _, role := range m.Roles {
@@ -63,8 +59,6 @@ func (m PackManifest) Missing(binding Binding) []string {
 	return out
 }
 
-// PackSource is a parsed import source: embedded, git:<url>@<ref> or
-// oci:<ref>.
 type PackSource struct {
 	Kind string
 
@@ -102,13 +96,9 @@ func (s PackSource) String() string {
 	return SourceEmbedded
 }
 
-// PackLock pins every imported pack by digests, so a build resolves the same
-// content twice.
 type PackLock struct {
 	Imports []LockEntry `json:"imports"`
 
-	// Members pins every member repository to the commit its ref resolved to,
-	// so a second build reads the same cross-repository model.
 	Members []MemberLock `json:"members,omitempty"`
 }
 
@@ -149,8 +139,6 @@ func (l *PackLock) Set(entry LockEntry) {
 	})
 }
 
-// Matches reports whether a pack's resolved digest is the pinned one. An
-// import the lock does not name is not pinned yet, and a build adds it.
 func (l PackLock) Matches(entry LockEntry) bool {
 	pinned, ok := l.Entry(entry.Pack, entry.Version)
 	if !ok {
@@ -159,7 +147,6 @@ func (l PackLock) Matches(entry LockEntry) bool {
 	return pinned.SHA256 == entry.SHA256
 }
 
-// Member returns the pin of a member.
 func (l PackLock) Member(name string) (MemberLock, bool) {
 	for _, member := range l.Members {
 		if member.Name == name {
@@ -169,7 +156,6 @@ func (l PackLock) Member(name string) (MemberLock, bool) {
 	return MemberLock{}, false
 }
 
-// SetMember records a member's pin, replacing an earlier one.
 func (l *PackLock) SetMember(member MemberLock) {
 	for index := range l.Members {
 		if l.Members[index].Name == member.Name {
@@ -183,7 +169,6 @@ func (l *PackLock) SetMember(member MemberLock) {
 	})
 }
 
-// MemberMatches reports whether a member's resolved commit is the pinned one.
 func (l PackLock) MemberMatches(member MemberLock) bool {
 	pinned, ok := l.Member(member.Name)
 	if !ok {
@@ -192,7 +177,6 @@ func (l PackLock) MemberMatches(member MemberLock) bool {
 	return pinned.Commit == member.Commit
 }
 
-// ImportReference is the pack@version an import names.
 func ImportReference(imp PackImport) string {
 	if imp.Version == "" {
 		return imp.Pack

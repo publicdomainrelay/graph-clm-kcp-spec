@@ -253,10 +253,6 @@ func locationKey(location *policy.Location) string {
 	return fmt.Sprintf("%s:%d", location.File, location.Line)
 }
 
-// ConstraintCRD builds the constraint CRD Gatekeeper's controller would create
-// for a template, with the frameworks' own helper, so a constraint kind specd
-// serves is the kind a real Gatekeeper serves. The returned object is the v1
-// CustomResourceDefinition, cluster scoped, served at v1beta1.
 func (e *Engine) ConstraintCRD(ctx context.Context, template policy.Template) (*unstructured.Unstructured, error) {
 	parsed, ok := e.parsed[template.Kind]
 	if !ok {

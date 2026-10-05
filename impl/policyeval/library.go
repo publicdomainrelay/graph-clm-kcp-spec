@@ -12,9 +12,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 )
 
-// Load reads a policy tree and resolves the packs it imports. A directory with
-// a policies.yaml is a repository's library; a directory with a pack.yaml is a
-// pack.
 func Load(dir string) (policy.Library, error) {
 	return LoadFS(os.DirFS(dir))
 }
@@ -35,14 +32,10 @@ func LoadFS(fsys fs.FS) (policy.Library, error) {
 	return resolved, nil
 }
 
-// LoadRaw reads a policy tree without resolving its imports.
 func LoadRaw(fsys fs.FS) (policy.Library, error) {
 	packData, packErr := fs.ReadFile(fsys, policy.PackManifestPath)
 	policiesData, policiesErr := fs.ReadFile(fsys, policy.PoliciesPath)
 	if packErr == nil {
-		// A pack is a pack even when it also carries a policies.yaml for its
-		// own enforcement defaults: the pack manifest names it and declares the
-		// binding it needs, so an import of it resolves.
 		var pack policy.PackManifest
 		if err := yaml.Unmarshal(packData, &pack); err != nil {
 			return policy.Library{}, err
@@ -73,8 +66,6 @@ func LoadRaw(fsys fs.FS) (policy.Library, error) {
 		}
 		return loadTree(fsys, manifest, policy.PoliciesPath, policiesData)
 	}
-	// A tree with neither manifest still loads: its templates, constraints and
-	// library are the pack's own, with no repository and no binding.
 	return loadTree(fsys, policy.PolicyLibrary{}, "", nil)
 }
 

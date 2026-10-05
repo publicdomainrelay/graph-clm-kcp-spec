@@ -25,9 +25,6 @@ type RoleTargets struct {
 
 	Symbols []string `json:"symbols,omitempty"`
 
-	// Attrs names patterns matched against the attributes of an effect, not
-	// against the text around its site. `verb: getNodeId` on a container.exec
-	// points at the guest; the word getNodeId in a comment does not.
 	Attrs []string `json:"attrs,omitempty"`
 }
 
@@ -40,15 +37,9 @@ type Vocabulary struct {
 
 	Purposes map[string][]string `json:"purposes,omitempty"`
 
-	// Routes names the routes a package rule needs to recognize, for example
-	// the route that receives the guest's report. A route class is matched
-	// against the path of an http.handle effect.
 	Routes map[string][]string `json:"routes,omitempty"`
 }
 
-// Classes names every vocabulary class the binding declares, as
-// group/name: channels/relay, events/network-report, payloads/network-info,
-// purposes/network-discovery, routes/report.
 func (v Vocabulary) Classes() []string {
 	groups := []struct {
 		name   string
@@ -101,10 +92,6 @@ func (l PolicyLibrary) Binding() Binding {
 	return out
 }
 
-// Merge folds another binding's roles into this one: a role both declare
-// carries the union of their selectors, so a member repository adds to the
-// abstract role instead of replacing it. The vocabulary and the imports stay
-// this binding's.
 func (b Binding) Merge(other Binding) Binding {
 	out := Binding{
 		Roles:      map[string]RoleBinding{},

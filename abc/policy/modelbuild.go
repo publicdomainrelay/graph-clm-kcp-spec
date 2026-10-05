@@ -64,9 +64,6 @@ type DeclaredInteraction struct {
 	Forbidden bool `json:"forbidden,omitempty"`
 }
 
-// ModelMember is one other repository the model is built over. Its components
-// are named <name>/<context>, so a report tells whose code a component is and
-// two repositories never collide on a name.
 type ModelMember struct {
 	Name string
 
@@ -78,8 +75,6 @@ type ModelMember struct {
 
 	Interactions []DeclaredInteraction
 
-	// Binding is the library's binding merged with the member's own roles: the
-	// vocabulary is shared, the selectors are the member's files'.
 	Binding Binding
 }
 
@@ -168,10 +163,6 @@ func compileRoles(binding Binding) ([]compiledRole, error) {
 	return out, nil
 }
 
-// BuildModel builds the ArchitectureModel of one repository and merges the
-// models of every member into it. A member's components keep their own name
-// prefixed with the member name, so the merged model is still readable and a
-// rule that reads roles never has to know which checkout a component is from.
 func BuildModel(input ModelInput) (ArchitectureModel, error) {
 	model, err := buildRepository(input.Repository, input)
 	if err != nil {
@@ -202,8 +193,6 @@ func BuildModel(input ModelInput) (ArchitectureModel, error) {
 	return model, nil
 }
 
-// modelRoles is every role the merged model carries: the importing library's,
-// plus any a member added.
 func modelRoles(model ArchitectureModel, binding Binding) []string {
 	out := binding.RoleNames()
 	for _, component := range model.Spec.Components {
@@ -217,10 +206,6 @@ func modelRoles(model ArchitectureModel, binding Binding) []string {
 	return out
 }
 
-// prefixModel rewrites one repository's model as a member's: every component,
-// every effect and every file it names carries the member prefix, and a flow
-// endpoint that is a component name (not a role) is prefixed with it. Role
-// names are the portable vocabulary and stay as they are.
 func prefixModel(model ArchitectureModel, prefix string, roleNames []string) ArchitectureModel {
 	components := map[string]bool{}
 	for _, component := range model.Spec.Components {
@@ -264,9 +249,6 @@ func prefixModel(model ArchitectureModel, prefix string, roleNames []string) Arc
 	return model
 }
 
-// mergeModels folds a member's model into the repository's. The roles are the
-// union, the vocabulary is the importing library's, and two flows of the same
-// shape merge their evidence instead of doubling the report.
 func mergeModels(base, member ArchitectureModel) ArchitectureModel {
 	base.Spec.Components = append(base.Spec.Components, member.Spec.Components...)
 	base.Spec.Effects = append(base.Spec.Effects, member.Spec.Effects...)
@@ -385,10 +367,6 @@ func buildRepository(repository string, input ModelInput) (ArchitectureModel, er
 	return model, nil
 }
 
-// declaredInteractions is every interaction the model was given: the ones
-// passed for the whole model, plus each context's own. A per-context
-// interaction inherits the context as its self, so a spec author writes
-// `interactions` on the context and the peer alone.
 func declaredInteractions(input ModelInput) []DeclaredInteraction {
 	out := append([]DeclaredInteraction{}, input.Interactions...)
 	for _, context := range input.Contexts {
@@ -663,7 +641,6 @@ func (i *flowIndex) componentRoles(component string, from []string) []string {
 		}
 		return []string{component}
 	}
-	// a component talking to itself is not a flow
 	if slices.Equal(roles, from) {
 		return nil
 	}
@@ -720,18 +697,10 @@ func matchesAnyPattern(patterns []string, value string) bool {
 	return false
 }
 
-// hintText is the text a vocabulary term is looked for in: the effect's site,
-// its attributes and the declarations its site calls. A channel or a payload
-// class is often not written at the site itself -- an ssh site builds its
-// ProxyCommand through one helper that calls another -- so the vocabulary
-// resolves a delegated channel.
 func (i *flowIndex) hintText(effect Effect) string {
 	return i.siteText(effect) + "\n" + i.neighborhood(effect.Node)
 }
 
-// siteText is the effect's own site and attributes. It is what a role's target
-// symbol hint is matched against: a hint names something the caller says, not
-// something a declaration it happens to call says.
 func (i *flowIndex) siteText(effect Effect) string {
 	parts := []string{i.nodeText[effect.Node]}
 	keys := make([]string, 0, len(effect.Attrs))
@@ -745,11 +714,6 @@ func (i *flowIndex) siteText(effect Effect) string {
 	return strings.Join(parts, "\n")
 }
 
-// neighborhood is the text of the effect's site and of the declarations it
-// calls, a few hops out. A channel or a payload class is often not written at
-// the site itself: an ssh site builds its ProxyCommand through one helper that
-// calls another. The walk is bounded in hops and nodes, and it is what makes
-// the vocabulary resolve a delegated channel.
 func (i *flowIndex) neighborhood(node string) string {
 	if node == "" {
 		return ""
@@ -926,8 +890,6 @@ func dedupeFlows(flows []ModelFlow) []ModelFlow {
 	index := map[string]int{}
 	out := []ModelFlow{}
 	for _, flow := range flows {
-		// A forbidden marker never merges with a flow that is not forbidden:
-		// the marker is what the conformance rule matches a real flow against.
 		key := dedupeKey(flow)
 		if position, ok := index[key]; ok {
 			merged := out[position]

@@ -13,9 +13,6 @@ const (
 	DevNull = "/dev/null"
 )
 
-// ParseUnifiedDiff turns the output of `git diff` into the CodeDiff a policy
-// reviews. Hunk headers give the line numbers; a file whose old side is
-// /dev/null is added and one whose new side is /dev/null is deleted.
 func ParseUnifiedDiff(text string) CodeDiff {
 	diff := CodeDiff{
 		APIVersion: APIVersion,
