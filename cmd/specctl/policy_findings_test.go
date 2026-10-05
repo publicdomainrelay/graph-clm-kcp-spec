@@ -147,3 +147,14 @@ func TestPolicyFixTurnsAFindingIntoASpecChangeRequest(t *testing.T) {
 		t.Errorf("the prompt does not carry the violation message: %v", request["prompt"])
 	}
 }
+
+func TestPolicyWaiveRefusesAnExpiryItCannotParse(t *testing.T) {
+	code, _, stderr := runWith("policy", "waive", "0000000000000000",
+		"--reason", "accepted", "--expires", "not-a-date", "--repo", "market-mini")
+	if code != exitUsage {
+		t.Fatalf("code %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(stderr, "not an RFC3339 timestamp") {
+		t.Errorf("stderr = %q", stderr)
+	}
+}
