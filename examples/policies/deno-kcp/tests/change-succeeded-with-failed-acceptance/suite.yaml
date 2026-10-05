@@ -1,0 +1,21 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: change-succeeded-with-failed-acceptance
+tests:
+  - name: change-succeeded-with-failed-acceptance
+    template: ../../dist/change-succeeded-with-failed-acceptance.yaml
+    constraint: ../../constraints/change-succeeded-with-failed-acceptance.yaml
+    cases:
+      - name: allowed
+        object: inventory/changerecord-allowed.yaml
+        inventory:
+          - inventory/changerecord-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-succeeded-with-failed-step
+        object: inventory/changerecord-denied.yaml
+        inventory:
+          - inventory/changerecord-denied.yaml
+        assertions:
+          - violations: 1

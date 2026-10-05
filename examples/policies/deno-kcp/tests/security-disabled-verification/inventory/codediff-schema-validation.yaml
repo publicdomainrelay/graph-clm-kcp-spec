@@ -1,0 +1,18 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeDiff
+metadata:
+  name: deno-kcp
+  namespace: default
+spec:
+  base: d20070c0000000000000000000000000000000aa
+  head: dc4c717e000000000000000000000000000000bb
+  files:
+    - path: deploy/install-provider.sh
+      status: modified
+      added:
+        - line: 12
+          text: 'KA() { "$KUBECTL" --kubeconfig="$KUBECONFIG_PATH" apply --validate=false "$@"; }'
+        - line: 21
+          text: 'KWA() { "$KUBECTL" --kubeconfig="$KUBECONFIG_PATH" --server="$PROVIDER_SERVER" apply --validate=false "$@"; }'
+        - line: 298
+          text: 'cmd := exec.Command("kubectl", "--kubeconfig", kubeconfig, "--server", server, "apply", "--validate=false", "-f", "-")'

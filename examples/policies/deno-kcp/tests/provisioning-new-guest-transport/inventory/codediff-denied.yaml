@@ -1,0 +1,14 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeDiff
+metadata:
+  name: atproto-market
+  namespace: default
+spec:
+  base: d20070c0000000000000000000000000000000aa
+  head: ffac22e0000000000000000000000000000000bb
+  files:
+    - path: lib/market-bidder/mod.ts
+      status: modified
+      added:
+        - line: 88
+          text: '  await spawn("websocat", ["--binary", `wss://${guest}/tunnel`]);'

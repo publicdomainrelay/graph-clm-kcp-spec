@@ -1,16 +1,27 @@
 #!/usr/bin/env bash
 #
-# Evaluate examples/policies/atproto-market against a fresh clone of
-# publicdomainrelay/atproto-market at each ref in REFS, writing the text and
-# JSON reports to OUT. This is the run docs/examples/atproto-market-policies.md
-# records. The clone is never edited and never pushed.
+# Evaluate a repository's bound policy library against a fresh clone at each
+# ref in REFS, writing the text and JSON reports to OUT. With the defaults this
+# is the atproto-market run docs/examples/atproto-market-policies.md records.
+# The clone is never edited and never pushed.
 #
 # Environment:
-#   REPO     git URL to clone                  (default: publicdomainrelay/atproto-market)
-#   REFS     refs to evaluate, space separated (default: master pre-iroh spec/iroh-dumbpipe-20261004141803)
-#   LIBRARY  policy library directory          (default: <repo>/examples/policies/atproto-market)
-#   WORK     working directory for the clone    (default: a fresh mktemp -d)
-#   OUT      directory for the reports          (default: a fresh mktemp -d)
+#   REPO      git URL, owner/name, or bare name to clone, e.g. REPO=deno-kcp
+#                                             (default: publicdomainrelay/atproto-market)
+#   NAME      repository name; derived from REPO when unset
+#   REFS      refs to evaluate, space separated
+#                                             (default for atproto-market: master pre-iroh spec/iroh-dumbpipe-20261004141803;
+#                                              otherwise: main)
+#   DIFF_BASE ref the evaluated commit is diffed against, so CodeDiff policies run
+#                                             (default: unset)
+#   LIBRARY   policy library directory        (default: <repo>/examples/policies/$NAME)
+#   WORK      working directory for the clone  (default: a fresh mktemp -d)
+#   OUT       directory for the reports        (default: a fresh mktemp -d)
+#
+# The deno-kcp baseline of pull request #1 is one invocation:
+#
+#   NAME=deno-kcp REPO=deno-kcp DIFF_BASE=main \
+#     REFS=spec/bidder-and-bob-pds scripts/example-policies.sh
 #
 set -euo pipefail
 
@@ -18,11 +29,23 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 
 REPO=${REPO:-https://github.com/publicdomainrelay/atproto-market.git}
-REFS=${REFS:-"master pre-iroh spec/iroh-dumbpipe-20261004141803"}
-LIBRARY=${LIBRARY:-$ROOT/examples/policies/atproto-market}
+case "$REPO" in
+  *://* | *@*) ;;
+  *) REPO="https://github.com/publicdomainrelay/${REPO##*/}.git" ;;
+esac
+NAME=${NAME:-$(basename "$REPO" .git)}
+if [ -z "${REFS:-}" ]; then
+  if [ "$NAME" = atproto-market ]; then
+    REFS="master pre-iroh spec/iroh-dumbpipe-20261004141803"
+  else
+    REFS="main"
+  fi
+fi
+DIFF_BASE=${DIFF_BASE:-}
+LIBRARY=${LIBRARY:-$ROOT/examples/policies/$NAME}
 WORK=${WORK:-$(mktemp -d)}
 OUT=${OUT:-$(mktemp -d)}
-CLONE=$WORK/atproto-market
+CLONE=$WORK/$NAME
 
 mkdir -p "$WORK" "$OUT"
 
@@ -59,15 +82,21 @@ for ref in $REFS; do
   name=$(slug "$ref")
   echo
   echo "### $ref ($commit)"
+  diff_args=()
+  if [ -n "$DIFF_BASE" ]; then
+    diff_args=(--diff-base "$DIFF_BASE")
+  fi
   "$ROOT/bin/specctl" policy eval \
-    --repo atproto-market \
+    --repo "$NAME" \
     --commit "$commit" \
     --path "$CLONE" \
+    "${diff_args[@]}" \
     --library "$LIBRARY" | tee "$OUT/$name.txt"
   "$ROOT/bin/specctl" policy eval \
-    --repo atproto-market \
+    --repo "$NAME" \
     --commit "$commit" \
     --path "$CLONE" \
+    "${diff_args[@]}" \
     --library "$LIBRARY" -o json >"$OUT/$name.json"
   counts=$(grep -m1 '^violations:' "$OUT/$name.txt" || true)
   printf '%-36s %-10s %s\n' "$ref" "$commit" "$counts" | tee -a "$summary"

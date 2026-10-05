@@ -1,0 +1,16 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeDiff
+metadata:
+  name: atproto-market
+  namespace: default
+spec:
+  base: d20070c0000000000000000000000000000000aa
+  head: ffac22e0000000000000000000000000000000bb
+  files:
+    - path: test/provision_helper.sh
+      status: modified
+      added:
+        - line: 12
+          text: container run --rm -v /tmp/agent:/agent alpine /agent/sshd
+        - line: 18
+          text: container exec guest apt-get install -y openssh-server

@@ -1,0 +1,44 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeDiff
+metadata:
+  name: atproto-market
+  namespace: default
+spec:
+  base: d20070c0000000000000000000000000000000aa
+  head: ffac22e0000000000000000000000000000000bb
+  files:
+    - path: deploy/examples/atproto/market/accept.sh
+      status: modified
+      added:
+        - line: 141
+          text: curl -skS "https://${HOST}:${PORT}/xrpc/_health"
+      removed:
+        - line: 141
+          text: curl -sS "http://${HOST}:${PORT}/xrpc/_health"
+    - path: internal/provider/live_lifecycle_test.go
+      status: modified
+      added:
+        - line: 257
+          text: 'client.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}'
+        - line: 301
+          text: 'cmd := exec.Command("kubectl", "--server", server, "--insecure-skip-tls-verify", "apply", "-f", "-")'
+    - path: lib/requester-xrpc/mod.ts
+      status: modified
+      added:
+        - line: 302
+          text: 'const client = Deno.createHttpClient({ rejectUnauthorized: false });'
+    - path: test/client.ts
+      status: modified
+      added:
+        - line: 9
+          text: 'process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";'
+    - path: scripts/pull.sh
+      status: modified
+      added:
+        - line: 4
+          text: skopeo copy --tls-verify=false docker://example/image oci:image
+    - path: scripts/probe.sh
+      status: modified
+      added:
+        - line: 30
+          text: curl -k --insecure "https://${HOST}/health"

@@ -1,0 +1,19 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeDiff
+metadata:
+  name: atproto-market
+  namespace: default
+spec:
+  base: d20070c0000000000000000000000000000000aa
+  head: ffac22e0000000000000000000000000000000bb
+  files:
+    - path: scripts/bring-up-guest.sh
+      status: modified
+      added:
+        - line: 30
+          text: '  # ssh-keygen and authorized_keys are the cloud-init module''s job'
+    - path: request-vm-ssh/README.md
+      status: modified
+      added:
+        - line: 105
+          text: 'The module writes authorized_keys; you never run ssh-keygen by hand.'
