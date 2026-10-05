@@ -94,6 +94,48 @@ func TestDocumentHasOneManagedZone(t *testing.T) {
 	}
 }
 
+func TestADocumentReadsItsRemovalMarker(t *testing.T) {
+	model, err := RenderModelZone("calc", "calc", sample())
+	if err != nil {
+		t.Fatal(err)
+	}
+	withMarker := strings.Replace(model, RemovalHint, "removed: [r.gone, r.also-gone]\n", 1)
+	parsed, err := ParseDocument(withMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(parsed.Removed, ",") != "r.also-gone,r.gone" {
+		t.Errorf("removed = %v, want the marker's ids", parsed.Removed)
+	}
+	if len(parsed.Declared.Requirements) != 1 {
+		t.Errorf("the marker leaked into the spec: %+v", parsed.Declared.Requirements)
+	}
+}
+
+func TestTheRenderedZoneNamesTheRemovalMarker(t *testing.T) {
+	model, err := RenderModelZone("calc", "calc", sample())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(model, RemovalHint) {
+		t.Errorf("the rendered zone does not explain the removal marker:\n%s", model)
+	}
+}
+
+func TestAnEmptyMarkerRemovesNothing(t *testing.T) {
+	model, err := RenderModelZone("calc", "calc", sample())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseDocument(model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Removed) != 0 {
+		t.Errorf("removed = %v, want none", parsed.Removed)
+	}
+}
+
 func TestDeclaredDropsWhatTheToolOwns(t *testing.T) {
 	declared := Declared(sample())
 	if declared.Repository != "" || declared.CodeRefs != nil || declared.Arch != nil {

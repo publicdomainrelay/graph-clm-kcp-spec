@@ -126,6 +126,10 @@ func fixture(t *testing.T) *fakeCluster {
 			Repository: "calc",
 			Upstream:   spec.RefSelf,
 			Intent:     "Add adds two integers.",
+			Requirements: []spec.Requirement{
+				{ID: "r.add", Level: spec.LevelMust, Text: "Add adds two integers.", CodeRefs: []string{"function:Add"}},
+				{ID: "r.multiply", Level: spec.LevelMust, Text: "Multiply multiplies two integers.", CodeRefs: []string{"function:Multiply"}},
+			},
 			Interfaces: []spec.Interface{{Name: "Add", Kind: "function"}},
 			CodeRefs:   []string{"file:calc/calc.go"},
 		},
@@ -193,7 +197,7 @@ func TestApplyWritesTheDeltaWithTheCLMOrigin(t *testing.T) {
 	}
 }
 
-func TestApplyFoldsAnEditIntoTheRunningChange(t *testing.T) {
+func TestApplyQueuesBehindARunningChangeAndWritesTheSpec(t *testing.T) {
 	cluster := fixture(t)
 	applyObject(t, cluster, &spec.SpecChange{
 		ObjectMeta: metav1.ObjectMeta{Name: "calc-s2c-abc", Namespace: specapi.DefaultNamespace},
@@ -209,15 +213,15 @@ func TestApplyFoldsAnEditIntoTheRunningChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Folded != "calc-s2c-abc" {
-		t.Fatalf("folded = %q, want the running change", result.Folded)
+	if result.Queued != "calc-s2c-abc" {
+		t.Fatalf("queued = %q, want the running change", result.Queued)
 	}
-	if result.Applied {
-		t.Error("the spec was written while the change that realizes it is Running")
+	if !result.Applied {
+		t.Fatal("the spec edit was dropped because a change was running")
 	}
-	merged := contextOf(t, cluster)
-	if len(merged.Spec.Interfaces) != 1 {
-		t.Errorf("interfaces = %+v, want the spec to hold still", merged.Spec.Interfaces)
+	current := contextOf(t, cluster)
+	if len(current.Spec.Interfaces) != 2 {
+		t.Errorf("interfaces = %+v, want the edit to land", current.Spec.Interfaces)
 	}
 	object, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, "calc-s2c-abc")
 	if err != nil {
@@ -228,15 +232,144 @@ func TestApplyFoldsAnEditIntoTheRunningChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	change := typed.(*spec.SpecChange)
-	if len(change.Status.Progress) != 1 {
-		t.Fatalf("progress = %+v", change.Status.Progress)
+	if len(change.Status.Progress) != 0 {
+		t.Errorf("the edit was folded into the running change: %+v", change.Status.Progress)
 	}
-	if !strings.Contains(change.Status.Progress[0].Note, "folded into this change") {
-		t.Errorf("note = %q", change.Status.Progress[0].Note)
+}
+
+func TestApplyRefusesAnImplicitRemoval(t *testing.T) {
+	cluster := fixture(t)
+	edited := withoutRequirement(t, cluster, "r.multiply")
+	_, err := Apply(context.Background(), Options{Cluster: cluster, Context: "calc"}, edited)
+	if err == nil {
+		t.Fatal("a model zone that lost a requirement applied silently")
 	}
-	if len(cluster.objects) != 3 {
-		t.Errorf("the apply created an object; it must never spawn a change: %d", len(cluster.objects))
+	if !strings.Contains(err.Error(), "r.multiply") || !strings.Contains(err.Error(), "removed:") {
+		t.Errorf("err = %q, want the removed id and the marker", err)
 	}
+	if current := contextOf(t, cluster); len(current.Spec.Requirements) != 2 {
+		t.Errorf("the refused apply moved the spec: %+v", current.Spec.Requirements)
+	}
+}
+
+func TestApplyRemovesRequirementsTheDocumentNames(t *testing.T) {
+	cluster := fixture(t)
+	edited := withRemovedMarker(withoutRequirement(t, cluster, "r.multiply"), "r.multiply")
+	result, err := Apply(context.Background(), Options{Cluster: cluster, Context: "calc"}, edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Applied {
+		t.Fatal("a marked removal did not apply")
+	}
+	if current := contextOf(t, cluster); len(current.Spec.Requirements) != 1 || current.Spec.Requirements[0].ID != "r.add" {
+		t.Errorf("requirements = %+v, want only r.add", current.Spec.Requirements)
+	}
+}
+
+func TestApplyRemovesRequirementsTheFlagAllows(t *testing.T) {
+	cluster := fixture(t)
+	edited := withoutRequirement(t, cluster, "r.multiply")
+	result, err := Apply(context.Background(), Options{
+		Cluster: cluster, Context: "calc", AllowRemove: []string{"r.multiply"},
+	}, edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Applied {
+		t.Fatal("an allowed removal did not apply")
+	}
+}
+
+func TestApplyPrintsTheDeltaByIDBeforeItApplies(t *testing.T) {
+	cluster := fixture(t)
+	summary := &strings.Builder{}
+	edited := editZone(t, cluster, func(parsed *spec.SystemContextSpec) {
+		kept := []spec.Requirement{}
+		for _, requirement := range parsed.Requirements {
+			if requirement.ID != "r.multiply" {
+				kept = append(kept, requirement)
+			}
+		}
+		parsed.Requirements = kept
+		parsed.Interfaces = append(parsed.Interfaces, spec.Interface{Name: "Subtract", Kind: "function"})
+	})
+	edited = withRemovedMarker(edited, "r.multiply")
+	if _, err := Apply(context.Background(), Options{
+		Cluster: cluster, Context: "calc", Summary: summary,
+	}, edited); err != nil {
+		t.Fatal(err)
+	}
+	printed := summary.String()
+	if !strings.Contains(printed, "- r.multiply") {
+		t.Errorf("the summary does not name the removal:\n%s", printed)
+	}
+	if !strings.Contains(printed, "+ interface Subtract") {
+		t.Errorf("the summary does not name the addition:\n%s", printed)
+	}
+}
+
+func TestApplyDoesNotPrintASummaryForAnEmptyDelta(t *testing.T) {
+	cluster := fixture(t)
+	rendered, err := Render(context.Background(), Options{Cluster: cluster, Context: "calc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary := &strings.Builder{}
+	if _, err := Apply(context.Background(), Options{
+		Cluster: cluster, Context: "calc", Summary: summary,
+	}, rendered.ModelZone); err != nil {
+		t.Fatal(err)
+	}
+	if summary.String() != "" {
+		t.Errorf("a no-op printed a summary:\n%s", summary)
+	}
+}
+
+func addSubtract(t *testing.T, cluster *fakeCluster) string {
+	t.Helper()
+	return editZone(t, cluster, func(parsed *spec.SystemContextSpec) {
+		parsed.Interfaces = append(parsed.Interfaces, spec.Interface{Name: "Subtract", Kind: "function"})
+	})
+}
+
+func withoutRequirement(t *testing.T, cluster *fakeCluster, id string) string {
+	t.Helper()
+	return editZone(t, cluster, func(parsed *spec.SystemContextSpec) {
+		kept := []spec.Requirement{}
+		for _, requirement := range parsed.Requirements {
+			if requirement.ID != id {
+				kept = append(kept, requirement)
+			}
+		}
+		parsed.Requirements = kept
+	})
+}
+
+func editZone(t *testing.T, cluster *fakeCluster, mutate func(*spec.SystemContextSpec)) string {
+	t.Helper()
+	rendered, err := Render(context.Background(), Options{Cluster: cluster, Context: "calc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := clm.ParseModelZone(rendered.ModelZone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutate(&parsed)
+	edited, err := clm.RenderModelZone("calc", "calc", parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edited == rendered.ModelZone {
+		t.Fatal("the edit did not change the model zone")
+	}
+	return edited
+}
+
+func withRemovedMarker(zone string, ids ...string) string {
+	return strings.Replace(zone, clm.RemovalHint,
+		"removed: ["+strings.Join(ids, ", ")+"]\n", 1)
 }
 
 func TestReportAppendsToTheBoundedListAndWritesTheGraph(t *testing.T) {
@@ -332,27 +465,6 @@ func TestProgressListIsBounded(t *testing.T) {
 
 func fixedNow() time.Time {
 	return time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
-}
-
-func addSubtract(t *testing.T, cluster *fakeCluster) string {
-	t.Helper()
-	rendered, err := Render(context.Background(), Options{Cluster: cluster, Context: "calc"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	parsed, err := clm.ParseModelZone(rendered.ModelZone)
-	if err != nil {
-		t.Fatal(err)
-	}
-	parsed.Interfaces = append(parsed.Interfaces, spec.Interface{Name: "Subtract", Kind: "function"})
-	edited, err := clm.RenderModelZone("calc", "calc", parsed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if edited == rendered.ModelZone {
-		t.Fatal("the edit did not change the model zone")
-	}
-	return edited
 }
 
 type fakeWriter struct {

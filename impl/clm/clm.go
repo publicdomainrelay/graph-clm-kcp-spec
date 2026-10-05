@@ -3,6 +3,8 @@ package clm
 import (
 	"context"
 	"fmt"
+	"io"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -40,6 +42,10 @@ type Options struct {
 	GraphNamespace string
 
 	ManagedBudget int
+
+	AllowRemove []string
+
+	Summary io.Writer
 
 	Now func() time.Time
 }
@@ -109,7 +115,7 @@ type ApplyResult struct {
 
 	SpecHash string
 
-	Folded string
+	Queued string
 
 	Message string
 }
@@ -119,27 +125,27 @@ func Apply(ctx context.Context, options Options, modelZone string) (ApplyResult,
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	parsed, err := clm.ParseModelZone(modelZone)
+	parsed, err := clm.ParseDocument(modelZone)
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	merged := clm.MergeDeclared(systemContext.Spec, parsed)
+	merged := clm.MergeDeclared(systemContext.Spec, parsed.Declared)
 	change := delta.Diff(systemContext.Spec, merged)
 	result := ApplyResult{Context: systemContext.Name, Delta: change}
 	if change.Empty() {
 		result.Message = "the model zone says what the spec already says"
 		return result, nil
 	}
+	writeDetails(options.Summary, change)
+	if err := refuseImplicitRemoval(systemContext.Name, change, parsed.Removed, options.AllowRemove); err != nil {
+		return result, err
+	}
 
-	folded, err := foldIntoRunningChange(ctx, options, systemContext.Name, change)
+	queued, err := unsettledRunningChange(ctx, options, systemContext.Name)
 	if err != nil {
 		return result, err
 	}
-	if folded != "" {
-		result.Folded = folded
-		result.Message = "folded into the running change " + folded
-		return result, nil
-	}
+	result.Queued = queued
 
 	candidate := &spec.SystemContext{
 		ObjectMeta: *systemContext.ObjectMeta.DeepCopy(),
@@ -174,21 +180,57 @@ func Apply(ctx context.Context, options Options, modelZone string) (ApplyResult,
 	return result, nil
 }
 
-func foldIntoRunningChange(ctx context.Context, options Options, systemContext string, change spec.Delta) (string, error) {
+func writeDetails(writer io.Writer, change spec.Delta) {
+	if writer == nil {
+		return
+	}
+	for _, line := range delta.Details(change) {
+		fmt.Fprintln(writer, line)
+	}
+}
+
+// refuseImplicitRemoval stops an apply that would delete requirements the
+// document does not name. A model zone that lost a requirement because an
+// operator sliced the document is indistinguishable from one that removed it on
+// purpose; the operator has to say which, by listing the id in the document's
+// `removed:` marker or passing it to --allow-remove.
+func refuseImplicitRemoval(systemContext string, change spec.Delta, declared, allowed []string) error {
+	removed := delta.RemovedRequirementIDs(change)
+	if len(removed) == 0 {
+		return nil
+	}
+	permitted := map[string]bool{}
+	for _, id := range declared {
+		permitted[id] = true
+	}
+	for _, id := range allowed {
+		permitted[strings.TrimSpace(id)] = true
+	}
+	unlisted := []string{}
+	for _, id := range removed {
+		if !permitted[id] {
+			unlisted = append(unlisted, id)
+		}
+	}
+	if len(unlisted) == 0 {
+		return nil
+	}
+	return fmt.Errorf("clm: the model zone of %s removes requirement(s) %s; list each id under `removed:` in the spec block or pass --allow-remove to remove them on purpose",
+		systemContext, strings.Join(unlisted, ", "))
+}
+
+// unsettledRunningChange names the SpecToCode change the context's own edit
+// queues behind: a change already realizing the context. The apply still writes
+// the spec; specd raises the edit as its own Pending change, and the
+// per-repository serialization admits it once the running change settles. The
+// edit is never folded into the running change, so its delta is not lost.
+func unsettledRunningChange(ctx context.Context, options Options, systemContext string) (string, error) {
 	running, err := runningChange(ctx, options, systemContext)
 	if err != nil {
 		return "", err
 	}
 	if running == nil {
 		return "", nil
-	}
-	event := Event{
-		Note: fmt.Sprintf("clm edited the spec (%s); the edit is folded into this change and the spec holds still until it settles",
-			delta.Summary(change)),
-		At: options.now(),
-	}
-	if _, err := Report(ctx, options, ReportOptions{Change: running.Name, Event: event}); err != nil {
-		return "", err
 	}
 	return running.Name, nil
 }

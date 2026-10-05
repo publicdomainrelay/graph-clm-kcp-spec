@@ -108,9 +108,11 @@ func runCLMRender(args []string, stdout, stderr io.Writer) int {
 func runCLMApply(args []string, stdout, stderr io.Writer) int {
 	contextName := ""
 	file := ""
+	allowRemove := stringsFlag{}
 	options, err := newCLMFlags(args, stderr, "apply", func(fs *flag.FlagSet) {
 		fs.StringVar(&contextName, "context", "", "SystemContext the model zone belongs to")
 		fs.StringVar(&file, "file", "", "model zone to read; - or empty reads standard input")
+		fs.Var(&allowRemove, "allow-remove", "requirement id the document may delete without listing it under `removed:`; repeatable")
 	})
 	if err != nil {
 		return exitUsage
@@ -135,10 +137,12 @@ func runCLMApply(args []string, stdout, stderr io.Writer) int {
 		defer closer()
 	}
 	result, err := clm.Apply(ctx, clm.Options{
-		Cluster:   cluster,
-		Namespace: options.kube.namespace,
-		Context:   contextName,
-		Writer:    writer,
+		Cluster:     cluster,
+		Namespace:   options.kube.namespace,
+		Context:     contextName,
+		Writer:      writer,
+		AllowRemove: commaList(allowRemove),
+		Summary:     stderr,
 	}, modelZone)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl clm apply: %v\n", err)
@@ -155,7 +159,7 @@ func runCLMApply(args []string, stdout, stderr io.Writer) int {
 		return exitOK
 	}
 	fmt.Fprintf(stderr, "specctl clm apply: %s applied (%s)%s\n",
-		result.Context, delta.Summary(result.Delta), foldedSuffix(result.Folded))
+		result.Context, delta.Summary(result.Delta), queuedSuffix(result.Queued))
 	return exitOK
 }
 
@@ -209,11 +213,23 @@ func runCLMReport(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func foldedSuffix(folded string) string {
-	if folded == "" {
+func queuedSuffix(queued string) string {
+	if queued == "" {
 		return ""
 	}
-	return ", folded into " + folded
+	return ", queued behind " + queued
+}
+
+func commaList(values stringsFlag) []string {
+	out := []string{}
+	for _, value := range values {
+		for _, entry := range strings.Split(value, ",") {
+			if trimmed := strings.TrimSpace(entry); trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+	}
+	return out
 }
 
 func readModelZone(path string) (string, error) {

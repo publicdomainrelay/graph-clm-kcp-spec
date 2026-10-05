@@ -113,6 +113,91 @@ func Summary(change spec.Delta) string {
 	return strings.Join(parts, " ")
 }
 
+// Details names every entry the delta adds, changes and removes, one line each
+// and in a stable order, so an operator reads what an apply will do by id
+// before it lands rather than a count that hides a removal.
+func Details(change spec.Delta) []string {
+	out := []string{}
+	if change.Intent != nil {
+		out = append(out, "~ intent")
+	}
+	if change.Upstream != nil {
+		out = append(out, "~ upstream")
+	}
+	if change.Orchestrator != nil {
+		out = append(out, "~ orchestrator")
+	}
+	sets := []struct {
+		field string
+		delta *spec.StringSetDelta
+	}{
+		{"overlay", change.Overlay},
+		{"dependsOn", change.DependsOn},
+		{"introduces", change.Introduces},
+		{"codeRefs", change.CodeRefs},
+	}
+	for _, set := range sets {
+		if set.delta == nil {
+			continue
+		}
+		for _, value := range set.delta.Added {
+			out = append(out, "+ "+set.field+" "+value)
+		}
+		for _, value := range set.delta.Removed {
+			out = append(out, "- "+set.field+" "+value)
+		}
+	}
+	for _, requirement := range change.Requirements {
+		out = append(out, requirementLine(requirement))
+	}
+	for _, declared := range change.Interfaces {
+		out = append(out, interfaceLine(declared))
+	}
+	return out
+}
+
+// RemovedRequirementIDs lists, sorted, the requirement ids the delta deletes.
+// It is the set an apply has to see named explicitly before it will remove.
+func RemovedRequirementIDs(change spec.Delta) []string {
+	out := []string{}
+	for _, requirement := range change.Requirements {
+		if requirement.Op == spec.OpRemoved {
+			out = append(out, requirement.ID)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func requirementLine(change spec.RequirementDelta) string {
+	switch change.Op {
+	case spec.OpAdded:
+		return "+ " + change.ID
+	case spec.OpRemoved:
+		return "- " + change.ID
+	default:
+		return "~ " + change.ID + fieldSuffix(change.Fields)
+	}
+}
+
+func interfaceLine(change spec.InterfaceDelta) string {
+	switch change.Op {
+	case spec.OpAdded:
+		return "+ interface " + change.Name
+	case spec.OpRemoved:
+		return "- interface " + change.Name
+	default:
+		return "~ interface " + change.Name + fieldSuffix(change.Fields)
+	}
+}
+
+func fieldSuffix(fields []string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(fields, ", ") + ")"
+}
+
 func diffSet(old, new []string) *spec.StringSetDelta {
 	before := spec.CanonicalSet(old)
 	after := spec.CanonicalSet(new)

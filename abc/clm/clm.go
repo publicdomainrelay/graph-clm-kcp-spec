@@ -27,6 +27,9 @@ const (
 
 	ManagedNotice = "_The resolved code references are regenerated on every run. " +
 		"Cite the ids above rather than writing them here._"
+
+	RemovalHint = "# removed: [r.id, ...] names the requirements this document deletes; " +
+		"the tool refuses a removal that is not listed here or passed to --allow-remove"
 )
 
 type specBlock struct {
@@ -43,6 +46,18 @@ type specBlock struct {
 	Requirements []spec.Requirement `json:"requirements,omitempty"`
 
 	Interfaces []spec.Interface `json:"interfaces,omitempty"`
+
+	Removed []string `json:"removed,omitempty"`
+}
+
+// Parsed is a model zone read apart from the spec it declares: the declared
+// state plus the removal marker, which lists the requirement ids the document
+// deletes on purpose. The marker is an instruction to the apply, not part of
+// the spec, so it never lands in kcp.
+type Parsed struct {
+	Declared spec.SystemContextSpec
+
+	Removed []string
 }
 
 func blockOf(in spec.SystemContextSpec) specBlock {
@@ -120,25 +135,34 @@ func RenderModelZoneWithProse(context, repository, prose string, in spec.SystemC
 		return "", fmt.Errorf("clm: encode the spec block of %s: %w", context, err)
 	}
 	builder.Write(encoded)
+	builder.WriteString(RemovalHint + "\n")
 	builder.WriteString(SpecFenceClose + "\n")
 	return builder.String(), nil
 }
 
 func ParseModelZone(text string) (spec.SystemContextSpec, error) {
+	parsed, err := ParseDocument(text)
+	if err != nil {
+		return spec.SystemContextSpec{}, err
+	}
+	return parsed.Declared, nil
+}
+
+func ParseDocument(text string) (Parsed, error) {
 	open := strings.Index(text, SpecFence)
 	if open == -1 {
-		return spec.SystemContextSpec{}, fmt.Errorf("clm: the model zone opens no %q block", SpecFence)
+		return Parsed{}, fmt.Errorf("clm: the model zone opens no %q block", SpecFence)
 	}
 	rest := text[open+len(SpecFence):]
 	closeAt := strings.Index(rest, SpecFenceClose)
 	if closeAt == -1 {
-		return spec.SystemContextSpec{}, fmt.Errorf("clm: the %q block is not closed", SpecFence)
+		return Parsed{}, fmt.Errorf("clm: the %q block is not closed", SpecFence)
 	}
 	body := rest[:closeAt]
 
 	block := specBlock{}
 	if err := yaml.Unmarshal([]byte(body), &block); err != nil {
-		return spec.SystemContextSpec{}, fmt.Errorf("clm: read the spec block: %w", err)
+		return Parsed{}, fmt.Errorf("clm: read the spec block: %w", err)
 	}
 	out := spec.SystemContextSpec{
 		Intent:       parseIntent(text[:open]),
@@ -150,7 +174,7 @@ func ParseModelZone(text string) (spec.SystemContextSpec, error) {
 		Requirements: block.Requirements,
 		Interfaces:   block.Interfaces,
 	}
-	return Declared(out), nil
+	return Parsed{Declared: Declared(out), Removed: spec.CanonicalSet(block.Removed)}, nil
 }
 
 func parseIntent(prose string) string {

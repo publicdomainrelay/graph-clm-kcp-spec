@@ -221,6 +221,32 @@ func TestDiffSetReportsAddedAndRemoved(t *testing.T) {
 	}
 }
 
+func TestDetailsNamesEveryEntryByID(t *testing.T) {
+	edited := calcSpec()
+	edited.Requirements = []spec.Requirement{
+		{ID: "r.add", Level: spec.LevelMust, Text: "Add returns the sum of two integers.", CodeRefs: []string{"file:calc/calc.go"}},
+		{ID: "r.subtract", Level: spec.LevelShould, Text: "Subtract returns the difference.", CodeRefs: []string{"function:Subtract"}},
+	}
+	change := delta.Diff(calcSpec(), edited)
+	lines := delta.Details(change)
+	want := []string{"~ r.add (text)", "- r.multiply", "+ r.subtract"}
+	if !reflect.DeepEqual(lines, want) {
+		t.Errorf("Details = %v, want %v", lines, want)
+	}
+	if removed := delta.RemovedRequirementIDs(change); !reflect.DeepEqual(removed, []string{"r.multiply"}) {
+		t.Errorf("RemovedRequirementIDs = %v, want [r.multiply]", removed)
+	}
+}
+
+func TestDetailsOfAnEmptyDeltaIsEmpty(t *testing.T) {
+	if lines := delta.Details(spec.Delta{}); len(lines) != 0 {
+		t.Errorf("Details of nothing = %v", lines)
+	}
+	if removed := delta.RemovedRequirementIDs(spec.Delta{}); len(removed) != 0 {
+		t.Errorf("RemovedRequirementIDs of nothing = %v", removed)
+	}
+}
+
 func TestDiffIgnoresOrderOfKeyedLists(t *testing.T) {
 	reordered := calcSpec()
 	reordered.Requirements = []spec.Requirement{reordered.Requirements[1], reordered.Requirements[0]}
