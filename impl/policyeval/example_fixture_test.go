@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -17,7 +16,11 @@ import (
 
 func fixtureGraph(t *testing.T, dir, repository string, testGlobs []string) *unstructured.Unstructured {
 	t.Helper()
-	graph, err := codegraphfacts.Build(context.Background(), dir, codegraphfacts.Options{
+	absolute, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatalf("abs %s: %v", dir, err)
+	}
+	graph, err := codegraphfacts.Build(context.Background(), absolute, codegraphfacts.Options{
 		Repository: repository,
 		TestGlobs:  testGlobs,
 	})
@@ -43,7 +46,7 @@ func TestExamplePoliciesOverFixtures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(library.Templates) != 4 || len(library.Constraints) != 4 {
+	if len(library.Templates) != 4 || len(library.Constraints) != 5 {
 		t.Fatalf("market-mini library: %d templates, %d constraints", len(library.Templates), len(library.Constraints))
 	}
 
@@ -64,12 +67,14 @@ func TestExamplePoliciesOverFixtures(t *testing.T) {
 			}
 			denies := 0
 			policies := map[string]bool{}
+			constraints := map[string]bool{}
 			for _, violation := range report.Violations {
 				if violation.Enforcement != policy.EnforcementDeny {
 					continue
 				}
 				denies++
 				policies[violation.Policy] = true
+				constraints[violation.Constraint] = true
 			}
 			if !variant.wantDeny {
 				if denies != 0 {
@@ -83,14 +88,15 @@ func TestExamplePoliciesOverFixtures(t *testing.T) {
 			if !policies["relay-only-ssh"] {
 				t.Errorf("violating fixture does not trigger relay-only-ssh: %v", policies)
 			}
-			guestReports := false
-			for name := range policies {
-				if strings.HasPrefix(name, "guest-report-") {
-					guestReports = true
+			for _, want := range []string{
+				"guest-report-reach-in",
+				"guest-report-driven-emission",
+				"guest-report-driven-onnetwork",
+				"guest-report-cloud-init",
+			} {
+				if !constraints[want] {
+					t.Errorf("violating fixture does not trigger %s: %v", want, constraints)
 				}
-			}
-			if !guestReports {
-				t.Errorf("violating fixture does not trigger a guest-report policy: %v", policies)
 			}
 		})
 	}

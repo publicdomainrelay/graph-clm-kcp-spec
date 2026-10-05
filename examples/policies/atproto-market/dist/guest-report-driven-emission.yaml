@@ -3,8 +3,8 @@ kind: ConstraintTemplate
 metadata:
   annotations:
     specs.publicdomainrelay.dev/level: MUST
-    specs.publicdomainrelay.dev/title: the guest network identity is emitted from
-      an inbound guest report
+    specs.publicdomainrelay.dev/title: the guest network identity and the vm.onNetwork
+      event are emitted from an inbound guest report
   name: guestreportdrivenemission
 spec:
   crd:
@@ -26,6 +26,8 @@ spec:
               items:
                 type: string
               type: array
+            subject:
+              type: string
           type: object
   targets:
   - libs:
@@ -128,12 +130,13 @@ spec:
       line) = {\"file\": file, \"line\": line}\n\nviolation(msg, details) = result
       {\n\tresult := {\"msg\": msg, \"details\": details}\n}\n\nglobs_match(globs,
       path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [], path)\n}\n"
-    rego: "package guestreportdrivenemission\n\nimport data.lib.specd\n\nviolation[specd.violation(msg,
+    rego: "package guestreportdrivenemission\n\nimport data.lib.specd\n\nsubject :=
+      object.get(input.parameters, \"subject\", \"the guest network identity\")\n\nviolation[specd.violation(msg,
       details)] {\n\temitter := specd.nodes_matching_globs(input.parameters.hostGlobs,
       input.parameters.emitterPatterns)[_]\n\tspecd.definition_node(emitter)\n\tnot
-      driven_by_handler(emitter)\n\tmsg := sprintf(\"%s emits the guest network identity
-      from the provisioning lifecycle, not from an inbound guest report\", [emitter.qualifiedName])\n\tdetails
+      driven_by_handler(emitter)\n\tmsg := sprintf(\"%s emits %s from the provisioning
+      lifecycle, not from an inbound guest report\", [emitter.qualifiedName, subject])\n\tdetails
       := specd.location(emitter.file, specd.node_match_line(emitter, input.parameters.emitterPatterns))\n}\n\ndriven_by_handler(emitter)
-      {\n\thandler := specd.nodes_identified(input.parameters.handlerPatterns)[_]\n\tspecd.closure_from({handler.id},
+      {\n\thandler := specd.nodes_identified(input.parameters.handlerPatterns)[_]\n\tspecd.definition_node(handler)\n\tspecd.closure_from({handler.id},
       input.parameters.edgeKinds)[emitter.id]\n}\n"
     target: admission.k8s.gatekeeper.sh

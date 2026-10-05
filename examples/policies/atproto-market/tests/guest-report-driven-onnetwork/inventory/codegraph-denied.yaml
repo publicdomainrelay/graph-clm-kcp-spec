@@ -1,0 +1,21 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeGraph
+metadata:
+  name: market
+  namespace: default
+spec:
+  repository: market
+  commit: "0000000000000000000000000000000000000000"
+  files:
+  - path: lib/market-bidder-compute/mod.ts
+  nodes:
+  - id: "fn:emit"
+    kind: function
+    name: createVmBidderCallbacks
+    qualifiedName: createVmBidderCallbacks
+    file: lib/market-bidder-compute/mod.ts
+    startLine: 253
+    text: |
+      providerIdPromise.then((providerId) => createRepoRecord(COMPUTE_EVENTS_VM_ONNETWORK_NSID, { address, createdAt }))
+  edges: []
+  texts: {}

@@ -1,0 +1,33 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeGraph
+metadata:
+  name: market
+  namespace: default
+spec:
+  repository: market
+  commit: "0000000000000000000000000000000000000000"
+  files:
+  - path: lib/market-bidder/mod.ts
+  nodes:
+  - id: "fn:emit"
+    kind: function
+    name: recordOnNetwork
+    qualifiedName: recordOnNetwork
+    file: lib/market-bidder/mod.ts
+    startLine: 40
+    text: |
+      return createRepoRecord(COMPUTE_EVENTS_VM_ONNETWORK_NSID, { address: report.address })
+  - id: "fn:handler"
+    kind: function
+    name: guestOnNetwork
+    qualifiedName: guestOnNetwork
+    file: lib/market-bidder/mod.ts
+    startLine: 10
+    text: |
+      app.post("/v1/on-network", (c) => recordOnNetwork(c))
+  edges:
+  - source: "fn:handler"
+    target: "fn:emit"
+    kind: calls
+    line: 11
+  texts: {}

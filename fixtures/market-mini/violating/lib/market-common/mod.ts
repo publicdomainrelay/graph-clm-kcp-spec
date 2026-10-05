@@ -4,6 +4,8 @@ export const RELAY_TRANSPORT = "ws-relay";
 
 export const ON_NETWORK_EVENT = "vm.onNetwork";
 
+export const REGISTER_IDENTITY_EVENT = "vm.registerIdentity";
+
 export const ON_NETWORK_REPORT_PATH = "/v1/on-network";
 
 export interface CloudInitContext {
@@ -31,6 +33,14 @@ export interface VmOnNetworkEvent {
   vmId: string;
   address: string;
   transport: string;
+}
+
+// The guest's own identity report. The bidder must never build it from a
+// query into the guest.
+export interface VmIdentityEvent {
+  type: typeof REGISTER_IDENTITY_EVENT;
+  vmId: string;
+  nodeId: string;
 }
 
 export function relayServiceName(vmId: string): string {

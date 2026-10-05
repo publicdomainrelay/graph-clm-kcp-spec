@@ -1,6 +1,7 @@
 // Drives the bidder and the requester together. The test bypasses the relay:
 // it opens a TCP connection to the guest address and sshes to it directly, and
-// the bidder emits vm.onNetwork by querying the guest's node id.
+// the bidder emits vm.onNetwork and vm.registerIdentity by querying the guest's
+// node id.
 
 import { createBidder } from "@market-mini/hono-bidder";
 import { runComputeContract } from "@market-mini/requester";
@@ -20,6 +21,11 @@ Deno.test("bidder and requester provision and report", async () => {
   const event = await bidder.onProvisionResolved(contract);
   if (typeof event.address !== "string") {
     throw new Error("bidder produced no address");
+  }
+
+  const identity = await bidder.registerIdentityOnProvision(contract);
+  if (typeof identity.nodeId !== "string") {
+    throw new Error("bidder produced no node id");
   }
 
   // Direct connection to the guest address, bypassing the relay.

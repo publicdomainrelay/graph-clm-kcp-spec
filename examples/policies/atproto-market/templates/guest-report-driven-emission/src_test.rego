@@ -30,3 +30,27 @@ test_no_violation_when_the_guest_report_handler_reaches_the_emitter {
 	violations := violation with input as call with data.inventory as graph([emitter, handler], [edge])
 	count(violations) == 0
 }
+
+handler_emitter := {"id": "fn:inline", "kind": "function", "name": "createBidder", "qualifiedName": "createBidder", "file": "lib/market-bidder/mod.ts", "startLine": 60, "text": "app.post(\"/v1/on-network\", (c) => recordIdentity({ nodeId: c.nodeId }))\n"}
+
+test_no_violation_when_the_emitter_is_the_handler_itself {
+	call := {"parameters": parameters, "review": review}
+	violations := violation with input as call with data.inventory as graph([handler_emitter], [])
+	count(violations) == 0
+}
+
+file_node := {"id": "file:handler", "kind": "file", "name": "lib/market-bidder/mod.ts", "qualifiedName": "lib/market-bidder/mod.ts", "file": "lib/market-bidder/mod.ts", "startLine": 1, "text": "app.post(\"/v1/on-network\", (c) => recordIdentity(c))\n"}
+
+test_violation_when_only_a_file_node_matches_the_handler_pattern {
+	call := {"parameters": parameters, "review": review}
+	violations := violation with input as call with data.inventory as graph([emitter, file_node], [])
+	count(violations) == 1
+}
+
+test_the_message_names_the_configured_subject {
+	params := object.union(parameters, {"subject": "the vm.onNetwork event"})
+	call := {"parameters": params, "review": review}
+	violations := violation with input as call with data.inventory as graph([emitter], [])
+	msgs := {v.msg | v := violations[_]}
+	msgs["recordIdentity emits the vm.onNetwork event from the provisioning lifecycle, not from an inbound guest report"]
+}

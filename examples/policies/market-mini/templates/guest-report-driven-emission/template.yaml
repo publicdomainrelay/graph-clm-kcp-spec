@@ -3,7 +3,7 @@ kind: ConstraintTemplate
 metadata:
   name: guestreportdrivenemission
   annotations:
-    specs.publicdomainrelay.dev/title: "the guest network identity is emitted from an inbound guest report"
+    specs.publicdomainrelay.dev/title: "the guest network identity and the vm.onNetwork event are emitted from an inbound guest report"
     specs.publicdomainrelay.dev/level: MUST
 spec:
   crd:
@@ -19,6 +19,8 @@ spec:
               items:
                 type: string
             emitterPatterns:
+              type: string
+            subject:
               type: string
             handlerPatterns:
               type: string

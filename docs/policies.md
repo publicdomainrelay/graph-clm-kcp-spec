@@ -743,6 +743,10 @@ Reports name `policy`, `constraint`, `enforcementAction`, the reviewed object,
   construction; a mismatch means a stale `dist/`. Rebuild.
 - **`no policies for <repo>`** -- create the library
   (`specctl policy init --repo X`) or point `--library` at an example.
+- **`--worktree` scores stale code** -- the worktree is indexed in place
+  (`<worktree>/.codegraph/`, gitignored) and an existing index is reused
+  without re-checking the source. Delete it after editing the worktree:
+  `rm -rf <worktree>/.codegraph`.
 
 ## The two example policies
 
@@ -754,11 +758,21 @@ Reports name `policy`, `constraint`, `enforcementAction`, the reviewed object,
   transport is on the allowed list -- and must never dial a guest address
   directly.
 - `guest-report-reach-in`, `guest-report-driven-emission`,
-  `guest-report-cloud-init` (P-guest-reports, one policy as a set of
-  templates): the host must not reach into the guest from the network emitter,
-  the guest's network identity must be emitted from an inbound guest report
-  rather than the provisioning lifecycle, and a cloud-init `UserDataModule`
-  must publish the guest's address or routing outbound.
+  `guest-report-driven-onnetwork`, `guest-report-cloud-init`
+  (P-guest-reports, one policy as a set of templates): the host must not reach
+  into the guest from the network emitter; the guest's network identity and the
+  `vm.onNetwork` event must each be emitted from an inbound guest report rather
+  than from the provisioning lifecycle (two constraints of the
+  `guest-report-driven-emission` template, reported separately); and a
+  cloud-init `UserDataModule` must publish the guest's address or routing
+  outbound.
+
+  The onNetwork constraint is the strict reading of the requirement: whatever
+  the `vm.onNetwork` record carries, the host may emit it only in response to
+  the guest's outbound report. A record produced by the provisioning lifecycle
+  fails even when it carries no address (or only a provider-assigned
+  container IP), because the host -- not the guest -- decided the guest was on
+  the network.
 
 `docs/examples/atproto-market-policies.md` runs them against
 `publicdomainrelay/atproto-market` at three refs and records the real output.

@@ -399,6 +399,9 @@ are pushed.
    three refs; a run with an impossible transport allowlist proved it reaches
    the ssh nodes (`lib/requester-xrpc/mod.ts:691` at master, `:979`/`:1012` at
    the spec branch) rather than passing vacuously.
+   - **Superseded by item 5**: the table above reads only the *identity*
+     emitter. `pre-iroh` and the spec branch are not clean once the
+     `vm.onNetwork` record itself is read.
 3. **Done** (`docs/policies.md`): concepts, the CodeGraph/CodeDiff and
    inventory data model, the `open-policy/` layout, the `lib.specd` reference,
    writing a policy step by step, testing (opa v0 unit tests, gator suites,
@@ -415,6 +418,56 @@ are pushed.
    deny on compliant, both policy groups deny on violating), and every suite
    runs through the built-in engine and the real gator in
    `impl/policyeval/conformance_test.go`.
+
+5. **Done** (B2 follow-up). P-guest-reports is about *who produced the
+   `vm.onNetwork` event*, not about what the record carries, and the phase B
+   calibration only read the identity emitter (`guest-report-driven-emission`'s
+   `emitterPatterns` were `computeIdentity|REGISTER_IDENTITY|VM_REGISTER_IDENTITY`).
+   A `vm.onNetwork` emitted by the host from the provisioning lifecycle
+   therefore passed. The follow-up:
+   - adds `guest-report-driven-onnetwork`, a second constraint of the same
+     `GuestReportDrivenEmission` template (`emitterPatterns:
+     COMPUTE_EVENTS_VM_ONNETWORK_NSID`, `subject: the vm.onNetwork event`), so
+     the identity rule and the onNetwork rule are reported separately. The
+     template gained the optional `subject` parameter for that, the default
+     keeping the old message;
+   - fixes the template's `driven_by_handler`: a handler is now a **definition
+     node** (`specd.definition_node(handler)`). Before, a *file* node whose
+     text matched `guest.onNetwork` (the lexicon constant `GUEST_ONNETWORK_NSID`
+     in `lib/common/market-lexicons/nsids.ts`) counted as a handler and, through
+     `imports` edges, made every emitter in the module graph "driven" -- which
+     is why the spec branch passed at phase B. The unit tests cover a file
+     node, a handler that calls the emitter, and an emitter that is the
+     handler;
+   - re-runs. Every ref now denies: `master` `7a2e9d9` 3 deny
+     (`guest-report-reach-in` `lib/market-bidder-compute/mod.ts:282`,
+     `guest-report-driven-emission` `:284`, `guest-report-driven-onnetwork`
+     `:257`), `pre-iroh` `d20070c` 1 deny (`:304`), `spec/iroh-dumbpipe-20261004141803`
+     `ffac22e` 1 deny (`:313`). All read in the source; the compliant
+     guest-report handler at `lib/market-bidder/mod.ts:491` still passes. So
+     **atproto-market#1 fails the strict reading too** -- it removed the
+     identity reach-in but kept the host-emitted `vm.onNetwork` (the
+     non-routable container IP, emit-before-report). The compliant change is
+     the same at every ref: emit only from the inbound handler whose
+     `body.address` is the guest's report, and delete the
+     provisioning-lifecycle emission;
+   - records where the address comes from. The policy sees
+     `computeProvider.provision(...)` and `result.metadata.ip`; the provider
+     (`publicdomainrelay/hono-compute-provider`,
+     `lib/compute-provider-local/mod.ts:377` `backend.inspectIp` and `:391`
+     `pollSshExec`) is a sibling repository and is not in atproto-market's
+     CodeGraph, so `guest-report-reach-in` cannot see that inspect. Cross-repo
+     rules are plan 0009;
+   - mirrors in `examples/policies/market-mini` and `fixtures/market-mini`
+     (the violating variant now emits `vm.registerIdentity` as well as
+     `vm.onNetwork`, both from the provisioning lifecycle; the compliant one
+     emits both from the inbound report handlers), gator suites for the new
+     constraint in both libraries, and a fixed
+     `impl/policyeval/example_fixture_test.go` (absolute fixture path, and it
+     checks the four constraint names, not the template slug).
+   - `docs/examples/atproto-market-policies.md` is rewritten to the real
+     results and explains the strict reading, what each ref would have to
+     change, and the compute-provider asymmetry.
 
 ### C. kcp integration and the gate
 
