@@ -870,6 +870,29 @@ What is built:
   `lib-requester` records `status.enforcedBy`. `TestPolicyBindLive` does the
   same for a binding on market-mini, refused once for dropping the pack import.
 
+#### The real run
+
+A fresh clone of atproto-market at `master` (`7a2e9d9`), seeded with the G4
+binding on `open-policy/atproto-market`, `deepseek-claude` as the harness:
+
+- both sentences were accepted on the **first** attempt (`relay-only-guest-ssh`:
+  8/8 checks, the mutation check denies `unrelayed-ssh`, 0 head violations;
+  `guest-reports-network`: 8/8 checks, the mutation check denies
+  `host-reaches-in`, `guest-report-dropped` and `emission-from-the-lifecycle`,
+  4 head violations at `master`);
+- `guest-reports-network` names every site the pack names at every ref
+  (`:282`/`:257`/`:284` at master, `:304` at pre-iroh, `:313` on the spec
+  branch) and adds one: the sentence's "the guest MUST reach out to it" is read
+  as `guest -> host`, which fires at all three refs, while the pack's looser
+  require accepts the `guest -> requester` flow the model resolves there;
+- `policy bind` reproduced `examples/policies/atproto-market/policies.yaml`
+  role for role and class for class, and the pack's own suites and mutation
+  check passed under it;
+- the run found two defects, both fixed: the slug `relay-only-ssh` collides
+  with the repository's own template (now refused before the harness runs), and
+  a status carrying violations could not be read back (`policy accept` failed
+  on the second change).
+
 Remaining, honestly:
 
 - The check the plan describes as "every vocabulary entry matches >= 1 effect
@@ -883,6 +906,11 @@ Remaining, honestly:
   derived mutations; nothing proves the fixture models the repository's real
   shape. The head evaluation records the violations, and the first audit on the
   branch is the honest check.
+- The real run's `guest-reports-network` reads the sentence strictly (the guest
+  reports to the host), one violation more than the pack's loose reading at
+  every ref. Both readings are defensible; which one a repository wants is a
+  parameter (the pack's `reportPeerRoles`), and a generated rule has no such
+  knob yet.
 
 ### G7. Review and fix
 
