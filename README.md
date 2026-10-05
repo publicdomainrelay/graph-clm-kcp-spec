@@ -824,8 +824,41 @@ and a repository with no policy branch falls back to
 
 `policy eval --commit <sha> --path <clone>` audits a commit the same way, and
 `--strict` exits 1 when a `deny` violation survives the Repository's enforcement
-cap. A gate decision (`deny`, `warn`, `dryrun`, one-shot `policy:<constraint>`
-overrides) is `abc/policy`; nothing about it is wired into kcp yet.
+cap.
+
+Policies are first class in kcp and in specd (plan 0008 C):
+
+- Gatekeeper's `ConstraintTemplate` CRD is vendored under
+  `deploy/crds/gatekeeper/` and installed by `install-specs.sh` (so by
+  `specctl up`, `specctl eval` and every live test). specd creates the
+  constraint CRD of every template the way Gatekeeper's controller does
+  (`<lower kind>.constraints.gatekeeper.sh`, served at `v1beta1`,
+  `spec.parameters` from the template) and reports `status.created` and the
+  per-pod errors.
+- A `PolicyChange` kind (our group, schema revision 6) is the generation unit;
+  `Repository.spec.policy` carries the branch override and the enforcement cap,
+  `Repository.status.policy` the last audit.
+- Two-way sync: a template or constraint created, changed or deleted in kcp is
+  committed to `open-policy/<repository>[--<branch>]`; `specctl policy restore
+  --repo X` and Repository creation load the branch back.
+- Audit: every indexed commit and every policy change evaluates all constraints
+  against the Repository, its SystemContexts and the head CodeGraph, fills
+  `Repository.status.policy`, sets the `PolicyCompliant` condition on each
+  context, and writes `reports/<code branch>.yaml` to the policy branch.
+- Gate: `realize` evaluates the worktree CodeGraph and the change's CodeDiff
+  between verify and acceptance. A `deny` fails the gate like a red verify and
+  its messages go to the agent on the next attempt; exhausted attempts end
+  `Failed` with reason `PolicyDenied`. A `warn` is recorded in
+  `SpecChange.status.policy` and in `CHANGES.md` and does not block. `specctl
+  accept --override policy:<constraint> --reason R` waives one constraint for
+  one change.
+
+```bash
+bin/specctl policy apply --library examples/policies/market-mini
+bin/specctl policy ls
+bin/specctl policy restore --repo market-mini --path ~/src/market-mini
+bin/specctl policy report --repo market-mini
+```
 
 The engine is the same client `bin/gator` builds: Gatekeeper's
 `frameworks/constraint` client with its K8s validation target, so a suite

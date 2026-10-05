@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -206,6 +207,9 @@ func Apply(ctx context.Context, cluster Cluster, library policy.Library, options
 			constraintTemplateStatus(true, nil)); statusErr != nil {
 			return fmt.Errorf("policykcp: record the constraint CRD of %s: %w", template.Name, statusErr)
 		}
+		if err := waitForConstraintKind(ctx, cluster, template.Kind); err != nil {
+			return err
+		}
 	}
 	for _, constraint := range library.Constraints {
 		object, err := ConstraintObject(constraint)
@@ -222,6 +226,31 @@ func Apply(ctx context.Context, cluster Cluster, library policy.Library, options
 		}
 	}
 	return nil
+}
+
+// ConstraintCRDTimeout bounds how long Apply waits for kcp to serve a
+// constraint kind after its CRD was applied.
+const ConstraintCRDTimeout = 15 * time.Second
+
+// waitForConstraintKind waits until the constraint resource of a kind answers:
+// applying a CRD and creating an object of it in one breath races the API
+// server's establishment of the new kind.
+func waitForConstraintKind(ctx context.Context, cluster Cluster, kind string) error {
+	deadline := time.Now().Add(ConstraintCRDTimeout)
+	for {
+		if _, err := cluster.ListCluster(ctx, policy.ConstraintGVR(kind)); err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			_, err := cluster.ListCluster(ctx, policy.ConstraintGVR(kind))
+			return fmt.Errorf("policykcp: the constraint kind %s is not served: %w", kind, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 // constraintTemplateStatus is the simplified byPod status Gatekeeper reports:

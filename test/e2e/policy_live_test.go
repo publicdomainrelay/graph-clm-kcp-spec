@@ -697,12 +697,13 @@ func TestPolicyWarnRecordsWithoutBlocking(t *testing.T) {
 	if headOf(t, repoPath) != landed.Status.Commit {
 		t.Errorf("HEAD = %s, want the commit %s", headOf(t, repoPath), landed.Status.Commit)
 	}
-	record := openArchitectureChange(t, repoPath, repository, landed.Name)
+	var record *spec.SpecChange
+	waitFor(t, ctx, "the change record to reach the branch with the warn", func() bool {
+		record = openArchitectureChange(t, repoPath, repository, landed.Name)
+		return record != nil && record.Status.Policy != nil && len(record.Status.Policy.Warned) > 0
+	})
 	if record == nil {
 		t.Fatal("the change record is not on the open-architecture branch")
-	}
-	if record.Status.Policy == nil || len(record.Status.Policy.Warned) == 0 {
-		t.Errorf("the branch record carries no warn: %+v", record.Status.Policy)
 	}
 }
 
@@ -768,6 +769,68 @@ func TestPolicyOverrideWaivesADeny(t *testing.T) {
 	})
 	if got := conditionStatus(t, ctx, client, owner, specapi.ConditionAcceptanceOverridden); got != "" && got != "True" {
 		t.Errorf("AcceptanceOverridden = %q", got)
+	}
+}
+
+// TestPolicyCliDrivesKcp covers the kcp side of the CLI: apply a library,
+// list what kcp holds, and restore the policy branch.
+func TestPolicyCliDrivesKcp(t *testing.T) {
+	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
+	root := repoRoot(t)
+	startCluster(t, root)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	client := liveClient(t, root)
+	if err := client.Ping(ctx); err != nil {
+		t.Fatalf("kcp is not serving the specs API: %v", err)
+	}
+	specctl, _ := buildSpecctlAndSpecd(t)
+
+	const repository = "policy-cli"
+	repoPath := policyMarketMini(t, repository)
+	seedPolicyBranch(t, repoPath, repository, examplePolicyLibrary(t))
+	forgetObjects(t, ctx, client, []string{repository}, policyContextNames)
+	forgetPolicies(t, ctx, client)
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cleanupCancel()
+		forgetObjects(t, cleanupCtx, client, []string{repository}, policyContextNames)
+		forgetPolicies(t, cleanupCtx, client)
+	})
+
+	empty := runSpecctl(t, ctx, specctl, repoPath, nil, "policy", "ls")
+	if !strings.Contains(empty, "TEMPLATE") {
+		t.Fatalf("policy ls = %q", empty)
+	}
+	if strings.Contains(empty, "nodirectguestconnect") {
+		t.Fatalf("kcp already holds the template: %q", empty)
+	}
+
+	restored := runSpecctl(t, ctx, specctl, repoPath, nil,
+		"policy", "restore", "--repo", repository, "--path", repoPath)
+	if !strings.Contains(restored, "restored 1 template(s) and 1 constraint(s)") {
+		t.Errorf("policy restore = %q", restored)
+	}
+	listed := runSpecctl(t, ctx, specctl, repoPath, nil, "policy", "ls")
+	if !strings.Contains(listed, "nodirectguestconnect") ||
+		!strings.Contains(listed, "no-direct-guest-connect(deny)") {
+		t.Errorf("policy ls after restore = %q", listed)
+	}
+
+	forgetPolicies(t, ctx, client)
+	applied := runSpecctl(t, ctx, specctl, root, nil,
+		"policy", "apply", "--library", filepath.Join(root, "examples", "policies", "market-mini"))
+	if !strings.Contains(applied, "1 template(s), 1 constraint(s) applied") {
+		t.Errorf("policy apply = %q", applied)
+	}
+	library, err := policykcp.Read(ctx, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(library.Templates) != 1 || len(library.Constraints) != 1 {
+		t.Errorf("kcp holds %d template(s) and %d constraint(s)", len(library.Templates), len(library.Constraints))
 	}
 }
 
