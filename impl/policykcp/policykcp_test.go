@@ -493,10 +493,10 @@ func TestReadAndPruneAreScopedToOneRepository(t *testing.T) {
 	market := templateNamed("marketnodirectconnect", "market-no-direct-connect", "MarketNoDirectConnect")
 	other := templateNamed("othernodirectconnect", "other-no-direct-connect", "OtherNoDirectConnect")
 	cluster := newFakeClusterFor(t, market.Kind, other.Kind)
-	if err := Apply(ctx, cluster, libraryOf(market), ApplyOptions{Repository: "market"}); err != nil {
+	if err := Apply(ctx, cluster, libraryOf(market), ApplyOptions{Repository: "market", CRDs: testCRDs(t, libraryOf(market))}); err != nil {
 		t.Fatal(err)
 	}
-	if err := Apply(ctx, cluster, libraryOf(other), ApplyOptions{Repository: "other"}); err != nil {
+	if err := Apply(ctx, cluster, libraryOf(other), ApplyOptions{Repository: "other", CRDs: testCRDs(t, libraryOf(other))}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -518,7 +518,7 @@ func TestReadAndPruneAreScopedToOneRepository(t *testing.T) {
 		t.Fatalf("an unfiltered read saw %d template(s)", len(all.Templates))
 	}
 
-	if err := Apply(ctx, cluster, libraryOf(market), ApplyOptions{Repository: "market", Prune: true}); err != nil {
+	if err := Apply(ctx, cluster, libraryOf(market), ApplyOptions{Repository: "market", Prune: true, CRDs: testCRDs(t, libraryOf(market))}); err != nil {
 		t.Fatal(err)
 	}
 	otherLibrary, err := Read(ctx, cluster, ReadOptions{Repository: "other"})
@@ -535,7 +535,7 @@ func TestReadReportsANonNotFoundListError(t *testing.T) {
 	ctx := context.Background()
 	market := templateNamed("marketnodirectconnect", "market-no-direct-connect", "MarketNoDirectConnect")
 	cluster := newFakeClusterFor(t, market.Kind)
-	if err := Apply(ctx, cluster, libraryOf(market), ApplyOptions{Repository: "market"}); err != nil {
+	if err := Apply(ctx, cluster, libraryOf(market), ApplyOptions{Repository: "market", CRDs: testCRDs(t, libraryOf(market))}); err != nil {
 		t.Fatal(err)
 	}
 	cluster.listErrors = map[schema.GroupVersionResource]error{
@@ -551,7 +551,7 @@ func TestReadTreatsANotFoundConstraintListAsNoConstraints(t *testing.T) {
 	ctx := context.Background()
 	market := templateNamed("marketnodirectconnect", "market-no-direct-connect", "MarketNoDirectConnect")
 	cluster := newFakeClusterFor(t, market.Kind)
-	if err := Apply(ctx, cluster, libraryOf(market), ApplyOptions{Repository: "market"}); err != nil {
+	if err := Apply(ctx, cluster, libraryOf(market), ApplyOptions{Repository: "market", CRDs: testCRDs(t, libraryOf(market))}); err != nil {
 		t.Fatal(err)
 	}
 	gvr := policy.ConstraintGVR(market.Kind)
