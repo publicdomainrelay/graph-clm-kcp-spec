@@ -2092,7 +2092,7 @@ flowchart TB
   R --> LG["kcp.log, kine.log (capped 16 MiB)"]
   S --> L["logs/&lt;repo&gt;-&lt;hash&gt;--&lt;branch&gt;.specd.log"]
   S --> C["clm/ (CLM context documents)"]
-  S --> D["deploy/"]
+  S --> D["deploy/&lt;hash&gt;/<br/>content-addressed copy of the embedded deploy scripts"]
   M[".kcp-specd/ in this checkout<br/>make kcp-up, evals, live.lock"]
 ```
 
