@@ -55,6 +55,56 @@ func TestParseUnifiedDiffNamesFilesAndLines(t *testing.T) {
 	}
 }
 
+const contentDiff = `diff --git a/db/schema.sql b/db/schema.sql
+index 3333333..4444444 100644
+--- a/db/schema.sql
++++ b/db/schema.sql
+@@ -1,3 +1,3 @@
+--- a removed SQL comment line
++-- an added SQL comment line
+ select 1;
+-+++ not a header
++++ a content line
+diff --git a/hono-bidder/mod.ts b/hono-bidder/mod.ts
+similarity index 80%
+rename from hono-bidder/mod.ts
+rename to hono-bidder/bidder.ts
+@@ -5,1 +5,1 @@
+-old
++new
+`
+
+func TestParseUnifiedDiffKeepsHeaderLikeContent(t *testing.T) {
+	diff := ParseUnifiedDiff(contentDiff)
+	byPath := map[string]CodeDiffFile{}
+	for _, file := range diff.Spec.Files {
+		byPath[file.Path] = file
+	}
+	schema, ok := byPath["db/schema.sql"]
+	if !ok {
+		t.Fatalf("the schema file was lost: %+v", diff.Spec.Files)
+	}
+	wantRemoved := []string{"-- a removed SQL comment line", "+++ not a header"}
+	if len(schema.Removed) != 2 {
+		t.Fatalf("removed = %+v, want the two content lines", schema.Removed)
+	}
+	for index, want := range wantRemoved {
+		if schema.Removed[index].Text != want {
+			t.Errorf("removed[%d] = %q, want %q", index, schema.Removed[index].Text, want)
+		}
+	}
+	if len(schema.Added) != 2 || schema.Added[0].Text != "-- an added SQL comment line" || schema.Added[1].Text != "++ a content line" {
+		t.Errorf("added = %+v", schema.Added)
+	}
+	renamed, ok := byPath["hono-bidder/bidder.ts"]
+	if !ok {
+		t.Fatalf("the renamed file is missing: %+v", diff.Spec.Files)
+	}
+	if len(renamed.Removed) != 1 || len(renamed.Added) != 1 {
+		t.Errorf("renamed = %+v", renamed)
+	}
+}
+
 func TestParseUnifiedDiffIsEmptyWithoutAPatch(t *testing.T) {
 	diff := ParseUnifiedDiff("")
 	if len(diff.Spec.Files) != 0 {
