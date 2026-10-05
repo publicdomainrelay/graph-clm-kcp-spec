@@ -1,0 +1,17 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: changesucceededwithfailedacceptance
+  annotations:
+    specs.publicdomainrelay.dev/title: "a change is Succeeded while a gating acceptance step failed"
+    specs.publicdomainrelay.dev/level: MUST
+    specs.publicdomainrelay.dev/severity: error
+    specs.publicdomainrelay.dev/origin: "deno-kcp opa-first-stab policies/change_integrity/change-succeeded-with-failed-acceptance"
+    specs.publicdomainrelay.dev/calibration: "ported verbatim from RESULTS.md: the real change deploy-examples-atproto-market-s2c-834078074eaa records status.phase Succeeded with acceptance[0] {market-live-acceptance, passed false, exitCode 1, durationSeconds 284.07}. One deviation: this specd has a first-class AcceptanceOverride, so a step whose overridden field is true is allowed; the origin had no override concept and fired on the raw failed verdict."
+spec:
+  crd:
+    spec:
+      names:
+        kind: ChangeSucceededWithFailedAcceptance
+  targets:
+    - target: admission.k8s.gatekeeper.sh

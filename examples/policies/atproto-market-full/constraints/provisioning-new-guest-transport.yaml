@@ -1,0 +1,27 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: ProvisioningNewGuestTransport
+metadata:
+  name: provisioning-new-guest-transport
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - CodeDiff
+  parameters:
+    transportPatterns:
+    - \bwebsocat\b
+    - \bwstunnel\b
+    - \bchisel\b
+    - \bfrp[cs]\b
+    - \bautossh\b
+    - \brathole\b
+    - \bsocat\b
+    modulePatterns:
+    - UserDataModule
+    - user_data
+    - userData
+    - cloud-init
+    - cloud_config

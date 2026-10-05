@@ -1,0 +1,29 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: GuestReportDrivenEmission
+metadata:
+  name: guest-report-driven-onnetwork
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - CodeGraph
+  parameters:
+    hostGlobs:
+    - lib/market-bidder/**
+    - lib/market-bidder-compute/**
+    - hono-bidder/**
+    - lib/compute-provider/**
+    emitterPatterns: COMPUTE_EVENTS_VM_ONNETWORK_NSID
+    subject: the vm.onNetwork event
+    handlerPatterns: guest\.onNetwork|mountOnNetworkReport|OnNetworkReport|onNetworkReportEntries|/v1/on-network
+    edgeKinds:
+    - calls
+    - imports
+    - references
+    - contains
+    - instantiates
+    - implements
+    - extends

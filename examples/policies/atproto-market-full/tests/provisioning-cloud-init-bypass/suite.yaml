@@ -1,0 +1,21 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: provisioning-cloud-init-bypass
+tests:
+  - name: provisioning-cloud-init-bypass
+    template: ../../dist/provisioning-cloud-init-bypass.yaml
+    constraint: ../../constraints/provisioning-cloud-init-bypass.yaml
+    cases:
+      - name: allowed
+        object: inventory/codediff-allowed.yaml
+        inventory:
+          - inventory/codediff-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-cloud-init-bypass
+        object: inventory/codediff-denied.yaml
+        inventory:
+          - inventory/codediff-denied.yaml
+        assertions:
+          - violations: 1

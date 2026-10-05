@@ -1,0 +1,17 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: GuestReportCloudInit
+metadata:
+  name: guest-report-cloud-init
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - CodeGraph
+  parameters:
+    guestGlobs:
+    - lib/common/cloud-init-common/**
+    - lib/cloud-init/**
+    reportPattern: irohReportUrl|report-ticket|Report the ticket|on-network|tunnel-subscriber|fedproxy-client

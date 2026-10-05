@@ -1,0 +1,34 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: GuestReportReachIn
+metadata:
+  name: guest-report-reach-in
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - CodeGraph
+  parameters:
+    hostGlobs:
+    - lib/market-bidder/**
+    - lib/market-bidder-compute/**
+    - hono-bidder/**
+    - lib/compute-provider/**
+    emitterPatterns: onNetwork|ONNETWORK|registerIdentity|REGISTER_IDENTITY|computeIdentity|nodeId|getNodeId
+    reachInPatterns:
+    - \.getNodeId\s*\(
+    - container\s+exec
+    - docker\s+exec
+    - docker\s+inspect
+    - guest-agent
+    - new Deno\.Command\(\s*["']ssh["']
+    edgeKinds:
+    - calls
+    - imports
+    - references
+    - contains
+    - instantiates
+    - implements
+    - extends

@@ -1,0 +1,21 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: SpecChange
+metadata:
+  name: deploy-examples-atproto-market-s2c-acceptance-green
+  namespace: default
+spec:
+  systemContext: deploy-examples-atproto-market
+  direction: SpecToCode
+  fromSpecHash: 48cbbf77ef57ffb1d6c4461b92df1dcbea6828e6e742494ca432cd5f17716c22
+  toSpecHash: 834078074eaa9fd7e9914fd2e2849b0c6aed8421541e51a79acb09c81c6a11f8
+status:
+  phase: Succeeded
+  branch: spec/deploy-examples/83407807
+  commit: 6c1bbe4c3ba95ce6f9d4c78dead4b6c359358c8d
+  message: the live acceptance gate passed
+  agentLog: edited accept.sh and ran the verify vector
+  acceptance:
+    - name: market-live-acceptance
+      passed: true
+      exitCode: 0
+      durationSeconds: 284.07

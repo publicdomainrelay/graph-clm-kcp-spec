@@ -1,0 +1,27 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: provisioning-manual-key-material
+tests:
+  - name: provisioning-manual-key-material
+    template: ../../dist/provisioning-manual-key-material.yaml
+    constraint: ../../constraints/provisioning-manual-key-material.yaml
+    cases:
+      - name: allowed
+        object: inventory/codediff-allowed.yaml
+        inventory:
+          - inventory/codediff-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: allowed-prose
+        object: inventory/codediff-prose-allowed.yaml
+        inventory:
+          - inventory/codediff-prose-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-manual-key-material
+        object: inventory/codediff-denied.yaml
+        inventory:
+          - inventory/codediff-denied.yaml
+        assertions:
+          - violations: 2

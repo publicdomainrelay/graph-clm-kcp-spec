@@ -1,0 +1,20 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: ProvisioningContainerInTest
+metadata:
+  name: provisioning-container-in-test
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - CodeDiff
+  parameters:
+    testGlobs:
+    - test/**
+    - '**/*_test.go'
+    - '**/*_test.ts'
+    - '**/*.test.ts'
+    containerPatterns:
+    - \b(?:docker|podman|container|nerdctl)\s+(?:run|exec)\b

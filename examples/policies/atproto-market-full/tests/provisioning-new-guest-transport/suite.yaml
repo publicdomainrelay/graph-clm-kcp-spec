@@ -1,0 +1,27 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: provisioning-new-guest-transport
+tests:
+  - name: provisioning-new-guest-transport
+    template: ../../dist/provisioning-new-guest-transport.yaml
+    constraint: ../../constraints/provisioning-new-guest-transport.yaml
+    cases:
+      - name: allowed
+        object: inventory/codediff-allowed.yaml
+        inventory:
+          - inventory/codediff-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: allowed-prose
+        object: inventory/codediff-prose-allowed.yaml
+        inventory:
+          - inventory/codediff-prose-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-new-transport
+        object: inventory/codediff-denied.yaml
+        inventory:
+          - inventory/codediff-denied.yaml
+        assertions:
+          - violations: 1

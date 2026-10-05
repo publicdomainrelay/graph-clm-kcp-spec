@@ -1,0 +1,106 @@
+defaultEnforcement: deny
+enforcement:
+- name: '*'
+  action: warn
+- name: security-disabled-verification
+  action: deny
+- name: guest-report-*
+  action: deny
+- name: relay-only-ssh
+  action: deny
+- name: rfp-*
+  action: deny
+imports:
+- pack: rfp-guest-isolation
+  source: embedded
+  version: v1
+repository: atproto-market
+roles:
+  guest:
+    declared: true
+    globs:
+    - lib/common/cloud-init-common/**
+    targets:
+      attrs:
+      - getNodeId
+      routes:
+      - /v1/on-network
+  host:
+    globs:
+    - hono-bidder/**
+    - hono-market/**
+    - hono-policy/**
+    - lib/market-atproto/**
+    - lib/market-bidder/**
+    - lib/market-bidder-agent/**
+    - lib/market-bidder-compute/**
+    - lib/market-bidder-worker/**
+    - lib/market-policy/**
+    - lib/market-settlement-free/**
+    - lib/market-settlement-x402/**
+    - lib/policy-builtin/**
+    - lib/trust-graph-bsky-mutuals/**
+    - lib/trust-graph-tangled-graph/**
+    symbols:
+    - createMarketBidder
+    targets:
+      symbols:
+      - registerIdentity
+      - vm.onNetwork
+  relay:
+    globs:
+    - lib/did-key-ingress-proxy/**
+    - lib/hono-factory-did-plc-directory/**
+    - lib/did-plc/**
+  requester:
+    globs:
+    - lib/requester-xrpc/**
+    - request-vm-ssh/**
+    symbols:
+    - createRequesterPDS
+    targets:
+      routes:
+      - /v1/on-network
+      symbols:
+      - reportUrl
+      - _url_path
+      - requester
+      - REPORT_PATH
+  test:
+    globs:
+    - test/**
+testGlobs:
+- test/**
+version: "1"
+vocabulary:
+  channels:
+    relay:
+    - websocat
+    - fedproxy
+    - dumbpipe
+    - iroh connect
+    - tunnel-subscriber
+  events:
+    network-report:
+    - com.publicdomainrelay.temp.compute.events.vm.onNetwork
+    - COMPUTE_EVENTS_VM_ONNETWORK_NSID
+    - COMPUTE_EVENTS_VM_REGISTER_IDENTITY_NSID
+    - registerIdentity
+  payloads:
+    network-info:
+    - address
+    - nodeId
+    - ticket
+    - TICKET
+    - route
+    - fedproxy
+    - iroh
+  purposes:
+    network-discovery:
+    - getNodeId
+    - nodeId
+    - onNetwork
+    - ticket
+  routes:
+    report:
+    - /v1/on-network

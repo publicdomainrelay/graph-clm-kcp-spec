@@ -1,0 +1,41 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: provisioningnewguesttransport
+  annotations:
+    specs.publicdomainrelay.dev/title: "a guest transport is added outside cloud-init-common"
+    specs.publicdomainrelay.dev/level: MUST
+    specs.publicdomainrelay.dev/severity: error
+    specs.publicdomainrelay.dev/origin: "deno-kcp opa-first-stab policies/code_safety provisioning-new-guest-transport"
+    specs.publicdomainrelay.dev/calibration: "the origin fired on an added line naming websocat, wstunnel, chisel, frpc/frps, autossh, rathole or socat unless the same line named UserDataModule, user_data, userData, cloud-init or cloud_config. RESULTS.md did not raise it on the change under review. The transport and module lists are parameters, and the module marker defaults are kept, because a missing parameter must not turn the rule into one that fires on every transport line. A comment line is skipped and markdown is ignored by default, because the origin's code.is_comment guard had no counterpart here and a comment or a README that names a transport deploys nothing; over the atproto-market iroh change that took the rule from 36 to 21 denies. A row matches once even when several patterns hit it. Recorded gap: the remaining denies are lines that name a transport without running it, a transport-name selector or a lexicon description; a substring over a diff cannot tell naming from running, and the plan-0009 model form of this rule (a proc.exec effect whose argv0 is not deployed by cloud-init) is what separates them."
+spec:
+  crd:
+    spec:
+      names:
+        kind: ProvisioningNewGuestTransport
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            transportPatterns:
+              type: array
+              items:
+                type: string
+            modulePatterns:
+              type: array
+              items:
+                type: string
+            allowPatterns:
+              type: array
+              items:
+                type: string
+            ignoredPaths:
+              type: array
+              items:
+                type: string
+            commentPatterns:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh

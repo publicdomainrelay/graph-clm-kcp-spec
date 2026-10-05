@@ -1,0 +1,33 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: provisioningcloudinitbypass
+  annotations:
+    specs.publicdomainrelay.dev/title: "the cloud-init user_data path is skipped"
+    specs.publicdomainrelay.dev/level: MUST
+    specs.publicdomainrelay.dev/severity: error
+    specs.publicdomainrelay.dev/origin: "deno-kcp opa-first-stab policies/code_safety provisioning-cloud-init-bypass"
+    specs.publicdomainrelay.dev/calibration: "the origin required a user_data / cloud-init marker and a skip / bypass / without / disable marker on the same added line, and RESULTS.md found no instance of it in the change under review, so the rule is uncalibrated by a live finding and deliberately narrow. The markers and the allowPatterns escape hatch are parameters; a comment line that explains a fixture is the expected false positive and is what allowPatterns is for."
+spec:
+  crd:
+    spec:
+      names:
+        kind: ProvisioningCloudInitBypass
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            userDataPatterns:
+              type: array
+              items:
+                type: string
+            bypassPatterns:
+              type: array
+              items:
+                type: string
+            allowPatterns:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh

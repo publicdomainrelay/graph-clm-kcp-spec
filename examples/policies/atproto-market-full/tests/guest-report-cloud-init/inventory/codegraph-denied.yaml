@@ -1,0 +1,16 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeGraph
+metadata:
+  name: market
+  namespace: default
+spec:
+  repository: market
+  commit: "0000000000000000000000000000000000000000"
+  files:
+  - path: lib/common/cloud-init-common/mod.ts
+  nodes: []
+  edges: []
+  texts:
+    lib/common/cloud-init-common/mod.ts: |
+      ExecStart=/usr/local/bin/iroh endpoint --bind 0.0.0.0:9876
+      ExecStartPost=/usr/local/bin/iroh-node-id-writer.sh
