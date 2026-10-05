@@ -528,3 +528,57 @@ func TestValidateSpecChangeAllowsATreeWithoutCommits(t *testing.T) {
 		t.Error("half a commit pair was accepted")
 	}
 }
+
+func TestApplyOverridesMarksTheFailedGateAndBlocksNothing(t *testing.T) {
+	steps := []AcceptanceStep{
+		{Name: "unit", Command: []string{"true"}, Gate: true},
+		{Name: "market", Command: []string{"false"}, Gate: true},
+	}
+	results := []AcceptanceResult{
+		{Name: "unit", Passed: true},
+		{Name: "market", Passed: false, ExitCode: 2},
+	}
+	overrides := []AcceptanceOverride{{Step: "market", Reason: "relay down", By: "operator"}}
+	consumed := ApplyOverrides(results, overrides)
+	if len(consumed) != 1 || consumed[0].Step != "market" {
+		t.Fatalf("consumed = %+v", consumed)
+	}
+	if !results[1].Overridden || results[1].OverrideBy != "operator" || results[1].OverrideReason != "relay down" {
+		t.Fatalf("result = %+v", results[1])
+	}
+	if _, blocked := AcceptanceBlocked(steps, results); blocked {
+		t.Error("an overridden gate must not block the commit")
+	}
+	lines := AcceptanceTrailerLines(steps, results)
+	if lines[1] != "market overridden by operator (relay down)" {
+		t.Errorf("trailer = %v", lines)
+	}
+	if got := OverriddenSteps(results); len(got) != 1 || got[0] != "market" {
+		t.Errorf("overridden steps = %v", got)
+	}
+}
+
+func TestValidateRepositoryChecksAcceptanceOverrides(t *testing.T) {
+	repository := &Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc"},
+		Spec: RepositorySpec{
+			Path:       "/repos/calc",
+			Acceptance: []AcceptanceStep{{Name: "market", Command: []string{"true"}, Gate: true}},
+			AcceptanceOverrides: []AcceptanceOverride{
+				{Step: "nope", Reason: "why"},
+			},
+		},
+	}
+	repository.SetDefaults()
+	if result := ValidateRepository(repository); result.OK() {
+		t.Fatal("an override naming no acceptance step must be rejected")
+	}
+	repository.Spec.AcceptanceOverrides = []AcceptanceOverride{{Step: "market"}}
+	if result := ValidateRepository(repository); result.OK() {
+		t.Fatal("an override with no reason must be rejected")
+	}
+	repository.Spec.AcceptanceOverrides = []AcceptanceOverride{{Step: "market", Reason: "why"}}
+	if result := ValidateRepository(repository); !result.OK() {
+		t.Fatalf("a valid override must be accepted: %v", result.Err())
+	}
+}

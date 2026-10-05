@@ -345,6 +345,13 @@ spec:
                         type: boolean
                       outputTail:
                         type: string
+                      overridden:
+                        type: boolean
+                        description: True when a gating step failed and an operator's override let the commit land.
+                      overrideBy:
+                        type: string
+                      overrideReason:
+                        type: string
                 progress:
                   type: array
                   description: what the host running the change reported while it ran

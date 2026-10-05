@@ -424,6 +424,7 @@ func runGates(ctx context.Context, repository *spec.Repository, dir string, veri
 		return &VerifyError{Command: repository.Spec.Verify, ExitCode: exitCode, Output: output}
 	}
 	results := RunAcceptance(ctx, repository.Spec.Acceptance, dir, acceptanceTimeout)
+	spec.ApplyOverrides(results, repository.Spec.AcceptanceOverrides)
 	result.Acceptance = results
 	if blocked, ok := spec.AcceptanceBlocked(repository.Spec.Acceptance, results); ok {
 		return &AcceptanceError{Result: blocked, Gated: true}

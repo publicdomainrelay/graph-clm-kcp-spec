@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
@@ -22,9 +23,16 @@ func runAccept(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	repo := fs.String("repo", ".", "the tree the acceptance steps run against")
 	name := fs.String("name", "", "run only the step with this name")
+	override := fs.String("override", "", "record an override for this gating step on the Repository and run the steps anyway; needs --reason")
+	reason := fs.String("reason", "", "why the step is overridden; required with --override")
+	by := fs.String("by", "", "who overrides the step; defaults to the environment's user")
 	timeout := fs.Duration("timeout", 0, "the default a step may run; 0 uses the step's own timeoutSeconds or ten minutes")
 	options := addGlobals(fs)
 	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	if *override != "" && *reason == "" {
+		fmt.Fprintln(stderr, "specctl accept: --override needs --reason")
 		return exitUsage
 	}
 	dir, err := repoDir(*repo)
@@ -77,6 +85,36 @@ func runAccept(args []string, stdout, stderr io.Writer) int {
 	}
 
 	steps := typedRepository.Spec.Acceptance
+	if *override != "" {
+		user := *by
+		if user == "" {
+			user = os.Getenv("USER")
+		}
+		if user == "" {
+			user = "operator"
+		}
+		found := false
+		for _, step := range steps {
+			if step.Name == *override {
+				found = true
+				break
+			}
+		}
+		if !found {
+			fmt.Fprintf(stderr, "specctl accept: Repository %s has no acceptance step named %q\n", repository, *override)
+			return exitError
+		}
+		if err := recordAcceptanceOverride(ctx, client, typedRepository, spec.AcceptanceOverride{
+			Step:   *override,
+			Reason: *reason,
+			By:     user,
+			At:     time.Now().UTC().Format(time.RFC3339),
+		}); err != nil {
+			fmt.Fprintf(stderr, "specctl accept: %v\n", err)
+			return exitError
+		}
+		fmt.Fprintf(stdout, "override recorded on Repository %s: %s by %s (%s)\n", repository, *override, user, *reason)
+	}
 	if *name != "" {
 		filtered := []spec.AcceptanceStep{}
 		for _, step := range steps {
@@ -96,12 +134,17 @@ func runAccept(args []string, stdout, stderr io.Writer) int {
 	}
 
 	results := realize.RunAcceptance(ctx, steps, dir, *timeout)
+	spec.ApplyOverrides(results, typedRepository.Spec.AcceptanceOverrides)
 	for _, result := range results {
 		state := "failed"
 		if result.Passed {
 			state = "passed"
 		}
-		fmt.Fprintf(stdout, "accept %s: %s (exit %d, %.1fs)\n", result.Name, state, result.ExitCode, result.DurationSeconds)
+		suffix := ""
+		if result.Overridden {
+			suffix = fmt.Sprintf(" -- overridden by %s (%s)", result.OverrideBy, result.OverrideReason)
+		}
+		fmt.Fprintf(stdout, "accept %s: %s (exit %d, %.1fs)%s\n", result.Name, state, result.ExitCode, result.DurationSeconds, suffix)
 		for _, line := range strings.Split(strings.TrimRight(result.OutputTail, "\n"), "\n") {
 			fmt.Fprintf(stdout, "  %s\n", line)
 		}
@@ -111,4 +154,25 @@ func runAccept(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	return exitOK
+}
+
+// recordAcceptanceOverride writes one override onto the Repository, replacing
+// an earlier entry for the same step so a changed reason does not stack.
+func recordAcceptanceOverride(ctx context.Context, client *kcpclient.Client, repository *spec.Repository, override spec.AcceptanceOverride) error {
+	kept := make([]spec.AcceptanceOverride, 0, len(repository.Spec.AcceptanceOverrides)+1)
+	for _, existing := range repository.Spec.AcceptanceOverrides {
+		if existing.Step == override.Step {
+			continue
+		}
+		kept = append(kept, existing)
+	}
+	repository.Spec.AcceptanceOverrides = append(kept, override)
+	object, err := kcpclient.Unstructured(repository)
+	if err != nil {
+		return err
+	}
+	if _, err := client.Apply(ctx, object); err != nil {
+		return err
+	}
+	return nil
 }

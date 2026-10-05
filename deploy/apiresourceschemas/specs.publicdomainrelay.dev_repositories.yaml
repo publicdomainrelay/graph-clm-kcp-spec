@@ -75,6 +75,34 @@ spec:
               x-kubernetes-list-map-keys:
               - name
               x-kubernetes-list-type: map
+            acceptanceOverrides:
+              description: One-shot operator overrides that let a realize land past
+                a red gating acceptance step; specd removes an entry after the commit
+                it let through lands.
+              items:
+                properties:
+                  at:
+                    description: When the override was recorded.
+                    type: string
+                  by:
+                    description: Who overrode the step.
+                    type: string
+                  reason:
+                    description: Why the step is overridden; recorded in the commit
+                      trailer and the change condition.
+                    type: string
+                  step:
+                    description: The name of the acceptance step whose failure is
+                      overridden.
+                    type: string
+                required:
+                - step
+                - reason
+                type: object
+              type: array
+              x-kubernetes-list-map-keys:
+              - step
+              x-kubernetes-list-type: map
             agent:
               description: Per repository agent selection for spec to code; it wins
                 over the controller's --agent.

@@ -97,6 +97,27 @@ spec:
                         description: Extra environment variables for the step, on top of the controller's own environment.
                         additionalProperties:
                           type: string
+                acceptanceOverrides:
+                  type: array
+                  description: One-shot operator overrides that let a realize land past a red gating acceptance step; specd removes an entry after the commit it let through lands.
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [step]
+                  items:
+                    type: object
+                    required: [step, reason]
+                    properties:
+                      step:
+                        type: string
+                        description: The name of the acceptance step whose failure is overridden.
+                      reason:
+                        type: string
+                        description: Why the step is overridden; recorded in the commit trailer and the change condition.
+                      by:
+                        type: string
+                        description: Who overrode the step.
+                      at:
+                        type: string
+                        description: When the override was recorded.
                 agent:
                   type: object
                   description: Per repository agent selection for spec to code; it wins over the controller's --agent.

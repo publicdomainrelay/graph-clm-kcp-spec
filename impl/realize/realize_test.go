@@ -307,3 +307,37 @@ func TestRealizeRunNeedsARepository(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestRunGatesLandsPastARedGateAnOverrideNames(t *testing.T) {
+	dir := t.TempDir()
+	repository := &spec.Repository{Spec: spec.RepositorySpec{
+		Verify: []string{"true"},
+		Acceptance: []spec.AcceptanceStep{
+			{Name: "market", Command: []string{"sh", "-c", "echo bob is down; exit 2"}, Gate: true},
+		},
+		AcceptanceOverrides: []spec.AcceptanceOverride{
+			{Step: "market", Reason: "the upstream relay is down, tracked in issue 7", By: "operator"},
+		},
+	}}
+	result := Result{}
+	if err := runGates(context.Background(), repository, dir, time.Minute, time.Minute, &result); err != nil {
+		t.Fatalf("err = %v, want the override to let the commit land", err)
+	}
+	if len(result.Acceptance) != 1 {
+		t.Fatalf("acceptance = %+v", result.Acceptance)
+	}
+	overridden := result.Acceptance[0]
+	if !overridden.Overridden || overridden.Passed {
+		t.Fatalf("result = %+v, want a failed but overridden step", overridden)
+	}
+	if overridden.OverrideBy != "operator" || overridden.OverrideReason == "" {
+		t.Errorf("override = %+v", overridden)
+	}
+	lines := spec.AcceptanceTrailerLines(repository.Spec.Acceptance, result.Acceptance)
+	if len(lines) != 1 || lines[0] != "market overridden by operator (the upstream relay is down, tracked in issue 7)" {
+		t.Errorf("trailer = %v", lines)
+	}
+	if message := commitMessage([]Member{{Context: "calc", Change: "calc-s2c-1"}}, "", repository.Spec.Acceptance, result.Acceptance); !strings.Contains(message, "Acceptance: market overridden by operator") {
+		t.Errorf("message = %q", message)
+	}
+}

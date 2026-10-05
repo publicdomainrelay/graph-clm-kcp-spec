@@ -405,11 +405,13 @@ usage:
       repo finds the current branch's session
   specctl arch outline [--repository <name>] [-o text|json]
   specctl retry [--reason <text>] [--by <user>] <systemcontext>
-      clear a context's failed SpecChanges after the attempt cap, so specd tries again
-  specctl accept [--repo .] [--name <step>]
+      create the next attempt of the context's failed episodes, keeping the
+      failed changes as the audit trail and recording who retried it and why
+  specctl accept [--repo .] [--name <step>] [--override <step> --reason <text> [--by <user>]]
       run the acceptance steps of the current branch's Repository against the
       current tree; a gating step that fails exits 1, a report-only one is
-      printed and does not
+      printed and does not; --override records a one-shot override on the
+      Repository so the next realize lands past that red gate
   specctl down [--repo .] [--keep-kcp]
       stop the current branch's specd and kcp
   specctl status [--repo .]

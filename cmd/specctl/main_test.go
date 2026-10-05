@@ -264,3 +264,10 @@ func TestCountFailedLeavesASkippedScenarioOut(t *testing.T) {
 		t.Errorf("countFailed = %d, want 1", failed)
 	}
 }
+
+func TestRunAcceptOverrideNeedsAReason(t *testing.T) {
+	code, _, stderr := runWith("accept", "--override", "market")
+	if code != exitUsage || !strings.Contains(stderr, "--override needs --reason") {
+		t.Errorf("code %d, stderr %q", code, stderr)
+	}
+}

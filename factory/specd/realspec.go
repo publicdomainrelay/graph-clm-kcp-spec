@@ -296,6 +296,11 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 				specapi.ReasonFilesOutsideContext, outsideContextsMessage(outside))
 			conditionsChanged = true
 		}
+		if overrides := spec.OverriddenSteps(result.Acceptance); len(overrides) > 0 {
+			condition.SetTrue(&conditions, member.GetGeneration(), specapi.ConditionAcceptanceOverridden,
+				specapi.ReasonAcceptanceOverridden, overriddenMessage(overrides, result.Acceptance))
+			conditionsChanged = true
+		}
 		if conditionsChanged {
 			status["conditions"] = conditions
 		}
@@ -317,7 +322,41 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 		c.log.Warn("the realize touched files another context owns",
 			"repository", repository.Name, "files", outsideContextsMessage(outside))
 	}
+	if overrides := spec.OverriddenSteps(result.Acceptance); len(overrides) > 0 {
+		c.consumeOverrides(ctx, namespace, repository, overrides)
+		logged = append(logged, "acceptanceOverridden", strings.Join(overrides, ","))
+	}
 	c.log.Info("spec to code done", logged...)
+}
+
+// consumeOverrides removes the acceptance overrides a landing commit used, so
+// an override is one shot and the next realization is gated again.
+func (c *Controller) consumeOverrides(ctx context.Context, namespace string, repository *spec.Repository, steps []string) {
+	used := make(map[string]bool, len(steps))
+	for _, step := range steps {
+		used[step] = true
+	}
+	kept := make([]spec.AcceptanceOverride, 0, len(repository.Spec.AcceptanceOverrides))
+	for _, override := range repository.Spec.AcceptanceOverrides {
+		if used[override.Step] {
+			continue
+		}
+		kept = append(kept, override)
+	}
+	if len(kept) == len(repository.Spec.AcceptanceOverrides) {
+		return
+	}
+	repository.Spec.AcceptanceOverrides = kept
+	object, err := kcpclient.Unstructured(repository)
+	if err != nil {
+		c.log.Error("could not encode the repository to consume the acceptance override", "repository", repository.Name, "err", err)
+		return
+	}
+	if _, err := c.client.Apply(ctx, object); err != nil {
+		c.log.Error("could not consume the acceptance override", "repository", repository.Name, "err", err)
+		return
+	}
+	c.log.Info("acceptance override consumed", "repository", repository.Name, "steps", strings.Join(steps, ","))
 }
 
 func (c *Controller) filesOutsideBatch(ctx context.Context, namespace string, repository *spec.Repository, members []*spec.SpecChange, touched []string) map[string][]string {
@@ -356,6 +395,24 @@ func outsideContextsMessage(outside map[string][]string) string {
 		message = message[:messageLimit]
 	}
 	return message
+}
+
+func overriddenMessage(overrides []string, results []spec.AcceptanceResult) string {
+	parts := make([]string, 0, len(overrides))
+	for _, name := range overrides {
+		for _, result := range results {
+			if result.Name != name {
+				continue
+			}
+			by := result.OverrideBy
+			if by == "" {
+				by = "an operator"
+			}
+			parts = append(parts, name+" overridden by "+by+" ("+result.OverrideReason+")")
+			break
+		}
+	}
+	return "a gating acceptance step was overridden: " + strings.Join(parts, ", ")
 }
 
 func verdictIDs(verdicts []coverage.Verdict) []string {

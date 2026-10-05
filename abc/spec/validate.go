@@ -73,6 +73,7 @@ func ValidateRepository(repository *Repository) Result {
 		b.checkAgent("spec.agent", agent)
 	}
 	b.checkAcceptance(repository.Spec.Acceptance)
+	b.checkAcceptanceOverrides(repository.Spec.AcceptanceOverrides, repository.Spec.Acceptance)
 	if populate := repository.Spec.Populate; populate != nil {
 		switch populate.Partition {
 		case "", PartitionDirectory, PartitionPackage:
@@ -106,6 +107,30 @@ func (b *builder) checkAcceptance(steps []AcceptanceStep) {
 		}
 		if step.TimeoutSeconds < 0 {
 			b.add(path+".timeoutSeconds", "%d is negative", step.TimeoutSeconds)
+		}
+	}
+}
+
+func (b *builder) checkAcceptanceOverrides(overrides []AcceptanceOverride, steps []AcceptanceStep) {
+	known := map[string]bool{}
+	for _, step := range steps {
+		known[step.Name] = true
+	}
+	seen := map[string]bool{}
+	for index, override := range overrides {
+		path := fmt.Sprintf("spec.acceptanceOverrides[%d]", index)
+		switch {
+		case override.Step == "":
+			b.add(path+".step", "is required")
+		case !known[override.Step]:
+			b.add(path+".step", "%q is not an acceptance step", override.Step)
+		case seen[override.Step]:
+			b.add(path+".step", "%q is not unique", override.Step)
+		default:
+			seen[override.Step] = true
+		}
+		if override.Reason == "" {
+			b.add(path+".reason", "is required")
 		}
 	}
 }

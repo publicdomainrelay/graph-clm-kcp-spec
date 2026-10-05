@@ -63,6 +63,19 @@ type AcceptanceStep struct {
 	Env map[string]string `json:"env,omitempty"`
 }
 
+// AcceptanceOverride lets an operator land one commit past a red gating
+// acceptance step. It is one shot: specd removes the entry it consumed after
+// the commit lands, so the next realization is gated again.
+type AcceptanceOverride struct {
+	Step string `json:"step"`
+
+	Reason string `json:"reason"`
+
+	By string `json:"by,omitempty"`
+
+	At string `json:"at,omitempty"`
+}
+
 type RepositorySpec struct {
 	Path   string            `json:"path,omitempty"`
 	Source *RepositorySource `json:"source,omitempty"`
@@ -71,6 +84,8 @@ type RepositorySpec struct {
 	Agent  *AgentSpec        `json:"agent,omitempty"`
 
 	Acceptance []AcceptanceStep `json:"acceptance,omitempty"`
+
+	AcceptanceOverrides []AcceptanceOverride `json:"acceptanceOverrides,omitempty"`
 
 	Populate *RepositoryPopulate `json:"populate,omitempty"`
 }
@@ -279,6 +294,12 @@ type AcceptanceResult struct {
 	Passed bool `json:"passed"`
 
 	OutputTail string `json:"outputTail,omitempty"`
+
+	Overridden bool `json:"overridden,omitempty"`
+
+	OverrideBy string `json:"overrideBy,omitempty"`
+
+	OverrideReason string `json:"overrideReason,omitempty"`
 }
 
 type SpecChangeStatus struct {
