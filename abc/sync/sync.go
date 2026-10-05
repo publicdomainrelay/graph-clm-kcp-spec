@@ -722,12 +722,20 @@ func MigrateDeclared(declared spec.SystemContextSpec, observed spec.ObservedFact
 	if len(rewrites) == 0 {
 		return declared
 	}
+	// A bare declared name need not be the symbol the index qualified: a context
+	// can hold both a receiver method (PlcClient.getLastOp) and a free function
+	// with the same bare name, and rewriting the second onto the first would
+	// repeat a name the CRD rejects.
+	present := make(map[string]bool, len(declared.Interfaces))
+	for _, entry := range declared.Interfaces {
+		present[entry.Name] = true
+	}
 	out := declared
 	interfaces := declared.Interfaces
 	copiedInterfaces := false
 	for index, entry := range declared.Interfaces {
 		key, ok := rewrites[entry.Name]
-		if !ok {
+		if !ok || present[key] {
 			continue
 		}
 		if !copiedInterfaces {

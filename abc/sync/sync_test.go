@@ -607,3 +607,33 @@ func TestLegacySpecMirrorPathsAreNotCode(t *testing.T) {
 		t.Error("a source file is read as a spec artifact")
 	}
 }
+
+func TestMigrateDeclaredKeepsADifferentInterfaceThatSharesABareName(t *testing.T) {
+	observed := Observed(PartitionFacts(Facts{
+		Files: []SourceFile{{Path: "lib/did-plc/client.ts", Language: "typescript"}},
+		Symbols: []Symbol{
+			{ID: "method:getlastop", Name: "getLastOp", Qualified: "PlcClient.getLastOp", Kind: "method", File: "lib/did-plc/client.ts", Line: 224, Exported: true},
+		},
+	}, "lib-did-plc")[0])
+	migrated := MigrateDeclared(spec.SystemContextSpec{
+		Interfaces: []spec.Interface{
+			{Name: "PlcClient.getLastOp", Kind: "method", File: "lib/did-plc/client.ts"},
+			{Name: "getLastOp", Kind: "function", File: "lib/did-plc/generated/sdk.gen.ts"},
+		},
+	}, observed)
+	if len(migrated.Interfaces) != 2 {
+		t.Fatalf("interfaces = %+v, want the two declared entries", migrated.Interfaces)
+	}
+	if migrated.Interfaces[1].Name != "getLastOp" || migrated.Interfaces[1].File != "lib/did-plc/generated/sdk.gen.ts" {
+		t.Errorf("the free function moved onto the method: %+v", migrated.Interfaces[1])
+	}
+	names := map[string]int{}
+	for _, entry := range migrated.Interfaces {
+		names[entry.Name]++
+	}
+	for name, count := range names {
+		if count != 1 {
+			t.Errorf("%s appears %d times", name, count)
+		}
+	}
+}
