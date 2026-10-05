@@ -794,6 +794,54 @@ graph.
   `fixtures/calc` and hold its answer to the same contract the scripted agent is
   held to.
 
+## Policies
+
+A policy is a Gatekeeper `ConstraintTemplate` plus one or more constraints
+(`docs/plans/0008-policies.md`). It reads the objects specd already holds
+(`Repository`, `SystemContext`, `SpecChange`) and a derived view of the code,
+`CodeGraph`. Policies live on the orphan branch
+`open-policy/<repository>[--<branch>]`, next to the specs and never in the
+project tree, and they are evaluated offline: no kcp, no controller.
+
+```bash
+scripts/install-policy-tools.sh                  # pinned opa and gator into bin/
+bin/specctl policy init --repo market-mini --dir /tmp/policies
+bin/specctl policy new relay-only-ssh --kind RelayOnlySsh --dir /tmp/policies \
+  --title "ssh over the relay only" --pattern 'Deno\.connect' --glob 'test/**'
+bin/specctl policy test --dir /tmp/policies            # opa unit tests + gator suites
+bin/specctl policy test --dir /tmp/policies --gator    # the real gator binary too
+bin/specctl policy eval --worktree fixtures/market-mini/compliant
+bin/specctl policy eval --worktree fixtures/market-mini/violating -o json
+```
+
+`policy eval` on `fixtures/market-mini/compliant` prints `violations: 0` and
+`clean`; the `violating` variant reports the direct `Deno.connect` its
+integration test dials. The example library is `examples/policies/market-mini`,
+and a repository with no policy branch falls back to
+`examples/policies/<repository>`. `--dir` writes a plain directory; without it
+`init`, `new` and `build` commit to the `open-policy/<repo>` branch of `--path`
+(`--branch` picks a feature branch's own, as `open-architecture/` does).
+
+`policy eval --commit <sha> --path <clone>` audits a commit the same way, and
+`--strict` exits 1 when a `deny` violation survives the Repository's enforcement
+cap. A gate decision (`deny`, `warn`, `dryrun`, one-shot `policy:<constraint>`
+overrides) is `abc/policy`; nothing about it is wired into kcp yet.
+
+The engine is the same client `bin/gator` builds: Gatekeeper's
+`frameworks/constraint` client with its K8s validation target, so a suite
+passes or fails identically under `specctl policy test` and under
+`bin/gator verify`. A conformance test runs every suite in `examples/` and
+`testdata/` through both and fails when the two disagree
+(`SPECD_REQUIRE_GATOR=1` makes a missing gator fatal).
+
+A policy is a directory: `templates/<name>/src.rego` (the rule, always
+`violation[{"msg","details"}]`), `templates/<name>/template.yaml` (the
+ConstraintTemplate header plus the specd annotations), `constraints/<name>.yaml`
+and `tests/<name>/suite.yaml`. `specctl policy build` renders
+`dist/<name>.yaml` with the shared `lib.specd` Rego library inlined, refreshes
+`lib/specd.rego` and renders `CATALOGUE.md`. The library reference, the
+annotations and the violation shape are phase 0008 B (`docs/policies.md`).
+
 ## Requirements
 
 `go` (1.26 or newer), `kcp` v0.33, `kine`, `kubectl`, `codegraph` on `PATH` for

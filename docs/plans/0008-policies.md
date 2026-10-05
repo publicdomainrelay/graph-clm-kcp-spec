@@ -295,33 +295,66 @@ are pushed.
    `rego.SetRegoVersion(ast.RegoV0)`), so `lib.specd` and every `src.rego` are
    written in Rego v0 syntax, and `opa test` is run with `--v0-compatible`.
    No fallback to bare `opa/v1/rego` was needed.
-   - **Fallback:** `github.com/open-policy-agent/opa/v1/rego` implementing the
-     exact Gatekeeper template contract (input.review, input.parameters,
-     data.inventory, libs, violation set).
-   - **Either way:** a conformance test runs the same suites through the real
-     `gator verify` binary when `SPECD_REQUIRE_GATOR=1`, and the results must
-     match.
-2. `abc/policy`: pure types for the following, with no I/O:
-   - Template, Constraint, Match, Violation, Report, Enforcement;
-   - CodeGraph and CodeDiff;
-   - the branch layout paths;
-   - `Resolve` (branch fallback);
-   - the gate decision (deny, warn, dryrun, overrides, the enforcement cap);
-   - match semantics: kinds, name glob, labelSelector, namespaces.
-3. `impl/codegraphfacts` builds the CodeGraph from the codegraph sqlite, the
-   tree and the arch status. `impl/policyeval` is the engine.
-   `impl/policygit` reads and writes the policy branch (on `oagit.Store`).
-4. `lib.specd` with opa unit tests.
-5. `specctl policy init|new|build|test|eval`, plus
-   `scripts/install-policy-tools.sh`.
-6. Fixture `fixtures/market-mini`: a small Deno workspace shaped like
-   atproto-market, with:
-   - bidder, compute provider, requester, a cloud-init module, and an
-     integration test;
-   - two branches or two directories, compliant and violating, for both
-     example policies.
-
-   It drives fast deterministic tests.
+   - **Conformance, done** (`6cc91b8`): `impl/policyeval/conformance_test.go`
+     runs every suite under `examples/` and `testdata/` through the built-in
+     engine and through `bin/gator verify -v` and compares each case;
+     `SPECD_REQUIRE_GATOR=1` makes a missing binary fatal instead of a skip.
+2. **Done** (`8974cc0`). `abc/policy`: Template with the specd annotations and
+   the ConstraintTemplate header round trip, Constraint, `Match` with kinds,
+   scope, namespaces, excluded namespaces, labelSelector, namespaceSelector and
+   the name glob, Violation and Report, Enforcement, the CodeGraph and CodeDiff
+   types, the `open-policy/` layout with `Resolve` reusing `oabranch.Slug`, and
+   the gate decision with the Repository cap and one-shot overrides.
+   - A constraint's `apiVersion` is `constraints.gatekeeper.sh/v1beta1`, not
+     `<kind>.constraints.gatekeeper.sh`; Gatekeeper's client rejects the latter.
+     `<kind lower>.constraints.gatekeeper.sh` is the **CRD** name, not the
+     object's group.
+   - Gatekeeper requires `ConstraintTemplate.metadata.name == lower(kind)`, so
+     a policy is a **slug** (`relay-only-ssh`) for its directory, files and
+     constraint name, and its template name is `lower(kind)`
+     (`relayonlyssh`). `policy.TemplateSlug` is the directory name; the
+     violation carries the slug.
+   - `match.name` is exact in Gatekeeper. `abc/policy` also accepts a glob, and
+     `impl/policyeval` honours it by stripping the name from the object it
+     hands the engine and filtering the results through `Match.Matches`, so the
+     pure matcher and the engine cannot disagree.
+3. **Done** (`8974cc0`). `impl/codegraphfacts` builds the deterministic
+   CodeGraph from the codegraph sqlite index, the tree and the arch partition
+   (node text 64 KiB, file text 256 KiB, test globs, file sha256 and size).
+   `impl/policyeval` is the engine: the framework client, the gator Suite
+   runner driven by it (assertions run through gator's own `Assertion.Run`, so
+   only the engine is ours), and an in-process opa unit test runner.
+   `impl/policygit` reads and writes the branch through `oagit.Store`, an
+   orphan branch when the parent is empty and append-only changes otherwise.
+4. **Done** (`8974cc0`). `impl/policyeval/lib/specd.rego` is the library from
+   the data model section: `code_graph`, `contexts`, `context(name)`,
+   `repository`, `arch`, `requirement(ctx, id)`, `files_matching`,
+   `tests_matching`, `nodes_in_files`, `nodes_in_context`, `nodes_named`,
+   `nodes_qualified`, `calls_from`, `callers_of`, `adjacency`,
+   `reverse_adjacency`, `reachable_from`, `reaching`, `paths_between`,
+   `lines_matching`, `files_matching_text`, `node_text_matches`, `location`
+   and `violation`, with 15 opa unit tests. It is embedded in the binary and
+   written to `lib/specd.rego` by `init` and `build`.
+   - `graph.reachable` skips a vertex that is not a key of the graph, so
+     `adjacency`/`reverse_adjacency` first complete the vertex set; a leaf is
+     then reachable, and the result includes the roots (OPA's semantics).
+5. **Done** (`7994fdf`, `6cc91b8`). `specctl policy init|new|build|test|eval`
+   and `scripts/install-policy-tools.sh` (pinned opa v1.21.0 and gator
+   v3.23.1, both by sha256, idempotent). `test` runs the opa unit tests and the
+   suites through the built-in engine, and `--gator` runs the real binary too.
+   `eval` reads a policy branch, or `examples/policies/<repo>` when there is
+   none, and audits `--worktree` or `--commit` without kcp.
+6. **Done** (`6cc91b8`). `fixtures/market-mini/{compliant,violating}`: a Deno
+   workspace with a bidder, a compute provider, a requester whose ssh uses
+   `ProxyCommand` from the transport a cloud-init `UserDataModule` deploys, and
+   an integration test that drives the bidder and the requester. The
+   `violating` variant dials the guest directly (`Deno.connect`, `ssh -p`) and
+   emits `vm.onNetwork` from a `computeProvider.getNodeId` reach-in; the
+   compliant one emits it from the inbound guest report handler. Both pass
+   `deno check`. `examples/policies/market-mini` carries the one policy phase A
+   needs, and the conformance test at `impl/policyeval/conformance_test.go`
+   runs it through our engine and the real gator and compares every case.
+   Phase B replaces that placeholder with the two real policies.
 
 ### B. The two example policies and the real run
 
