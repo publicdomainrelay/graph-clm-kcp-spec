@@ -58,11 +58,11 @@ commit it resolved to. `policy eval` and `policy model` print the pins;
 
 ```yaml
 imports:
-- files: 51
+- files: 35
   pack: rfp-guest-isolation
-  sha256: e23fbd799c492448219694ad8b4ae33ebe0571b16b4b598a4418bf90e8599c22
+  sha256: 1c28a6a6c4c0120281534a024df8a06d26713d2a53ce1cbff0226f6c3d7607f3
   source: embedded
-  version: v1
+  version: v2
 members:
 - commit: fb11e740185ef27e870b361c414f1e4aee9a11cd
   name: hono-compute-provider

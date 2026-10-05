@@ -536,7 +536,7 @@ policies/packs/rfp-guest-isolation/
 
 ```yaml
 name: rfp-guest-isolation
-version: v1
+version: v2
 description: the RFP flow's guest isolation invariants over the ArchitectureModel
 roles: [guest, host, test]
 vocabulary: [events/network-report, payloads/network-info,
@@ -1613,9 +1613,8 @@ that difference in the rule, or be waived constraint-wide knowing the scope.
 `examples/policies/market-mini` as the fixture-parameterized twin:
 
 - `relay-only-ssh` (P-relay): integration tests that drive a bidder and a
-  requester must make every ssh over the relay -- a `ProxyCommand` whose
-  transport is on the allowed list -- and must never dial a guest address
-  directly.
+  requester must make every ssh over a relay -- any `ProxyCommand` that is not
+  a direct dial counts -- and must never dial a guest address directly.
 - `guest-report-reach-in`, `guest-report-driven-emission`,
   `guest-report-driven-onnetwork`, `guest-report-cloud-init`
   (P-guest-reports, one policy as a set of templates): the host must not reach
