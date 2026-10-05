@@ -221,6 +221,8 @@ spec:
                   properties:
                     policyCommit:
                       type: string
+                    kcpFingerprint:
+                      type: string
                     evaluatedCommit:
                       type: string
                     totals:

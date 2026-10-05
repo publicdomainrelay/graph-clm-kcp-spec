@@ -119,6 +119,7 @@ const (
 	ReasonPolicyDenied     = "PolicyDenied"
 	ReasonPolicyRestored   = "PolicyRestored"
 	ReasonPolicyInvalid    = "PolicyInvalid"
+	ReasonPolicyConflict   = "PolicyConflict"
 
 	ReasonPolicyDeniedAtSpec = "PolicyDeniedAtSpec"
 

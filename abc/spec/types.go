@@ -115,6 +115,12 @@ type PolicyViolation struct {
 type PolicyStatus struct {
 	PolicyCommit string `json:"policyCommit,omitempty"`
 
+	// KcpFingerprint is the content of this repository's kcp policy objects at
+	// the last sync. With PolicyCommit it is the recorded base: a sync compares
+	// the branch commit and this fingerprint against the branch and kcp it
+	// finds, so it can tell which side moved and never overwrites the other.
+	KcpFingerprint string `json:"kcpFingerprint,omitempty"`
+
 	EvaluatedCommit string `json:"evaluatedCommit,omitempty"`
 
 	Totals map[string]int `json:"totals,omitempty"`

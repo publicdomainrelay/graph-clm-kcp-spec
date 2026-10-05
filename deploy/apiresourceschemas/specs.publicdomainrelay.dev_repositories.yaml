@@ -300,6 +300,8 @@ spec:
               properties:
                 evaluatedCommit:
                   type: string
+                kcpFingerprint:
+                  type: string
                 message:
                   type: string
                 policyCommit:

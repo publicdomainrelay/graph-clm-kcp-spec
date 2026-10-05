@@ -530,7 +530,14 @@ func managed(name string) bool {
 // Distinct reports whether a kcp library differs from a branch library, by
 // template and constraint content rather than by commit.
 func Distinct(kcp, branch policy.Library) bool {
-	return fingerprint(kcp) != fingerprint(branch)
+	return Fingerprint(kcp) != Fingerprint(branch)
+}
+
+// Fingerprint is the content of a library as one comparable string: the same
+// library read from a branch and from kcp fingerprints the same, so the sync
+// can tell which side moved from a recorded base.
+func Fingerprint(library policy.Library) string {
+	return fingerprint(library)
 }
 
 func fingerprint(library policy.Library) string {
