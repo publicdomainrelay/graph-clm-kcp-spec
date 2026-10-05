@@ -2015,6 +2015,113 @@ make demo-phases                            # phases 1 to 9, one example each
 
 ## Ports and state
 
+### At a glance
+
+There are three kinds of state. Each kind has one owner and one lifetime.
+
+| state | where | owner | lifetime |
+| --- | --- | --- | --- |
+| kcp + kine (API objects) | one root per (checkout, branch); `kine.db` sqlite inside it | `specctl up` / `specctl kcp start` / a test | until `specctl down`, or until the test that started it dies |
+| specs (durable record) | orphan git branches `open-architecture/<repo>[--<branch>]`, `open-policy/<repo>[--<branch>]` | specd commits, you push | forever (git) |
+| graph (derived index) | ArcadeDB `bolt://127.0.0.1:7688` (default) or HydraDB `bolt://127.0.0.1:7687` | started outside this repository | can be rebuilt from git and code at any time |
+
+The state directory comes from `$SPECD_STATE_DIR`, else
+`$XDG_STATE_HOME/specd`, else `~/.local/state/specd`.
+
+```mermaid
+flowchart TB
+  S["$SPECD_STATE_DIR"]
+  S --> SE["sessions/&lt;repo&gt;-&lt;hash&gt;/&lt;branch&gt;.json<br/>repo, branch, kcp/kine urls + pids, specd pid, workspace"]
+  S --> R["repos/&lt;repo&gt;-&lt;hash&gt;/&lt;branch&gt;/kcp/"]
+  R --> EP["endpoint.json<br/>bound ports, urls, pids"]
+  R --> KC["admin.kubeconfig, &lt;repo&gt;.kubeconfig"]
+  R --> KD["kine.db (sqlite: every kcp object)"]
+  R --> LG["kcp.log, kine.log (capped 16 MiB)"]
+  S --> L["logs/&lt;repo&gt;-&lt;hash&gt;--&lt;branch&gt;.specd.log"]
+  S --> C["clm/ (CLM context documents)"]
+  S --> D["deploy/"]
+  M[".kcp-specd/ in this checkout<br/>make kcp-up, evals, live.lock"]
+```
+
+`specctl up` gives each (checkout, branch) its own kcp, kine, workspace and
+specd:
+
+```mermaid
+sequenceDiagram
+  participant U as specctl up
+  participant K as kcpproc
+  participant P as kcp + kine
+  participant D as specd (setsid)
+  participant G as git
+  U->>K: Probe(root): endpoint.json + /proc cmdline scan
+  alt already serving this root
+    K-->>U: reuse urls and pids
+  else not running
+    K->>K: ask the kernel for two free ports on 127.0.0.1
+    K->>P: start kine (sqlite root/kine.db), then kcp --root-directory=root
+    K-->>U: write endpoint.json
+  end
+  U->>G: fetch open-architecture/<repo>[--branch]
+  U->>P: restore objects from the branch, or apply a new Repository
+  U->>D: start detached specd, record its pid in sessions/...json
+  D->>P: watch, reconcile
+  D->>G: commit specs, changes, status
+```
+
+The process lifetime depends on who started the process:
+
+```mermaid
+flowchart LR
+  A["specctl up / specctl kcp start / make kcp-up"] -->|detached, setsid| B["kcp, kine, specd<br/>pids in session json + endpoint.json"]
+  B -->|specctl down / make kcp-down| X["stopped: only processes whose cmdline names this root"]
+  T["go test (live)"] -->|DieWithStarter| P["private kcp + kine in a temp root"]
+  P -->|"Pdeathsig SIGKILL<br/>(forking thread pinned)"| Y["die with the test binary, even on timeout or kill -9"]
+  T -->|SPECD_KCP_LEDGER| Z["TestMain: still alive at the end? name it, kill it, fail the package"]
+```
+
+All the services involved, and their ports:
+
+```mermaid
+flowchart TB
+  subgraph per-instance ["per (checkout, branch): kernel-assigned, 127.0.0.1 only"]
+    KCP["kcp secure port"] --- KINE["kine port"]
+  end
+  subgraph shared ["shared, started outside this repository"]
+    AR["ArcadeDB bolt 7688<br/>root / clm-arcadedb-root, db clm"]
+    HY["HydraDB bolt 7687, http 7474, admin 9090<br/>token /tmp/hdb/token"]
+  end
+  subgraph reserved ["reserved: never touch"]
+    DK["6443 / 23791 deno-kcp"]
+    OLD["6447 / 23797 older hydradb instance"]
+  end
+  RUN["each test or eval run"] -->|"SPECD_GRAPH_NAMESPACE = random prefix"| AR
+  RUN --> KCP
+```
+
+Rules behind these diagrams:
+
+- **Ownership by root.**
+  - A kcp or kine belongs to a root when its `/proc/<pid>/cmdline` names
+    `--root-directory=<root>` or `--endpoint sqlite://<root>/kine.db`.
+  - Stop and probe act only on processes that belong to the root. A second
+    start on a root that is already serving is refused.
+- **Ports.**
+  - With no pin, kcp and kine get kernel-assigned ports, so instances never
+    collide.
+  - `kcpproc` binds `127.0.0.1:0`, reads the port, closes it and passes the
+    number to kcp. Another process can take the port in that short window;
+    this is a known limitation.
+  - `KCP_SECURE_PORT` / `KINE_ENDPOINT` pin a port when a firewall needs one.
+- **Graph isolation.**
+  - Both graph servers are shared by every run on the machine.
+  - Every run writes under its own `SPECD_GRAPH_NAMESPACE`. A run never
+    drops data that belongs to another namespace.
+  - The graph is an index of what git holds. Losing it loses nothing durable.
+- **Serialisation.** A run that reuses one existing kcp (`specctl eval`, or
+  e2e with `SPECD_E2E_KUBECONFIG`) takes an exclusive `flock` on
+  `live-<hash>.lock`, keyed by kubeconfig and workspace. Runs on the same
+  cluster then wait for each other. Runs on different clusters never wait.
+
 By default kcp and kine ask the kernel for their ports. `make kcp-up` (that
 is, `deploy/start-kcp.sh`, which is `specctl kcp start --root .kcp-specd`)
 writes the bound ports, the urls and the pids to `.kcp-specd/endpoint.json`,
