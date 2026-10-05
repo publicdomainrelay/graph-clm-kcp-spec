@@ -42,6 +42,19 @@ type policyDraft struct {
 	report policy.Report
 
 	summary string
+
+	refusedLog string
+}
+
+// appendAttemptLog keeps every refused attempt in the accepted change's agent
+// log: the harness reads it as the next attempt's instruction, so the reason
+// the earlier trees were refused has to survive the accepted one.
+func appendAttemptLog(log string, attempt int, failures []string) string {
+	line := fmt.Sprintf("attempt %d: %s", attempt, strings.Join(failures, "\n"))
+	if log == "" {
+		return line
+	}
+	return log + "\n" + line
 }
 
 func (d policyDraft) failed() bool {
@@ -142,6 +155,7 @@ func (c *Controller) draftPolicyChange(ctx context.Context, namespace string, ch
 	}
 	failures := []string{}
 	attemptsSpent := 0
+	refusedLog := ""
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		attemptsSpent = attempt
 		if err := os.RemoveAll(dir); err != nil {
@@ -163,6 +177,7 @@ func (c *Controller) draftPolicyChange(ctx context.Context, namespace string, ch
 		generated, err := generator.Generate(ctx, request)
 		if err != nil {
 			failures = append(failures, "the harness failed: "+err.Error())
+			refusedLog = appendAttemptLog(refusedLog, attempt, failures)
 			c.recordPolicyAttempt(ctx, namespace, change, dir, attempt, failures, generated.Summary)
 			continue
 		}
@@ -171,10 +186,12 @@ func (c *Controller) draftPolicyChange(ctx context.Context, namespace string, ch
 			return 0, err
 		}
 		draft.summary = generated.Summary
+		draft.refusedLog = refusedLog
 		if !draft.failed() {
 			break
 		}
 		failures = append([]string{}, draft.failures()...)
+		refusedLog = appendAttemptLog(refusedLog, attempt, failures)
 		c.recordPolicyAttempt(ctx, namespace, change, dir, attempt, failures, generated.Summary)
 	}
 	if draft.failed() || len(draft.checks) == 0 {
@@ -797,8 +814,16 @@ func (c *Controller) recordPolicyEvaluated(ctx context.Context, namespace string
 		"checks":  draft.checks,
 		"message": evaluatedMessage(draft),
 	}
+	log := draft.refusedLog
 	if draft.summary != "" {
-		status["agentLog"] = tailMessage(draft.summary)
+		if log == "" {
+			log = draft.summary
+		} else {
+			log = log + "\n" + draft.summary
+		}
+	}
+	if log != "" {
+		status["agentLog"] = tailMessage(log)
 	}
 	if change.Spec.Mode() == policy.GenerateModeBind {
 		binding := draft.manifest.Binding()
