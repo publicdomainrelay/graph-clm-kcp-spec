@@ -196,10 +196,25 @@ func BuildModel(input ModelInput) (ArchitectureModel, error) {
 	}
 	model.Metadata.Name = input.Repository
 	model.Spec.Repository = input.Repository
-	model.Spec.Roles = input.Binding.RoleNames()
+	model.Spec.Roles = modelRoles(model, input.Binding)
 	model.Spec.Vocabulary = input.Binding.Vocabulary
 	model.Sort()
 	return model, nil
+}
+
+// modelRoles is every role the merged model carries: the importing library's,
+// plus any a member added.
+func modelRoles(model ArchitectureModel, binding Binding) []string {
+	out := binding.RoleNames()
+	for _, component := range model.Spec.Components {
+		for _, role := range component.Roles {
+			if !slices.Contains(out, role) {
+				out = append(out, role)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // prefixModel rewrites one repository's model as a member's: every component,

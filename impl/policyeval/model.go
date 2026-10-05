@@ -54,6 +54,7 @@ func BuildEvaluationModel(ctx context.Context, request ModelRequest) (policy.Arc
 	if err != nil {
 		return policy.ArchitectureModel{}, nil, err
 	}
+	policy.SortMembers(pins)
 	return model, pins, nil
 }
 

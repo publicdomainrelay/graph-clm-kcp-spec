@@ -1,6 +1,9 @@
 package policy
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 // Member is another repository a policy library reads besides its own. The
 // ArchitectureModel is built over every member, so a pack rule sees a flow
@@ -53,6 +56,14 @@ type ReportMember struct {
 	Ref string `json:"ref,omitempty"`
 
 	Commit string `json:"commit,omitempty"`
+}
+
+// SortMembers puts a report's member pins in name order, so two runs of the
+// same evaluation print the same lines.
+func SortMembers(members []ReportMember) {
+	slices.SortStableFunc(members, func(left, right ReportMember) int {
+		return strings.Compare(left.Name, right.Name)
+	})
 }
 
 // MemberNames lists the members a library declares, sorted, so a report and a
