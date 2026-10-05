@@ -1,0 +1,37 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RelayOnlySsh
+metadata:
+  name: relay-only-ssh
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - CodeGraph
+  parameters:
+    testGlobs:
+    - test/*/*.go
+    driverIdentifiers: liveExample|exampleFiles|runComputeContract
+    sshPattern: exec\.Command\(\s*"ssh"
+    proxyCommandPattern: ProxyCommand
+    allowedTransports:
+    - websocat
+    - fedproxy
+    - relay-subscriber
+    - dumbpipe connect
+    - iroh connect
+    - tunnel-subscriber
+    directDialPatterns:
+    - net\.Dial\([^)]*[Gg]uest
+    - exec\.Command\(\s*"nc"
+    - curl[^\n]*guest
+    edgeKinds:
+    - calls
+    - imports
+    - references
+    - contains
+    - instantiates
+    - implements
+    - extends

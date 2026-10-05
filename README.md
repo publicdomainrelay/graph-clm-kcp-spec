@@ -813,8 +813,8 @@ bin/specctl policy test --dir /tmp/policies            # opa unit tests + gator 
 bin/specctl policy test --dir /tmp/policies --gator    # the real gator binary too
 bin/specctl policy eval --worktree fixtures/market-mini/compliant
 bin/specctl policy eval --worktree fixtures/market-mini/violating -o json
-bin/specctl policy eval --repo deno-kcp --commit 0f1078d --path <clone> \
-  --diff-base 0f1078d^ --library policies/library    # CodeDiff rules need --diff-base
+bin/specctl policy eval --repo deno-kcp --commit <sha> --path <clone> \
+  --diff-base main --library examples/policies/deno-kcp  # CodeDiff rules need --diff-base
 bin/specctl policy effects --worktree fixtures/market-mini/compliant
 bin/specctl policy model --worktree fixtures/market-mini/compliant
 bin/specctl policy model --worktree fixtures/market-mini/compliant --propose-interactions
@@ -904,10 +904,17 @@ seven templates (a change that is Succeeded past a failed acceptance, a
 requirement text with a machine path, container-run-in-test, manual ssh key
 material, a cloud-init bypass, a new guest transport outside a `UserDataModule`,
 disabled certificate verification), each with its origin and calibration note in
-the template annotations. It is embedded in the binary and copied by
+the template annotations. Certificate verification is measured by the pattern
+set `--insecure` (`--insecure-skip-tls-verify` included), `InsecureSkipVerify`,
+`rejectUnauthorized: false`, `NODE_TLS_REJECT_UNAUTHORIZED=0`,
+`--tls-verify=false` and `curl -k`; `kubectl --validate=false` is schema
+validation and is not in it. It is embedded in the binary and copied by
 `policy init --with-library`. The CodeDiff rules need `policy eval --diff-base
 REF`, which derives the diff for the evaluated commit; `docs/policies.md` records
-the real run against deno-kcp `0f1078d` (five denies).
+the real run -- deno-kcp pull request #1's head `dc4c717e` against `main`, seven
+denies -- and `examples/policies/deno-kcp` is the same library bound to
+deno-kcp (roles, vocabulary), with `relay-only-ssh` re-bound from the
+atproto-market portable set.
 
 A policy is a directory: `templates/<slug>/src.rego` (the rule, always
 `violation[{"msg","details"}]`), `templates/<slug>/template.yaml` (the

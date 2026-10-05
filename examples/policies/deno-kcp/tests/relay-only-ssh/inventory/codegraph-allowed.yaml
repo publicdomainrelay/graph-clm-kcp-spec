@@ -1,0 +1,36 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeGraph
+metadata:
+  name: deno-kcp
+  namespace: default
+spec:
+  repository: deno-kcp
+  commit: "0000000000000000000000000000000000000000"
+  files:
+  - path: test/integration/live_test.go
+    test: true
+  - path: internal/provider/guest_ssh.go
+    test: false
+  nodes:
+  - id: "file:test/integration/live_test.go"
+    kind: file
+    name: live_test.go
+    qualifiedName: live_test.go
+    file: test/integration/live_test.go
+    text: ""
+  - id: "fn:ssh"
+    kind: function
+    name: openGuestSession
+    qualifiedName: openGuestSession
+    file: internal/provider/guest_ssh.go
+    startLine: 10
+    text: |
+      exec.Command("ssh", "-o", "ProxyCommand=websocat --binary wss://relay/tunnel", "root@guest")
+  edges:
+  - source: "file:test/integration/live_test.go"
+    target: "fn:ssh"
+    kind: calls
+    line: 4
+  texts:
+    test/integration/live_test.go: |
+      func TestLive(t *testing.T) { liveExample(t) }

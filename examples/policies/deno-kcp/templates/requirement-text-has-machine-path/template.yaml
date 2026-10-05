@@ -1,0 +1,25 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: requirementtexthasmachinepath
+  annotations:
+    specs.publicdomainrelay.dev/title: "a requirement text names a path that exists on one machine only"
+    specs.publicdomainrelay.dev/level: MUST
+    specs.publicdomainrelay.dev/severity: error
+    specs.publicdomainrelay.dev/origin: "deno-kcp opa-first-stab policies/spec_structure/requirement-text-has-machine-path"
+    specs.publicdomainrelay.dev/calibration: "the pattern is the origin's lib/refs machine_paths regex, /(?:home|Users|root|tmp|mnt|opt|srv)/[A-Za-z0-9._@+-]+, unchanged. RESULTS.md found it on r.bidder-pod, whose text names /home/johnandersen777/src/publicdomainrelay-kcp; specd's own spec.AbsoluteMachinePath (abc/spec/quality.go) uses the same regex to reject the class at draft time. One deviation: the origin scans every requirement in the spec tree, this port scans the SpecChange delta's to.text, because a Gatekeeper policy here reviews one object and the change is the object under review."
+spec:
+  crd:
+    spec:
+      names:
+        kind: RequirementTextHasMachinePath
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            machinePathPatterns:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh

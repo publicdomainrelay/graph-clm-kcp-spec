@@ -1,0 +1,172 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  annotations:
+    specs.publicdomainrelay.dev/calibration: the origin fired on an added line naming
+      websocat, wstunnel, chisel, frpc/frps, autossh, rathole or socat unless the
+      same line named UserDataModule, user_data, userData, cloud-init or cloud_config.
+      RESULTS.md did not raise it on the change under review. The transport and module
+      lists are parameters, and the module marker defaults are kept, because a missing
+      parameter must not turn the rule into one that fires on every transport line.
+      A comment line is skipped and markdown is ignored by default, because the origin's
+      code.is_comment guard had no counterpart here and a comment or a README that
+      names a transport deploys nothing; a baseline over atproto-market found every
+      one of those on prose lines. A row matches once even when several patterns hit
+      it.
+    specs.publicdomainrelay.dev/level: MUST
+    specs.publicdomainrelay.dev/origin: deno-kcp opa-first-stab policies/code_safety
+      provisioning-new-guest-transport
+    specs.publicdomainrelay.dev/severity: error
+    specs.publicdomainrelay.dev/title: a guest transport is added outside cloud-init-common
+  name: provisioningnewguesttransport
+spec:
+  crd:
+    spec:
+      names:
+        kind: ProvisioningNewGuestTransport
+      validation:
+        openAPIV3Schema:
+          properties:
+            allowPatterns:
+              items:
+                type: string
+              type: array
+            commentPatterns:
+              items:
+                type: string
+              type: array
+            ignoredPaths:
+              items:
+                type: string
+              type: array
+            modulePatterns:
+              items:
+                type: string
+              type: array
+            transportPatterns:
+              items:
+                type: string
+              type: array
+          type: object
+  targets:
+  - libs:
+    - "package lib.specd\n\napi_version = \"specs.publicdomainrelay.dev/v1alpha1\"\n\ndefault
+      namespace = \"default\"\n\nnamespace = ns {\n\tns := input.review.object.metadata.namespace\n\tns
+      != \"\"\n}\n\ndefault repository_name = \"\"\n\nrepository_name = name {\n\tname
+      := input.review.object.spec.repository\n\tname != \"\"\n}\n\nrepository_name
+      = name {\n\tinput.review.kind.kind == \"Repository\"\n\tname := input.review.object.metadata.name\n}\n\nrepository_name
+      = name {\n\tinput.review.kind.kind == \"SpecChange\"\n\tcontext := data.inventory.namespace[namespace][api_version][\"SystemContext\"][input.review.object.spec.systemContext]\n\tname
+      := context.spec.repository\n}\n\ndefault repository = {}\n\nrepository = obj
+      {\n\tobj := data.inventory.namespace[namespace][api_version][\"Repository\"][repository_name]\n}\n\ndefault
+      code_graph = {\"spec\": {\"files\": [], \"nodes\": [], \"edges\": [], \"texts\":
+      {}}}\n\ncode_graph = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"CodeGraph\"][repository_name]\n}\n\ndefault
+      arch = {}\n\narch = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"Architecture\"][repository_name]\n}\n\ndefault
+      contexts = []\n\ncontexts = out {\n\tout := [obj | obj := data.inventory.namespace[namespace][api_version][\"SystemContext\"][_]]\n}\n\ncontext(name)
+      = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"SystemContext\"][name]\n}\n\nrequirement(ctx,
+      id) = req {\n\treq := context(ctx).spec.requirements[_]\n\treq.id == id\n}\n\nfiles_matching(globs)
+      = out {\n\tout := [file | file := code_graph.spec.files[_]; globs_match(globs,
+      file.path)]\n}\n\ntests_matching(globs) = out {\n\tout := [file | file := code_graph.spec.files[_];
+      file.test; globs_match(globs, file.path)]\n}\n\nnodes_in_files(paths) = out
+      {\n\tout := [node | node := code_graph.spec.nodes[_]; paths[_] == node.file]\n}\n\nnodes_in_context(name)
+      = out {\n\tout := [node | node := code_graph.spec.nodes[_]; node.context ==
+      name]\n}\n\nnodes_named(pattern) = out {\n\tout := [node | node := code_graph.spec.nodes[_];
+      re_match(pattern, node.name)]\n}\n\nnodes_qualified(pattern) = out {\n\tout
+      := [node | node := code_graph.spec.nodes[_]; re_match(pattern, node.qualifiedName)]\n}\n\ntests_matching_text(globs,
+      pattern) = out {\n\tout := [file | file := tests_matching(globs)[_]; re_match(pattern,
+      code_graph.spec.texts[file.path])]\n}\n\nnode(id) = out {\n\tout := code_graph.spec.nodes[_]\n\tout.id
+      == id\n}\n\nfile_node(path) = out {\n\tout := code_graph.spec.nodes[_]\n\tout.kind
+      == \"file\"\n\tout.file == path\n}\n\nnodes_with_id(ids) = out {\n\tout := [node
+      | node := code_graph.spec.nodes[_]; ids[node.id]]\n}\n\nnodes_matching_text(pattern)
+      = out {\n\tout := [node | node := code_graph.spec.nodes[_]; re_match(pattern,
+      node.text)]\n}\n\nidentified(node, pattern) {\n\tre_match(pattern, node.text)\n}\n\nidentified(node,
+      pattern) {\n\tre_match(pattern, node.name)\n}\n\nidentified(node, pattern) {\n\tre_match(pattern,
+      node.qualifiedName)\n}\n\nnodes_identified(pattern) = out {\n\tout := {node
+      | node := code_graph.spec.nodes[_]; identified(node, pattern)}\n}\n\nnodes_matching_globs(globs,
+      pattern) = out {\n\tout := [node |\n\t\tnode := code_graph.spec.nodes[_]\n\t\tglobs_match(globs,
+      node.file)\n\t\tre_match(pattern, node.text)\n\t]\n}\n\nnodes_reachable_from(ids,
+      kinds, pattern) = out {\n\tout := [node |\n\t\treached := reachable_from(ids,
+      kinds)\n\t\tnode := nodes_with_id(reached)[_]\n\t\tre_match(pattern, node.text)\n\t]\n}\n\nnode_match_line(node,
+      pattern) = out {\n\tnode.startLine > 0\n\tlines := split(node.text, \"\\n\")\n\tfound
+      := {line | line := node.startLine + index; re_match(pattern, lines[index])}\n\tout
+      := sort(found)[0]\n}\n\nfirst_line(path, pattern) = out {\n\tlines := split(code_graph.spec.texts[path],
+      \"\\n\")\n\tfound := {line | line := index + 1; re_match(pattern, lines[index])}\n\tout
+      := sort(found)[0]\n}\n\nmatches_globs(globs, path) {\n\tglobs_match(globs, path)\n}\n\ndefinition_node(node)
+      {\n\tnode.kind != \"file\"\n\tnode.kind != \"import\"\n}\n\nedge_kinds = [\"calls\",
+      \"imports\", \"contains\", \"references\", \"instantiates\", \"implements\",
+      \"extends\"]\n\ncalls_from(id) = out {\n\tout := [edge.target | edge := code_graph.spec.edges[_];
+      edge.source == id; edge.kind == \"calls\"]\n}\n\ncallers_of(id) = out {\n\tout
+      := [edge.source | edge := code_graph.spec.edges[_]; edge.target == id; edge.kind
+      == \"calls\"]\n}\n\nselected_edges(kinds) = out {\n\tout := [edge | edge :=
+      code_graph.spec.edges[_]; kinds[_] == edge.kind]\n}\n\nvertices(kinds) = out
+      {\n\tselected := selected_edges(kinds)\n\tout := {vertex | vertex := selected[_].source}
+      | {vertex | vertex := selected[_].target}\n}\n\nadjacency(kinds) = graph {\n\tselected
+      := selected_edges(kinds)\n\tgraph := {source: targets |\n\t\tsource := vertices(kinds)[_]\n\t\ttargets
+      := [target | other := selected[_]; other.source == source; target := other.target]\n\t}\n}\n\nreverse_adjacency(kinds)
+      = graph {\n\tselected := selected_edges(kinds)\n\tgraph := {target: sources
+      |\n\t\ttarget := vertices(kinds)[_]\n\t\tsources := [source | other := selected[_];
+      other.target == target; source := other.source]\n\t}\n}\n\nreachable_from(ids,
+      kinds) = out {\n\tout := graph.reachable(adjacency(kinds), ids)\n}\n\nreaching(ids,
+      kinds) = out {\n\tout := graph.reachable(reverse_adjacency(kinds), ids)\n}\n\nclosure_from(ids,
+      kinds) = out {\n\tout := reachable_from(ids, kinds) | {id | id := ids[_]}\n}\n\nclosure_reaching(ids,
+      kinds) = out {\n\tout := reaching(ids, kinds) | {id | id := ids[_]}\n}\n\npaths_between(ids,
+      kinds) = out {\n\tout := graph.reachable_paths(adjacency(kinds), ids)\n}\n\nlines_matching(path,
+      pattern) = out {\n\tlines := split(code_graph.spec.texts[path], \"\\n\")\n\tout
+      := [{\"line\": index + 1, \"text\": line} | line := lines[index]; re_match(pattern,
+      line)]\n}\n\nfiles_matching_text(pattern) = out {\n\tout := [file.path |\n\t\tfile
+      := code_graph.spec.files[_]\n\t\tre_match(pattern, code_graph.spec.texts[file.path])\n\t]\n}\n\nnode_text_matches(node,
+      pattern) {\n\tre_match(pattern, node.text)\n}\n\ndefault effects = []\n\neffects
+      = out {\n\tout := code_graph.spec.effects\n}\n\neffects_of(kind) = out {\n\tout
+      := [effect | effect := effects[_]; effect.kind == kind]\n}\n\neffects_of_component(component,
+      kind) = out {\n\tout := [effect | effect := effects[_]; effect.kind == kind;
+      effect.component == component]\n}\n\neffects_in(globs) = out {\n\tpaths := {path
+      | path := files_matching(globs)[_].path}\n\tout := [effect | effect := effects[_];
+      paths[effect.file]]\n}\n\neffect_targets(kind) = out {\n\tout := [target |\n\t\teffect
+      := effects_of(kind)[_]\n\t\ttarget := effect.attrs.target\n\t\ttarget != \"\"\n\t]\n}\n\ndefault
+      architecture_model = {\"spec\": {\"components\": [], \"effects\": [], \"flows\":
+      [], \"triggers\": []}}\n\narchitecture_model = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"ArchitectureModel\"][repository_name]\n}\n\ndefault
+      model_components = []\n\nmodel_components = out {\n\tout := architecture_model.spec.components\n}\n\ndefault
+      model_flows = []\n\nmodel_flows = out {\n\tout := architecture_model.spec.flows\n}\n\ndefault
+      model_triggers = []\n\nmodel_triggers = out {\n\tout := architecture_model.spec.triggers\n}\n\ncomponents_with_role(role)
+      = out {\n\tout := [component | component := model_components[_]; component.roles[_]
+      == role]\n}\n\nroles_of(component) = out {\n\tout := [role | entry := model_components[_];
+      entry.name == component; role := entry.roles[_]]\n}\n\nflows_where(filter) =
+      out {\n\tout := [flow | flow := model_flows[_]; flow_filter_matches(flow, filter)]\n}\n\nflow_filter_matches(flow,
+      filter) {\n\tnot flow_filter_key_fails(flow, filter)\n}\n\nflow_filter_key_fails(flow,
+      filter) {\n\tkey := [name | _ = filter[name]][_]\n\tnot flow_filter_key_matches(flow,
+      filter, key)\n}\n\nflow_filter_key_matches(flow, filter, \"from\") {\n\tflow.from
+      == filter.from\n}\n\nflow_filter_key_matches(flow, filter, \"to\") {\n\tflow.to
+      == filter.to\n}\n\nflow_filter_key_matches(flow, filter, \"initiator\") {\n\tflow.initiator
+      == filter.initiator\n}\n\nflow_filter_key_matches(flow, filter, \"channel\")
+      {\n\tflow.channel == filter.channel\n}\n\nflow_filter_key_matches(flow, filter,
+      \"purpose\") {\n\tflow.purpose == filter.purpose\n}\n\nflow_filter_key_matches(flow,
+      filter, \"source\") {\n\tflow.source == filter.source\n}\n\nflow_filter_key_matches(flow,
+      filter, \"carries\") {\n\tis_string(filter.carries)\n\tflow.carries[_] == filter.carries\n}\n\nflow_filter_key_matches(flow,
+      filter, \"carries\") {\n\tis_array(filter.carries)\n\twanted := filter.carries[_]\n\tflow.carries[_]
+      == wanted\n}\n\ntriggered_by(effect_id) = out {\n\tout := [trigger | trigger
+      := model_triggers[_]; trigger.to == effect_id]\n}\n\ndeclared(flow) {\n\tflow.source
+      == \"declared\"\n}\n\ndeclared(flow) {\n\tflow.source == \"both\"\n}\n\nobserved(flow)
+      {\n\tflow.source == \"observed\"\n}\n\nobserved(flow) {\n\tflow.source == \"both\"\n}\n\nlocation(file,
+      line) = {\"file\": file, \"line\": line}\n\nviolation(msg, details) = result
+      {\n\tresult := {\"msg\": msg, \"details\": details}\n}\n\nglobs_match(globs,
+      path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [], path)\n}\n"
+    rego: "package provisioningnewguesttransport\n\nimport data.lib.specd\n\nviolation[{\"msg\":
+      msg, \"details\": details}] {\n\tfile := input.review.object.spec.files[_]\n\trow
+      := file.added[_]\n\tpatterns := matched_patterns(row.text)\n\tcount(patterns)
+      > 0\n\tnot comment(row.text)\n\tnot ignored(file.path)\n\tnot module_marker(row.text)\n\tnot
+      allowed(row.text)\n\tmsg := sprintf(\"added line %s:%d introduces a guest transport
+      the cloud-init does not deploy: %q; a new guest transport is a UserDataModule
+      in cloud-init-common's registry, so the RFP flow stays the only way a guest
+      comes up\", [file.path, row.line, trim_space(row.text)])\n\tdetails := {\"file\":
+      file.path, \"line\": row.line, \"patterns\": patterns}\n}\n\nmatched_patterns(text)
+      = out {\n\tout := [pattern | pattern := transport_patterns[_]; regex.match(pattern,
+      text)]\n}\n\ntransport_patterns = out {\n\tout := input.parameters.transportPatterns\n}
+      else = [`\\bwebsocat\\b`, `\\bwstunnel\\b`, `\\bchisel\\b`, `\\bfrp[cs]\\b`,
+      `\\bautossh\\b`, `\\brathole\\b`, `\\bsocat\\b`]\n\nmodule_marker(text) {\n\tregex.match(module_patterns[_],
+      text)\n}\n\nmodule_patterns = out {\n\tout := input.parameters.modulePatterns\n}
+      else = [`UserDataModule`, `user_data`, `userData`, `cloud-init`, `cloud_config`]\n\nignored(path)
+      {\n\tspecd.matches_globs(ignored_paths, path)\n}\n\nignored_paths = out {\n\tout
+      := input.parameters.ignoredPaths\n} else = [`**/*.md`]\n\nallowed(text) {\n\tregex.match(input.parameters.allowPatterns[_],
+      text)\n}\n\ncomment(text) {\n\tregex.match(comment_patterns[_], text)\n}\n\ncomment_patterns
+      = out {\n\tout := input.parameters.commentPatterns\n} else = [`^\\s*#`, `^\\s*//`,
+      `^\\s*\\*`]\n"
+    target: admission.k8s.gatekeeper.sh

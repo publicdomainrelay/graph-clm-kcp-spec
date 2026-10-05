@@ -1,0 +1,12 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: ChangeSucceededWithFailedAcceptance
+metadata:
+  name: change-succeeded-with-failed-acceptance
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - SpecChange

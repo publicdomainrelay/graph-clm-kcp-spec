@@ -1,0 +1,24 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: SpecChange
+metadata:
+  name: bidder-pod-delta-machine-path
+  namespace: default
+spec:
+  systemContext: deploy-examples-atproto-market
+  direction: SpecToCode
+  delta:
+    requirements:
+      - op: changed
+        id: r.bidder-pod
+        fields:
+          - text
+        from:
+          id: r.bidder-pod
+          level: MUST
+          text: apply.sh rewrites the deployment prefix before the pod is created
+        to:
+          id: r.bidder-pod
+          level: MUST
+          text: apply.sh rewrites the /home/johnandersen777/src/publicdomainrelay-kcp prefix before the pod is created
+status:
+  phase: Succeeded

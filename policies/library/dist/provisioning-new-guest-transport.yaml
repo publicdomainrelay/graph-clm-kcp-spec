@@ -2,12 +2,21 @@ apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
 metadata:
   annotations:
-    specs.publicdomainrelay.dev/calibration: the origin fired on an added line naming
+    specs.publicdomainrelay.dev/calibration: 'the origin fired on an added line naming
       websocat, wstunnel, chisel, frpc/frps, autossh, rathole or socat unless the
       same line named UserDataModule, user_data, userData, cloud-init or cloud_config.
       RESULTS.md did not raise it on the change under review. The transport and module
       lists are parameters, and the module marker defaults are kept, because a missing
       parameter must not turn the rule into one that fires on every transport line.
+      A comment line is skipped and markdown is ignored by default, because the origin''s
+      code.is_comment guard had no counterpart here and a comment or a README that
+      names a transport deploys nothing; over the atproto-market iroh change that
+      took the rule from 36 to 21 denies. A row matches once even when several patterns
+      hit it. Recorded gap: the remaining denies are lines that name a transport without
+      running it, a transport-name selector or a lexicon description; a substring
+      over a diff cannot tell naming from running, and the plan-0009 model form of
+      this rule (a proc.exec effect whose argv0 is not deployed by cloud-init) is
+      what separates them.'
     specs.publicdomainrelay.dev/level: MUST
     specs.publicdomainrelay.dev/origin: deno-kcp opa-first-stab policies/code_safety
       provisioning-new-guest-transport
@@ -23,6 +32,14 @@ spec:
         openAPIV3Schema:
           properties:
             allowPatterns:
+              items:
+                type: string
+              type: array
+            commentPatterns:
+              items:
+                type: string
+              type: array
+            ignoredPaths:
               items:
                 type: string
               type: array
@@ -153,18 +170,24 @@ spec:
       line) = {\"file\": file, \"line\": line}\n\nviolation(msg, details) = result
       {\n\tresult := {\"msg\": msg, \"details\": details}\n}\n\nglobs_match(globs,
       path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [], path)\n}\n"
-    rego: "package provisioningnewguesttransport\n\nviolation[{\"msg\": msg, \"details\":
-      details}] {\n\tfile := input.review.object.spec.files[_]\n\trow := file.added[_]\n\tpattern
-      := transport_patterns[_]\n\tregex.match(pattern, row.text)\n\tnot module_marker(row.text)\n\tnot
+    rego: "package provisioningnewguesttransport\n\nimport data.lib.specd\n\nviolation[{\"msg\":
+      msg, \"details\": details}] {\n\tfile := input.review.object.spec.files[_]\n\trow
+      := file.added[_]\n\tpatterns := matched_patterns(row.text)\n\tcount(patterns)
+      > 0\n\tnot comment(row.text)\n\tnot ignored(file.path)\n\tnot module_marker(row.text)\n\tnot
       allowed(row.text)\n\tmsg := sprintf(\"added line %s:%d introduces a guest transport
       the cloud-init does not deploy: %q; a new guest transport is a UserDataModule
       in cloud-init-common's registry, so the RFP flow stays the only way a guest
       comes up\", [file.path, row.line, trim_space(row.text)])\n\tdetails := {\"file\":
-      file.path, \"line\": row.line, \"pattern\": pattern}\n}\n\ntransport_patterns
-      = out {\n\tout := input.parameters.transportPatterns\n} else = [`\\bwebsocat\\b`,
-      `\\bwstunnel\\b`, `\\bchisel\\b`, `\\bfrp[cs]\\b`, `\\bautossh\\b`, `\\brathole\\b`,
-      `\\bsocat\\b`]\n\nmodule_marker(text) {\n\tregex.match(module_patterns[_], text)\n}\n\nmodule_patterns
-      = out {\n\tout := input.parameters.modulePatterns\n} else = [`UserDataModule`,
-      `user_data`, `userData`, `cloud-init`, `cloud_config`]\n\nallowed(text) {\n\tregex.match(input.parameters.allowPatterns[_],
-      text)\n}\n"
+      file.path, \"line\": row.line, \"patterns\": patterns}\n}\n\nmatched_patterns(text)
+      = out {\n\tout := [pattern | pattern := transport_patterns[_]; regex.match(pattern,
+      text)]\n}\n\ntransport_patterns = out {\n\tout := input.parameters.transportPatterns\n}
+      else = [`\\bwebsocat\\b`, `\\bwstunnel\\b`, `\\bchisel\\b`, `\\bfrp[cs]\\b`,
+      `\\bautossh\\b`, `\\brathole\\b`, `\\bsocat\\b`]\n\nmodule_marker(text) {\n\tregex.match(module_patterns[_],
+      text)\n}\n\nmodule_patterns = out {\n\tout := input.parameters.modulePatterns\n}
+      else = [`UserDataModule`, `user_data`, `userData`, `cloud-init`, `cloud_config`]\n\nignored(path)
+      {\n\tspecd.matches_globs(ignored_paths, path)\n}\n\nignored_paths = out {\n\tout
+      := input.parameters.ignoredPaths\n} else = [`**/*.md`]\n\nallowed(text) {\n\tregex.match(input.parameters.allowPatterns[_],
+      text)\n}\n\ncomment(text) {\n\tregex.match(comment_patterns[_], text)\n}\n\ncomment_patterns
+      = out {\n\tout := input.parameters.commentPatterns\n} else = [`^\\s*#`, `^\\s*//`,
+      `^\\s*\\*`]\n"
     target: admission.k8s.gatekeeper.sh

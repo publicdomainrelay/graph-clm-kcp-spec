@@ -1,0 +1,21 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: requirement-text-has-machine-path
+tests:
+  - name: requirement-text-has-machine-path
+    template: ../../dist/requirement-text-has-machine-path.yaml
+    constraint: ../../constraints/requirement-text-has-machine-path.yaml
+    cases:
+      - name: allowed
+        object: inventory/changerecord-allowed.yaml
+        inventory:
+          - inventory/changerecord-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-machine-path
+        object: inventory/changerecord-denied.yaml
+        inventory:
+          - inventory/changerecord-denied.yaml
+        assertions:
+          - violations: 1

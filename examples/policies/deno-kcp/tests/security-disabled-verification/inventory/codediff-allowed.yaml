@@ -1,0 +1,14 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeDiff
+metadata:
+  name: atproto-market
+  namespace: default
+spec:
+  base: d20070c0000000000000000000000000000000aa
+  head: ffac22e0000000000000000000000000000000bb
+  files:
+    - path: deploy/examples/atproto/market/accept.sh
+      status: modified
+      added:
+        - line: 141
+          text: curl -sS --cacert ca.pem "https://${HOST}:${PORT}/xrpc/_health"

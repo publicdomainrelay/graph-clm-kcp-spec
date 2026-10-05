@@ -7,7 +7,7 @@ metadata:
     specs.publicdomainrelay.dev/level: MUST
     specs.publicdomainrelay.dev/severity: error
     specs.publicdomainrelay.dev/origin: "deno-kcp opa-first-stab policies/code_safety provisioning-manual-authorized-keys and provisioning-ssh-keygen"
-    specs.publicdomainrelay.dev/calibration: "the origin's two rules were substring tests on added lines, authorized_keys and ssh-keygen, with no escape hatch; RESULTS.md raised both families on the change under review. The two are one concern here, so one template carries both patterns in the patterns parameter, and allowPatterns is added because a cloud-init UserDataModule that legitimately names authorized_keys would otherwise be a false positive on every run."
+    specs.publicdomainrelay.dev/calibration: "the origin's two rules were substring tests on added lines, authorized_keys and ssh-keygen, with no escape hatch; RESULTS.md raised both families on the change under review. The two are one concern here, so one template carries both patterns in the patterns parameter, and allowPatterns is added because a cloud-init UserDataModule that legitimately names authorized_keys would otherwise be a false positive on every run. A comment line is skipped and markdown is ignored by default, because the origin's code.is_comment guard had no counterpart here and prose that names ssh-keygen makes no key. A row matches once even when both patterns hit it. Recorded gap: a cloud-init UserDataModule's own authorized_keys path, a test asserting it and its yaml fixture still deny when the constraint's allowPatterns does not name them; a file-level module marker needs the CodeGraph text, which a diff-only review does not carry."
 spec:
   crd:
     spec:
@@ -22,6 +22,14 @@ spec:
               items:
                 type: string
             allowPatterns:
+              type: array
+              items:
+                type: string
+            ignoredPaths:
+              type: array
+              items:
+                type: string
+            commentPatterns:
               type: array
               items:
                 type: string

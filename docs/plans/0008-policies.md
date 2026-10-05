@@ -633,7 +633,7 @@ https://github.com/publicdomainrelay/deno-kcp/pull/1. PR #1 was built before
 any policy existed. Phase H measures it, then runs the same request again
 with the gate on. The result is a new pull request; #1 stays as it is.
 
-1. **Baseline.**
+1. **Baseline. -- done.**
    - Bind the policy library and the portable rules to deno-kcp, as
      `policies.yaml` roles and vocabulary:
      - host = the DenoPod provider;
@@ -646,6 +646,44 @@ with the gate on. The result is a new pull request; #1 stays as it is.
    - Record every violation, and read each one to label it real or false
      positive. Known false positive: `kubectl --validate=false` read as
      disabled TLS verification. Fix it in `policies/library`.
+
+   **Result.** `examples/policies/deno-kcp/` holds the seven library templates
+   plus `relay-only-ssh` re-bound for deno-kcp (`policies.yaml`, the
+   constraints and the gator inventories are the only files that differ from
+   the library). The binding gives host, guest and test a file group and makes
+   requester and relay target roles: they are peers this repository reaches
+   over the network, and deno-kcp's own model is thin (3 components, 13
+   effects, 2 flows to unresolved targets), because the DenoPods are other
+   repositories' code. The globs are spelled `internal/*/*.go` rather than
+   `internal/**`: `**` crosses directories in the Rego matcher but not in the
+   Go model builder's `path.Match`.
+
+   `specctl policy eval --repo deno-kcp --commit dc4c717e --diff-base main
+   --library examples/policies/deno-kcp` on a fresh clone (PR #1's head
+   `dc4c717e` against `main` `25d10f92`) reports 8 templates, 8 constraints and
+   **7 deny violations, all `security-disabled-verification`, all real**: one
+   executed `curl -skS` in `accept.sh:269` and six printed `curl -k`
+   health-check lines in `apply.sh:220-224,227` that the same PR had just moved
+   from `http://` to `https://`. `policies/library` alone reports the same
+   seven; `main` is clean. The full table and the commands are in
+   `docs/examples/deno-kcp-pr.md`, section "Policies: baseline of PR #1";
+   `scripts/example-policies.sh` now takes `NAME`, a bare or URL `REPO` and
+   `DIFF_BASE`, so the run is one invocation.
+
+   Two false-positive classes were fixed in `policies/library` from reading the
+   other rules against real code. `--validate=false` left the
+   `security-disabled-verification` pattern set (it is schema validation, not
+   TLS verification), with a gator case asserting 0 violations for the three
+   real `kubectl … --validate=false` lines deno-kcp carries. The three
+   provisioning CodeDiff rules now skip comment lines and ignore `**/*.md`, and
+   a row matches once even when several patterns hit it; over the
+   atproto-market iroh change that takes the run from 36 denies to 21. The
+   remaining ones are recorded as a gap in the templates' calibration notes:
+   a substring over a diff cannot tell naming a transport from running one,
+   which is what plan 0009's model form (a `proc.exec` effect whose `argv0` the
+   cloud-init does not deploy) is for.
+
+   Step 2 (the retry under the gate) and step 3 (publish) are not done.
 2. **Retry.**
    - `scripts/example-deno-kcp-pr.sh` with the same PROMPT and BRIEF, and
      `open-policy/deno-kcp` seeded from the bound library.
