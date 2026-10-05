@@ -860,33 +860,64 @@ https://github.com/publicdomainrelay/atproto-market/pull/1 (iroh/dumbpipe, head
 `guest-report-driven-onnetwork`. B2 measured this. The bidder emits
 `vm.onNetwork` from `providerIdPromise.then(...)`, not from the guest's report.
 
-1. **Baseline.** The phase B/B2 results for #1 are the baseline:
-   - 1 deny (`onnetwork` at `lib/market-bidder-compute/mod.ts:313`);
-   - `relay-only-ssh` clean;
-   - the model view from G2.
+1. **Done.** The phase B/B2 results for #1 are the baseline: 1 deny
+   (`onnetwork` at `lib/market-bidder-compute/mod.ts:313`), `relay-only-ssh`
+   clean. Added to it: the same two findings read at `pre-iroh` (`:304`), and
+   the second attempt's finding that the *line* had moved between the two refs
+   and the old key moved with it -- see item 6.
 
-   Add the plan 0009 portable pack results once G4 lands.
-2. **Retry.**
+   The first attempt at this phase (branch `policy-i`) was stopped by the
+   coordinator: under whole-repo gating its agent removed the bidder's
+   host-emitted `vm.onNetwork`, and the user decided that emission stays. That
+   work directory and branch were not reused.
+2. **Done, with two deviations from the plan text.**
    - `scripts/example-atproto-market-iroh-pr.sh` with the same PROMPT and a
-     fresh clone, on the `pre-iroh` base.
-   - `open-policy/atproto-market` is seeded from
-     `examples/policies/atproto-market` plus the library.
-   - P-relay and P-guest-reports are deny. Library code-safety and TLS rules
-     are deny. Quality rules are warn.
-   - The spec-time gate (0009 G3) and the realize gate both run.
-   - Live acceptance (`SSH_OK_VIA_IROH` through runComputeContract) gates as
-     in #1.
-3. **Publish** as a new PR on atproto-market. Its body compares it to #1:
-   - violations before vs after;
-   - gate denials and the agent's corrections;
-   - where `vm.onNetwork` is now emitted (from the guest-report handler);
-   - acceptance;
-   - the spec and diff size.
-4. **Record.** `docs/examples/atproto-market-iroh-pr.md` gets a "with
-   policies" round.
-5. **When the 0009 G5 multi-repository model lands,** also bind
-   `hono-compute-provider` and report the `inspectIp` / `pollSshExec`
-   reach-in. That fix belongs to a PR in that repository, not to this one.
+     fresh clone on the `pre-iroh` base, `POLICY_LIBRARY=examples/policies/atproto-market`,
+     `POLICY_ENFORCEMENT='*=deny'` (every constraint in the library and in the
+     imported `rfp-guest-isolation@v2`), and `ACCEPT='deno test --allow-all
+     test/bidder_container_integration_test.ts'` added to #1's command. The
+     library is not `policies/library` and the pack is not
+     `rfp-provisioning-provenance`: only the user's two rules, per U1.
+   - The user's decision is a durable waiver on the run's policy branch before
+     specd starts, one `exceptions/<key>.yaml` per finding, recorded with
+     `specctl policy waive` (the commands are in the example doc).
+   - The acceptances for the emission are what the gate reported: `waived` on
+     every attempt, including the two changes that landed, and the audit read
+     `violations 2, deny 2, waived 2`.
+3. **Published.** [atproto-market#2](https://github.com/publicdomainrelay/atproto-market/pull/2), #1 untouched. Its body compares it
+   to #1 (findings at the base, inherited and waived; new violations in #1's
+   diff against this branch's diff; the gate denials and the corrections;
+   acceptance; the spec and diff size) and states plainly that the host-emitted
+   `vm.onNetwork` is kept by decision.
+4. **Recorded.** `docs/examples/atproto-market-iroh-pr.md`, "Round with policies
+   (PR #2)": the one-command run, the waiver commands, the anchor measurement,
+   the per-attempt gate table, all ten attempts and their reasons, and what
+   landed.
+5. **Still open.** Bind `hono-compute-provider` and report the `inspectIp` /
+   `pollSshExec` reach-in once the 0009 G5 multi-repository model lands; that fix
+   belongs to a PR in that repository.
+6. **Prerequisite found and fixed (`e12560a`).** `policy.Key` was
+   `(constraint, object, file, line)`. The realize edits the file above the
+   emission, so the line moves; a pre-existing violation that changes key is a
+   *new* one to a change-scoped gate, and a durable waiver written at one line
+   stops matching at another. Measured: `pre-iroh` has the emission at
+   `lib/market-bidder-compute/mod.ts:304` and #1's head at `:313`. hydradb now
+   anchors a violation to the declaration that encloses its location, with the
+   model effect's kind and attributes (`abc/policy/anchor.go`), and `Key`, the
+   baseline and a waiver read the anchor; the two refs now give identical keys
+   and #1's head reads `0 new, 2 inherited`.
+
+   **What the run did not finish.** Two changes landed
+   (`8b36a2b` lib-abc-requester, `924781f` the iroh cloud-init module, whose
+   install extracts the archive's `./dumbpipe` behind a bounded retry). The
+   three contexts that carry the requester flow and the container harness never
+   passed the acceptance gate: the guest boots from the RFP cloud-init, the
+   dumbpipe listener runs and the ticket is extracted, but the guest's report
+   never reaches the requester, so `sshReady` stays false. Eleven automatic
+   attempts, three requirement amendments and seven `specctl retry --reason`
+   rounds is where the session stopped; the change-scoped gate is what stopped it, and the deny it
+   raised (a direct ssh in the harness, `rfp-relay-only-guest-ssh`) is the one
+   the plan asked to see.
 
 Order: after `policy-cm` and 0009 G3 are merged, and after phase H (deno-kcp)
 has proved the gate on a real run.
