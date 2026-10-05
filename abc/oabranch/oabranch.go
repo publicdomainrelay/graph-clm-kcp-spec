@@ -1123,6 +1123,18 @@ func ChangePaths(blobs map[string]string) []string {
 
 // ChangeFiles parses the SpecChange records a branch tree holds.
 func ChangeFiles(files map[string][]byte) ([]spec.SpecChange, error) {
+	return changeFiles(files, false)
+}
+
+// ChangeHistory parses every attempt a branch tree records: the surviving
+// change of each episode and the superseded attempts its record names, each
+// with the surviving change's spec so the episode and its attempt count can be
+// rebuilt.
+func ChangeHistory(files map[string][]byte) ([]spec.SpecChange, error) {
+	return changeFiles(files, true)
+}
+
+func changeFiles(files map[string][]byte, history bool) ([]spec.SpecChange, error) {
 	names := make([]string, 0, len(files))
 	for path := range files {
 		if IsChangePath(path) {
@@ -1144,6 +1156,23 @@ func ChangeFiles(files map[string][]byte) ([]spec.SpecChange, error) {
 		change.Spec = doc.Spec.specChangeSpec()
 		change.Status = doc.Status.specChangeStatus()
 		out = append(out, change)
+		if !history {
+			continue
+		}
+		for _, attempt := range doc.Superseded {
+			older := spec.SpecChange{}
+			older.APIVersion = doc.APIVersion
+			older.Kind = doc.Kind
+			older.Name = attempt.Name
+			older.Namespace = doc.Metadata.Namespace
+			older.Spec = change.Spec
+			older.Status = spec.SpecChangeStatus{
+				Phase:   attempt.Phase,
+				Commit:  attempt.Commit,
+				Message: attempt.Message,
+			}
+			out = append(out, older)
+		}
 	}
 	return out, nil
 }

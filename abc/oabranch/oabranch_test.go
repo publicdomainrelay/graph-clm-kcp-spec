@@ -964,3 +964,44 @@ func TestBranchForFollowsTheCodeBranch(t *testing.T) {
 		t.Fatal(RefFor("deno-kcp", "spec/a", "main"))
 	}
 }
+
+func TestChangeHistoryExpandsTheSupersededAttempts(t *testing.T) {
+	document := `
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: SpecChange
+metadata: {name: calc-s2c-aaaa-a3, namespace: default}
+spec:
+  systemContext: calc
+  direction: SpecToCode
+  toSpecHash: aaaa
+status:
+  phase: Succeeded
+  commit: c0ffee
+superseded:
+  - {name: calc-s2c-aaaa-a2, phase: Failed, commit: deadbeef, message: "verify exited 1"}
+`
+	files := map[string][]byte{"changes/calc-s2c-aaaa-a3.yaml": []byte(document)}
+
+	surviving, err := ChangeFiles(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(surviving) != 1 || surviving[0].Name != "calc-s2c-aaaa-a3" {
+		t.Fatalf("ChangeFiles = %+v, want only the surviving attempt", surviving)
+	}
+
+	history, err := ChangeHistory(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("ChangeHistory = %+v, want the survivor and the superseded attempt", history)
+	}
+	older := history[1]
+	if older.Name != "calc-s2c-aaaa-a2" || older.Status.Phase != specapi.PhaseFailed || older.Status.Commit != "deadbeef" {
+		t.Fatalf("superseded attempt = %+v", older)
+	}
+	if older.Spec.SystemContext != "calc" || older.Spec.ToSpecHash != "aaaa" {
+		t.Fatalf("superseded attempt lost the episode's spec: %+v", older.Spec)
+	}
+}

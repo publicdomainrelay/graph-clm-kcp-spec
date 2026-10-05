@@ -709,3 +709,78 @@ func TestAFeatureBranchPersistsToItsOwnArchitectureBranch(t *testing.T) {
 		t.Fatalf("restore on the feature branch = %+v, %v", onFeature, err)
 	}
 }
+
+func TestRestoreRebuildsTheChangeHistoryTheBranchHolds(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	seedChange(t, cluster, "calc-s2c-aaaaaaaaaaaa-a2", specapi.PhaseFailed)
+	survivor := spec.SpecChange{}
+	survivor.APIVersion = specapi.Group + "/" + specapi.Version
+	survivor.Kind = specapi.SpecChangeKind
+	survivor.Name = "calc-s2c-aaaaaaaaaaaa-a3"
+	survivor.Namespace = "default"
+	survivor.Spec = spec.SpecChangeSpec{SystemContext: "calc", Direction: specapi.DirectionSpecToCode, ToSpecHash: strings.Repeat("a", 64)}
+	survivor.Status = spec.SpecChangeStatus{Phase: specapi.PhaseSucceeded, Commit: "c0ffee"}
+	cluster.put(t, &survivor)
+
+	ctx := context.Background()
+	if _, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc"}); err != nil {
+		t.Fatal(err)
+	}
+
+	empty := newFakeCluster()
+	result, err := Restore(ctx, RestoreOptions{Cluster: empty, Repository: "calc", RepoPath: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(result.Changes, ",") != "calc-s2c-aaaaaaaaaaaa-a2,calc-s2c-aaaaaaaaaaaa-a3" {
+		t.Fatalf("restored changes = %v", result.Changes)
+	}
+	restored := readRestoredChange(t, empty, "calc-s2c-aaaaaaaaaaaa-a3")
+	if restored.Status.Phase != specapi.PhaseSucceeded || restored.Status.Commit != "c0ffee" || restored.Status.Attempt != 3 {
+		t.Fatalf("survivor = %+v", restored.Status)
+	}
+	older := readRestoredChange(t, empty, "calc-s2c-aaaaaaaaaaaa-a2")
+	if older.Status.Phase != specapi.PhaseFailed || older.Status.Attempt != 2 {
+		t.Fatalf("superseded attempt = %+v", older.Status)
+	}
+	if older.Spec.SystemContext != "calc" {
+		t.Fatalf("superseded attempt lost its spec: %+v", older.Spec)
+	}
+}
+
+func TestRestoreMakesANonSettledChangeFailed(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	seedChange(t, cluster, "calc-s2c-bbbbbbbbbbbb", specapi.PhaseRunning)
+	ctx := context.Background()
+	if _, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc"}); err != nil {
+		t.Fatal(err)
+	}
+	empty := newFakeCluster()
+	if _, err := Restore(ctx, RestoreOptions{Cluster: empty, Repository: "calc", RepoPath: repo}); err != nil {
+		t.Fatal(err)
+	}
+	restored := readRestoredChange(t, empty, "calc-s2c-bbbbbbbbbbbb")
+	if restored.Status.Phase != specapi.PhaseFailed {
+		t.Fatalf("phase = %q, want Failed so a restore cannot block the repository", restored.Status.Phase)
+	}
+	if !strings.Contains(restored.Status.Message, "Running") {
+		t.Errorf("message = %q, want the phase the branch recorded", restored.Status.Message)
+	}
+}
+
+func readRestoredChange(t *testing.T, cluster *fakeCluster, name string) spec.SpecChange {
+	t.Helper()
+	object, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, "default", name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return *typed.(*spec.SpecChange)
+}

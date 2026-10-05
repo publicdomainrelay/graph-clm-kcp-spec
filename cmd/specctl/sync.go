@@ -138,7 +138,7 @@ func runRestore(args []string, stdout, stderr io.Writer) int {
 	if result.Fetched {
 		from = "fetched from " + *remote
 	}
-	fmt.Fprintf(stdout, "%s: restored %d context(s) from %s at %s (%s)\n", name, len(result.Contexts), result.Branch, short(result.Commit), from)
+	fmt.Fprintf(stdout, "%s: restored %d context(s) and %d change(s) from %s at %s (%s)\n", name, len(result.Contexts), len(result.Changes), result.Branch, short(result.Commit), from)
 	return exitOK
 }
 

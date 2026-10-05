@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -666,6 +667,8 @@ type RestoreResult struct {
 	Repository string
 
 	Contexts []string
+
+	Changes []string
 }
 
 func Restore(ctx context.Context, options RestoreOptions) (RestoreResult, error) {
@@ -774,8 +777,90 @@ func Restore(ctx context.Context, options RestoreOptions) (RestoreResult, error)
 		result.Contexts = append(result.Contexts, name)
 	}
 	adopted := Result{Branch: result.Branch, Commit: tip, Conflicts: map[string][]string{}}
+	restored, err := restoreChanges(ctx, options.Cluster, namespace, files)
+	if err != nil {
+		return result, err
+	}
+	result.Changes = restored
 	if err := record(ctx, persistOptions, repository, adopted, ""); err != nil {
 		return result, err
 	}
 	return result, nil
+}
+
+// restoreChanges rebuilds the SpecChange history the branch carries. A CRD's
+// status is dropped when it is applied, so the phase, the commit and the
+// attempt number are patched back after each record is created. A phase the
+// branch recorded but kcp never settled - Pending, Running, or none - becomes
+// Failed, so a restored change can never look Running forever and block the
+// repository; the operator retries it with specctl retry.
+func restoreChanges(ctx context.Context, cluster Cluster, namespace string, files map[string][]byte) ([]string, error) {
+	changes, err := oabranch.ChangeHistory(files)
+	if err != nil {
+		return nil, err
+	}
+	restored := make([]string, 0, len(changes))
+	for _, change := range changes {
+		if change.Name == "" || change.Spec.SystemContext == "" {
+			continue
+		}
+		change.APIVersion = specapi.Group + "/" + specapi.Version
+		change.Kind = specapi.SpecChangeKind
+		change.Namespace = namespace
+		change.ResourceVersion = ""
+		change.ManagedFields = nil
+		phase, message := restoredPhase(change)
+		object, err := kcpclient.Unstructured(&change)
+		if err != nil {
+			return nil, fmt.Errorf("persist: encode change %s: %w", change.Name, err)
+		}
+		unstructured.RemoveNestedField(object.Object, "status")
+		if _, err := cluster.Apply(ctx, object); err != nil {
+			return nil, fmt.Errorf("persist: apply change %s: %w", change.Name, err)
+		}
+		status := map[string]any{
+			"phase":   phase,
+			"message": message,
+			"attempt": int64(attemptNumber(change)),
+		}
+		if change.Status.Commit != "" {
+			status["commit"] = change.Status.Commit
+		}
+		if change.Status.Branch != "" {
+			status["branch"] = change.Status.Branch
+		}
+		if change.Status.VerifyExitCode != 0 {
+			status["verifyExitCode"] = int64(change.Status.VerifyExitCode)
+		}
+		if change.Status.RetryReason != "" {
+			status["retryReason"] = change.Status.RetryReason
+			status["retryBy"] = change.Status.RetryBy
+		}
+		if _, err := cluster.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, change.Name, status); err != nil {
+			return nil, fmt.Errorf("persist: patch change %s status: %w", change.Name, err)
+		}
+		restored = append(restored, change.Name)
+	}
+	sort.Strings(restored)
+	return restored, nil
+}
+
+func restoredPhase(change spec.SpecChange) (string, string) {
+	switch change.Status.Phase {
+	case specapi.PhaseSucceeded, specapi.PhaseFailed:
+		return change.Status.Phase, change.Status.Message
+	case "":
+		return specapi.PhaseFailed, "restored: the branch recorded no phase for this change"
+	default:
+		return specapi.PhaseFailed, "restored: the branch recorded this change as " + change.Status.Phase
+	}
+}
+
+func attemptNumber(change spec.SpecChange) int {
+	if index := strings.LastIndex(change.Name, "-a"); index >= 0 {
+		if number, err := strconv.Atoi(change.Name[index+2:]); err == nil && number > 0 {
+			return number
+		}
+	}
+	return 1
 }
