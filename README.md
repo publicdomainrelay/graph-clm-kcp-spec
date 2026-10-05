@@ -234,7 +234,9 @@ Go kcp provider. The only human input was one sentence:
 It became **[publicdomainrelay/deno-kcp#1](https://github.com/publicdomainrelay/deno-kcp/pull/1)**:
 workspace `root:bob` with its OpenBao authority, a PDS for bob, a running market
 bidder, `apply.sh` and the README updated, and deno-kcp's offline tests extended
-to cover every market manifest. 9 files, +359 / -40, `go test ./...` green. The
+to cover every market manifest. The first round landed 9 files, +359 / -40,
+`go test ./...` green; the later rounds (plan 0004 D and G) grew the same branch
+to 17 files, +1235 / -151. The
 spec it realizes is on
 [`open-architecture/deno-kcp--spec-bidder-and-bob-pds`](https://github.com/publicdomainrelay/deno-kcp/tree/open-architecture/deno-kcp--spec-bidder-and-bob-pds).
 
@@ -400,8 +402,10 @@ against the `pre-iroh` branch: a new `iroh` cloud-init `UserDataModule` that
 installs `dumbpipe` and runs `dumbpipe listen-tcp --host 127.0.0.1:22` on the
 guest, the ticket extracted to `/root/secrets/iroh-node-id`, the bidder
 publishing it on `vm.onNetwork`, and the requester's ProxyCommand becoming
-`dumbpipe connect <ticket>`. 17 files, +509 / -70, `deno check` over the whole
-workspace plus the cloud-init snapshot test (19 tests) green on every realize
+`dumbpipe connect <ticket>`. The first round landed 17 files, +509 / -70; the
+review round and round 3's live ssh proof grew the same branch to 33 files,
++2021 / -193. `deno check` over the whole workspace plus the cloud-init snapshot
+test (19 tests) green on every realize
 commit. `lib/did-key-ingress-proxy` stays for the XRPC/repo ingress plane the
 market runs on - the request is about the guest SSH transport.
 
@@ -470,7 +474,11 @@ line-sensitive CodeGraph ids leaving three contexts `CodeSynced=False` after a
 successful realize (plan 0004 E2, second reproduction), `specctl retry` reusing
 the original change name so a retry is invisible afterwards, `specctl get -o
 json` returning a `List` that `specctl apply` rejects, and batching that does
-not order a dependent context after its dependency.
+not order a dependent context after its dependency. Plan 0007 closed all four:
+a named `get` returns the object and `apply` reads a `List`, a retry records its
+attempt and reason on a fresh `-aN` change, a batch is ordered by `dependsOn`
+and a realize that touches another context's files is flagged, and
+re-anchoring is proven on a live Go and TypeScript edit.
 
 **Round 2 (plan 0006 F2).** An independent review of that branch
 ([`docs/reviews/0002-atproto-market-iroh.md`](docs/reviews/0002-atproto-market-iroh.md))
@@ -547,7 +555,7 @@ requirement was concrete.
 
 ## Status
 
-All ten phases are done: **kcp holds specs, code becomes facts in `status`
+All sixteen phases of plan 0001 are done (phases 1-14, 13b and 13c): **kcp holds specs, code becomes facts in `status`
 and in the graph, a hand written `arch.yaml` round trips through kcp, `specd`
 keeps the facts, the conditions and the work queue true to the code, an agent
 turns the code back into a spec, a spec edit becomes a structured delta that
@@ -572,7 +580,14 @@ graph.
 - API group `specs.publicdomainrelay.dev/v1alpha1`, kinds `Repository`,
   `SystemContext`, `SpecChange`, namespaced, with a status subresource and
   printer columns.
-- `specctl apply -f | get | delete` against a kcp workspace.
+- `specctl apply -f | get | delete` against a kcp workspace. `get <kind> <name>
+  -o json|yaml` writes the object itself, and `apply` reads a `kind: List` back,
+  so what `get` wrote applies without unwrapping `items`.
+- `specctl retry <context> --reason <text>` keeps the failed changes as the
+  audit trail and creates the next attempt `<base>-aN` with `status.attempt`,
+  `status.retryReason` and `status.retryBy`; a deliberate retry is exempt from
+  the attempt cap, and `specctl restore` rebuilds the whole `SpecChange` history
+  from a branch's `changes/`.
 - `specd` watches the three kinds, re-ingests a `Repository` when its git HEAD
   moves, keeps `SpecValid`, `CodeSynced` and `Drifted` true to the code, and
   opens exactly one `SpecChange` per direction of work.
@@ -642,7 +657,15 @@ graph.
   it in one status write, so the tool's own work raises no opposite change. A
   failing gate keeps the branch, leaves the spec and the managed branch
   untouched and hands the output to the next attempt; the results are on
-  `status.acceptance` and the commit trailers.
+  `status.acceptance` and the commit trailers. A batch applies its members in
+  `spec.dependsOn` order, so a context that depends on another changed context
+  realizes after it, and a realize that touches a file a context outside the
+  batch observes sets `FilesOutsideContext=True` instead of being accepted
+  silently. A red gate can be landed once with `specctl accept --override
+  <step> --reason <text>`: `Repository.spec.acceptanceOverrides` names the step,
+  the commit trailer reads `Acceptance: <step> overridden by <user>
+  (<reason>)`, the change gets `AcceptanceOverridden=True`, and specd removes
+  the entry it consumed.
 - `Repository.spec.agent.kind` selects the agent per repository (`claude`,
   `claude-mod`, `pi` or `scripted:<file>`) and wins over the controller's
   `--agent`.
@@ -1981,7 +2004,12 @@ the state directory of that mode.
 
 ## What is next
 
-The plan is complete. What the eval reports as still weak is the honest place
+Plans 0001 through 0004, 0006 and 0007 are done; plan 0003 is done; plan 0005's
+follow-ups are closed by plan 0007 (the `List`-shaped get and apply, retry that
+records its attempt and reason, a batch ordered by `dependsOn` and files outside
+the context flagged, `specctl accept --override`, a restore that rebuilds the
+`SpecChange` history, and re-anchoring proven on a live Go and TypeScript edit).
+There is no open plan. What the eval reports as still weak is the honest place
 to start: the measures that fall short of 100% on the live runs in
 `docs/eval/` (drift and removals are the weakest), and the graph's share of the
 context bundle when the budget is tight. Two limits are accepted on purpose:

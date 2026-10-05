@@ -1,6 +1,8 @@
 # PLAN 0005 - the atproto-market iroh run, and the follow-ups it found
 
-Status: open. Owner: coordination agent. Evidence:
+Status: done. Owner: coordination agent. Items A-E are closed by plan 0007:
+A and B by items 6 and 2, C by item 1, D was already fixed in
+`scripts/example-pr.sh`, and E by item 3. Evidence:
 [`docs/examples/atproto-market-iroh-pr.md`](../examples/atproto-market-iroh-pr.md),
 [publicdomainrelay/atproto-market#1](https://github.com/publicdomainrelay/atproto-market/pull/1).
 

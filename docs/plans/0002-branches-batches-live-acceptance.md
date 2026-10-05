@@ -1,6 +1,11 @@
 # PLAN 0002 - one kcp per branch, realize a spec edit as one change, prove it live
 
-Status: active. Owner: coordination agent. Executors: headless `deepseek-claude -p`.
+Status: done. Owner: coordination agent. Executors: headless `deepseek-claude -p`.
+Parts A, B and C shipped. The two findings C left open - a stated escape for a
+red gating acceptance (`specctl accept --override`) and a restore that rebuilds
+the `SpecChange` records - are closed by plan 0007 items 4 and 5. C's own
+blocker was fixed through kcp-libs#1 and deno-kcp#1's acceptance is green (plan
+0004 D and G).
 Follows PLAN 0001 and the deno-kcp worked example (`docs/examples/deno-kcp-pr.md`,
 publicdomainrelay/deno-kcp#1), which exposed the three gaps below.
 
@@ -348,11 +353,14 @@ run then got past OpenBao and reported what is left. Three more findings:
   seconds on the run before. A live acceptance that is expected to gate a
   repository has to survive that.
 
-**Status of C:** the hydradb half is done (the acceptance stage, the CRD and
-schema change, `specctl accept`, the trailer), and the blocker that made the run
-worthless is fixed and proven -- kcp-libs#1, with deno-kcp's own live test going
-from `FAIL (139.35 s)` to `PASS (25.52 s)`. C is **not** done: deno-kcp#1's gate
-is still red. What remains is entirely in deno-kcp or its provider -- `alice`'s
+**Status of C: done.** The hydradb half (the acceptance stage, the CRD and
+schema change, `specctl accept`, the trailer) shipped, and the blocker that made
+the run worthless was fixed and proven -- kcp-libs#1, with deno-kcp's own live
+test going from `FAIL (139.35 s)` to `PASS (25.52 s)`. deno-kcp#1's gate went
+green in plan 0004 D (16 of 16 checks, twice in a row, `gate: true`) and plan
+0004 G closed the three follow-ups the green run left; the escape C asked for is
+plan 0007's `specctl accept --override`. The record below is what stood when the
+gate was still red. What remains is entirely in deno-kcp or its provider -- `alice`'s
 `pds` never reporting ready, the verifier's fixed `sleep 10` and the missing
 resolved name beside it, the bidder's `PlcNotFoundError` crash loop, and the
 provider intermittently reconciling nothing at all.

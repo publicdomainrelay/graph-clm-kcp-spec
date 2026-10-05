@@ -1,6 +1,6 @@
 # PLAN 0006 - review 0002 fixes: atproto-market#1 works, and the tool sees TypeScript
 
-Status: active. Owner: coordination agent. Executors: headless `deepseek-claude -p`.
+Status: done. Owner: coordination agent. Executors: headless `deepseek-claude -p`.
 Source: `docs/reviews/0002-atproto-market-iroh.md`.
 
 ## F1 - hydradb (recommendations 5-8, plus what the review implies)

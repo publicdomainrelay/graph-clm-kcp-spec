@@ -1,6 +1,6 @@
 # PLAN 0003 - architecture branches worth reading
 
-Status: active. Owner: coordination agent. Executors: headless `deepseek-claude -p`.
+Status: done. Owner: coordination agent. Executors: headless `deepseek-claude -p`.
 
 An independent review (Opus 5.5) of the two branches the deno-kcp run produced,
 `open-architecture/deno-kcp` and `open-architecture/deno-kcp--spec-bidder-and-bob-pds`,

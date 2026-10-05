@@ -1,6 +1,6 @@
 # PLAN 0004 - deno-kcp#1 green live, and the follow-ups the runs found
 
-Status: active. Owner: coordination agent. Executors: headless `deepseek-claude -p`.
+Status: done. Owner: coordination agent. Executors: headless `deepseek-claude -p`.
 
 ## D - deno-kcp#1's live acceptance goes green, through the spec flow
 

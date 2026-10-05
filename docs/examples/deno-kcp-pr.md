@@ -9,7 +9,11 @@ the spec, never a file; it is in step 3):
 > add a running bidder instance to the example and a PDS for bob under his own namespace
 
 The result is [publicdomainrelay/deno-kcp#1](https://github.com/publicdomainrelay/deno-kcp/pull/1):
-9 files, +359 / -40, deno-kcp's own `go test ./...` green. The spec it realizes
+17 files, +1235 / -151, deno-kcp's own `go test ./...` green. The first round
+landed 9 files, +359 / -40 (the table below); the later rounds - plan 0004 D
+working the acceptance's own red checks and plan 0004 G closing the three
+follow-ups - grew the same branch, so the headline is the current pull request,
+not the first round. The spec it realizes
 is on the orphan branch
 [`open-architecture/deno-kcp--spec-bidder-and-bob-pds`](https://github.com/publicdomainrelay/deno-kcp/tree/open-architecture/deno-kcp--spec-bidder-and-bob-pds),
 next to [`open-architecture/deno-kcp`](https://github.com/publicdomainrelay/deno-kcp/tree/open-architecture/deno-kcp),

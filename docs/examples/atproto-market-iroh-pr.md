@@ -11,8 +11,11 @@ plus a short brief naming the external project and the repository's own rules:
 > well and other things like that
 
 The result is **[publicdomainrelay/atproto-market#1](https://github.com/publicdomainrelay/atproto-market/pull/1)**:
-17 files, +509 / -70, `deno check` over the whole workspace plus the cloud-init
-snapshot test green. The spec it realizes is on the orphan branch
+33 files, +2021 / -193, `deno check` over the whole workspace plus the cloud-init
+snapshot test green. The first round landed 17 files, +509 / -70 (the table
+below); round 2 after the review and round 3's live ssh proof grew the same
+branch, so the headline is the current pull request, not the first round. The
+spec it realizes is on the orphan branch
 [`open-architecture/atproto-market--spec-iroh-dumbpipe-20261004141803`](https://github.com/publicdomainrelay/atproto-market/tree/open-architecture/atproto-market--spec-iroh-dumbpipe-20261004141803).
 
 The first worked example is [deno-kcp](deno-kcp-pr.md); the script below is the
