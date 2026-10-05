@@ -764,6 +764,7 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 			return exitError
 		}
+		diff.Spec.Repository = *repository
 		diffObject, err := policyeval.Unstructured(marshalObject(policy.CodeDiffObject(diff)))
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)

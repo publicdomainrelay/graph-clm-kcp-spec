@@ -73,6 +73,7 @@ func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Dec
 	diff := policy.ParseUnifiedDiff(patch)
 	diff.Metadata.Name = options.Change
 	diff.Spec.Change = options.Change
+	diff.Spec.Repository = options.Repository.Name
 	diff.Spec.Base = options.Base
 
 	graphObject, err := policyObject(graph)

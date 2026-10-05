@@ -42,7 +42,7 @@ func Build(ctx context.Context, repo, base, head string) (policy.CodeDiff, error
 		APIVersion: policy.APIVersion,
 		Kind:       policy.CodeDiffKind,
 		Metadata:   policy.ObjectMeta{Name: repositoryName(repo), Namespace: "default"},
-		Spec:       policy.CodeDiffSpec{Base: baseCommit, Head: headCommit},
+		Spec:       policy.CodeDiffSpec{Repository: repositoryName(repo), Base: baseCommit, Head: headCommit},
 	}
 	diff.Spec.Files = parse(patch)
 	diff.Sort()

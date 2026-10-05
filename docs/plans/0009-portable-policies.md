@@ -741,7 +741,16 @@ library + pack at pre-iroh       2 deny -- the same one violation, at :304
 ```
 
 So the one deny left is the strict-reading violation phase B2 found, and the
-transport rules contribute none. The `which dumbpipe` probe is what the
+transport rules contribute none.
+
+For the rules to gate a realize and not only an offline run, the CodeDiff a
+realize reviews had to name its repository: `CodeDiffSpec.Repository` is set by
+the realize gate and by `policy eval --diff-base`, so a rule that reads added
+lines resolves the CodeGraph of the same evaluation (`lib.specd`'s
+`repository_name` reads `spec.repository` first and still falls back to the
+diff's name). `impl/realize/policy_diff_test.go` pins it: a probe constraint
+that denies an added line carrying an effect sees the effect, and the test
+fails when the field is not set. The `which dumbpipe` probe is what the
 `installPatterns` list is for: `ensureDumbpipe` checks for the binary and
 downloads it, and a probe names the transport without installing one.
 
