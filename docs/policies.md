@@ -369,6 +369,33 @@ bin/specctl policy eval --repo greenfield-market --specs-only \
 evaluates the library; `--strict` exits 1 on a deny. It is the offline twin of
 the controller's gate and the fast way to iterate on a spec before applying it.
 
+### The gates are scoped to the change
+
+Both gates evaluate a base and a head, and only a violation the change
+introduced denies:
+
+- the **spec gate** compares the post-delta specs (`Applied`) with the
+  pre-change realized specs of the same contexts (`Base`), so a repository
+  that already violates the library is not blocked from every edit;
+- the **realize gate** compares the worktree head with the code facts of the
+  base commit (`Options.Base`), read from a temporary detached worktree. The
+  diff and the `SpecChange` objects are *not* part of the base: they describe
+  the change itself.
+
+A violation the base already carried is reported as **inherited**: it lands in
+`status.policy.inherited` as a warn and never blocks. The key is the
+constraint, the object and the site (file and line), so a rule that rewords a
+message about the same site is not a new violation.
+
+| setting | effect |
+| --- | --- |
+| `spec.policy.baseline: none` | gate the whole repository, as before |
+| `specd --no-baseline` (`SPECD_NO_BASELINE=1`) | the same, for every repository without its own setting |
+
+`specctl policy eval --specs-only` is offline and has no base to compare
+against, so it always gates the whole declared state; `--strict` exits 1 on any
+deny. That is deliberate: it evaluates a state, not a change.
+
 ### The conformance pack
 
 `policies/packs/conformance/` is the first portable pack: three templates over
@@ -1284,6 +1311,36 @@ tell a relay from a transport the vocabulary does not name. What the rule
 still catches is the regression it guards -- a direct ssh with no tunnel at all
 -- plus any `net.dial` from a test that acts on the guest. `docs/plans/0009`
 G4 states the same limit; the pack's `CATALOGUE.md` states it beside the rule.
+
+### The baseline key has no site for a spec-level violation
+
+A change-scoped gate compares violations by constraint, object and site. A
+rule over the declared `ArchitectureModel` (the conformance pack's
+`forbidden-flow`, for example) carries no file location, so two violations of
+the same rule on the same object share one key. A change that adds a second
+such violation to an object the base already flagged reads as inherited. Code
+rules are unaffected: every effect and code violation carries `file:line`. The
+workaround today is a rule that names the differing detail in its `msg` and
+the constraint's own `msg`-based id, or gating that repository with
+`spec.policy.baseline: none`.
+
+### The offline spec gate is whole-repository
+
+`specctl policy eval --specs-only` has no base: it reads one state and judges
+it. It therefore always gates the whole declared state, and `--strict` exits 1
+on any deny, including one the in-cluster spec gate would call inherited. Use
+`specd` (or the realize gate) to observe the change-scoped verdict.
+
+### No live test lands a pre-existing violation through the realize gate
+
+The realize gate's base evaluation runs on every deny (the live suite proves
+the deny is still raised for a new violation), and the inherited/denied split
+is unit-tested on `policy.DecideBaseline` and on the spec-time gate, which
+shares it. No live test yet drives a two-round episode where the first round
+lands a violation with no policy branch and the second round changes something
+else; the fixture harness would need a per-context scenario for the second
+round. The behavior is identical on both gates because both call the same
+decision function, but the end-to-end arrangement is not pinned.
 
 ## Troubleshooting
 
