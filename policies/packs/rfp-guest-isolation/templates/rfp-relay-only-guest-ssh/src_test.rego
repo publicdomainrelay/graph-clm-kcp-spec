@@ -76,47 +76,94 @@ test_no_violation_when_a_transport_object_carries_the_ssh {
 }
 
 test_violation_when_the_proxy_is_nc_to_the_guest {
-	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "nc 10.0.0.7 2222"}, "file": "lib/requester/mod.ts", "line": 29}
+	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "nc guest 2222"}, "file": "lib/requester/mod.ts", "line": 29}
 	flow := {"from": "requester", "to": "guest", "initiator": "requester", "source": "observed", "evidence": ["ssh"]}
 	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
 	count(violations) == 1
 }
 
 test_violation_when_the_proxy_is_ncat_by_absolute_path {
-	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "/usr/bin/ncat 10.0.0.7 2222"}, "file": "lib/requester/mod.ts", "line": 29}
+	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "/usr/bin/ncat %h %p"}, "file": "lib/requester/mod.ts", "line": 29}
 	flow := {"from": "requester", "to": "guest", "initiator": "requester", "source": "observed", "evidence": ["ssh"]}
 	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
 	count(violations) == 1
 }
 
 test_violation_when_the_proxy_is_socat_over_tcp {
-	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "socat - TCP:10.0.0.7:22"}, "file": "lib/requester/mod.ts", "line": 29}
+	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "socat - TCP:guest:22"}, "file": "lib/requester/mod.ts", "line": 29}
 	flow := {"from": "requester", "to": "guest", "initiator": "requester", "source": "observed", "evidence": ["ssh"]}
 	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
 	count(violations) == 1
 }
 
 test_violation_when_the_proxy_uses_dev_tcp {
-	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "sh -c 'exec 3<>/dev/tcp/10.0.0.7/22'"}, "file": "lib/requester/mod.ts", "line": 29}
+	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "sh -c 'exec 3<>/dev/tcp/guest/22'"}, "file": "lib/requester/mod.ts", "line": 29}
 	flow := {"from": "requester", "to": "guest", "initiator": "requester", "source": "observed", "evidence": ["ssh"]}
 	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
 	count(violations) == 1
 }
 
-test_violation_when_the_proxy_jumps_straight_to_the_guest {
-	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "ssh -W 10.0.0.7:22 jump"}, "file": "lib/requester/mod.ts", "line": 29}
+test_violation_when_the_proxy_dials_the_ssh_own_target {
+	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "host": "10.0.0.7", "proxyCommand": "nc 10.0.0.7 2222"}, "file": "lib/requester/mod.ts", "line": 29}
 	flow := {"from": "requester", "to": "guest", "initiator": "requester", "source": "observed", "evidence": ["ssh"]}
 	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
 	count(violations) == 1
 }
 
-# A proxy command the walk could not resolve is still a relay when the flow the
-# model built for the ssh is carried by the relay channel.
-test_no_violation_when_the_relay_carries_the_unresolved_proxy {
+# A jump host is not the guest: the ssh's connection goes to the hop, and the
+# hop is what dials the guest's address.
+test_no_violation_when_the_proxy_jumps_through_a_host {
+	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "ssh -W %h:%p jumphost.example.org"}, "file": "lib/requester/mod.ts", "line": 29}
+	flow := {"from": "requester", "to": "guest", "initiator": "requester", "source": "observed", "evidence": ["ssh"]}
+	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
+	count(violations) == 0
+}
+
+test_no_violation_when_a_socks_hop_carries_the_ssh {
+	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "nc -X 5 -x 127.0.0.1:1080 %h %p"}, "file": "lib/requester/mod.ts", "line": 29}
+	flow := {"from": "requester", "to": "guest", "initiator": "requester", "source": "observed", "evidence": ["ssh"]}
+	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
+	count(violations) == 0
+}
+
+test_no_violation_when_a_jump_option_names_a_host {
+	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyJump": "relay.example.org"}, "file": "lib/requester/mod.ts", "line": 29}
+	flow := {"from": "requester", "to": "guest", "initiator": "requester", "source": "observed", "evidence": ["ssh"]}
+	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
+	count(violations) == 0
+}
+
+test_no_violation_when_an_ssh_config_carries_the_proxy {
+	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "sshConfig": "./test/ssh_config"}, "file": "lib/requester/mod.ts", "line": 29}
+	flow := {"from": "requester", "to": "guest", "initiator": "requester", "source": "observed", "evidence": ["ssh"]}
+	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
+	count(violations) == 0
+}
+
+# An ssh to a host the binding knows is not the guest is left alone.
+test_no_violation_for_an_ssh_to_a_host_that_is_not_the_guest {
+	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "host": "github.com"}, "file": "lib/requester/mod.ts", "line": 29}
+	flow := {"from": "requester", "to": "unknown", "initiator": "requester", "source": "observed", "evidence": ["ssh"]}
+	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
+	count(violations) == 0
+}
+
+# A proxy command the walk could not resolve is still a relay, whatever channel
+# the flow the model built for it carries.
+test_no_violation_when_the_relay_channel_carries_an_unresolved_proxy {
 	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "${transport.proxyCommand()}"}, "file": "lib/requester/mod.ts", "line": 29}
 	flow := {"from": "requester", "to": "guest", "initiator": "requester", "channel": "relay", "source": "observed", "evidence": ["ssh"]}
 	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
 	count(violations) == 0
+}
+
+# The channel never exempts an ssh whose own arguments are direct: the clause
+# that read the flow channel is gone (review 0006 N1).
+test_violation_when_the_relay_channel_carries_an_ssh_with_no_proxy {
+	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh"}, "file": "lib/requester/mod.ts", "line": 29}
+	flow := {"from": "requester", "to": "guest", "initiator": "requester", "channel": "relay", "source": "observed", "evidence": ["ssh"]}
+	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
+	count(violations) == 1
 }
 
 test_violation_when_the_ssh_carries_no_proxy_command {

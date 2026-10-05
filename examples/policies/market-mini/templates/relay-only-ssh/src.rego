@@ -13,13 +13,21 @@ violation[specd.violation(msg, details)] {
 	details := specd.location(call.file, specd.node_match_line(call, input.parameters.sshPattern))
 }
 
-# indirect: the ssh carries a ProxyCommand that is not a direct dial. Any
-# transport or tunnel counts -- the org relay, fedproxy, websocat, iroh,
-# dumbpipe, cloudflared or a transport the classifier could not name.
+# indirect: the ssh, or a helper it calls, carries an indirection. A
+# ProxyCommand that is not a direct dial is one; so is a ProxyJump/-J hop, an
+# ssh config file the model cannot read, and an inner `ssh -W` (which connects
+# to the hop, not to the guest). Any transport or tunnel counts -- the org
+# relay, fedproxy, websocat, iroh, dumbpipe, cloudflared or a transport the
+# classifier could not name.
 indirect(call) {
 	node := specd.nodes_with_id(specd.closure_from({call.id}, input.parameters.edgeKinds))[_]
 	re_match(input.parameters.proxyCommandPattern, node.text)
 	not direct_dialer(node.text)
+}
+
+indirect(call) {
+	node := specd.nodes_with_id(specd.closure_from({call.id}, input.parameters.edgeKinds))[_]
+	re_match(input.parameters.indirectPattern, node.text)
 }
 
 direct_dialer(text) {

@@ -3,11 +3,27 @@ version: "1"
 rules:
   - id: deno-command-ssh
     kind: ssh.connect
-    call: {name: Deno.Command, argv0: [ssh]}
+    call: {name: Deno.Command, argv0: [ssh, scp, sftp, autossh, sshpass, /usr/bin/ssh, /bin/ssh, /usr/local/bin/ssh]}
     target: argv0
     extract:
       - {attr: proxyCommand, regex: 'ProxyCommand=([^\n,;]+)', trim: true}
-      - {attr: host, regex: '(?:^|\s)(?:root|ubuntu|[a-z_][a-z0-9_-]*)@([A-Za-z0-9.\-]+)'}
+      - {attr: host, regex: '(?:^|[\s"''`(,])(?:[A-Za-z_][\w.\-]*)@([A-Za-z0-9.\-]+)'}
+      - {attr: proxyJump, regex: '(?:ProxyJump=|-J["''`,\s]*)([A-Za-z0-9._\-]+)'}
+      - {attr: sshConfig, regex: '(?:^|[\s"''`,])-F["''`,\s]*([A-Za-z0-9._/\-]+)'}
+  - id: deno-command-shell-ssh
+    kind: ssh.connect
+    call: {name: Deno.Command, argv0: [sh, bash, zsh, dash, /bin/sh, /bin/bash]}
+    args: {regex: '\b(ssh|scp|sftp|autossh|sshpass)\b'}
+    extract:
+      - {attr: proxyCommand, regex: 'ProxyCommand=([^\n,;]+)', trim: true}
+      - {attr: host, regex: '(?:^|[\s"''`(,])(?:[A-Za-z_][\w.\-]*)@([A-Za-z0-9.\-]+)'}
+      - {attr: command, regex: '\b(ssh|scp|sftp|autossh|sshpass)\b'}
+  - id: deno-command-shell-container
+    kind: container.exec
+    call: {name: Deno.Command, argv0: [sh, bash, zsh, dash, /bin/sh, /bin/bash]}
+    args: {regex: '\b(container|docker|podman|nerdctl|virsh|lxc|incus)\b'}
+    extract:
+      - {attr: verb, regex: '\b(container|docker|podman|nerdctl|virsh|lxc|incus)\b\s+(?:-{1,2}\S+\s+)*([a-z]+)'}
   - id: deno-command-container
     kind: container.exec
     call: {name: Deno.Command, argv0: [docker, podman, nerdctl, container, virsh, lxc, incus]}
@@ -21,6 +37,39 @@ rules:
   - id: deno-run
     kind: proc.exec
     call: {name: Deno.run}
+  - id: node-exec-sync-ssh
+    kind: ssh.connect
+    requiresImport: '^node:child_process$'
+    call: {name: execSync}
+    args: {regex: '\b(ssh|scp|sftp|autossh|sshpass)\b'}
+    extract:
+      - {attr: proxyCommand, regex: 'ProxyCommand=([^\n,;]+)', trim: true}
+      - {attr: host, regex: '(?:^|[\s"''`(,])(?:[A-Za-z_][\w.\-]*)@([A-Za-z0-9.\-]+)'}
+      - {attr: command, regex: '\b(ssh|scp|sftp|autossh|sshpass)\b'}
+  - id: node-exec-sync-container
+    kind: container.exec
+    requiresImport: '^node:child_process$'
+    call: {name: execSync}
+    args: {regex: '\b(container|docker|podman|nerdctl|virsh|lxc|incus)\b'}
+    extract:
+      - {attr: verb, regex: '\b(container|docker|podman|nerdctl|virsh|lxc|incus)\b\s+(?:-{1,2}\S+\s+)*([a-z]+)'}
+  - id: node-spawn-ssh
+    kind: ssh.connect
+    requiresImport: '^node:child_process$'
+    call: {name: spawn, argv0: [ssh, scp, sftp, autossh, sshpass, /usr/bin/ssh, /bin/ssh]}
+    target: argv0
+    extract:
+      - {attr: proxyCommand, regex: 'ProxyCommand=([^\n,;]+)', trim: true}
+      - {attr: host, regex: '(?:^|[\s"''`(,])(?:[A-Za-z_][\w.\-]*)@([A-Za-z0-9.\-]+)'}
+      - {attr: proxyJump, regex: '(?:ProxyJump=|-J["''`,\s]*)([A-Za-z0-9._\-]+)'}
+      - {attr: sshConfig, regex: '(?:^|[\s"''`,])-F["''`,\s]*([A-Za-z0-9._/\-]+)'}
+  - id: node-spawn-container
+    kind: container.exec
+    requiresImport: '^node:child_process$'
+    call: {name: spawn, argv0: [docker, podman, nerdctl, container, virsh, lxc, incus]}
+    extract:
+      - {attr: runtime, regex: '^\s*["`]([^"`]+)["`]'}
+      - {attr: verb, regex: '^\s*["`]([^"`]+)["`]\s*,\s*["`]([a-z]+)["`]'}
   - id: node-spawn
     kind: proc.exec
     requiresImport: '^node:child_process$'

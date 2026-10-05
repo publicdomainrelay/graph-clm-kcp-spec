@@ -1,0 +1,46 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  roles:
+  - guest
+  - requester
+  - test
+  vocabulary:
+    channels:
+      relay:
+      - websocat
+      - dumbpipe
+  components:
+  - name: requester
+    roles:
+    - requester
+    source: observed
+  - name: test
+    roles:
+    - test
+    source: observed
+  - name: guest
+    roles:
+    - guest
+    source: observed
+  effects:
+  - id: dial
+    kind: net.dial
+    component: test
+    attrs:
+      target: 10.0.0.7:2222
+      port: 2222
+    file: test/bidder_test.ts
+    line: 20
+  flows:
+  - from: test
+    to: unknown
+    initiator: test
+    source: observed
+    evidence:
+    - dial
+  triggers: []

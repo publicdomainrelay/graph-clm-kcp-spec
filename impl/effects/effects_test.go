@@ -74,7 +74,7 @@ func TestTypeScriptFixture(t *testing.T) {
 		"18|event.emit|type=com.example.record",
 		"19|event.emit|type=com.example.record",
 		"20|event.receive|",
-		"25|ssh.connect|argv0=ssh proxyCommand=websocat --binary wss://relay.example/tunnel",
+		"25|ssh.connect|argv0=ssh host=guest.internal proxyCommand=websocat --binary wss://relay.example/tunnel",
 		"35|container.exec|runtime=docker verb=exec",
 		"36|proc.exec|argv0=ssh-keygen",
 		"41|net.listen|host=127.0.0.1 port=8080",

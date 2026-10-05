@@ -67,3 +67,51 @@ tests:
     - inventory/model-denied-relay-comment.yaml
     assertions:
     - violations: 1
+  - name: denied-a-proxy-that-dials-the-guest-over-socat-tcp4
+    object: inventory/model-denied-socat-tcp4.yaml
+    inventory:
+    - inventory/model-denied-socat-tcp4.yaml
+    assertions:
+    - violations: 1
+  - name: denied-a-proxy-that-opens-ssl-to-the-guest
+    object: inventory/model-denied-openssl.yaml
+    inventory:
+    - inventory/model-denied-openssl.yaml
+    assertions:
+    - violations: 1
+  - name: denied-a-proxy-that-opens-a-socket-to-the-guest
+    object: inventory/model-denied-python-socket.yaml
+    inventory:
+    - inventory/model-denied-python-socket.yaml
+    assertions:
+    - violations: 1
+  - name: denied-an-scp-that-reaches-the-guest-directly
+    object: inventory/model-denied-scp.yaml
+    inventory:
+    - inventory/model-denied-scp.yaml
+    assertions:
+    - violations: 1
+  - name: denied-an-ssh-inside-a-shell-string
+    object: inventory/model-denied-sh-c-ssh.yaml
+    inventory:
+    - inventory/model-denied-sh-c-ssh.yaml
+    assertions:
+    - violations: 1
+  - name: denied-a-test-that-dials-a-literal-guest-address
+    object: inventory/model-denied-test-dial-literal.yaml
+    inventory:
+    - inventory/model-denied-test-dial-literal.yaml
+    assertions:
+    - violations: 1
+  - name: allowed-a-test-that-dials-a-target-the-binding-excepts
+    object: inventory/model-allowed-test-dial-local.yaml
+    inventory:
+    - inventory/model-allowed-test-dial-local.yaml
+    assertions:
+    - violations: 0
+  - name: allowed-an-ssh-to-a-host-that-is-not-the-guest
+    object: inventory/model-allowed-ssh-github.yaml
+    inventory:
+    - inventory/model-allowed-ssh-github.yaml
+    assertions:
+    - violations: 0

@@ -4,10 +4,11 @@ metadata:
   annotations:
     specs.publicdomainrelay.dev/calibration: 'a relay is anything that is not a direct
       connection: an ssh reachable from a test driver is denied when it carries no
-      ProxyCommand or one that only dials the guest (nc/ncat/netcat, socat over TCP:,
-      /dev/tcp/, ssh -W or -J straight to the guest). Any other proxy command passes,
-      named or not. directDialPatterns keeps its own denial for a test that dials
-      a guest address.'
+      ProxyCommand or one that only dials the guest (nc/ncat/netcat, socat over TCP,
+      /dev/tcp/, openssl s_client). Any other proxy command passes, named or not,
+      and so do a ProxyJump/-J hop, an ssh config file and an inner ssh -W, because
+      each of those connects to a hop that is not the guest. directDialPatterns keeps
+      its own denial for a test that dials a guest address.'
     specs.publicdomainrelay.dev/level: MUST
     specs.publicdomainrelay.dev/title: integration tests ssh to a guest only over
       the relay
@@ -34,6 +35,8 @@ spec:
               items:
                 type: string
               type: array
+            indirectPattern:
+              type: string
             proxyCommandPattern:
               type: string
             sshPattern:
@@ -217,13 +220,17 @@ spec:
       dials the guest, and a guest is reached only through a relay -- any transport
       or tunnel passes\", [call.qualifiedName, driver.path])\n\tdetails := specd.location(call.file,
       specd.node_match_line(call, input.parameters.sshPattern))\n}\n\n# indirect:
-      the ssh carries a ProxyCommand that is not a direct dial. Any\n# transport or
-      tunnel counts -- the org relay, fedproxy, websocat, iroh,\n# dumbpipe, cloudflared
-      or a transport the classifier could not name.\nindirect(call) {\n\tnode := specd.nodes_with_id(specd.closure_from({call.id},
+      the ssh, or a helper it calls, carries an indirection. A\n# ProxyCommand that
+      is not a direct dial is one; so is a ProxyJump/-J hop, an\n# ssh config file
+      the model cannot read, and an inner `ssh -W` (which connects\n# to the hop,
+      not to the guest). Any transport or tunnel counts -- the org\n# relay, fedproxy,
+      websocat, iroh, dumbpipe, cloudflared or a transport the\n# classifier could
+      not name.\nindirect(call) {\n\tnode := specd.nodes_with_id(specd.closure_from({call.id},
       input.parameters.edgeKinds))[_]\n\tre_match(input.parameters.proxyCommandPattern,
-      node.text)\n\tnot direct_dialer(node.text)\n}\n\ndirect_dialer(text) {\n\tpattern
-      := input.parameters.directProxyPatterns[_]\n\tre_match(pattern, text)\n}\n\nviolation[specd.violation(msg,
-      details)] {\n\tdriver := specd.tests_matching_text(input.parameters.testGlobs,
+      node.text)\n\tnot direct_dialer(node.text)\n}\n\nindirect(call) {\n\tnode :=
+      specd.nodes_with_id(specd.closure_from({call.id}, input.parameters.edgeKinds))[_]\n\tre_match(input.parameters.indirectPattern,
+      node.text)\n}\n\ndirect_dialer(text) {\n\tpattern := input.parameters.directProxyPatterns[_]\n\tre_match(pattern,
+      text)\n}\n\nviolation[specd.violation(msg, details)] {\n\tdriver := specd.tests_matching_text(input.parameters.testGlobs,
       input.parameters.driverIdentifiers)[_]\n\treachable := specd.closure_from({specd.file_node(driver.path).id},
       input.parameters.edgeKinds)\n\tcall := specd.nodes_with_id(reachable)[_]\n\tspecd.definition_node(call)\n\tpattern
       := input.parameters.directDialPatterns[_]\n\tre_match(pattern, call.text)\n\tmsg

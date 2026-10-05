@@ -80,6 +80,15 @@ func TestViolatingVariantsDeny(t *testing.T) {
 		{name: "violating-vh3", policy: "rfp-host-reach-in", constraint: "rfp-host-reach-in"},
 		{name: "violating-vn1-callee", policy: "rfp-relay-only-guest-ssh", constraint: "rfp-relay-only-guest-ssh"},
 		{name: "violating-vn1-comment", policy: "rfp-relay-only-guest-ssh", constraint: "rfp-relay-only-guest-ssh"},
+		{name: "violating-vn4-socat-tcp4", policy: "rfp-relay-only-guest-ssh", constraint: "rfp-relay-only-guest-ssh"},
+		{name: "violating-vn4-nc-openbsd", policy: "rfp-relay-only-guest-ssh", constraint: "rfp-relay-only-guest-ssh"},
+		{name: "violating-vn4-openssl", policy: "rfp-relay-only-guest-ssh", constraint: "rfp-relay-only-guest-ssh"},
+		{name: "violating-vn4-scp", policy: "rfp-relay-only-guest-ssh", constraint: "rfp-relay-only-guest-ssh"},
+		{name: "violating-vn4-autossh", policy: "rfp-relay-only-guest-ssh", constraint: "rfp-relay-only-guest-ssh"},
+		{name: "violating-vn4-sh-c", policy: "rfp-relay-only-guest-ssh", constraint: "rfp-relay-only-guest-ssh"},
+		{name: "violating-vn5-test-dial", policy: "rfp-relay-only-guest-ssh", constraint: "rfp-relay-only-guest-ssh"},
+		{name: "violating-vn6-sh-container", policy: "rfp-host-reach-in", constraint: "rfp-host-reach-in"},
+		{name: "violating-vn6-child-process", policy: "rfp-host-reach-in", constraint: "rfp-host-reach-in"},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
 			dir := fixture.CopyTree(t, filepath.Join("market-mini", variant.name))
@@ -107,6 +116,32 @@ func TestViolatingVariantsDeny(t *testing.T) {
 				t.Errorf("the variant does not trigger %s: %+v", variant.constraint, report.Violations)
 			}
 		})
+	}
+}
+
+// TestTheRelayRuleLeavesAnIndirectionAlone runs the other half of the review's
+// N4 list: the ssh forms that are not direct connections. Each one connects to
+// a hop that is not the guest, and none may be denied.
+func TestTheRelayRuleLeavesAnIndirectionAlone(t *testing.T) {
+	if _, err := exec.LookPath("codegraph"); err != nil {
+		t.Skip("codegraph is not on PATH")
+	}
+	library, err := policyeval.Load(filepath.Join(root, "examples", "policies", "market-mini"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := fixture.CopyTree(t, filepath.Join("market-mini", "compliant-relays"))
+	graph, model := fixtureObjects(t, dir, "market-mini", library)
+	reviewed := []*unstructured.Unstructured{graph, model}
+	report, err := policyeval.EvaluateLibrary(context.Background(), library, reviewed, reviewed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, violation := range report.Violations {
+		if violation.Enforcement != policy.EnforcementDeny {
+			continue
+		}
+		t.Errorf("an indirection is denied: %s %s: %+v", violation.Constraint, violation.Msg, violation.Location)
 	}
 }
 

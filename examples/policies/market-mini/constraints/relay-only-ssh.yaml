@@ -16,11 +16,12 @@ spec:
     driverIdentifiers: createBidder|runComputeContract
     sshPattern: new Deno\.Command\(\s*"ssh"
     proxyCommandPattern: ProxyCommand
+    indirectPattern: '(ProxyJump=-|-J["''`,\s]|["''`]-F["''`,\s]|ssh -W[[:space:]])'
     directProxyPatterns:
-    - '\b(nc|ncat|netcat)\b'
-    - 'socat[^\n]*TCP:'
+    - '\b(nc|ncat|netcat|nc\.openbsd)\b'
+    - 'socat[^\n]*TCP'
     - '/dev/tcp/'
-    - '(\s|["''])-[WJ](\s|["''])'
+    - 's_client[^\n]*-connect'
     directDialPatterns:
     - Deno\.connect\(\{[^}]*guest
     - '["'']-p["'']\s*,\s*String\('

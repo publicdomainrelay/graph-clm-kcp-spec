@@ -1183,7 +1183,11 @@ func codeMask(source, family string) []maskClass {
 			mask[index] = maskCode
 			index++
 		case char == '"' || char == '\'' || char == '`':
-			index = skipString(source, index) + 1
+			close := skipString(source, index)
+			if char == '`' {
+				markInterpolations(source, index+1, close, mask)
+			}
+			index = close + 1
 		default:
 			mask[index] = maskCode
 			index++
@@ -1296,6 +1300,34 @@ func markSubstitutions(source string, from, to int, mask []maskClass) {
 			cursor++
 		}
 		for mark := start; mark < cursor-1 && mark < len(mask); mark++ {
+			mask[mark] = maskCode
+		}
+		index = cursor - 1
+	}
+}
+
+// markInterpolations marks the `${...}` spans of a template literal as code, so
+// a name inside one is a name the classifier may resolve: a ProxyCommand built
+// as `ProxyCommand=${P} %h %p` with `const P = "nc"` in the same file is an nc,
+// not an unresolved expression. A name that is not a simple constant -- a call,
+// a member, a field -- stays unresolved.
+func markInterpolations(source string, from, to int, mask []maskClass) {
+	for index := from; index+1 < to; index++ {
+		if source[index] != '$' || source[index+1] != '{' {
+			continue
+		}
+		depth := 1
+		cursor := index + 2
+		for cursor < to && depth > 0 {
+			switch source[cursor] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+			}
+			cursor++
+		}
+		for mark := index + 2; mark < cursor-1 && mark < len(mask); mark++ {
 			mask[mark] = maskCode
 		}
 		index = cursor - 1

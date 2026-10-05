@@ -1,0 +1,2 @@
+Host guest-vm
+  ProxyCommand relay-subscriber --stdio %h %p

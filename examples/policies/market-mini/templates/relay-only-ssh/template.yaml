@@ -5,7 +5,7 @@ metadata:
   annotations:
     specs.publicdomainrelay.dev/title: "integration tests ssh to a guest only over the relay"
     specs.publicdomainrelay.dev/level: MUST
-    specs.publicdomainrelay.dev/calibration: "a relay is anything that is not a direct connection: an ssh reachable from a test driver is denied when it carries no ProxyCommand or one that only dials the guest (nc/ncat/netcat, socat over TCP:, /dev/tcp/, ssh -W or -J straight to the guest). Any other proxy command passes, named or not. directDialPatterns keeps its own denial for a test that dials a guest address."
+    specs.publicdomainrelay.dev/calibration: "a relay is anything that is not a direct connection: an ssh reachable from a test driver is denied when it carries no ProxyCommand or one that only dials the guest (nc/ncat/netcat, socat over TCP, /dev/tcp/, openssl s_client). Any other proxy command passes, named or not, and so do a ProxyJump/-J hop, an ssh config file and an inner ssh -W, because each of those connects to a hop that is not the guest. directDialPatterns keeps its own denial for a test that dials a guest address."
 spec:
   crd:
     spec:
@@ -29,6 +29,8 @@ spec:
               type: array
               items:
                 type: string
+            indirectPattern:
+              type: string
             directDialPatterns:
               type: array
               items:

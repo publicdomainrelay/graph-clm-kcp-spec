@@ -26,11 +26,35 @@ spec:
     startLine: 10
     text: |
       new Deno.Command("ssh", { args: ["-o", "ProxyCommand=websocat --binary wss://guest"] })
+  - id: "fn:jump"
+    kind: function
+    name: runSessionViaJumpHost
+    qualifiedName: runSessionViaJumpHost
+    file: lib/requester.ts
+    startLine: 20
+    text: |
+      new Deno.Command("ssh", { args: ["-J", "relay.example.org", "root@guest", "true"] })
+  - id: "fn:config"
+    kind: function
+    name: runSessionViaConfig
+    qualifiedName: runSessionViaConfig
+    file: lib/requester.ts
+    startLine: 30
+    text: |
+      new Deno.Command("ssh", { args: ["-F", "./ssh_config", "guest-vm", "true"] })
   edges:
   - source: "file:test/bidder_test.ts"
     target: "fn:ssh"
     kind: calls
     line: 4
+  - source: "file:test/bidder_test.ts"
+    target: "fn:jump"
+    kind: calls
+    line: 5
+  - source: "file:test/bidder_test.ts"
+    target: "fn:config"
+    kind: calls
+    line: 6
   texts:
     test/bidder_test.ts: |
       Deno.test("contract", () => runComputeContract())

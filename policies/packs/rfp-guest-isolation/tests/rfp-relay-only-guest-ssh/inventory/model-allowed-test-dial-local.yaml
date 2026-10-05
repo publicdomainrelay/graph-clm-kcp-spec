@@ -1,0 +1,48 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  roles:
+  - guest
+  - requester
+  - test
+  vocabulary:
+    channels:
+      relay:
+      - websocat
+      - dumbpipe
+    reachInExceptions:
+    - 127.0.0.1
+    - localhost
+  components:
+  - name: requester
+    roles:
+    - requester
+    source: observed
+  - name: test
+    roles:
+    - test
+    source: observed
+  - name: guest
+    roles:
+    - guest
+    source: observed
+  effects:
+  - id: dial
+    kind: net.dial
+    component: test
+    attrs:
+      target: 127.0.0.1:9876
+    file: test/bidder_test.ts
+    line: 20
+  flows:
+  - from: test
+    to: unknown
+    initiator: test
+    source: observed
+    evidence:
+    - dial
+  triggers: []
