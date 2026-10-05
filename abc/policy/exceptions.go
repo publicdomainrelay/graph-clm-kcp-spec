@@ -10,10 +10,18 @@ import (
 
 const ExceptionsDir = "exceptions"
 
+const (
+	ExceptionScopeSite = "site"
+
+	ExceptionScopeRule = "rule"
+)
+
 type Exception struct {
 	Constraint string `json:"constraint"`
 
 	Key string `json:"key,omitempty"`
+
+	Scope string `json:"scope,omitempty"`
 
 	Object string `json:"object,omitempty"`
 
@@ -28,16 +36,58 @@ type Exception struct {
 	Expires string `json:"expires,omitempty"`
 }
 
+// Waiver turns a durable exception into the override a decision reads. A
+// site-scoped exception names one violation by its key. A rule-scoped one
+// waives the whole constraint, so it carries no key and no site: the key is
+// what makes a waiver precise, and a waiver without one must say so.
 func (e Exception) Waiver() Override {
-	return Override{
+	waiver := Override{
 		Constraint: e.Constraint,
 		Reason:     e.Reason,
 		By:         e.Owner,
 		Key:        e.Key,
-		Object:     e.Object,
-		File:       e.File,
-		Line:       e.Line,
 	}
+	if e.Scope == ExceptionScopeRule {
+		return waiver
+	}
+	waiver.Object = e.Object
+	waiver.File = e.File
+	waiver.Line = e.Line
+	return waiver
+}
+
+// ScopeOf is the scope an exception names: site unless it asks for the whole
+// rule.
+func (e Exception) ScopeOf() string {
+	if strings.TrimSpace(e.Scope) == "" {
+		return ExceptionScopeSite
+	}
+	return strings.TrimSpace(e.Scope)
+}
+
+// StaleExceptions names the key-scoped exceptions that match no violation of
+// the report: the site they were written for is gone, so a decision would
+// never honour them and the file should be removed. A rule-scoped exception
+// matches by construction, and an expired one is reported as expired.
+func StaleExceptions(exceptions []Exception, violations []Violation, now time.Time) []Exception {
+	out := []Exception{}
+	for _, exception := range exceptions {
+		if exception.Key == "" || exception.Expired(now) {
+			continue
+		}
+		waiver := exception.Waiver()
+		matched := false
+		for _, violation := range violations {
+			if waiver.Matches(violation) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			out = append(out, exception)
+		}
+	}
+	return out
 }
 
 func (e Exception) Expired(now time.Time) bool {

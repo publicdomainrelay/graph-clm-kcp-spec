@@ -128,7 +128,7 @@ func loadTree(fsys fs.FS, manifest policy.PolicyLibrary, manifestPath string, ma
 				return policy.Library{}, err
 			}
 			var exception policy.Exception
-			if err := yaml.Unmarshal(data, &exception); err != nil {
+			if err := yaml.UnmarshalStrict(data, &exception); err != nil {
 				return policy.Library{}, fmt.Errorf("policyeval: %s: %w", file, err)
 			}
 			if strings.TrimSpace(exception.Constraint) == "" {
@@ -136,6 +136,18 @@ func loadTree(fsys fs.FS, manifest policy.PolicyLibrary, manifestPath string, ma
 			}
 			if strings.TrimSpace(exception.Reason) == "" {
 				return policy.Library{}, fmt.Errorf("policyeval: %s records no reason", file)
+			}
+			switch exception.ScopeOf() {
+			case policy.ExceptionScopeSite:
+				if strings.TrimSpace(exception.Key) == "" {
+					return policy.Library{}, fmt.Errorf("policyeval: %s names no key; a waiver is site-scoped by its key, or carries scope: rule to waive the whole constraint", file)
+				}
+			case policy.ExceptionScopeRule:
+				if strings.TrimSpace(exception.Key) != "" {
+					return policy.Library{}, fmt.Errorf("policyeval: %s carries scope: rule and a key; a rule-scoped waiver names no site", file)
+				}
+			default:
+				return policy.Library{}, fmt.Errorf("policyeval: %s has scope %q, which is not %s or %s", file, exception.Scope, policy.ExceptionScopeSite, policy.ExceptionScopeRule)
 			}
 			library.Files[file] = data
 			library.Manifest.Exceptions = append(library.Manifest.Exceptions, exception)

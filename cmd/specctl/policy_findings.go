@@ -394,7 +394,7 @@ func runPolicyFindings(args []string, stdout, stderr io.Writer) int {
 	}
 	options.target = *target
 
-	_, report, base, waivers, expired, err := options.resolve(context.Background())
+	library, report, base, waivers, expired, err := options.resolve(context.Background())
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy findings: %v\n", err)
 		return exitError
@@ -403,6 +403,11 @@ func runPolicyFindings(args []string, stdout, stderr io.Writer) int {
 	for _, exception := range expired {
 		fmt.Fprintf(stderr, "specctl policy findings: the exception for %s expired %s and is not honoured\n",
 			exception.Constraint, exception.Expires)
+	}
+	stale := policy.StaleExceptions(library.Manifest.Exceptions, report.Violations, time.Now())
+	for _, exception := range stale {
+		fmt.Fprintf(stderr, "specctl policy findings: the exception %s for %s matches no violation; remove %s\n",
+			exception.Key, exception.Constraint, filepath.ToSlash(filepath.Join(policy.ExceptionsDir, exception.Key+".yaml")))
 	}
 	if options.output == "json" {
 		encoded, err := json.MarshalIndent(findings, "", "  ")

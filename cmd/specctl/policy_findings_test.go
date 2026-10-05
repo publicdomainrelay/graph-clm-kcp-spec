@@ -110,6 +110,27 @@ func TestPolicyWaiveRecordsAnExceptionAndFindingsReportItWaived(t *testing.T) {
 	}
 }
 
+func TestPolicyFindingsRefusesAnExceptionWithAnUnknownField(t *testing.T) {
+	requireCodegraph(t)
+	library := findingsLibrary(t)
+	directory := filepath.Join(library, "exceptions")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	typo := "constraint: rfp-relay-only-guest-ssh\nkye: e8543cb5a9ecdcbc\nreason: a misspelt key\n"
+	if err := os.WriteFile(filepath.Join(directory, "typo.yaml"), []byte(typo), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := runWith("policy", "findings", "--repo", "market-mini",
+		"--worktree", violatingFixture(t), "--library", library)
+	if code != exitError {
+		t.Fatalf("code %d, want %d: an exception with a misspelt key must not load", code, exitError)
+	}
+	if !strings.Contains(stderr, "kye") {
+		t.Errorf("stderr does not name the unknown field: %q", stderr)
+	}
+}
+
 func TestPolicyWaiveRefusesWithoutAReason(t *testing.T) {
 	code, _, stderr := runWith("policy", "waive", "0000000000000000", "--repo", "market-mini")
 	if code != exitUsage {
