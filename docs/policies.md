@@ -485,6 +485,53 @@ imports:
 A missing role or class fails the build with the pack's name, which is the
 check behind "the binding is the only per-repository input".
 
+### Members: one model across repositories
+
+An invariant about a host and a guest does not always live in one checkout.
+`members:` names another repository the model is built over, with its own role
+binding, so a pack rule sees a flow whose two ends are in two repositories:
+
+```yaml
+members:
+- name: hono-compute-provider
+  url: https://github.com/publicdomainrelay/hono-compute-provider
+  ref: fb11e74
+  path: lib                      # optional; limits the member to a subdirectory
+  classifiers: [compute-provider.yaml]
+  roles:
+    host:
+      globs: ["lib/compute-provider-local/**"]
+    guest:
+      targets: {attrs: [inspectIp, backend.exec]}
+```
+
+- Each member is cloned into `$SPECD_CACHE_DIR/policy-members/<name>` (default
+  `.kcp-specd/cache/policy-members`), checked out at `ref`, and pinned to the
+  commit it resolved to. `policy eval` and `policy model` print the pins;
+  `policy build` writes them into `policies.lock` under `members:`. A build
+  verifies the pin and refuses a member that moved, the way it refuses a pack.
+- `--member name=path` clones the named member from a local checkout instead,
+  for a ref that is not on its public remote. The lock still records the
+  declared `url`.
+- The member's components are named `<member>/<context>`, its effects, files,
+  evidence and triggers carry the prefix, and its roles merge with the
+  library's, so a portable rule reads the same abstract roles across
+  repositories and never learns a repository name.
+- `classifiers:` names packs under the library's `classifiers/` directory. It
+  works on a member and on the library itself: a repository whose effect sites
+  the shared packs do not know names them from the policy branch rather than
+  editing code.
+
+The ArchitectureModel is built over the members wherever a library is
+evaluated -- `specctl policy eval` and `policy model`, the realize gate and the
+kcp audit -- so a rule over the model gates a realize and an audit, not only an
+offline run. The spec-time gate is declared-only: a member's observed reach-in
+is not a fact before code exists.
+
+`docs/examples/portable-policies.md` records the three bindings of the pack
+(one repository plus a member, a provider alone, a spec-only repository) and
+`scripts/example-portable-policies.sh` repeats them.
+
 ### The rfp-guest-isolation pack
 
 The first bound pack: the two rules the RFP flow exists to keep, written once.
@@ -510,10 +557,15 @@ Run the pack's own suites:
 
 ```bash
 bin/specctl policy test --dir policies/packs/rfp-guest-isolation --gator
-# opa: 82/82 passed
-# suites: 13/13 cases passed
+# opa: 83/83 passed
+# suites: 14/14 cases passed
 # PASS
 ```
+
+The reach-in rule fires on the *declared* shape too: a flow with no evidence --
+a spec that plans the host reaching in, before any code exists -- is denied at
+spec time. `denied-a-declared-reach-in-before-any-code` and
+`test_violation_when_a_declared_flow_has_no_evidence` pin it.
 
 ### Inventory
 
