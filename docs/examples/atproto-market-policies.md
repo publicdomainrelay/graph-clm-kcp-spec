@@ -346,3 +346,195 @@ bin/specctl policy bind --repo atproto-market --pack rfp-guest-isolation --wait
 
 The harness is `deepseek-claude` (the default agent kind), one model call per
 attempt, about five minutes each.
+
+## Generation 2: the guest reports out, the host never reaches in
+
+The sentence:
+
+> the bidder and the compute provider MUST NEVER reach into the guest for the
+> vm.onNetwork event, the guest MUST reach out to it to provide the address,
+> routing / iroh / fedproxy info
+
+`status.checks` after the first attempt (8 checks, none refused):
+
+| check | outcome |
+| --- | --- |
+| `annotations` | the requirements `lib-market-bidder-compute#r.on-network`, `generated-by` and the severity, written from the request |
+| `shape` | one template, one constraint, slug `guest-reports-network`, reviewing the `ArchitectureModel` |
+| `portable` | the source names no repository, context or glob |
+| `compile` | the constraint client compiles it |
+| `units` | 6 opa unit tests |
+| `suite` | 2 gator cases (one allowed, one denied) |
+| `mutation` | denies `host-reaches-in`, `guest-report-dropped`, `emission-from-the-lifecycle` |
+| `head evaluation` | 4 violations against `7a2e9d9` |
+
+The rule it wrote has the pack's three clauses:
+
+```rego
+violation[specd.violation(msg, details)] {
+	flow := specd.model_flows[_]
+	specd.initiator_in_role(flow, host_role)
+	specd.acted_on_in_role(flow, guest_role)
+	network_flow(flow)
+	...
+}
+
+violation[specd.violation(msg, details)] {
+	has_effects
+	not guest_reports
+	msg := sprintf("no flow has the %s role initiating toward the %s role carrying %s: ...", [...])
+}
+
+violation[specd.violation(msg, details)] {
+	effect := specd.model_effects[_]
+	specd.component_in_role(effect.component, host_role)
+	specd.event_class(effect, network_event_class)
+	not driven_by_report_handler(effect)
+	...
+}
+```
+
+The head violations at `master` (`7a2e9d9`), with the pack's own verdicts
+beside them:
+
+| site | generated `guest-reports-network` | pack `rfp-guest-isolation` |
+| --- | --- | --- |
+| `lib/market-bidder-compute/mod.ts:282` | deny: the host role reaches into the guest role for network-discovery (`host -> guest` over `relay` carrying `network-info`) | `rfp-host-reach-in`, same site |
+| `lib/market-bidder-compute/mod.ts:257` | deny: the host emits the `network-report` event `COMPUTE_EVENTS_VM_ONNETWORK_NSID` without the report route driving it | `rfp-guest-reports-network`, same site |
+| `lib/market-bidder-compute/mod.ts:284` | deny: the host emits `COMPUTE_EVENTS_VM_REGISTER_IDENTITY_NSID` the same way | `rfp-guest-reports-network`, same site |
+| (no site) | deny: no flow has the guest initiating toward the host carrying `network-info` | `rfp-guest-reports-network`'s require, same reading |
+
+So the generated rule finds exactly the sites the hand-written pack finds at
+`master`.
+
+## Generation 1: the integration tests reach the guest over the relay
+
+The sentence:
+
+> integration tests with bidder and requester MUST always make ssh connections
+> over the relay
+
+`status.checks` after the first attempt: `annotations`, `shape`
+(`relay-only-guest-ssh`), `portable`, `compile`, `units` (9 opa tests),
+`suite` (2 cases), `mutation` (denies `unrelayed-ssh`), `head evaluation`
+(0 violations against `7a2e9d9`).
+
+The rule it wrote scopes itself to a model that carries an integration test
+(a flow the `test` role initiates onto the `requester` or the `host`), then
+denies any `ssh.connect` in the test, requester or host role that is not the
+relay itself and whose model shows neither a flow carrying it over the relay
+channel nor a relay transport in its own attributes:
+
+```rego
+violation[specd.violation(msg, details)] {
+	integration_test
+	effect := specd.model_effects[_]
+	effect.kind == "ssh.connect"
+	ssh_role(effect)
+	not specd.component_in_role(effect.component, relay_role)
+	not over_relay(effect)
+	...
+}
+```
+
+The first attempt at this sentence used the slug `relay-only-ssh`, which the
+repository's own template already owns: the branch write replaced that
+template's directory while the kcp apply skipped the generated one, so the two
+halves of the apply disagreed. `specctl` now refuses a change whose slug, or
+whose kind's name, is already taken, before the harness runs; the run above is
+the re-run with the free slug `relay-only-guest-ssh`.
+
+### Where the generated policies fire
+
+The generated `guest-reports-network` alone (its own constraint, evaluated
+against the same clone at the three refs), beside the pack's own verdicts for
+the same three invariants:
+
+| ref | generated `guest-reports-network` | pack `rfp-guest-isolation` |
+| --- | --- | --- |
+| `master` `7a2e9d9` | 4 deny: the reach-in at `:282`, the two emissions at `:257` and `:284`, and "no flow has the guest role initiating toward the host role carrying network-info" | 3 deny: `rfp-host-reach-in` (`:282`), `rfp-guest-reports-network` (`:257`, `:284`) |
+| `pre-iroh` `d20070c` | 2 deny: the emission at `:304`, and the missing guest report | 1 deny: `rfp-guest-reports-network` (`:304`) |
+| `spec/iroh-dumbpipe-20261004141803` `ffac22e` | 2 deny: the emission at `:313`, and the missing guest report | 1 deny: `rfp-guest-reports-network` (`:313`) |
+
+Every site the pack names, the generated rule names too. The one difference is
+the require clause, and it is the difference G4 already recorded: the pack's
+`guest-reports-network` require accepts *any* role the guest reports to
+("the guest initiates toward another role carrying `network-info`"), because at
+all three refs the guest's report resolves to `guest -> requester` or
+`guest -> unknown` while the handler that receives it lives in
+`lib/market-bidder`; the generated rule reads the sentence -- "the guest MUST
+reach out to it", the bidder -- as `guest -> host` and therefore fires at every
+ref. The pack carries a `reportPeerRoles` parameter for a repository that wants
+the strict reading; the generated rule is the strict reading by construction.
+
+`relay-only-guest-ssh` reports nothing at any of the three refs, which is what
+the pack's own `rfp-relay-only-guest-ssh` reports there: at `master` and
+`pre-iroh` the ssh is tunneled (`ProxyCommand=...websocat|dumbpipe...`), and a
+tunneled ssh is what both rules accept.
+
+## What the bind produced
+
+`specctl policy bind --repo atproto-market --pack rfp-guest-isolation` asked
+the same harness for the binding instead of a rule. `status.checks`:
+
+| check | outcome |
+| --- | --- |
+| `manifest` | `policies.yaml` keeps the pack import and names the repository |
+| `binding` | 5 roles select components, 4 of 5 vocabulary classes match an effect or a spec term; `routes/report` matches nothing yet, reported as a note |
+| `suites` | the pack's own 13 gator cases pass |
+| `mutation` | the pack denies `host-reaches-in`, `guest-report-dropped`, `unrelayed-ssh` and `test-dials-the-guest` on the repository's model |
+| `head evaluation` | 3 violations at `7a2e9d9`, the pack's own sites |
+
+The binding it wrote is the hand-written `examples/policies/atproto-market/policies.yaml`
+of G4, role for role and class for class: the same five roles with the same
+globs and target hints, and the same vocabulary (`channels/relay`
+`[websocat, fedproxy, dumbpipe, iroh connect, tunnel-subscriber]`,
+`events/network-report`, `payloads/network-info`, `purposes/network-discovery`,
+`routes/report`). The generated binding differs from the hand-written one only
+in that the harness also wrote `defaultEnforcement: deny` and the same
+`testGlobs`.
+
+## What landed on the branch
+
+```
+open-policy/atproto-market
+  seed:  the G4 binding, its four concrete templates and the five pack templates
+  + policy relay-only-guest-ssh          (changes/atproto-market-relay-only-guest-ssh.yaml)
+  + policy guest-reports-network         (changes/atproto-market-guest-reports-network.yaml)
+  + bind rfp-guest-isolation             (changes/atproto-market-bind-rfp-guest-isolation.yaml)
+```
+
+Both generated templates carry `specs.publicdomainrelay.dev/requirements`
+(`lib-requester-xrpc#r.relay`, `lib-market-bidder-compute#r.on-network`) and
+`.../generated-by` naming the PolicyChange, and the branch's `templates/` holds
+their `src.rego`, `src_test.rego`, `template.yaml`, their suites under
+`tests/` and their `dist/`, exactly as a hand-written template does.
+
+The audit records what enforces what: `SystemContext/lib-requester-xrpc`
+carries `status.enforcedBy: [relayonlyguestssh]` and
+`SystemContext/lib-market-bidder-compute` carries
+`[guestreportsnetwork]`; a context whose requirements no policy names carries
+the empty list, not the last answer.
+
+## Honest reading
+
+- The two rules are the sentences, not the pack. `guest-reports-network`
+  reproduces the pack's three clauses (reach-in, guest reports out, the
+  emission driven by the report handler) and adds the strict peer reading
+  described above; `relay-only-guest-ssh` accepts a relay-channel flow or a
+  relay transport on the ssh itself, the same reading as
+  `rfp-relay-only-guest-ssh`. Nothing here replaces the pack: a generated rule
+  is a repository's own rule, and the pack stays what it is.
+- The checks judge a generated rule by its own fixtures, the derived mutations
+  and the head evaluation. None of them proves the fixture models the
+  repository's real shape; the first audit on the branch is the honest check.
+- The generation is one model call per attempt. Both policies and the binding
+  were accepted on the first attempt here; the retry loop (the refused
+  attempt's checks are the next attempt's instruction) is exercised by
+  `test/e2e/policy_generate_live_test.go` with a scripted harness, not by this
+  run.
+- The run also found two real defects, both fixed here: the slug
+  `relay-only-ssh` collides with the repository's own template (the apply
+  replaced the branch file while kcp kept the old object), and a status that
+  carried violations could be written but not read back, so `policy accept`
+  failed on the second change.

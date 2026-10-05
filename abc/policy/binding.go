@@ -88,7 +88,7 @@ type PackImport struct {
 type Binding struct {
 	Roles map[string]RoleBinding `json:"roles,omitempty"`
 
-	Vocabulary Vocabulary
+	Vocabulary Vocabulary `json:"vocabulary,omitempty"`
 
 	Imports []PackImport `json:"imports,omitempty"`
 }
