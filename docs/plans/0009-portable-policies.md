@@ -479,7 +479,7 @@ Honest reading:
 - `net.dial` 0.000: `serve.addRelay` dials the relay websocket inside the serve
   module; the caller never opens one, so there is no site to classify.
 
-### G3. Declared interactions -- done
+### G3. Declared interactions -- done (`ddb5c76`, `144c16f`, `795724f`)
 
 What is built:
 
