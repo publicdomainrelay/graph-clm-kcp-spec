@@ -779,6 +779,8 @@ bin/specctl policy eval --repo atproto-market --commit 7a2e9d9 \
   --path ~/clones/atproto-market --library examples/policies/atproto-market
 bin/specctl policy eval --repo deno-kcp --commit 0f1078d --path ~/clones/deno-kcp \
   --diff-base 0f1078d^ --library policies/library
+bin/specctl policy eval --repo greenfield-market --specs-only \
+  --path ~/clones/greenfield-market --library policies/packs/conformance --strict
 ```
 
 The model behind an evaluation is one command:
@@ -811,6 +813,11 @@ the triggers; `-o json` prints the `ArchitectureModel` object.
 - `-o json` prints the full `policy.Report`; the default prints a table.
 - `--strict` exits 1 when a `deny` violation survives the repository's
   enforcement cap.
+- `--specs-only` skips the code entirely: it reads the `SystemContext`s from
+  `specs/*.yaml` on the `open-architecture/<repository>` branch, builds the
+  declared-only `ArchitectureModel` and evaluates the library against it. It is
+  the offline twin of `specd --policy-library` (see "Declared interactions and
+  the spec-time gate"). `--worktree`, `--commit` and `--diff-base` do not apply.
 
 Reports name `policy`, `constraint`, `enforcementAction`, the reviewed object,
 `file:line` and the message; `-o json` also carries `details` and the violation
