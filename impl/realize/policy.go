@@ -98,7 +98,7 @@ func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Dec
 	}
 	members, err := policyeval.ResolveMembers(ctx, gate.Library.Manifest.Members, gate.Library, policyeval.MemberOptions{
 		CacheDir: gate.MemberCacheDir,
-		Lock:     gateLock(gate.Library),
+		Lock:     policyeval.GateLock(gate.Library),
 	})
 	if err != nil {
 		return policy.Decision{}, policy.Report{}, fmt.Errorf("realize: resolve the policy members: %w", err)
@@ -204,19 +204,6 @@ func baseWorktree(ctx context.Context, dir, base string) (string, func(), error)
 			base, err, strings.TrimSpace(string(output)))
 	}
 	return target, cleanup, nil
-}
-
-// gateLock is the member pins the library's own policies.lock carries.
-func gateLock(library policy.Library) *policy.PackLock {
-	data, ok := library.Files[policy.LockPath]
-	if !ok {
-		return nil
-	}
-	lock, err := policyeval.ParseLock(data)
-	if err != nil {
-		return nil
-	}
-	return &lock
 }
 
 // buildGateGraph indexes the worktree head. The index lives in a .codegraph

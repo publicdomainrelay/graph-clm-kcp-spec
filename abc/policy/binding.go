@@ -39,10 +39,6 @@ type Vocabulary struct {
 
 	Routes map[string][]string `json:"routes,omitempty"`
 
-	// ReachInExceptions names the targets a host reaches that are known not to
-	// be the guest, so the reach-in default of the isolation pack does not
-	// report them. Each entry is a glob matched against an effect's file, or a
-	// substring matched against an effect attribute.
 	ReachInExceptions []string `json:"reachInExceptions,omitempty"`
 }
 

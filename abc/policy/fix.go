@@ -19,10 +19,6 @@ const (
 	AnnotationFixSite = Group + "/fix-site"
 )
 
-// FixChange is the SpecChange a fix request becomes: a spec-to-code change on
-// the violation's SystemContext. The prompt rides on it as an annotation, so
-// the spec flow the repository already runs realizes the fix and a reader of
-// the change sees the violation it answers.
 func FixChange(request FixRequest, name, systemContext, specHash string) *spec.SpecChange {
 	annotations := map[string]string{
 		AnnotationFixPrompt:     request.Prompt,
@@ -43,10 +39,6 @@ func FixChange(request FixRequest, name, systemContext, specHash string) *spec.S
 	return change
 }
 
-// FixRequest is what `specctl policy fix` hands to the normal spec flow: the
-// violation, the context it was found in, and the instruction a spec-to-code
-// change would carry. It is a request, not a change: the spec flow reviews it
-// and decides how the code or the spec answers it.
 type FixRequest struct {
 	Repository string `json:"repository"`
 

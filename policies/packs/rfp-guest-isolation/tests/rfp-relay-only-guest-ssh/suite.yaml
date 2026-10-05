@@ -109,6 +109,18 @@ tests:
     - inventory/model-allowed-test-dial-local.yaml
     assertions:
     - violations: 0
+  - name: denied-a-declared-flow-that-names-no-relay
+    object: inventory/model-denied-declared-direct.yaml
+    inventory:
+    - inventory/model-denied-declared-direct.yaml
+    assertions:
+    - violations: 1
+  - name: allowed-a-declared-flow-over-a-relay-channel
+    object: inventory/model-allowed-declared-relay.yaml
+    inventory:
+    - inventory/model-allowed-declared-relay.yaml
+    assertions:
+    - violations: 0
   - name: allowed-an-ssh-to-a-host-that-is-not-the-guest
     object: inventory/model-allowed-ssh-github.yaml
     inventory:

@@ -36,10 +36,6 @@ type Exception struct {
 	Expires string `json:"expires,omitempty"`
 }
 
-// Waiver turns a durable exception into the override a decision reads. A
-// site-scoped exception names one violation by its key. A rule-scoped one
-// waives the whole constraint, so it carries no key and no site: the key is
-// what makes a waiver precise, and a waiver without one must say so.
 func (e Exception) Waiver() Override {
 	waiver := Override{
 		Constraint: e.Constraint,
@@ -56,8 +52,6 @@ func (e Exception) Waiver() Override {
 	return waiver
 }
 
-// ScopeOf is the scope an exception names: site unless it asks for the whole
-// rule.
 func (e Exception) ScopeOf() string {
 	if strings.TrimSpace(e.Scope) == "" {
 		return ExceptionScopeSite
@@ -65,10 +59,6 @@ func (e Exception) ScopeOf() string {
 	return strings.TrimSpace(e.Scope)
 }
 
-// StaleExceptions names the key-scoped exceptions that match no violation of
-// the report: the site they were written for is gone, so a decision would
-// never honour them and the file should be removed. A rule-scoped exception
-// matches by construction, and an expired one is reported as expired.
 func StaleExceptions(exceptions []Exception, violations []Violation, now time.Time) []Exception {
 	out := []Exception{}
 	for _, exception := range exceptions {
@@ -95,9 +85,6 @@ func (e Exception) Expired(now time.Time) bool {
 	return ok && now.After(when)
 }
 
-// ValidExpiry reports whether an exception's expiry is a date this package
-// understands. A waiver that names an expiry it cannot parse is refused when
-// it is written, so an exception never reads as permanent by accident.
 func ValidExpiry(value string) bool {
 	if strings.TrimSpace(value) == "" {
 		return true
@@ -120,9 +107,6 @@ func parseExpiry(value string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// Waivers turns the durable exceptions of a library into the waivers the
-// decision reads, and returns the expired ones separately so a caller can
-// report them instead of dropping them silently.
 func Waivers(exceptions []Exception, now time.Time) ([]Override, []Exception) {
 	waivers := make([]Override, 0, len(exceptions))
 	expired := []Exception{}
@@ -156,12 +140,6 @@ func (o Override) Matches(violation Violation) bool {
 	return true
 }
 
-// Key is the stable identity of a violation: the constraint, the object and
-// the site. The site is the enclosing declaration and the effect's kind and
-// attributes when an evaluation anchored them, and the raw file and line
-// otherwise. Two evaluations of the same code produce the same key even when
-// an edit moved the line, so a waiver written from one run still matches the
-// next.
 func Key(violation Violation) string {
 	if Anchored(violation.Location) {
 		return ViolationID(violation.Constraint, violation.Object.String(),

@@ -192,15 +192,16 @@ spec:
       path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [\"/\"], path)\n}\n"
     rego: "package rfprelayonlyguestssh\n\nimport data.lib.specd\n\nguest_role :=
       object.get(input.parameters, \"guestRole\", \"guest\")\n\ntester_role := object.get(input.parameters,
-      \"testRole\", \"test\")\n\nattrs(effect) = out {\n\tout := object.get(effect,
-      \"attrs\", {})\n}\n\nviolation[specd.violation(msg, details)] {\n\teffect :=
-      specd.model_effects[_]\n\teffect.kind == \"ssh.connect\"\n\tnot specd.component_in_role(effect.component,
-      guest_role)\n\treaches_the_guest(effect)\n\tnot relayed(effect)\n\tmsg := sprintf(\"ssh
-      from %s reaches the guest directly: %s:%d; a guest is reached only through a
-      relay, so give the ssh a ProxyCommand that goes through any transport -- the
-      org relay, fedproxy, websocat, iroh, dumbpipe, cloudflared or an unnamed tunnel\",\n\t\t[effect.component,
-      effect.file, object.get(effect, \"line\", 0)])\n\tdetails := {\"effect\": effect,
-      \"file\": effect.file, \"line\": object.get(effect, \"line\", 0)}\n}\n\n# reaches_the_guest
+      \"testRole\", \"test\")\n\nrelay_class := object.get(input.parameters, \"relayClass\",
+      \"relay\")\n\nattrs(effect) = out {\n\tout := object.get(effect, \"attrs\",
+      {})\n}\n\nviolation[specd.violation(msg, details)] {\n\teffect := specd.model_effects[_]\n\teffect.kind
+      == \"ssh.connect\"\n\tnot specd.component_in_role(effect.component, guest_role)\n\treaches_the_guest(effect)\n\tnot
+      relayed(effect)\n\tmsg := sprintf(\"ssh from %s reaches the guest directly:
+      %s:%d; a guest is reached only through a relay, so give the ssh a ProxyCommand
+      that goes through any transport -- the org relay, fedproxy, websocat, iroh,
+      dumbpipe, cloudflared or an unnamed tunnel\",\n\t\t[effect.component, effect.file,
+      object.get(effect, \"line\", 0)])\n\tdetails := {\"effect\": effect, \"file\":
+      effect.file, \"line\": object.get(effect, \"line\", 0)}\n}\n\n# reaches_the_guest
       reads the ssh's own destination, then the flow the model\n# built for it. An
       ssh whose destination the model cannot read is treated as\n# the guest: a repository
       that does not bind its guest's addresses is guarded\n# rather than trusted.
@@ -258,5 +259,22 @@ spec:
       {\n\tpattern := dial_exception_patterns[_]\n\tglob.match(pattern, [\"/\"], effect.file)\n}\n\ndial_exception(effect)
       {\n\tpattern := dial_exception_patterns[_]\n\tvalue := attrs(effect)[_]\n\tcontains(lower(value),
       lower(pattern))\n}\n\ndial_exception_patterns := object.get(specd.model_vocabulary,
-      \"reachInExceptions\", [])\n"
+      \"reachInExceptions\", [])\n\n# Rule 1 holds at spec time too (review 0006 B9):
+      the effects a declaration\n# will produce do not exist yet, so the clause reads
+      the declared flow itself.\n# A declaration that sends a non-guest initiator
+      at the guest over a channel\n# that names no relay term is the reach-in the
+      rule forbids, declared. The\n# check needs the binding to name its relay terms
+      under channels/<relayClass>;\n# a binding that does not is recorded as a limit
+      in docs/policies.md.\nviolation[specd.violation(msg, details)] {\n\tflow :=
+      specd.model_flows[_]\n\tspecd.declared(flow)\n\tnot specd.initiator_in_role(flow,
+      guest_role)\n\tspecd.acted_on_in_role(flow, guest_role)\n\trelay_class_declared\n\tnot
+      declared_relay(flow)\n\tmsg := sprintf(\"the declared flow %s -> %s reaches
+      the guest over channel %q, which names no relay; a guest is reached only through
+      a relay, so declare the flow over a channel the binding lists under channels/%s\",\n\t\t[flow.from,
+      flow.to, object.get(flow, \"channel\", \"\"), relay_class])\n\tdetails := {\"flow\":
+      flow, \"from\": flow.from, \"to\": flow.to, \"channel\": object.get(flow, \"channel\",
+      \"\"), \"source\": object.get(flow, \"source\", \"\")}\n}\n\nrelay_class_declared
+      {\n\tcount(specd.vocabulary_terms(\"channels\", relay_class)) > 0\n}\n\ndeclared_relay(flow)
+      {\n\tterm := specd.vocabulary_terms(\"channels\", relay_class)[_]\n\tspecd.term_in(object.get(flow,
+      \"channel\", \"\"), term)\n}\n"
     target: admission.k8s.gatekeeper.sh

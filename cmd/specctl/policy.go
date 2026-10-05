@@ -667,7 +667,7 @@ func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Wr
 	}
 
 	message := fmt.Sprintf("policy(%s): build\n", target.repo)
-	if _, err := target.apply(ctx, add, nil, message); err != nil {
+	if _, err := target.apply(ctx, add, staleDist(target, library, add), message); err != nil {
 		fmt.Fprintf(stderr, "specctl policy build: %v\n", err)
 		return exitError
 	}
@@ -679,6 +679,38 @@ func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Wr
 		fmt.Fprintf(stdout, "pack %s@%s %s %s\n", entry.Pack, entry.Version, shortDigest(entry.SHA256), entry.Source)
 	}
 	return exitOK
+}
+
+// staleDist is the rendered templates a build no longer produces: the dist
+// file of a template that was deleted. Left behind, a gator suite could still
+// reference it and pass against a rule the library no longer holds.
+func staleDist(target *policyTarget, library policy.Library, add map[string][]byte) []string {
+	existing := []string{}
+	if target.onBranch() {
+		for path := range library.Files {
+			existing = append(existing, path)
+		}
+	} else {
+		entries, err := os.ReadDir(filepath.Join(target.dir, policy.DistDir))
+		if err != nil {
+			return nil
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+				continue
+			}
+			existing = append(existing, policy.DistDir+"/"+entry.Name())
+		}
+	}
+	out := []string{}
+	for _, path := range existing {
+		if !strings.HasPrefix(path, policy.DistDir+"/") || add[path] != nil {
+			continue
+		}
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func shortDigest(digest string) string {

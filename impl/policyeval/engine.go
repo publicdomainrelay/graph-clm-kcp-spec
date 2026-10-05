@@ -71,11 +71,7 @@ func NewEngine(ctx context.Context, library policy.Library, libs []string) (*Eng
 
 	for _, template := range library.Templates {
 		built := template
-		for _, lib := range libs {
-			if !hasLib(built.Libs) {
-				built.Libs = append(built.Libs, lib)
-			}
-		}
+		built.Libs = currentLibs(built.Libs, libs)
 		header, err := built.Header()
 		if err != nil {
 			return nil, fmt.Errorf("policyeval: template %s: %w", template.Name, err)

@@ -388,6 +388,21 @@ func packSourcePath(name string) bool {
 	return false
 }
 
+// GateLock is the member pins a library's own policies.lock carries: the commit
+// each member was pinned to when the branch was built. A library with no lock,
+// or one whose lock cannot be parsed, carries no pins.
+func GateLock(library policy.Library) *policy.PackLock {
+	data, ok := library.Files[policy.LockPath]
+	if !ok {
+		return nil
+	}
+	lock, err := ParseLock(data)
+	if err != nil {
+		return nil
+	}
+	return &lock
+}
+
 func ReadLock(dir string) (policy.PackLock, bool, error) {
 	data, err := os.ReadFile(filepath.Join(dir, policy.LockPath))
 	if err != nil {

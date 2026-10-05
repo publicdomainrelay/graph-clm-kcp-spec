@@ -6,6 +6,8 @@ guest_role := object.get(input.parameters, "guestRole", "guest")
 
 tester_role := object.get(input.parameters, "testRole", "test")
 
+relay_class := object.get(input.parameters, "relayClass", "relay")
+
 attrs(effect) = out {
 	out := object.get(effect, "attrs", {})
 }
@@ -194,3 +196,30 @@ dial_exception(effect) {
 }
 
 dial_exception_patterns := object.get(specd.model_vocabulary, "reachInExceptions", [])
+
+# Rule 1 holds at spec time too (review 0006 B9): the effects a declaration
+# will produce do not exist yet, so the clause reads the declared flow itself.
+# A declaration that sends a non-guest initiator at the guest over a channel
+# that names no relay term is the reach-in the rule forbids, declared. The
+# check needs the binding to name its relay terms under channels/<relayClass>;
+# a binding that does not is recorded as a limit in docs/policies.md.
+violation[specd.violation(msg, details)] {
+	flow := specd.model_flows[_]
+	specd.declared(flow)
+	not specd.initiator_in_role(flow, guest_role)
+	specd.acted_on_in_role(flow, guest_role)
+	relay_class_declared
+	not declared_relay(flow)
+	msg := sprintf("the declared flow %s -> %s reaches the guest over channel %q, which names no relay; a guest is reached only through a relay, so declare the flow over a channel the binding lists under channels/%s",
+		[flow.from, flow.to, object.get(flow, "channel", ""), relay_class])
+	details := {"flow": flow, "from": flow.from, "to": flow.to, "channel": object.get(flow, "channel", ""), "source": object.get(flow, "source", "")}
+}
+
+relay_class_declared {
+	count(specd.vocabulary_terms("channels", relay_class)) > 0
+}
+
+declared_relay(flow) {
+	term := specd.vocabulary_terms("channels", relay_class)[_]
+	specd.term_in(object.get(flow, "channel", ""), term)
+}

@@ -870,9 +870,6 @@ func (i *flowIndex) purpose(effect Effect) string {
 	return ""
 }
 
-// containsFold matches a vocabulary term as a whole token: `address` is a
-// payload class, `guestAddress` is not. A substring match made almost any
-// guest call carry network-info (0003 B8).
 func containsFold(text, term string) bool {
 	if term == "" {
 		return false
@@ -1075,10 +1072,6 @@ func effectTriggers(graph CodeGraph, effects []Effect, edgeKinds []string, maxRe
 	return out
 }
 
-// sameNodeDrives keeps a root and a leaf that share a node only when that node
-// is a real declaration and the leaf sits inside it. A file node is a whole
-// file, so an event.emit anywhere in a file with an http.handle would otherwise
-// count as driven by it; a trigger needs a call edge, not a shared node.
 func sameNodeDrives(node CodeGraphNode, leaf Effect) bool {
 	if node.Kind == "file" || node.StartLine <= 0 {
 		return false

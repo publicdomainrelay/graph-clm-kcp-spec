@@ -176,20 +176,6 @@ func (c *Controller) realizePolicyGate(ctx context.Context, namespace string, re
 	}, nil
 }
 
-// gateLock is the member pins the library's own policies.lock carries, so an
-// audit reports the commit a member was pinned to when the branch was built.
-func gateLock(library policy.Library) *policy.PackLock {
-	data, ok := library.Files[policy.LockPath]
-	if !ok {
-		return nil
-	}
-	lock, err := policyeval.ParseLock(data)
-	if err != nil {
-		return nil
-	}
-	return &lock
-}
-
 // modelContexts is the ArchitectureModel's view of a repository's contexts:
 // the labels and the declared interactions a portable rule reads.
 func modelContexts(contexts []spec.SystemContext) []policy.ModelContext {
@@ -532,7 +518,7 @@ func (c *Controller) auditRepositoryPolicy(
 
 	members, err := policyeval.ResolveMembers(ctx, library.Manifest.Members, library, policyeval.MemberOptions{
 		CacheDir: c.opts.CacheDir,
-		Lock:     gateLock(library),
+		Lock:     policyeval.GateLock(library),
 	})
 	if err != nil {
 		return fmt.Errorf("resolve the policy members: %w", err)

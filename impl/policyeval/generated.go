@@ -532,6 +532,7 @@ func mutationCheck(ctx context.Context, input GeneratedInput, library policy.Lib
 	}
 	denied := []string{}
 	tried := []string{}
+	others := []string{}
 	for _, mutation := range mutations {
 		tried = append(tried, mutation.Name)
 		object, err := modelObject(mutation.Model)
@@ -545,14 +546,35 @@ func mutationCheck(ctx context.Context, input GeneratedInput, library policy.Lib
 		if err != nil {
 			return failCheck("mutation", err.Error())
 		}
-		if len(violations) > 0 {
+		mine := 0
+		for _, violation := range violations {
+			if violation.Policy != input.Slug {
+				others = appendUniqueString(others, violation.Policy)
+				continue
+			}
+			mine++
+		}
+		if mine > 0 {
 			denied = append(denied, mutation.Name)
 		}
 	}
 	if len(denied) == 0 {
-		return failCheck("mutation", "the rule denies none of the derived cases: "+strings.Join(tried, ", "))
+		message := "the generated rule denies none of the derived cases: " + strings.Join(tried, ", ")
+		if len(others) > 0 {
+			message += "; other rules fired (" + strings.Join(others, ", ") + "), which is not what this check reads"
+		}
+		return failCheck("mutation", message)
 	}
 	return policy.Check{Name: "mutation", Passed: true, Message: "denies " + strings.Join(denied, ", ")}
+}
+
+func appendUniqueString(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func modelObject(model policy.ArchitectureModel) (*unstructured.Unstructured, error) {

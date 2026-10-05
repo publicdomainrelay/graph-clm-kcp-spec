@@ -110,9 +110,7 @@ func suiteLibrary(fsys fs.FS, dir string, test verify.Test) (policy.Library, err
 	if err != nil {
 		return policy.Library{}, err
 	}
-	if !hasLib(template.Libs) {
-		template.Libs = append(template.Libs, Lib())
-	}
+	template.Libs = currentLibs(template.Libs, []string{Lib()})
 	library.Templates = []policy.Template{template}
 
 	if test.Constraint == "" {
@@ -130,13 +128,19 @@ func suiteLibrary(fsys fs.FS, dir string, test verify.Test) (policy.Library, err
 	return library, nil
 }
 
-func hasLib(libs []string) bool {
+// currentLibs is a template's libs with the specd library this binary carries.
+// A template read out of kcp had the library inlined when it was applied; that
+// copy is older than the binary and is replaced, so a rule never evaluates
+// against a stale helper.
+func currentLibs(libs []string, current []string) []string {
+	out := []string{}
 	for _, lib := range libs {
 		if strings.Contains(lib, "package lib.specd") {
-			return true
+			continue
 		}
+		out = append(out, lib)
 	}
-	return false
+	return append(out, current...)
 }
 
 func runCase(ctx context.Context, fsys fs.FS, dir string, library policy.Library, test verify.Test, item verify.Case) CaseResult {

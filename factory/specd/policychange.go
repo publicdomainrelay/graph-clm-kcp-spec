@@ -139,7 +139,7 @@ func (c *Controller) draftPolicyChange(ctx context.Context, namespace string, ch
 		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, err.Error())
 		return 0, nil
 	}
-	source, err := c.repositorySource(ctx, namespace, repository, path, contexts)
+	source, err := c.repositorySource(ctx, namespace, repository, path, branchLibrary.Manifest.TestGlobs, contexts)
 	if err != nil {
 		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, "build the model: "+err.Error())
 		return 0, nil
@@ -317,7 +317,7 @@ func (c *Controller) checkPolicyDraft(
 			Model:       model,
 			Terms:       contextTerms(contexts),
 			Commit:      codegraphfacts.GitCommit(ctx, repository.WorkPath()),
-			Reviewed:    inventory[:1],
+			Reviewed:    firstObject(inventory),
 			Inventory:   inventory,
 		})
 		if err != nil {
@@ -344,7 +344,7 @@ func (c *Controller) checkPolicyDraft(
 		GeneratedBy:  change.Name,
 		Requirements: change.Spec.Requirements,
 		Commit:       codegraphfacts.GitCommit(ctx, repository.WorkPath()),
-		Reviewed:     inventory[:1],
+		Reviewed:     firstObject(inventory),
 		Inventory:    inventory,
 	})
 	if err != nil {
@@ -700,6 +700,15 @@ func (s repositoryModelSource) onlyInventory(binding policy.Binding) ([]*unstruc
 	return inventory, err
 }
 
+// firstObject is the object a draft's review reports: the graph. An inventory
+// that somehow carries none is empty rather than a panic.
+func firstObject(inventory []*unstructured.Unstructured) []*unstructured.Unstructured {
+	if len(inventory) == 0 {
+		return nil
+	}
+	return inventory[:1]
+}
+
 // repositorySource reads the head graph and effects of a repository and the
 // inventory its rules read, once for every model built from it.
 func (c *Controller) repositorySource(
@@ -707,6 +716,7 @@ func (c *Controller) repositorySource(
 	namespace string,
 	repository *spec.Repository,
 	path string,
+	testGlobs []string,
 	contexts []spec.SystemContext,
 ) (repositoryModelSource, error) {
 	commit := codegraphfacts.GitCommit(ctx, path)
@@ -716,6 +726,7 @@ func (c *Controller) repositorySource(
 		Commit:     commit,
 		Namespace:  namespace,
 		Contexts:   codegraphfacts.ContextsByFile(contexts),
+		TestGlobs:  testGlobs,
 		Tool:       c.opts.Tool,
 	})
 	if err != nil {

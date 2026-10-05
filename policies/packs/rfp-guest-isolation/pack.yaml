@@ -6,7 +6,7 @@ description: >-
   information and that report drives the host's emission, and a guest is
   reached over a relay -- a relay is anything that is not a direct connection,
   so only an ssh with no ProxyCommand or one that dials the guest itself is
-  denied. These are the user's three rules; the provisioning provenance
+  denied. These are the user's two rules; the provisioning provenance
   templates moved to the opt-in pack rfp-provisioning-provenance in v2. The
   templates read components, roles, effects, flows and triggers; only the
   binding's roles and vocabulary change per repository. The class channels/relay

@@ -633,11 +633,6 @@ func newScanner(source, family string, imported map[string]string) *scanner {
 	return scan
 }
 
-// importConstants resolves the named constants a file imports from another file
-// in the same graph, so `createSignedRepoRecord(EVENT_NSID, ...)` names the
-// NSID the constant stands for even when the constant lives in a sibling
-// module. The module is found by the specifier's last segment, which is how a
-// repository's own packages are named.
 func importConstants(graph CodeGraph) map[string]map[string]string {
 	locals := map[string]map[string]string{}
 	sources := map[string]string{}
@@ -745,9 +740,6 @@ func languageOf(graph CodeGraph, path string) string {
 	return ""
 }
 
-// constTable reads the simple string constants of one file: `const SSH = "ssh"`
-// in TypeScript, `sshBin = "ssh"` in Go. It is what lets a call whose argv0 or
-// host is held in a name still name the effect.
 func constTable(source, family string, mask []maskClass) map[string]string {
 	regex := constRegex(family)
 	if regex == nil {
@@ -787,9 +779,6 @@ func classAtIn(mask []maskClass, offset int) maskClass {
 	return mask[offset]
 }
 
-// propagate rewrites each constant name that appears in code with its literal,
-// so the extract rules read a value a name held. An occurrence that is a member
-// name, part of a longer word, or the left side of the declaration stays.
 func (s *scanner) propagate() string {
 	var out strings.Builder
 	out.Grow(len(s.source))
@@ -1306,11 +1295,6 @@ func markSubstitutions(source string, from, to int, mask []maskClass) {
 	}
 }
 
-// markInterpolations marks the `${...}` spans of a template literal as code, so
-// a name inside one is a name the classifier may resolve: a ProxyCommand built
-// as `ProxyCommand=${P} %h %p` with `const P = "nc"` in the same file is an nc,
-// not an unresolved expression. A name that is not a simple constant -- a call,
-// a member, a field -- stays unresolved.
 func markInterpolations(source string, from, to int, mask []maskClass) {
 	for index := from; index+1 < to; index++ {
 		if source[index] != '$' || source[index+1] != '{' {
@@ -1355,10 +1339,6 @@ func newContextCache(graph CodeGraph) *contextCache {
 	return cache
 }
 
-// site is the text an extract rule may fall back to. A call site inside a real
-// declaration reads that declaration and the declarations it calls; a site the
-// graph only knows as its file reads a window around the site, because a file's
-// other calls must never lend an attribute to this one.
 func (c *contextCache) site(file string, node CodeGraphNode, source string, line int) string {
 	if node.Kind == "file" || node.ID == "" {
 		return siteWindow(source, line)

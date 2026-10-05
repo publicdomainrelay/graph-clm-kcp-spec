@@ -88,10 +88,6 @@ func ParseUnifiedDiff(text string) CodeDiff {
 	return diff
 }
 
-// hunkLine consumes one line inside a hunk. A removed line that starts with
-// `--` reads like a `---` file header and an added line that starts with `++`
-// reads like a `+++` header; inside a hunk both are content, and the hunk ends
-// when the line counts of its `@@` header are spent.
 func hunkLine(current *CodeDiffFile, line string, oldLine, newLine, oldRemaining, newRemaining int) (int, int, bool) {
 	switch {
 	case strings.HasPrefix(line, "\\"):
@@ -165,8 +161,6 @@ func hunkRange(header string) (int, int, int, int) {
 	return oldLine, newLine, oldCount, newCount
 }
 
-// lineRange reads a `@@` range: `start` or `start,count`. A missing count is
-// one line.
 func lineRange(value string) (int, int) {
 	count := 1
 	if comma := strings.IndexByte(value, ','); comma >= 0 {

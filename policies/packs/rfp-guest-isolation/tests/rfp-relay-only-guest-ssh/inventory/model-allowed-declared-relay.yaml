@@ -1,0 +1,32 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  roles:
+  - guest
+  - requester
+  vocabulary:
+    channels:
+      relay:
+      - websocat
+      - dumbpipe
+  components:
+  - name: requester
+    roles:
+    - requester
+    source: declared
+  - name: guest
+    roles:
+    - guest
+    source: declared
+  effects: []
+  flows:
+  - from: requester
+    to: guest
+    initiator: requester
+    channel: websocat
+    source: declared
+  triggers: []
