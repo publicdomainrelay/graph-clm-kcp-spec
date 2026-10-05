@@ -488,6 +488,11 @@ specctl policy findings --repo atproto-market --worktree /path/to/atproto-market
 and `--strict` fails only on a *new* deny. That is the offline form of what the
 gates do, and it is how the pre-existing violation is measured without kcp.
 
+`scripts/example-policy-findings.sh` runs the whole workflow: the fixture half
+lists, fixes and waives without a clone; with `CLONE=<checkout> BASE=<ref>` set
+it does the same against a real repository, and
+`docs/examples/atproto-market-policies.md` records that run.
+
 ### The conformance pack
 
 `policies/packs/conformance/` is the first portable pack: three templates over

@@ -469,6 +469,10 @@ func runPolicyWaive(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "specctl policy waive: --reason is required; a waiver without a reason is not recorded")
 		return exitUsage
 	}
+	if !policy.ValidExpiry(*expires) {
+		fmt.Fprintf(stderr, "specctl policy waive: --expires %q is not an RFC3339 timestamp or a YYYY-MM-DD date\n", *expires)
+		return exitUsage
+	}
 
 	ctx := context.Background()
 	library, report, _, _, _, err := options.resolve(ctx)

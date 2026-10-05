@@ -41,18 +41,33 @@ func (e Exception) Waiver() Override {
 }
 
 func (e Exception) Expired(now time.Time) bool {
-	expires := strings.TrimSpace(e.Expires)
-	if expires == "" {
-		return false
+	when, ok := parseExpiry(e.Expires)
+	return ok && now.After(when)
+}
+
+// ValidExpiry reports whether an exception's expiry is a date this package
+// understands. A waiver that names an expiry it cannot parse is refused when
+// it is written, so an exception never reads as permanent by accident.
+func ValidExpiry(value string) bool {
+	if strings.TrimSpace(value) == "" {
+		return true
 	}
-	when, err := time.Parse(time.RFC3339, expires)
-	if err != nil {
-		when, err = time.Parse("2006-01-02", expires)
-		if err != nil {
-			return false
-		}
+	_, ok := parseExpiry(value)
+	return ok
+}
+
+func parseExpiry(value string) (time.Time, bool) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return time.Time{}, false
 	}
-	return now.After(when)
+	if when, err := time.Parse(time.RFC3339, trimmed); err == nil {
+		return when, true
+	}
+	if when, err := time.Parse("2006-01-02", trimmed); err == nil {
+		return when, true
+	}
+	return time.Time{}, false
 }
 
 // Waivers turns the durable exceptions of a library into the waivers the
