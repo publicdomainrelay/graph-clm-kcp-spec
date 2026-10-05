@@ -13,14 +13,9 @@ type RepositoryPolicy struct {
 
 	Disabled bool `json:"disabled,omitempty"`
 
-	// Baseline scopes the gates to the change. Empty is change-scoped: a
-	// violation the base already carried is inherited and does not block.
-	// "none" gates the whole repository.
 	Baseline string `json:"baseline,omitempty"`
 }
 
-// BaselineEnabled reports whether the gates block only on violations the
-// change introduced. Everything but an explicit "none" is change-scoped.
 func (p RepositoryPolicy) BaselineEnabled() bool {
 	return !strings.EqualFold(strings.TrimSpace(p.Baseline), "none")
 }
@@ -73,8 +68,6 @@ type Decision struct {
 
 	Capped []Violation
 
-	// Inherited are the violations the base already carried: reported, never
-	// blocking. A whole-repository decision leaves it empty.
 	Inherited []Violation
 
 	Blocked bool

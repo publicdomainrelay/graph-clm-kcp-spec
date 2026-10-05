@@ -157,17 +157,9 @@ func ParseConstraintObject(object *unstructured.Unstructured, templateName strin
 }
 
 type ReadOptions struct {
-	// Repository selects one repository's objects by their label. Empty reads
-	// every repository's objects, the way `policy ls` shows the whole cluster.
 	Repository string
 }
 
-// Read loads the templates and constraints kcp holds. With a repository it
-// returns that repository's objects only, so a shared kcp never lends another
-// repository's policies to a branch. A constraint list that answers "no such
-// resource" means the CRD has not been created yet, so the kind simply has no
-// constraints; any other error aborts the read rather than returning a short
-// library that a sync would mistake for a deletion.
 func Read(ctx context.Context, cluster Cluster, options ReadOptions) (policy.Library, error) {
 	library := policy.Library{}
 	listed, err := cluster.ListCluster(ctx, policy.ConstraintTemplateGVR())
@@ -207,9 +199,6 @@ func Read(ctx context.Context, cluster Cluster, options ReadOptions) (policy.Lib
 	return library, nil
 }
 
-// listConstraints retries a transient list error once, then reports it. A
-// constraint kind whose CRD is not established yet is not an error: the kind
-// has no constraints.
 func listConstraints(ctx context.Context, cluster Cluster, kind string) (*unstructured.UnstructuredList, error) {
 	gvr := policy.ConstraintGVR(kind)
 	listed, err := cluster.ListCluster(ctx, gvr)
@@ -231,8 +220,6 @@ func listConstraints(ctx context.Context, cluster Cluster, kind string) (*unstru
 	return listed, err
 }
 
-// isNotFound reports whether a list failed because the resource is not served,
-// which a constraint CRD that has not been established yet answers.
 func isNotFound(err error) bool {
 	if err == nil {
 		return false
@@ -256,12 +243,8 @@ func ownedBy(object *unstructured.Unstructured, repository string) bool {
 type ApplyOptions struct {
 	Prune bool
 
-	// CRDs builds the constraint CRD of each template's kind. It is the
-	// caller's, so this package never imports the evaluation engine.
 	CRDs policy.ConstraintCRDBuilder
 
-	// Repository labels every object written with the repository that owns it,
-	// so a read and a prune can tell one repository's policies from another's.
 	Repository string
 }
 
@@ -320,8 +303,6 @@ func Apply(ctx context.Context, cluster Cluster, library policy.Library, options
 	return errors.Join(failures...)
 }
 
-// labelRepository stamps the repository that owns an object, so a read and a
-// prune of one repository's policies never touch another's.
 func labelRepository(object *unstructured.Unstructured, repository string) {
 	if repository == "" {
 		return
@@ -334,8 +315,6 @@ func labelRepository(object *unstructured.Unstructured, repository string) {
 	object.SetLabels(labels)
 }
 
-// recordTemplateStatus writes the simplified byPod status Gatekeeper reports,
-// so the reason a template did not establish is readable from kcp.
 func recordTemplateStatus(ctx context.Context, cluster Cluster, name string, created bool, failure error) error {
 	if _, err := cluster.PatchStatusCluster(ctx, policy.ConstraintTemplateGVR(), name,
 		constraintTemplateStatus(created, failure)); err != nil {
@@ -381,9 +360,6 @@ func constraintTemplateStatus(created bool, failure error) map[string]any {
 	return map[string]any{"created": created, "byPod": []any{byPod}}
 }
 
-// prune deletes the templates and constraints of one repository that the
-// library no longer covers. An object of another repository, or an unlabelled
-// one, is never touched: kcp serves every repository's policies.
 func prune(ctx context.Context, cluster Cluster, library policy.Library, repository string, wantedTemplates map[string]bool) error {
 	listed, err := cluster.ListCluster(ctx, policy.ConstraintTemplateGVR())
 	if err != nil {
@@ -506,9 +482,6 @@ func Distinct(kcp, branch policy.Library) bool {
 	return Fingerprint(kcp) != Fingerprint(branch)
 }
 
-// Fingerprint is the content of a library as one comparable string: the same
-// library read from a branch and from kcp fingerprints the same, so the sync
-// can tell which side moved from a recorded base.
 func Fingerprint(library policy.Library) string {
 	return fingerprint(library)
 }

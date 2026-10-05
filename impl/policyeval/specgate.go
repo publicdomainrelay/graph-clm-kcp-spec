@@ -20,27 +20,16 @@ type SpecInput struct {
 
 	Applied map[string]spec.SystemContextSpec
 
-	// Base is the pre-delta spec of a context that Applied carries, so a
-	// change-scoped gate compares the change against the state it started from
-	// rather than against the kcp object, which may already hold the change.
 	Base map[string]spec.SystemContextSpec
 
 	Binding policy.Binding
 
 	Library policy.Library
 
-	// Policy is the repository's cap: spec.policy.disabled, the enforcement cap
-	// and the branch. The spec-time gate honors it exactly as the realize gate
-	// does, so a repository that turned its policy off is not denied before
-	// realize.
 	Policy policy.RepositoryPolicy
 
-	// Overrides are the operator's one-shot `policy:<constraint>` waivers.
 	Overrides []policy.Override
 
-	// MemberCacheDir and Tool build the model of every repository the library
-	// names as a member, so a cross-repo library reads the same model at spec
-	// time as at realize time. Empty keeps each clone temporary.
 	MemberCacheDir string
 
 	Tool string
@@ -155,10 +144,6 @@ func CheckSpecs(ctx context.Context, input SpecInput) (SpecResult, error) {
 	}, nil
 }
 
-// CheckSpecsBaseline is CheckSpecs scoped to the change: when the head is
-// denied, the pre-delta specs (the same contexts without the Applied overlay)
-// are evaluated too, and only a violation the base did not carry blocks. With
-// the baseline off it is CheckSpecs over the whole head.
 func CheckSpecsBaseline(ctx context.Context, input SpecInput) (SpecResult, error) {
 	head, err := CheckSpecs(ctx, input)
 	if err != nil {
@@ -177,8 +162,6 @@ func CheckSpecsBaseline(ctx context.Context, input SpecInput) (SpecResult, error
 	return head, nil
 }
 
-// specGateLock is the member pins the library's own policies.lock carries, so
-// the spec-time members resolve at the commit the branch was built against.
 func specGateLock(library policy.Library) *policy.PackLock {
 	data, ok := library.Files[policy.LockPath]
 	if !ok {
@@ -207,9 +190,6 @@ func declaredInteractions(interactions []spec.Interaction) []policy.DeclaredInte
 	return out
 }
 
-// marshalSpecObject renders a spec object for the inventory. A marshal error
-// is returned rather than dropped, so a gate never evaluates a half-built
-// inventory as if it were complete.
 func marshalSpecObject(value any) ([]byte, error) {
 	encoded, err := yaml.Marshal(value)
 	if err != nil {
