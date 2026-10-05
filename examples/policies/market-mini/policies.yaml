@@ -1,5 +1,56 @@
 defaultEnforcement: deny
 repository: market-mini
+roles:
+  guest:
+    declared: true
+    globs:
+    - lib/cloud-init/**
+    targets:
+      routes:
+      - /v1/on-network
+  host:
+    globs:
+    - hono-bidder/**
+    - lib/compute-provider/**
+    symbols:
+    - createMarketBidder
+    targets:
+      symbols:
+      - emitVmOnNetwork
+  requester:
+    globs:
+    - lib/requester/**
+    targets:
+      routes:
+      - /v1/on-network
+      symbols:
+      - reportUrl
+      - on-network
+  test:
+    globs:
+    - test/**
 testGlobs:
 - test/**
 version: "1"
+vocabulary:
+  channels:
+    relay:
+    - websocat
+    - fedproxy
+    - dumbpipe
+    - tunnel-subscriber
+  events:
+    network-report:
+    - vm.onNetwork
+    - ON_NETWORK_EVENT
+    - emitVmOnNetwork
+  payloads:
+    network-info:
+    - address
+    - nodeId
+    - ticket
+    - reportUrl
+  purposes:
+    network-discovery:
+    - getNodeId
+    - nodeId
