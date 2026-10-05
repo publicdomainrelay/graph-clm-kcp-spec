@@ -88,7 +88,12 @@ func runPolicyApply(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	if err := policykcp.Apply(ctx, client, loaded, policykcp.ApplyOptions{Prune: *prune}); err != nil {
+	engine, err := policyeval.NewEngine(ctx, loaded, nil)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy apply: %v\n", err)
+		return exitError
+	}
+	if err := policykcp.Apply(ctx, client, loaded, policykcp.ApplyOptions{Prune: *prune, CRDs: engine}); err != nil {
 		fmt.Fprintf(stderr, "specctl policy apply: %v\n", err)
 		return exitError
 	}
@@ -306,7 +311,12 @@ func runPolicyRestore(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl policy restore: %v\n", err)
 		return exitError
 	}
-	if err := policykcp.Apply(ctx, client, library, policykcp.ApplyOptions{Prune: *prune}); err != nil {
+	engine, err := policyeval.NewEngine(ctx, library, nil)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy restore: %v\n", err)
+		return exitError
+	}
+	if err := policykcp.Apply(ctx, client, library, policykcp.ApplyOptions{Prune: *prune, CRDs: engine}); err != nil {
 		fmt.Fprintf(stderr, "specctl policy restore: %v\n", err)
 		return exitError
 	}

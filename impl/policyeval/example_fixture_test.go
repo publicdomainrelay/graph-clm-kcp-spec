@@ -62,7 +62,7 @@ func objectOf(t *testing.T, value any) (*unstructured.Unstructured, error) {
 	if err != nil {
 		return nil, err
 	}
-	return policyeval.Unstructured(encoded)
+	return policy.Unstructured(encoded)
 }
 
 func TestExamplePoliciesOverFixtures(t *testing.T) {

@@ -173,7 +173,7 @@ func mustUnstructured(t *testing.T, value any) *unstructured.Unstructured {
 	if err != nil {
 		t.Fatal(err)
 	}
-	object, err := policyeval.Unstructured(data)
+	object, err := policy.Unstructured(data)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,7 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/yaml"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 )
@@ -81,7 +80,7 @@ func NewEngine(ctx context.Context, library policy.Library, libs []string) (*Eng
 		if err != nil {
 			return nil, fmt.Errorf("policyeval: template %s: %w", template.Name, err)
 		}
-		object, err := Unstructured(header)
+		object, err := policy.Unstructured(header)
 		if err != nil {
 			return nil, fmt.Errorf("policyeval: template %s: %w", template.Name, err)
 		}
@@ -108,7 +107,7 @@ func NewEngine(ctx context.Context, library policy.Library, libs []string) (*Eng
 				return nil, fmt.Errorf("policyeval: constraint %s: %w", constraint.Name, err)
 			}
 		}
-		object, err := Unstructured(document)
+		object, err := policy.Unstructured(document)
 		if err != nil {
 			return nil, fmt.Errorf("policyeval: constraint %s: %w", constraint.Name, err)
 		}
@@ -125,17 +124,6 @@ func globConstraintDocument(constraint policy.Constraint) ([]byte, error) {
 	stripped := constraint
 	stripped.Match.Name = ""
 	return stripped.Document()
-}
-
-func Unstructured(data []byte) (*unstructured.Unstructured, error) {
-	var decoded map[string]any
-	if err := yaml.Unmarshal(data, &decoded); err != nil {
-		return nil, err
-	}
-	if decoded == nil {
-		return nil, fmt.Errorf("policyeval: empty object")
-	}
-	return &unstructured.Unstructured{Object: decoded}, nil
 }
 
 func (e *Engine) AddData(ctx context.Context, object *unstructured.Unstructured) error {

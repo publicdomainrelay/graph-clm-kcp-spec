@@ -178,7 +178,7 @@ func TestEvaluateReportsViolations(t *testing.T) {
 	if len(library.Templates) != 1 || len(library.Constraints) != 1 {
 		t.Fatalf("library contents: %d templates, %d constraints", len(library.Templates), len(library.Constraints))
 	}
-	graph, err := policyeval.Unstructured([]byte(graphYAML))
+	graph, err := policy.Unstructured([]byte(graphYAML))
 	if err != nil {
 		t.Fatal(err)
 	}

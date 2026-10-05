@@ -249,7 +249,13 @@ func (c *Controller) reconcileRepositoryPolicy(ctx context.Context, namespace st
 		// repository's library would delete another's, and the restore reads the
 		// branch before an apply that may land while it runs, so a prune would
 		// delete the policy that apply just wrote.
-		if err := policykcp.Apply(ctx, cluster, library, policykcp.ApplyOptions{}); err != nil {
+		engine, err := policyeval.NewEngine(ctx, library, nil)
+		if err != nil {
+			c.log.Error("policy restore failed", "repository", repository.Name, "branch", ref, "err", err)
+			c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid, err.Error())
+			return
+		}
+		if err := policykcp.Apply(ctx, cluster, library, policykcp.ApplyOptions{CRDs: engine}); err != nil {
 			c.log.Error("policy restore failed", "repository", repository.Name, "branch", ref, "err", err)
 			c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid,
 				"restore from "+ref+": "+err.Error())
@@ -378,7 +384,7 @@ func (c *Controller) auditRepositoryPolicy(
 	if err != nil {
 		return err
 	}
-	graphObject, err := policyeval.Unstructured(encoded)
+	graphObject, err := policy.Unstructured(encoded)
 	if err != nil {
 		return err
 	}
@@ -424,7 +430,7 @@ func (c *Controller) auditRepositoryPolicy(
 	if err != nil {
 		return err
 	}
-	modelObject, err := policyeval.Unstructured(modelDocument)
+	modelObject, err := policy.Unstructured(modelDocument)
 	if err != nil {
 		return err
 	}

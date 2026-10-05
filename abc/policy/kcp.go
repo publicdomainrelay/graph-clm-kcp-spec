@@ -1,10 +1,18 @@
 package policy
 
 import (
+	"context"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+// ConstraintCRDBuilder builds the constraint CRD a template's kind needs, so
+// the kcp writer depends on the contract and not on the evaluation engine.
+type ConstraintCRDBuilder interface {
+	ConstraintCRD(ctx context.Context, template Template) (*unstructured.Unstructured, error)
+}
 
 const (
 	ConstraintTemplateKind = "ConstraintTemplate"

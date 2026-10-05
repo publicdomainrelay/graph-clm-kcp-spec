@@ -191,7 +191,7 @@ func policyObject(value any) (*unstructured.Unstructured, error) {
 	if err != nil {
 		return nil, err
 	}
-	return policyeval.Unstructured(document)
+	return policy.Unstructured(document)
 }
 
 func policyStatusOf(decision policy.Decision) *spec.PolicyGateStatus {

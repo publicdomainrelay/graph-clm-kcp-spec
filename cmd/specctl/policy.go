@@ -926,7 +926,7 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 	}
 
 	inventory := []*unstructured.Unstructured{}
-	graphObject, err := policyeval.Unstructured(marshalObject(graph))
+	graphObject, err := policy.Unstructured(marshalObject(graph))
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 		return exitError
@@ -944,7 +944,7 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 			return exitError
 		}
 		diff.Spec.Repository = *repository
-		diffObject, err := policyeval.Unstructured(marshalObject(policy.CodeDiffObject(diff)))
+		diffObject, err := policy.Unstructured(marshalObject(policy.CodeDiffObject(diff)))
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 			return exitError
@@ -971,7 +971,7 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 		return exitError
 	}
-	modelObject, err := policyeval.Unstructured(marshalObject(model))
+	modelObject, err := policy.Unstructured(marshalObject(model))
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 		return exitError
@@ -979,14 +979,14 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 	inventory = append(inventory, modelObject)
 	reviewed = append(reviewed, modelObject)
 	for _, context := range contexts {
-		object, err := policyeval.Unstructured(marshalObject(context))
+		object, err := policy.Unstructured(marshalObject(context))
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 			return exitError
 		}
 		inventory = append(inventory, object)
 	}
-	repositoryObject, err := policyeval.Unstructured(marshalObject(spec.Repository{
+	repositoryObject, err := policy.Unstructured(marshalObject(spec.Repository{
 		TypeMeta:   typeMeta(specapi.RepositoryKind),
 		ObjectMeta: objectMeta(*repository),
 		Spec:       spec.RepositorySpec{Branch: defaultOr(*branch, *defaultBranch)},

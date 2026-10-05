@@ -556,7 +556,11 @@ func (c *Controller) applyPolicyLibrary(ctx context.Context, cluster policykcp.C
 	if len(generated.Templates) == 0 {
 		return nil
 	}
-	return policykcp.Apply(ctx, cluster, generated, policykcp.ApplyOptions{})
+	engine, err := policyeval.NewEngine(ctx, generated, nil)
+	if err != nil {
+		return err
+	}
+	return policykcp.Apply(ctx, cluster, generated, policykcp.ApplyOptions{CRDs: engine})
 }
 
 // policyBranchLibrary reads the repository's policy branch, resolved: the
@@ -638,7 +642,7 @@ func (s repositoryModelSource) model(binding policy.Binding) (policy.Architectur
 }
 
 func (s repositoryModelSource) inventory(model policy.ArchitectureModel) ([]*unstructured.Unstructured, error) {
-	modelObject, err := policyeval.Unstructured([]byte(renderModel(model)))
+	modelObject, err := policy.Unstructured([]byte(renderModel(model)))
 	if err != nil {
 		return nil, err
 	}

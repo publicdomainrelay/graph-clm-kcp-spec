@@ -62,7 +62,7 @@ func CheckSpecs(ctx context.Context, input SpecInput) (SpecResult, error) {
 			Labels:       context.Labels,
 			Interactions: declaredInteractions(specification.Interactions),
 		})
-		object, err := Unstructured(marshalSpecObject(spec.SystemContext{
+		object, err := policy.Unstructured(marshalSpecObject(spec.SystemContext{
 			TypeMeta:   metav1.TypeMeta{APIVersion: specapi.APIVersion, Kind: specapi.SystemContextKind},
 			ObjectMeta: context.ObjectMeta,
 			Spec:       specification,
@@ -81,11 +81,11 @@ func CheckSpecs(ctx context.Context, input SpecInput) (SpecResult, error) {
 	if err != nil {
 		return SpecResult{}, err
 	}
-	modelObject, err := Unstructured(marshalSpecObject(model))
+	modelObject, err := policy.Unstructured(marshalSpecObject(model))
 	if err != nil {
 		return SpecResult{}, err
 	}
-	repositoryObject, err := Unstructured(marshalSpecObject(spec.Repository{
+	repositoryObject, err := policy.Unstructured(marshalSpecObject(spec.Repository{
 		TypeMeta:   metav1.TypeMeta{APIVersion: specapi.APIVersion, Kind: specapi.RepositoryKind},
 		ObjectMeta: metav1.ObjectMeta{Name: input.Repository, Namespace: specapi.DefaultNamespace},
 		Spec:       spec.RepositorySpec{Branch: "main"},

@@ -1036,7 +1036,11 @@ func TestPolicyLibrariesApplyWholeIntoKcp(t *testing.T) {
 		if len(library.Templates) != len(loaded.Templates) {
 			t.Fatalf("%s: the branch holds %d template(s), want %d", dir, len(library.Templates), len(loaded.Templates))
 		}
-		if err := policykcp.Apply(ctx, client, library, policykcp.ApplyOptions{}); err != nil {
+		engine, err := policyeval.NewEngine(ctx, library, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := policykcp.Apply(ctx, client, library, policykcp.ApplyOptions{CRDs: engine}); err != nil {
 			t.Fatalf("restore %s: %v\n%s", dir, err, policyState(t, ctx, client, restored.repository))
 		}
 		for _, template := range library.Templates {

@@ -1,0 +1,45 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: codegraphs.specs.publicdomainrelay.dev
+spec:
+  group: specs.publicdomainrelay.dev
+  scope: Namespaced
+  names:
+    kind: CodeGraph
+    listKind: CodeGraphList
+    plural: codegraphs
+    singular: codegraph
+    categories: [specs]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Repository
+          type: string
+          jsonPath: .spec.repository
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: >-
+            CodeGraph is derived by specd from a repository's CodeGraph
+            and effects, the way CodeGraph and CodeDiff are. It is published so a
+            cluster and gator can hold the object a policy reviews; specd, not an
+            in-cluster Gatekeeper, evaluates it.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            spec:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true

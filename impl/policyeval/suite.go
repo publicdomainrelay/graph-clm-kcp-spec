@@ -200,7 +200,7 @@ func readObjects(fsys fs.FS, name string) ([]*unstructured.Unstructured, error) 
 	}
 	out := []*unstructured.Unstructured{}
 	for _, document := range SplitDocuments(data) {
-		object, err := Unstructured(document)
+		object, err := policy.Unstructured(document)
 		if err != nil {
 			return nil, fmt.Errorf("policyeval: %s: %w", name, err)
 		}

@@ -13,7 +13,6 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
 	"github.com/publicdomainrelay/kcp-libs/common/kcp"
 )
 
@@ -42,7 +41,7 @@ func TemplateObject(template policy.Template) (*unstructured.Unstructured, error
 	if err != nil {
 		return nil, fmt.Errorf("policykcp: template %s: %w", template.Name, err)
 	}
-	object, err := policyeval.Unstructured(header)
+	object, err := policy.Unstructured(header)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +142,7 @@ func ConstraintObject(constraint policy.Constraint) (*unstructured.Unstructured,
 	if err != nil {
 		return nil, fmt.Errorf("policykcp: constraint %s: %w", constraint.Name, err)
 	}
-	return policyeval.Unstructured(document)
+	return policy.Unstructured(document)
 }
 
 func ParseConstraintObject(object *unstructured.Unstructured, templateName string) (policy.Constraint, error) {
@@ -199,6 +198,10 @@ func Read(ctx context.Context, cluster Cluster) (policy.Library, error) {
 
 type ApplyOptions struct {
 	Prune bool
+
+	// CRDs builds the constraint CRD of each template's kind. It is the
+	// caller's, so this package never imports the evaluation engine.
+	CRDs policy.ConstraintCRDBuilder
 }
 
 // Apply writes the library into kcp: each ConstraintTemplate, the constraint
@@ -210,9 +213,8 @@ type ApplyOptions struct {
 // returned error names each failure. A caller that only reports the error
 // therefore still leaves kcp holding everything that could be applied.
 func Apply(ctx context.Context, cluster Cluster, library policy.Library, options ApplyOptions) error {
-	engine, err := policyeval.NewEngine(ctx, library, nil)
-	if err != nil {
-		return err
+	if options.CRDs == nil {
+		return fmt.Errorf("policykcp: Apply needs a constraint CRD builder")
 	}
 	wanted := map[string]bool{}
 	failures := []error{}
@@ -232,7 +234,7 @@ func Apply(ctx context.Context, cluster Cluster, library policy.Library, options
 			failures = appendStatus(failures, recordTemplateStatus(ctx, cluster, template.Name, false, err))
 			continue
 		}
-		crd, err := engine.ConstraintCRD(ctx, built)
+		crd, err := options.CRDs.ConstraintCRD(ctx, built)
 		if err == nil {
 			_, err = cluster.ApplyCluster(ctx, crd)
 		}

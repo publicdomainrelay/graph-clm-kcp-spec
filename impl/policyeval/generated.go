@@ -604,7 +604,7 @@ func modelObject(model policy.ArchitectureModel) (*unstructured.Unstructured, er
 	if err != nil {
 		return nil, err
 	}
-	return Unstructured(encoded)
+	return policy.Unstructured(encoded)
 }
 
 // allowedFixture finds the ArchitectureModel of a suite case that asserts zero

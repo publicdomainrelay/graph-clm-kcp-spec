@@ -446,14 +446,14 @@ bin/specctl policy build --dir examples/policies/atproto-market
 # dist/rfp-relay-only-guest-ssh.yaml
 # lib/specd.rego
 # policies.lock
-# pack rfp-guest-isolation@v1 a9d815a7e877 embedded
+# pack rfp-guest-isolation@v1 93dd9ea2d6d5 embedded
 ```
 
 ```yaml
 imports:
-- files: 43
+- files: 44
   pack: rfp-guest-isolation
-  sha256: a9d815a7e877460c63114c73685d0566990f04df988ce507107e3b2f21bee814
+  sha256: 93dd9ea2d6d555c35b6a5257a8dde03600302ca01af2dfece5eb0ab77a7dcd41
   source: embedded
   version: v1
 ```
@@ -463,7 +463,7 @@ version bump; `--relock` rewrites the lock:
 
 ```
 specctl policy build: policyeval: pack rfp-guest-isolation@v1 resolves to
-a9d815a7e877..., policies.lock pins 0032a10e2157...; bump the version or run
+93dd9ea2d6d5..., policies.lock pins 0032a10e2157...; bump the version or run
 specctl policy build --relock
 ```
 
@@ -1219,7 +1219,8 @@ Reports name `policy`, `constraint`, `enforcementAction`, the reviewed object,
 ## Limits
 
 Known limits, stated rather than hidden. The first two bound what a policy can
-see; the third bounds the classifier a policy reads.
+see; the third bounds the classifier a policy reads; the fourth says who
+enforces a rule over the derived kinds.
 
 ### The indexer emits declarations, not bodies
 
@@ -1282,6 +1283,32 @@ tell a relay from a transport the vocabulary does not name. What the rule
 still catches is the regression it guards -- a direct ssh with no tunnel at all
 -- plus any `net.dial` from a test that acts on the guest. `docs/plans/0009`
 G4 states the same limit; the pack's `CATALOGUE.md` states it beside the rule.
+
+### specd evaluates the derived kinds, not an in-cluster Gatekeeper
+
+The `ConstraintTemplate` objects and the constraint CRDs live in kcp, and
+`bin/gator verify` runs the suites offline, so the Gatekeeper format is real.
+But the objects the RFP pack and the generated rules review -- `CodeGraph`,
+`CodeDiff` and `ArchitectureModel` -- are derived by specd, in process. specd's
+`frameworks` client is what evaluates them: the realize gate
+(`impl/realize/policy.go`), the spec-time gate (`factory/specd/specgate.go`)
+and the audit (`factory/specd/policy.go`). A real Gatekeeper admission or audit
+loop never sees those kinds, because the specs workspace serves no CRD for
+them; the ConstraintTemplate in kcp is storage plus the format the suites
+exercise, not a live admission webhook.
+
+`deploy/crds/derived/` carries optional CRDs for `ArchitectureModel`,
+`CodeGraph` and `CodeDiff`, so a cluster can hold the objects a policy reviews
+and `gator` can load them. They are not applied by `deploy/install-specs.sh`;
+apply them by hand when a real Gatekeeper (or another consumer) needs the
+kinds:
+
+```bash
+kubectl apply -f deploy/crds/derived/
+```
+
+The schemas preserve unknown fields, because the derived objects are specd's
+own and their shape follows the Go types in `abc/policy`.
 
 ## Troubleshooting
 

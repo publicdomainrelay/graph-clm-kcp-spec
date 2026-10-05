@@ -271,7 +271,7 @@ func TestApplyAndReadCoverTemplatesConstraintsAndCRDs(t *testing.T) {
 		}},
 	}
 	cluster := newFakeCluster(t)
-	if err := Apply(context.Background(), cluster, library, ApplyOptions{}); err != nil {
+	if err := Apply(context.Background(), cluster, library, ApplyOptions{CRDs: testCRDs(t, library)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := cluster.GetCluster(context.Background(),
@@ -375,7 +375,7 @@ func TestApplyAppliesEverythingItCanAndNamesWhatFailed(t *testing.T) {
 	cluster.refuse = map[string]error{
 		"adirectguestconnect.constraints.gatekeeper.sh": errors.New("kcp refused the CRD"),
 	}
-	err := Apply(context.Background(), cluster, library, ApplyOptions{})
+	err := Apply(context.Background(), cluster, library, ApplyOptions{CRDs: testCRDs(t, library)})
 	if err == nil {
 		t.Fatal("a failing template did not surface an error")
 	}
@@ -435,10 +435,26 @@ func TestApplyKeepsEveryTemplateWhenPruning(t *testing.T) {
 	cluster.refuse = map[string]error{
 		"nodirectguestconnect.constraints.gatekeeper.sh": errors.New("kcp refused the CRD"),
 	}
-	if err := Apply(context.Background(), cluster, library, ApplyOptions{Prune: true}); err == nil {
+	if err := Apply(context.Background(), cluster, library, ApplyOptions{Prune: true, CRDs: testCRDs(t, library)}); err == nil {
 		t.Fatal("the failing template did not surface an error")
 	}
 	if _, err := cluster.GetCluster(context.Background(), policy.ConstraintTemplateGVR(), "nodirectguestconnect"); err != nil {
 		t.Errorf("prune removed the template that failed to apply: %v", err)
+	}
+}
+
+func testCRDs(t *testing.T, library policy.Library) policy.ConstraintCRDBuilder {
+	t.Helper()
+	engine, err := policyeval.NewEngine(context.Background(), library, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return engine
+}
+
+func TestApplyNeedsAConstraintCRDBuilder(t *testing.T) {
+	library := policy.Library{Lib: policyeval.Lib(), Templates: []policy.Template{testTemplate()}}
+	if err := Apply(context.Background(), newFakeCluster(t), library, ApplyOptions{}); err == nil {
+		t.Fatal("Apply without a CRD builder succeeded")
 	}
 }

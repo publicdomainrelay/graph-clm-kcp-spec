@@ -152,3 +152,43 @@ func TestName(t *testing.T) {
 		t.Fatalf("name = %q, want %q", name, want)
 	}
 }
+
+// TestDerivedCRDsAreStructural pins plan 0010 D6: ArchitectureModel, CodeGraph
+// and CodeDiff have CRDs a cluster and gator can hold, even though specd, not
+// an in-cluster Gatekeeper, evaluates them.
+func TestDerivedCRDsAreStructural(t *testing.T) {
+	files, err := CRDFiles(filepath.Join("..", "..", "deploy", "crds", "derived"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"ArchitectureModel": false, "CodeGraph": false, "CodeDiff": false}
+	for _, file := range files {
+		crd, err := Read(file)
+		if err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		if _, err := FromCRD(crd); err != nil {
+			t.Errorf("%s: %v", file, err)
+			continue
+		}
+		kind := crdKind(t, crd)
+		if _, ok := want[kind]; !ok {
+			t.Errorf("%s names the unexpected kind %q", file, kind)
+			continue
+		}
+		want[kind] = true
+	}
+	for kind, found := range want {
+		if !found {
+			t.Errorf("no derived CRD holds the kind %s", kind)
+		}
+	}
+}
+
+func crdKind(t *testing.T, crd map[string]any) string {
+	t.Helper()
+	spec, _ := crd["spec"].(map[string]any)
+	names, _ := spec["names"].(map[string]any)
+	kind, _ := names["kind"].(string)
+	return kind
+}
