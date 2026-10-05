@@ -101,9 +101,11 @@ imports:
   `container.exec verb=getNodeId` and ignores the word in a comment. They are
   reviewed knowledge, not derived facts, so keep them narrow.
 - `vocabulary` maps project names to the abstract classes the model uses. The
-  classes a pack needs are the pack's interface: `channels/relay`,
-  `events/network-report`, `payloads/network-info`, `purposes/network-discovery`
-  and `routes/report` for `rfp-guest-isolation`.
+  classes a pack needs are the pack's interface: `events/network-report`,
+  `payloads/network-info`, `purposes/network-discovery` and `routes/report` for
+  `rfp-guest-isolation`. `channels/relay` is optional there: a binding that
+  maps it gets the relay channel on the model's flows and a name in the
+  messages, and one that does not is still bound.
 - `imports` names the packs this repository binds; see
   [Portable packs](#portable-packs).
 
@@ -437,10 +439,14 @@ name: rfp-guest-isolation
 version: v1
 description: the RFP flow's guest isolation invariants over the ArchitectureModel
 roles: [guest, host, test]
-vocabulary: [channels/relay, events/network-report, payloads/network-info,
+vocabulary: [events/network-report, payloads/network-info,
              purposes/network-discovery, routes/report]
 parameters: {guestRole: guest, hostRole: host, relayClass: relay}
 ```
+
+`vocabulary` is the required-class list: a binding that does not map one is
+refused at build. A class the pack reads as a hint rather than a requirement is
+not listed there; `rfp-guest-isolation` treats `channels/relay` that way.
 
 A rule reads `input.parameters.<name>` with the default inline, so the
 constraint is the place a repository overrides a class name or a role name.
@@ -599,7 +605,7 @@ The first bound pack: the two rules the RFP flow exists to keep, written once.
 | --- | --- | --- |
 | `RfpHostReachIn` | deny | a flow the host initiates acts on the guest and carries network information or has network discovery as its purpose; or a `container.exec`/`ssh.connect` effect in a host component reaches the guest and no such flow rule reported it |
 | `RfpGuestReportsNetwork` | deny | once the model carries effects, no declared or observed flow has the guest initiating toward another role carrying `network-info`; or an `event.emit` of the `network-report` class in a host component is not triggered by the `http.handle` of the `routes/report` route |
-| `RfpRelayOnlyGuestSsh` | deny | an `ssh.connect` effect outside the guest role is carried by no `relay`-channel flow and carries no `proxyCommand` at all -- which catches an ssh written directly inside a test body as a file-level effect -- or a `net.dial` effect of a test component acts on the guest |
+| `RfpRelayOnlyGuestSsh` | deny | an `ssh.connect` effect outside the guest role is a direct connection -- no `proxyCommand`, or one that only dials the guest, and no `relay`-channel flow carries it; this catches an ssh written directly inside a test body as a file-level effect -- or a `net.dial` effect of a test component acts on the guest. Any other proxy command is a relay |
 | `RfpGuestTransportProvenance` | deny | an added CodeDiff line that names a transport installs or runs it (an executing effect starts there and the line reads like an installation) in a file whose component is not the guest role |
 | `RfpKeyMaterialProvenance` | deny | an added CodeDiff line that names key material is executed or written in a file whose component is not the guest role |
 
@@ -1339,18 +1345,22 @@ node produce none. A real chain longer than three hops is therefore reported as
 "no path within three hops" rather than followed, and the rule that reads it
 treats that as a violation of its require rather than as a separate warning.
 
-### A tunneled ssh whose transport the vocabulary does not name
+### A direct dial the proxy command hides
 
-`relay-only-guest-ssh` denies an ssh outside the guest role unless a
-`relay`-channel flow carries it or its `proxyCommand` names a term of the
-binding's `channels/relay` class. An unresolved proxy command -- a helper the
-walk does not reach, a variable -- is not a pass any more: the term has to be
-there, so `ProxyCommand=nc <guest> 22` and any tunnel the vocabulary does not
-name are denied, and a binding whose transport the vocabulary omits names it
-(plan 0010 R2). A delegated proxy whose helper the model reaches is carried by
-the `relay` channel, which is the first clause, so a compliant ssh still
-passes; `market-mini` names `relay-subscriber`, the transport its cloud-init
-module deploys.
+`relay-only-guest-ssh` denies an ssh outside the guest role that is a direct
+connection: no `proxyCommand` at all, or one that only dials the guest
+(`nc`/`ncat`/`netcat`, `socat ... TCP:`, `/dev/tcp/`, `ssh -W` or `-J`). A
+`relay`-channel flow the model built for the ssh also passes it. A relay is
+anything that is not a direct connection, so any other proxy command passes,
+named or not -- the org relay, `fedproxy`, `websocat`, `iroh`, `dumbpipe`,
+`cloudflared`, an injected transport object, an expression the walk could not
+resolve (plan 0010 U2). The class `channels/relay` is an optional naming hint:
+a binding that maps it gets the channel on the model's flows and a name in the
+messages; a binding that omits it is still bound and still checked.
+
+The limit is the shape of the proxy command. A direct dial wrapped in a program
+the pattern list does not know (`ProxyCommand=./dial-guest.sh`) reads as a
+relay.
 
 ### The harness is not sandboxed by specd
 

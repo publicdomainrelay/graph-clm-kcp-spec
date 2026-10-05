@@ -20,7 +20,7 @@ The pack's rules, in one line each:
 | --- | --- |
 | `RfpHostReachIn` | a `host`-initiated flow acts on the `guest`, carrying `network-info` or for `network-discovery`, or a `container.exec`/`ssh.connect` in `host` reaches the guest |
 | `RfpGuestReportsNetwork` | no flow has the guest initiating toward another role carrying `network-info`, or an `event.emit` of the network report in `host` is not triggered by the `http.handle` of the report route |
-| `RfpRelayOnlyGuestSsh` | an `ssh.connect` outside the guest role is tunneled by no relay-channel flow and carries no `proxyCommand`, or a test dials the guest directly |
+| `RfpRelayOnlyGuestSsh` | an `ssh.connect` outside the guest role is a direct connection -- no `proxyCommand`, or one that only dials the guest -- and no relay-channel flow carries it, or a test dials the guest directly |
 | `RfpGuestTransportProvenance` | an added line installs a guest transport outside the guest role's files |
 | `RfpKeyMaterialProvenance` | an added line makes ssh key material by hand outside the guest role's files |
 

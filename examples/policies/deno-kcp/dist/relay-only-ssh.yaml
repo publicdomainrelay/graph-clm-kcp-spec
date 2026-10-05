@@ -5,9 +5,9 @@ metadata:
     specs.publicdomainrelay.dev/calibration: 'the template is the atproto-market relay-only-ssh,
       re-bound for deno-kcp. deno-kcp has no ssh site today, so the rule guards the
       shape: a Go integration test that reaches a DenoPod must carry a ProxyCommand
-      whose transport is on the relay channel list, and must never dial a guest address
-      or run nc/curl at one. sshPattern is Go''s exec.Command("ssh"), testGlobs is
-      test/*/*.go, and driverIdentifiers names the example runner the tests drive.'
+      that is not a direct dial, and must never dial a guest address or run nc/curl
+      at one. sshPattern is Go''s exec.Command("ssh"), testGlobs is test/*/*.go, and
+      driverIdentifiers names the example runner the tests drive.'
     specs.publicdomainrelay.dev/level: MUST
     specs.publicdomainrelay.dev/origin: hydradb examples/policies/atproto-market relay-only-ssh
       (plan 0008 phase B, P-relay)
@@ -23,11 +23,11 @@ spec:
       validation:
         openAPIV3Schema:
           properties:
-            allowedTransports:
+            directDialPatterns:
               items:
                 type: string
               type: array
-            directDialPatterns:
+            directProxyPatterns:
               items:
                 type: string
               type: array
@@ -215,14 +215,18 @@ spec:
       details)] {\n\tdriver := specd.tests_matching_text(input.parameters.testGlobs,
       input.parameters.driverIdentifiers)[_]\n\treachable := specd.closure_from({specd.file_node(driver.path).id},
       input.parameters.edgeKinds)\n\tcall := specd.nodes_with_id(reachable)[_]\n\tspecd.definition_node(call)\n\tre_match(input.parameters.sshPattern,
-      call.text)\n\tnot proxied(call)\n\tmsg := sprintf(\"ssh invocation %s reachable
-      from %s carries no allowed ProxyCommand transport\", [call.qualifiedName, driver.path])\n\tdetails
-      := specd.location(call.file, specd.node_match_line(call, input.parameters.sshPattern))\n}\n\nproxied(call)
-      {\n\twith_proxy_command(call)\n\twith_allowed_transport(call)\n}\n\nwith_proxy_command(call)
-      {\n\tnode := specd.nodes_with_id(specd.closure_from({call.id}, input.parameters.edgeKinds))[_]\n\tre_match(input.parameters.proxyCommandPattern,
-      node.text)\n}\n\nwith_allowed_transport(call) {\n\tnode := specd.nodes_with_id(specd.closure_from({call.id},
-      input.parameters.edgeKinds))[_]\n\ttransport := input.parameters.allowedTransports[_]\n\tre_match(transport,
-      node.text)\n}\n\nviolation[specd.violation(msg, details)] {\n\tdriver := specd.tests_matching_text(input.parameters.testGlobs,
+      call.text)\n\tnot indirect(call)\n\tmsg := sprintf(\"ssh invocation %s reachable
+      from %s reaches the guest directly: it carries no ProxyCommand or one that only
+      dials the guest, and a guest is reached only through a relay -- any transport
+      or tunnel passes\", [call.qualifiedName, driver.path])\n\tdetails := specd.location(call.file,
+      specd.node_match_line(call, input.parameters.sshPattern))\n}\n\n# indirect:
+      the ssh carries a ProxyCommand that is not a direct dial. Any\n# transport or
+      tunnel counts -- the org relay, fedproxy, websocat, iroh,\n# dumbpipe, cloudflared
+      or a transport the classifier could not name.\nindirect(call) {\n\tnode := specd.nodes_with_id(specd.closure_from({call.id},
+      input.parameters.edgeKinds))[_]\n\tre_match(input.parameters.proxyCommandPattern,
+      node.text)\n\tnot direct_dialer(node.text)\n}\n\ndirect_dialer(text) {\n\tpattern
+      := input.parameters.directProxyPatterns[_]\n\tre_match(pattern, text)\n}\n\nviolation[specd.violation(msg,
+      details)] {\n\tdriver := specd.tests_matching_text(input.parameters.testGlobs,
       input.parameters.driverIdentifiers)[_]\n\treachable := specd.closure_from({specd.file_node(driver.path).id},
       input.parameters.edgeKinds)\n\tcall := specd.nodes_with_id(reachable)[_]\n\tspecd.definition_node(call)\n\tpattern
       := input.parameters.directDialPatterns[_]\n\tre_match(pattern, call.text)\n\tmsg

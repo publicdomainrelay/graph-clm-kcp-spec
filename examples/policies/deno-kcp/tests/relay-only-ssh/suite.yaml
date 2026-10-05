@@ -13,6 +13,12 @@ tests:
           - inventory/codegraph-allowed.yaml
         assertions:
           - violations: 0
+      - name: allowed-unnamed-transport
+        object: inventory/codegraph-allowed-unnamed-transport.yaml
+        inventory:
+          - inventory/codegraph-allowed-unnamed-transport.yaml
+        assertions:
+          - violations: 0
       - name: denied-direct-dial
         object: inventory/codegraph-denied.yaml
         inventory:

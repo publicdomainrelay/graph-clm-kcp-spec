@@ -7,7 +7,7 @@ metadata:
     specs.publicdomainrelay.dev/level: MUST
     specs.publicdomainrelay.dev/severity: error
     specs.publicdomainrelay.dev/origin: "hydradb examples/policies/atproto-market relay-only-ssh (plan 0008 phase B, P-relay)"
-    specs.publicdomainrelay.dev/calibration: "the template is the atproto-market relay-only-ssh, re-bound for deno-kcp. deno-kcp has no ssh site today, so the rule guards the shape: a Go integration test that reaches a DenoPod must carry a ProxyCommand whose transport is on the relay channel list, and must never dial a guest address or run nc/curl at one. sshPattern is Go's exec.Command(\"ssh\"), testGlobs is test/*/*.go, and driverIdentifiers names the example runner the tests drive."
+    specs.publicdomainrelay.dev/calibration: "the template is the atproto-market relay-only-ssh, re-bound for deno-kcp. deno-kcp has no ssh site today, so the rule guards the shape: a Go integration test that reaches a DenoPod must carry a ProxyCommand that is not a direct dial, and must never dial a guest address or run nc/curl at one. sshPattern is Go's exec.Command(\"ssh\"), testGlobs is test/*/*.go, and driverIdentifiers names the example runner the tests drive."
 spec:
   crd:
     spec:
@@ -27,7 +27,7 @@ spec:
               type: string
             proxyCommandPattern:
               type: string
-            allowedTransports:
+            directProxyPatterns:
               type: array
               items:
                 type: string

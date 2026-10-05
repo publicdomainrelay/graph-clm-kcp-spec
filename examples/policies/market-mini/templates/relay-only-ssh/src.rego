@@ -8,25 +8,23 @@ violation[specd.violation(msg, details)] {
 	call := specd.nodes_with_id(reachable)[_]
 	specd.definition_node(call)
 	re_match(input.parameters.sshPattern, call.text)
-	not proxied(call)
-	msg := sprintf("ssh invocation %s reachable from %s carries no allowed ProxyCommand transport", [call.qualifiedName, driver.path])
+	not indirect(call)
+	msg := sprintf("ssh invocation %s reachable from %s reaches the guest directly: it carries no ProxyCommand or one that only dials the guest, and a guest is reached only through a relay -- any transport or tunnel passes", [call.qualifiedName, driver.path])
 	details := specd.location(call.file, specd.node_match_line(call, input.parameters.sshPattern))
 }
 
-proxied(call) {
-	with_proxy_command(call)
-	with_allowed_transport(call)
-}
-
-with_proxy_command(call) {
+# indirect: the ssh carries a ProxyCommand that is not a direct dial. Any
+# transport or tunnel counts -- the org relay, fedproxy, websocat, iroh,
+# dumbpipe, cloudflared or a transport the classifier could not name.
+indirect(call) {
 	node := specd.nodes_with_id(specd.closure_from({call.id}, input.parameters.edgeKinds))[_]
 	re_match(input.parameters.proxyCommandPattern, node.text)
+	not direct_dialer(node.text)
 }
 
-with_allowed_transport(call) {
-	node := specd.nodes_with_id(specd.closure_from({call.id}, input.parameters.edgeKinds))[_]
-	transport := input.parameters.allowedTransports[_]
-	re_match(transport, node.text)
+direct_dialer(text) {
+	pattern := input.parameters.directProxyPatterns[_]
+	re_match(pattern, text)
 }
 
 violation[specd.violation(msg, details)] {

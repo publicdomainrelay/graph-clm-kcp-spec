@@ -16,13 +16,11 @@ spec:
     driverIdentifiers: liveExample|exampleFiles|runComputeContract
     sshPattern: exec\.Command\(\s*"ssh"
     proxyCommandPattern: ProxyCommand
-    allowedTransports:
-    - websocat
-    - fedproxy
-    - relay-subscriber
-    - dumbpipe connect
-    - iroh connect
-    - tunnel-subscriber
+    directProxyPatterns:
+    - '\b(nc|ncat|netcat)\b'
+    - 'socat[^\n]*TCP:'
+    - '/dev/tcp/'
+    - '(\s|["''])-[WJ](\s|["''])'
     directDialPatterns:
     - net\.Dial\([^)]*[Gg]uest
     - exec\.Command\(\s*"nc"

@@ -1,0 +1,46 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  roles:
+  - guest
+  - requester
+  - test
+  vocabulary:
+    channels:
+      relay:
+      - websocat
+      - dumbpipe
+  components:
+  - name: requester
+    roles:
+    - requester
+    source: observed
+  - name: test
+    roles:
+    - test
+    source: observed
+  - name: guest
+    roles:
+    - guest
+    source: observed
+  effects:
+  - id: ssh
+    kind: ssh.connect
+    component: requester
+    attrs:
+      argv0: ssh
+      proxyCommand: ${transport.proxyCommand()}
+    file: lib/requester-xrpc/mod.ts
+    line: 691
+  flows:
+  - from: requester
+    to: guest
+    initiator: requester
+    source: observed
+    evidence:
+    - ssh
+  triggers: []

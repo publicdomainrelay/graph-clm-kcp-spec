@@ -195,23 +195,31 @@ spec:
       \"testRole\", \"test\")\n\nrelay_class := object.get(input.parameters, \"relayClass\",
       \"relay\")\n\nviolation[specd.violation(msg, details)] {\n\teffect := specd.model_effects[_]\n\teffect.kind
       == \"ssh.connect\"\n\tnot specd.component_in_role(effect.component, guest_role)\n\tnot
-      relay_carried(effect.id)\n\tnot proxied(effect)\n\tmsg := sprintf(\"ssh from
-      %s goes through no tunnel and no %s-channel flow: %s:%d; a guest is reached
-      only through the relay\",\n\t\t[effect.component, relay_class, effect.file,
-      object.get(effect, \"line\", 0)])\n\tdetails := {\"effect\": effect, \"relayClass\":
-      relay_class, \"file\": effect.file, \"line\": object.get(effect, \"line\", 0)}\n}\n\n#
-      proxied keeps an ssh whose proxy command names a transport the binding calls\n#
-      a relay out of the report. A proxy command that names no relay term -- a bare\n#
-      nc, an -W jump host, a tunnel the vocabulary does not know -- is not a relay,\n#
-      so the ssh is denied.\nproxied(effect) {\n\tproxy := object.get(object.get(effect,
-      \"attrs\", {}), \"proxyCommand\", \"\")\n\tproxy != \"\"\n\tterm := specd.vocabulary_terms(\"channels\",
-      relay_class)[_]\n\tcontains(lower(proxy), lower(term))\n}\n\nrelay_carried(id)
+      relay_carried(effect.id)\n\tdirect_ssh(effect)\n\tmsg := sprintf(\"ssh from
+      %s reaches the guest directly: %s:%d; a guest is reached only through a relay,
+      so give the ssh a ProxyCommand that goes through any transport -- the org relay,
+      fedproxy, websocat, iroh, dumbpipe, cloudflared or an unnamed tunnel\",\n\t\t[effect.component,
+      effect.file, object.get(effect, \"line\", 0)])\n\tdetails := {\"effect\": effect,
+      \"file\": effect.file, \"line\": object.get(effect, \"line\", 0)}\n}\n\n# direct_ssh:
+      an ssh with no ProxyCommand at all, or one whose ProxyCommand\n# only dials
+      the guest's address. A relay is anything that is not a direct\n# connection,
+      so any other proxy command -- a named transport, an unresolved\n# expression,
+      a transport object the model could not name -- is a relay. The\n# vocabulary
+      channels/relay is an optional naming hint for messages and for the\n# model's
+      flow channel, never a requirement.\ndirect_ssh(effect) {\n\tproxy_command(effect)
+      == \"\"\n\tnot names_a_transport(effect)\n}\n\ndirect_ssh(effect) {\n\tdirect_dialer(proxy_command(effect))\n}\n\nproxy_command(effect)
+      := object.get(object.get(effect, \"attrs\", {}), \"proxyCommand\", \"\")\n\nnames_a_transport(effect)
+      {\n\tkey := object.keys(object.get(effect, \"attrs\", {}))[_]\n\tcontains(lower(key),
+      \"transport\")\n}\n\ndirect_dialer(proxy) {\n\tregex.match(\"(^|[/[:space:]])(nc|ncat|netcat)([[:space:]]|$)\",
+      lower(proxy))\n}\n\ndirect_dialer(proxy) {\n\tcontains(lower(proxy), \"socat\")\n\tcontains(lower(proxy),
+      \"tcp:\")\n}\n\ndirect_dialer(proxy) {\n\tcontains(proxy, \"/dev/tcp/\")\n}\n\ndirect_dialer(proxy)
+      {\n\tregex.match(\"(^|[[:space:]])-[WJ][[:space:]]\", proxy)\n}\n\nrelay_carried(id)
       {\n\tflow := specd.model_flows[_]\n\tflow.evidence[_] == id\n\tflow.channel
       == relay_class\n}\n\nviolation[specd.violation(msg, details)] {\n\teffect :=
       specd.model_effects[_]\n\teffect.kind == \"net.dial\"\n\tspecd.component_in_role(effect.component,
-      tester_role)\n\tflow := specd.model_flows[_]\n\tflow.evidence[_] == effect.id\n\tspecd.acted_on_in_role(flow,
-      guest_role)\n\tmsg := sprintf(\"the test dials the guest directly: %s:%d\",
-      [effect.file, object.get(effect, \"line\", 0)])\n\tdetails := {\"effect\": effect,
-      \"flow\": flow, \"file\": effect.file, \"line\": object.get(effect, \"line\",
-      0)}\n}\n"
+      tester_role)\n\tnot relay_carried(effect.id)\n\tflow := specd.model_flows[_]\n\tflow.evidence[_]
+      == effect.id\n\tspecd.acted_on_in_role(flow, guest_role)\n\tmsg := sprintf(\"the
+      test dials the guest directly: %s:%d\", [effect.file, object.get(effect, \"line\",
+      0)])\n\tdetails := {\"effect\": effect, \"flow\": flow, \"file\": effect.file,
+      \"line\": object.get(effect, \"line\", 0)}\n}\n"
     target: admission.k8s.gatekeeper.sh

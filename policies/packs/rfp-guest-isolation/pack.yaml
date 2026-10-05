@@ -3,16 +3,19 @@ version: v1
 description: >-
   The RFP flow's guest isolation invariants, written over the ArchitectureModel:
   the host never reaches into the guest, the guest reports its own network
-  information and that report drives the host's emission, and every ssh to a
-  guest goes through the relay. The templates read components, roles, effects,
-  flows and triggers; only the binding's roles and vocabulary change per
-  repository.
+  information and that report drives the host's emission, and a guest is
+  reached over a relay -- a relay is anything that is not a direct connection,
+  so only an ssh with no ProxyCommand or one that dials the guest itself is
+  denied. The templates read components, roles, effects, flows and triggers;
+  only the binding's roles and vocabulary change per repository. The class
+  channels/relay is an optional naming hint: a binding that maps it gets the
+  relay channel on the model's flows and a name in the messages, and a binding
+  that does not is still bound.
 roles:
 - guest
 - host
 - test
 vocabulary:
-- channels/relay
 - events/network-report
 - payloads/network-info
 - purposes/network-discovery

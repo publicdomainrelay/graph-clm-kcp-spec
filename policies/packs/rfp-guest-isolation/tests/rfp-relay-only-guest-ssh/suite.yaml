@@ -13,6 +13,18 @@ tests:
     - inventory/model-allowed.yaml
     assertions:
     - violations: 0
+  - name: allowed-an-unnamed-proxy-is-still-a-relay
+    object: inventory/model-allowed-unnamed-proxy.yaml
+    inventory:
+    - inventory/model-allowed-unnamed-proxy.yaml
+    assertions:
+    - violations: 0
+  - name: allowed-iroh-is-a-relay
+    object: inventory/model-allowed-iroh-proxy.yaml
+    inventory:
+    - inventory/model-allowed-iroh-proxy.yaml
+    assertions:
+    - violations: 0
   - name: denied-ssh-inside-a-test-body
     object: inventory/model-denied-file-level-ssh.yaml
     inventory:
@@ -25,10 +37,10 @@ tests:
     - inventory/model-denied-test-dial.yaml
     assertions:
     - violations: 1
-  - name: denied-a-proxy-that-is-not-a-relay
-    object: inventory/model-denied-unrelayed-proxy.yaml
+  - name: denied-a-proxy-that-dials-the-guest-directly
+    object: inventory/model-denied-direct-proxy.yaml
     inventory:
-    - inventory/model-denied-unrelayed-proxy.yaml
+    - inventory/model-denied-direct-proxy.yaml
     assertions:
     - violations: 1
   - name: denied-a-test-ssh-without-a-tunnel

@@ -16,12 +16,11 @@ spec:
     driverIdentifiers: createBidder|runComputeContract
     sshPattern: new Deno\.Command\(\s*"ssh"
     proxyCommandPattern: ProxyCommand
-    allowedTransports:
-    - relay-subscriber
-    - websocat
-    - fedproxy
-    - dumbpipe connect
-    - iroh connect
+    directProxyPatterns:
+    - '\b(nc|ncat|netcat)\b'
+    - 'socat[^\n]*TCP:'
+    - '/dev/tcp/'
+    - '(\s|["''])-[WJ](\s|["''])'
     directDialPatterns:
     - Deno\.connect\(\{[^}]*guest
     - '["'']-p["'']\s*,\s*String\('

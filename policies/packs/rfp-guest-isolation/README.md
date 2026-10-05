@@ -26,18 +26,17 @@ binding, not from the pack.
 These are stated rather than hidden: each is a place where the rules are
 weaker than they read.
 
-- **A tunneled ssh whose transport the vocabulary does not name.**
-  `rfp-relay-only-guest-ssh` denies an ssh outside the guest role that is
-  carried by no `relay`-channel flow *and* carries no non-empty
-  `proxyCommand`. The second half is deliberate -- an ssh whose proxy command
-  is built elsewhere (an injected transport object, a helper the walk does not
-  reach) must stay out of the report -- but it also means the rule cannot check
-  the transport of an ssh for which the model resolved no channel: it sees the
-  `proxyCommand` and treats the ssh as tunneled, whether that tunnel is the
-  relay or a transport the vocabulary does not name. What the rule still
-  catches is the regression it guards -- a direct ssh with no tunnel at all --
-  and any `net.dial` from a test that acts on the guest. See
-  `templates/rfp-relay-only-guest-ssh/src.rego` and plan 0009 G4.
+- **A direct dial the proxy command hides.** `rfp-relay-only-guest-ssh` denies
+  an ssh outside the guest role that is carried by no `relay`-channel flow and
+  is a direct connection: it carries no `proxyCommand`, or one that only dials
+  the guest (`nc`/`ncat`/`netcat`, `socat ... TCP:`, `/dev/tcp/`, `ssh -W` or
+  `-J`). Any other proxy command passes, named or not, because a relay is
+  anything that is not a direct connection. The limit is the shape of the
+  proxy command: a direct dial wrapped in a program the pattern list does not
+  know (`ProxyCommand=./dial-guest.sh`) reads as a relay. The rule still
+  catches the regression it guards -- a direct ssh with no tunnel at all -- and
+  any `net.dial` from a test that acts on the guest. See
+  `templates/rfp-relay-only-guest-ssh/src.rego` and plan 0010 U2.
 - **Effects inside a test body.** The CodeGraph has one node per declaration,
   so a `Deno.test` callback body is a *file-level* effect: an ssh spawned
   inside it is still denied (it is outside the guest role and no relay-channel

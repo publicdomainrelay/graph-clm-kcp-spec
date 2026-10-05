@@ -1,0 +1,36 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeGraph
+metadata:
+  name: market
+  namespace: default
+spec:
+  repository: market
+  commit: "0000000000000000000000000000000000000000"
+  files:
+  - path: test/bidder_test.ts
+    test: true
+  - path: lib/requester.ts
+    test: false
+  nodes:
+  - id: "file:test/bidder_test.ts"
+    kind: file
+    name: bidder_test.ts
+    qualifiedName: bidder_test.ts
+    file: test/bidder_test.ts
+    text: ""
+  - id: "fn:ssh"
+    kind: function
+    name: runSession
+    qualifiedName: runSession
+    file: lib/requester-xrpc/mod.ts
+    startLine: 691
+    text: |
+      new Deno.Command("ssh", { args: ["-o", `ProxyCommand=${transport.proxyCommand()}`] })
+  edges:
+  - source: "file:test/bidder_test.ts"
+    target: "fn:ssh"
+    kind: calls
+    line: 4
+  texts:
+    test/bidder_test.ts: |
+      Deno.test("contract", () => runComputeContract())
