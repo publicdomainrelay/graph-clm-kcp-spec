@@ -348,7 +348,7 @@ PY
     echo "hydradb $HYDRA_DESCRIBE"
     echo "policy library: $POLICY_LIBRARY"
     echo "policy enforcement: $POLICY_ENFORCEMENT"
-    echo "policy branch: open-policy/$REPO"
+    echo "policy branch: open-policy/${REPO}--${BRANCH//\//-}"
     grep -E '^(violations|templates|constraints):' "$WORK/policy-eval-head.txt" || true
   } > "$WORK/policy.txt"
   echo "policy records: $WORK/policy.txt, $WORK/policy-audit.txt, $WORK/policy-gate.txt, $WORK/policy-eval-head.txt"
