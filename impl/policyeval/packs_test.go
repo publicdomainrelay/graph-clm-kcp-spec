@@ -265,6 +265,26 @@ func TestConformancePackResolvesAsAnEmbeddedImport(t *testing.T) {
 	if missing := resolved.Manifest.Missing(policy.Binding{}); len(missing) != 0 {
 		t.Errorf("the conformance pack needs a binding: %v", missing)
 	}
+	library := policy.Library{Manifest: policy.PolicyLibrary{
+		Repository: "fixture",
+		Imports:    []policy.PackImport{{Pack: "conformance", Version: "v1", Source: policy.SourceEmbedded}},
+	}}
+	merged, entries, err := ResolveImports(library, ImportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(merged.Templates) != 3 || len(merged.Constraints) != 3 {
+		t.Errorf("the merged library carries %d template(s) and %d constraint(s)",
+			len(merged.Templates), len(merged.Constraints))
+	}
+	if len(entries) != 1 || entries[0].Pack != "conformance" {
+		t.Errorf("the lock entries are %+v", entries)
+	}
+	for _, template := range merged.Templates {
+		if merged.ImportedFrom(policy.TemplateSlug(template)) == "" {
+			t.Errorf("the template %s is not marked as imported", template.Name)
+		}
+	}
 }
 
 func TestEveryEmbeddedPackCarriesAPackManifest(t *testing.T) {
