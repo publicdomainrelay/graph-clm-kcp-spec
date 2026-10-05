@@ -144,7 +144,7 @@ func runPolicyAccept(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "%s accepted; specd applies it\n", name)
 		return exitOK
 	}
-	return waitForPolicyChange(ctx, client, options.namespace, name, *timeout, stdout, stderr)
+	return waitForPolicyChange(ctx, client, options.namespace, name, *timeout, true, stdout, stderr)
 }
 
 func createPolicyChange(change *policy.PolicyChange, options *globals, wait bool, timeout time.Duration, stdout, stderr io.Writer) int {
@@ -177,10 +177,13 @@ func createPolicyChange(change *policy.PolicyChange, options *globals, wait bool
 	if !wait {
 		return exitOK
 	}
-	return waitForPolicyChange(ctx, client, change.Namespace, change.Name, timeout, stdout, stderr)
+	return waitForPolicyChange(ctx, client, change.Namespace, change.Name, timeout, false, stdout, stderr)
 }
 
-func waitForPolicyChange(ctx context.Context, client *kcpclient.Client, namespace, name string, timeout time.Duration, stdout, stderr io.Writer) int {
+// waitForPolicyChange polls until the change is Applied or Failed. requireApplied
+// keeps an accepted change waiting through Evaluated, so `policy accept` does
+// not report success before specd has committed it.
+func waitForPolicyChange(ctx context.Context, client *kcpclient.Client, namespace, name string, timeout time.Duration, requireApplied bool, stdout, stderr io.Writer) int {
 	deadline := time.Now().Add(timeout)
 	for {
 		change, err := readPolicyChange(ctx, client, namespace, name)
@@ -190,6 +193,9 @@ func waitForPolicyChange(ctx context.Context, client *kcpclient.Client, namespac
 		}
 		switch change.Status.Phase {
 		case policy.PolicyPhaseEvaluated:
+			if requireApplied {
+				break
+			}
 			printPolicyChange(stdout, change)
 			fmt.Fprintf(stdout, "%s is Evaluated; run specctl policy accept %s to apply it\n", name, name)
 			return exitOK

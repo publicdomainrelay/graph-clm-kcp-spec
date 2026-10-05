@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -152,4 +153,41 @@ func TestGeneratedContextsSelectAndNumberRequirements(t *testing.T) {
 
 func objectMetaFor(name string) metav1.ObjectMeta {
 	return metav1.ObjectMeta{Name: name, Namespace: specapi.DefaultNamespace}
+}
+
+func TestSlugClashRefusesATakenSlugOrName(t *testing.T) {
+	library := policy.Library{Templates: []policy.Template{
+		{Name: "relayonlyssh", Slug: "relay-only-ssh"},
+		{Name: "guestreportreachin", Slug: "guest-report-reach-in"},
+	}}
+	taken := &policy.PolicyChange{Spec: policy.PolicyChangeSpec{Slug: "relay-only-ssh"}}
+	if clash := slugClash(library, taken); clash == "" {
+		t.Error("a taken slug is free")
+	}
+	byName := &policy.PolicyChange{Spec: policy.PolicyChangeSpec{Slug: "guest-report-reach-in"}}
+	if clash := slugClash(library, byName); clash == "" {
+		t.Error("a taken name is free")
+	}
+	free := &policy.PolicyChange{Spec: policy.PolicyChangeSpec{Slug: "relay-only-guest-ssh"}}
+	if clash := slugClash(library, free); clash != "" {
+		t.Errorf("a free slug clashes with %q", clash)
+	}
+	if slugToName("relay-only-guest-ssh") != "relayonlyguestssh" {
+		t.Errorf("the name is %q", slugToName("relay-only-guest-ssh"))
+	}
+}
+
+func TestPolicyChangeRecordDropsClusterBookkeeping(t *testing.T) {
+	change := policyChange("calc-relay-only", nil)
+	change.ResourceVersion = "42"
+	change.UID = "uid"
+	record := string(policyChangeRecord(change))
+	for _, unwanted := range []string{"resourceVersion", "uid", "managedFields", "generation"} {
+		if strings.Contains(record, unwanted) {
+			t.Errorf("the record carries %q:\n%s", unwanted, record)
+		}
+	}
+	if !strings.Contains(record, "kind: PolicyChange") {
+		t.Errorf("the record is not a PolicyChange:\n%s", record)
+	}
 }

@@ -115,6 +115,11 @@ func (c *Controller) draftPolicyChange(ctx context.Context, namespace string, ch
 	if err != nil {
 		return 0, err
 	}
+	if clash := slugClash(branchLibrary, change); clash != "" {
+		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError,
+			"the repository already carries a template "+clash+"; the slug names the directory, the kind and the constraint, so a generated policy must use a free one")
+		return 0, nil
+	}
 	binding := branchLibrary.Manifest.Binding()
 	pack, packLibrary, packFS, err := c.policyPack(change, branchLibrary)
 	if err != nil {
@@ -298,6 +303,56 @@ func (c *Controller) checkPolicyDraft(
 	return draft, nil
 }
 
+// slugClash names the template a change's slug would collide with: the slug is
+// the directory, the Rego package and the constraint name, and the template
+// name is lower(kind), so a generated policy that reuses either one would
+// silently replace or shadow the repository's own template. It is empty when
+// the slug is free.
+func slugClash(library policy.Library, change *policy.PolicyChange) string {
+	slug := change.Spec.TemplateSlug()
+	for _, template := range library.Templates {
+		switch {
+		case policy.TemplateSlug(template) == slug:
+			return "with the slug " + slug
+		case template.Name == slugToName(slug):
+			return "whose kind makes the name " + slugToName(slug)
+		}
+	}
+	return ""
+}
+
+// slugToName is lower(kind): the kind is the slug's dash-separated words with
+// each first letter capitalized.
+func slugToName(slug string) string {
+	parts := strings.FieldsFunc(slug, func(char rune) bool {
+		return char == '-' || char == '_' || char == '.' || char == '/'
+	})
+	builder := strings.Builder{}
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		builder.WriteString(strings.ToUpper(part[:1]))
+		builder.WriteString(part[1:])
+	}
+	return strings.ToLower(builder.String())
+}
+
+// policyChangeRecord is the append-only record a change leaves on the policy
+// branch: the spec and the status, without the cluster's bookkeeping.
+func policyChangeRecord(change *policy.PolicyChange) []byte {
+	trimmed := *change
+	trimmed.ManagedFields = nil
+	trimmed.ResourceVersion = ""
+	trimmed.UID = ""
+	trimmed.Generation = 0
+	encoded, err := yaml.Marshal(trimmed)
+	if err != nil {
+		return nil
+	}
+	return encoded
+}
+
 // applyPolicyChange commits the evaluated policy to the repository's policy
 // branch and applies it to kcp, then records the change as Applied.
 func (c *Controller) applyPolicyChange(ctx context.Context, namespace string, change *policy.PolicyChange) (time.Duration, error) {
@@ -357,11 +412,7 @@ func (c *Controller) applyPolicyChange(ctx context.Context, namespace string, ch
 		add[name] = data
 	}
 	add[policy.CataloguePath] = policyeval.Catalogue(merged)
-	document, err := yaml.Marshal(change)
-	if err != nil {
-		return 0, err
-	}
-	add[policy.ChangePath(change.Name)] = document
+	add[policy.ChangePath(change.Name)] = policyChangeRecord(change)
 
 	message := fmt.Sprintf("policy(%s): %s %s\n", repository.Name, change.Spec.Mode(), change.Spec.TemplateSlug())
 	commit, err := policygit.Update(ctx, store, ref, add, nil, message)
