@@ -123,13 +123,16 @@ func (c *Controller) reconcileChanges(
 		}
 	}
 
-	if editDue && !unfinished[specapi.DirectionSpecToCode] {
+	if editDue {
 		base := spec.ChangeNameSpecToCode(systemContext.Name, specHash)
 		wait, ready := c.retryDelay(changes, taken, base)
 		if ready && episodeSucceeded(changes, base) {
 			ready = false
 		}
 		switch {
+		case spec.EpisodeOpen(changes, base):
+			c.log.Info("the spec edit is the change that already realizes it",
+				"systemcontext", systemContext.Name, "episode", base)
 		case !ready:
 			c.log.Warn("not raising another spec to code change: the attempt cap is reached",
 				"systemcontext", systemContext.Name, "episode", base, "maxAttempts", c.opts.MaxAttempts)

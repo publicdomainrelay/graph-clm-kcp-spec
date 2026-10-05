@@ -481,6 +481,35 @@ func TestNextChangeName(t *testing.T) {
 	}
 }
 
+func TestEpisodeOpenBlocksTheSameTargetNotANewerOne(t *testing.T) {
+	first := "calc-s2c-aaaa"
+	second := "calc-s2c-bbbb"
+	open := SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: first},
+		Status:     SpecChangeStatus{Phase: specapi.PhaseRunning},
+	}
+	settled := SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: first},
+		Status:     SpecChangeStatus{Phase: specapi.PhaseSucceeded},
+	}
+	retry := SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: first + "-a2"},
+		Status:     SpecChangeStatus{Phase: specapi.PhasePending},
+	}
+	if !EpisodeOpen([]SpecChange{open}, first) {
+		t.Error("a running change of the episode left it open for another")
+	}
+	if !EpisodeOpen([]SpecChange{retry}, first) {
+		t.Error("a retry of the episode was taken while the first ran")
+	}
+	if EpisodeOpen([]SpecChange{open}, second) {
+		t.Error("a second target hash was blocked by the first episode")
+	}
+	if EpisodeOpen([]SpecChange{settled}, first) {
+		t.Error("a settled episode was still open")
+	}
+}
+
 func TestValidateSpecChangeAllowsATreeWithoutCommits(t *testing.T) {
 	without := &SpecChange{
 		ObjectMeta: metav1.ObjectMeta{Name: "calc-c2s-none-none"},

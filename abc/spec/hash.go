@@ -71,3 +71,23 @@ func NextChangeName(existing []string, base string) string {
 	}
 	return base + attemptSuffix + strconv.Itoa(attempts+1)
 }
+
+// EpisodeOpen reports whether an unsettled change already realizes this
+// episode: the same context and target hash, not yet Succeeded or Failed. An
+// open episode blocks a second change for it, but not a change for a different
+// target hash, so a spec edit applied while an earlier one is still running
+// gets its own change to queue behind it.
+func EpisodeOpen(changes []SpecChange, base string) bool {
+	for _, change := range changes {
+		if !ChangeNameMatches(change.Name, base) {
+			continue
+		}
+		switch change.Status.Phase {
+		case specapi.PhaseSucceeded, specapi.PhaseFailed:
+			continue
+		default:
+			return true
+		}
+	}
+	return false
+}

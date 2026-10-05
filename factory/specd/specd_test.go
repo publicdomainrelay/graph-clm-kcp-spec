@@ -383,6 +383,95 @@ func TestSystemContextReconcileIsQuietWhenSyncedAndRealized(t *testing.T) {
 	}
 }
 
+func TestASecondSpecEditWhileAChangeRunsGetsItsOwnChange(t *testing.T) {
+	cluster := newFakeCluster()
+	seed := systemContext("calc", func(systemContext *spec.SystemContext) {
+		systemContext.Spec.Intent = "as it was"
+		systemContext.Status.Observed = observedFacts("f1")
+		systemContext.Status.SyncedFingerprint = "f1"
+	})
+	realized, err := spec.HashSystemContextSpec(seed.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed.Status.RealizedSpecHash = realized
+	apply(t, cluster, seed)
+	controller := testController(cluster)
+
+	setIntent(t, cluster, "the first edit")
+	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+	first := onlyChange(t, cluster)
+	if spec.ChangeNameSpecToCode("calc", first.Spec.ToSpecHash) != first.Name {
+		t.Fatalf("first change %q does not name its hash", first.Name)
+	}
+	first.Status.Phase = specapi.PhaseRunning
+	apply(t, cluster, first)
+
+	setIntent(t, cluster, "the second edit, applied while the first ran")
+	second := editContext(t, cluster)
+	secondHash, err := spec.HashSystemContextSpec(second.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+
+	names := cluster.names(specapi.SpecChangeGVR)
+	if len(names) != 2 {
+		t.Fatalf("spec changes = %v, want the running one and its own queued change", names)
+	}
+	queued := readChange(t, cluster, spec.ChangeNameSpecToCode("calc", secondHash))
+	if queued.Status.Phase != specapi.PhasePending {
+		t.Errorf("the queued change is %q, want Pending behind the running one", queued.Status.Phase)
+	}
+	if queued.Spec.FromSpecHash != realized {
+		t.Errorf("fromSpecHash = %q, want the last realized hash %q", queued.Spec.FromSpecHash, realized)
+	}
+	if queued.Spec.Delta == nil || queued.Spec.Delta.Empty() {
+		t.Error("the queued change carries no delta")
+	}
+	running := readChange(t, cluster, first.Name)
+	if running.Status.Phase != specapi.PhaseRunning {
+		t.Errorf("the first change is %q, want Running still", running.Status.Phase)
+	}
+}
+
+func setIntent(t *testing.T, cluster *fakeCluster, intent string) *spec.SystemContext {
+	t.Helper()
+	current := editContext(t, cluster)
+	current.Spec.Intent = intent
+	apply(t, cluster, current)
+	return editContext(t, cluster)
+}
+
+func onlyChange(t *testing.T, cluster *fakeCluster) *spec.SpecChange {
+	t.Helper()
+	names := cluster.names(specapi.SpecChangeGVR)
+	if len(names) != 1 {
+		t.Fatalf("spec changes = %v, want exactly one", names)
+	}
+	return readChange(t, cluster, names[0])
+}
+
+func editContext(t *testing.T, cluster *fakeCluster) *spec.SystemContext {
+	t.Helper()
+	object, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return typed.(*spec.SystemContext)
+}
+
 func TestSystemContextReconcileWaitsForAnUnfinishedChange(t *testing.T) {
 	cluster := newFakeCluster()
 	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
@@ -807,7 +896,7 @@ func TestSpecToCodeIsLeftForAHumanWithoutAnAgent(t *testing.T) {
 	}
 }
 
-func TestACLMSpecEditWhileAChangeRunsRaisesNoSecondChange(t *testing.T) {
+func TestACLMSpecEditWhileAChangeRunsRaisesItsOwnChange(t *testing.T) {
 	edit := func() *spec.SystemContext {
 		return systemContext("calc", func(systemContext *spec.SystemContext) {
 			systemContext.Status.RealizedSpecHash = strings.Repeat("a", 64)
@@ -861,9 +950,30 @@ func TestACLMSpecEditWhileAChangeRunsRaisesNoSecondChange(t *testing.T) {
 	if _, err := testController(busy).reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
 		t.Fatal(err)
 	}
-	if after := busy.names(specapi.SpecChangeGVR); len(after) != 1 {
-		t.Errorf("changes = %v, want only the running one: the clm edit folded into it", after)
+	after := busy.names(specapi.SpecChangeGVR)
+	if len(after) != 2 {
+		t.Fatalf("changes = %v, want the running change and the edit's own change behind it", after)
 	}
+	queued := readChange(t, busy, spec.ChangeNameSpecToCode("calc", editHash(t, edit())))
+	if queued.Status.Phase != specapi.PhasePending {
+		t.Errorf("the edit's change is %q, want Pending behind the running one", queued.Status.Phase)
+	}
+	if queued.Spec.Delta == nil || queued.Spec.Delta.Empty() {
+		t.Error("the queued change carries no delta")
+	}
+	if live := readChange(t, busy, "calc-s2c-b"); live.Status.Phase != specapi.PhaseRunning {
+		t.Errorf("the running change is %q, want Running still", live.Status.Phase)
+	}
+}
+
+func editHash(t *testing.T, systemContext *spec.SystemContext) string {
+	t.Helper()
+	spec.SetDefaults(systemContext)
+	hash, err := spec.HashSystemContextSpec(systemContext.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
 }
 
 func TestAModFolderMakesTheModTheAgent(t *testing.T) {
