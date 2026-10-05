@@ -137,7 +137,9 @@ func (c *Controller) draftPolicyChange(ctx context.Context, namespace string, ch
 		maxAttempts = DefaultMaxAttempts
 	}
 	failures := []string{}
+	attemptsSpent := 0
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		attemptsSpent = attempt
 		if err := os.RemoveAll(dir); err != nil {
 			return 0, err
 		}
@@ -173,7 +175,7 @@ func (c *Controller) draftPolicyChange(ctx context.Context, namespace string, ch
 		return 0, nil
 	}
 
-	c.recordPolicyEvaluated(ctx, namespace, change, draft, policyCommit)
+	c.recordPolicyEvaluated(ctx, namespace, change, draft, policyCommit, attemptsSpent)
 	if change.Spec.Apply {
 		return c.applyPolicyChange(ctx, namespace, change)
 	}
@@ -282,9 +284,15 @@ func (c *Controller) checkPolicyDraft(
 	}
 	draft.checks = result.Checks
 	draft.report = result.Report
+	if !result.Passed() {
+		// A tree the checks refused is feedback for the next attempt, not a
+		// reconcile error: a harness that wrote nothing useful must hear why.
+		return draft, nil
+	}
 	library, err := policyeval.LoadRaw(os.DirFS(dir))
 	if err != nil {
-		return draft, err
+		draft.checks = append(draft.checks, policy.Check{Name: "template", Passed: false, Message: err.Error()})
+		return draft, nil
 	}
 	draft.library = library
 	return draft, nil
@@ -326,6 +334,20 @@ func (c *Controller) applyPolicyChange(ctx context.Context, namespace string, ch
 		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, err.Error())
 		return 0, nil
 	}
+
+	// kcp first, the branch second. The sync treats a template the branch holds
+	// and kcp does not as stale and removes it, so a branch that names a policy
+	// before kcp holds it can lose that policy to a concurrent reconcile.
+	cluster, ok := c.client.(policykcp.Cluster)
+	if !ok {
+		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, "the cluster cannot hold policies")
+		return 0, nil
+	}
+	if err := c.applyPolicyLibrary(ctx, cluster, merged, branchLibrary, change); err != nil {
+		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, "apply to kcp: "+err.Error())
+		return 0, nil
+	}
+
 	dist, err := policyeval.Dist(merged)
 	if err != nil {
 		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, err.Error())
@@ -345,16 +367,6 @@ func (c *Controller) applyPolicyChange(ctx context.Context, namespace string, ch
 	commit, err := policygit.Update(ctx, store, ref, add, nil, message)
 	if err != nil {
 		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, "commit to "+ref+": "+err.Error())
-		return 0, nil
-	}
-
-	cluster, ok := c.client.(policykcp.Cluster)
-	if !ok {
-		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, "the cluster cannot hold policies")
-		return 0, nil
-	}
-	if err := c.applyPolicyLibrary(ctx, cluster, merged, branchLibrary, change); err != nil {
-		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, "apply to kcp: "+err.Error())
 		return 0, nil
 	}
 
@@ -603,11 +615,12 @@ func (c *Controller) recordPolicyAttempt(ctx context.Context, namespace string, 
 
 // recordPolicyEvaluated writes the accepted generation: the checks, the
 // violations against the head model and the module the change would land.
-func (c *Controller) recordPolicyEvaluated(ctx context.Context, namespace string, change *policy.PolicyChange, draft policyDraft, policyCommit string) {
+func (c *Controller) recordPolicyEvaluated(ctx context.Context, namespace string, change *policy.PolicyChange, draft policyDraft, policyCommit string, attempt int) {
 	status := map[string]any{
 		"phase":   policy.PolicyPhaseEvaluated,
 		"mode":    change.Spec.Mode(),
 		"slug":    change.Spec.TemplateSlug(),
+		"attempt": attempt,
 		"checks":  draft.checks,
 		"message": evaluatedMessage(draft),
 	}

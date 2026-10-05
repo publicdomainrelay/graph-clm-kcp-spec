@@ -166,6 +166,26 @@ func (c *Controller) reconcileRepositoryPolicy(ctx context.Context, namespace st
 	if !ok {
 		return
 	}
+	// The caller read this repository before a populate that can take seconds.
+	// A stale status would make the sync believe kcp has never held the policy
+	// branch, restore over it with a prune, and drop a policy that landed while
+	// the populate ran; a policy change in flight is the same hazard, so the
+	// sync waits for it.
+	current, err := c.readRepository(ctx, namespace, repository.Name)
+	if err != nil {
+		c.log.Error("could not re-read the repository before the policy sync", "repository", repository.Name, "err", err)
+		return
+	}
+	repository = current
+	change, err := c.policyChangeInFlight(ctx, namespace, repository.Name)
+	if err != nil {
+		return
+	}
+	if change != "" {
+		c.log.Debug("the policy sync waits for a policy change",
+			"repository", repository.Name, "change", change)
+		return
+	}
 	store := oagit.Store{Repo: path}
 	ref := policy.RefFor(policyBranchOf(repository), repository.Spec.Branch, store.DefaultBranch(ctx))
 	library, policyCommit, err := policygit.Read(ctx, store, ref)
@@ -179,7 +199,11 @@ func (c *Controller) reconcileRepositoryPolicy(ctx context.Context, namespace st
 	}
 
 	if repository.Status.Policy == nil || repository.Status.Policy.PolicyCommit == "" {
-		if err := policykcp.Apply(ctx, cluster, library, policykcp.ApplyOptions{Prune: true}); err != nil {
+		// No prune: kcp serves every repository's policies, so pruning to one
+		// repository's library would delete another's, and the restore reads the
+		// branch before an apply that may land while it runs, so a prune would
+		// delete the policy that apply just wrote.
+		if err := policykcp.Apply(ctx, cluster, library, policykcp.ApplyOptions{}); err != nil {
 			c.log.Error("policy restore failed", "repository", repository.Name, "branch", ref, "err", err)
 			c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionFalse, specapi.ReasonPolicyInvalid,
 				"restore from "+ref+": "+err.Error())
@@ -215,6 +239,35 @@ func (c *Controller) reconcileRepositoryPolicy(ctx context.Context, namespace st
 	}
 	c.setPolicyCondition(ctx, repository, namespace, metav1.ConditionTrue, specapi.ReasonPolicyCompliant,
 		fmt.Sprintf("audited %s at %s", shortenHash(commit), shortenHash(policyCommit)))
+}
+
+// policyChangeInFlight names a PolicyChange of the repository that is still
+// authoring or applying, so the branch-and-kcp sync leaves both alone: a
+// restore prunes kcp, and it must not prune a policy an apply just wrote.
+func (c *Controller) policyChangeInFlight(ctx context.Context, namespace, repository string) (string, error) {
+	listed, err := c.client.List(ctx, specapi.PolicyChangeGVR, namespace)
+	if err != nil {
+		return "", err
+	}
+	for index := range listed.Items {
+		typed, err := kcpclient.Typed(&listed.Items[index])
+		if err != nil {
+			continue
+		}
+		change, ok := typed.(*policy.PolicyChange)
+		if !ok || change.Spec.Repository != repository {
+			continue
+		}
+		switch change.Status.Phase {
+		case "", policy.PolicyPhaseDrafting, policy.PolicyPhaseTesting:
+			return change.Name, nil
+		case policy.PolicyPhaseEvaluated:
+			if change.Spec.Apply {
+				return change.Name, nil
+			}
+		}
+	}
+	return "", nil
 }
 
 // persistPolicy writes the kcp templates and constraints to the branch and
@@ -372,7 +425,8 @@ func (c *Controller) updateContextConditions(ctx context.Context, namespace stri
 				specapi.ConditionPolicyCompliant, specapi.ReasonPolicyViolations, violationsMessage(violations))
 		}
 		status := map[string]any{"conditions": conditions}
-		if enforcedBy := policy.TemplatesForRequirement(library, systemContext.Name); len(enforcedBy) > 0 {
+		enforcedBy := policy.TemplatesForRequirement(library, systemContext.Name)
+		if len(enforcedBy) > 0 {
 			status["enforcedBy"] = enforcedBy
 		}
 		if specapi.StatusMatches(systemContext.Status, status) {

@@ -1,0 +1,21 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: relay-only
+tests:
+  - name: relay-only
+    template: ../../dist/relay-only.yaml
+    constraint: ../../constraints/relay-only.yaml
+    cases:
+      - name: allowed-relayed-ssh
+        object: inventory/allowed.yaml
+        inventory:
+          - inventory/allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied-unrelayed-ssh
+        object: inventory/denied.yaml
+        inventory:
+          - inventory/denied.yaml
+        assertions:
+          - violations: 1

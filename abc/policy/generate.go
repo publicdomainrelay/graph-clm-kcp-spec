@@ -464,21 +464,27 @@ func cloneVocabulary(vocabulary Vocabulary) Vocabulary {
 	return out
 }
 
-// BindingReport names why a proposed binding does not satisfy a pack: the roles
-// that select no component, the vocabulary classes that match nothing, and the
-// pack requirements it does not declare.
+// BindingReport says whether a proposed binding maps onto the repository it is
+// written for: the pack declarations it lacks, the roles that select no
+// component, and the vocabulary classes that match no effect and no spec term.
 type BindingReport struct {
 	Missing []string
 
 	EmptyRoles []string
 
+	// UnmatchedVocabulary names the classes nothing in this repository speaks.
+	// One of them is a note -- a repository with only specs has no code for a
+	// class the pack reads yet -- but a vocabulary that matches nothing at all
+	// is a binding that maps onto nothing.
 	UnmatchedVocabulary []string
+
+	MatchedVocabulary int
 
 	Selectors map[string][]string
 }
 
 func (r BindingReport) OK() bool {
-	return len(r.Missing) == 0 && len(r.EmptyRoles) == 0 && len(r.UnmatchedVocabulary) == 0
+	return len(r.Missing) == 0 && len(r.EmptyRoles) == 0 && r.MatchedVocabulary > 0
 }
 
 func (r BindingReport) Messages() []string {
@@ -489,10 +495,18 @@ func (r BindingReport) Messages() []string {
 	if len(r.EmptyRoles) > 0 {
 		out = append(out, "these roles select no component: "+strings.Join(r.EmptyRoles, ", "))
 	}
-	if len(r.UnmatchedVocabulary) > 0 {
-		out = append(out, "these vocabulary classes match no effect and no spec term: "+strings.Join(r.UnmatchedVocabulary, ", "))
+	if r.MatchedVocabulary == 0 {
+		out = append(out, "no vocabulary class matches an effect or a spec term: the binding maps onto nothing")
 	}
 	return out
+}
+
+// Notes names what the report accepted but the operator should see.
+func (r BindingReport) Notes() []string {
+	if len(r.UnmatchedVocabulary) == 0 {
+		return nil
+	}
+	return []string{"no effect and no spec term speaks these vocabulary classes yet: " + strings.Join(r.UnmatchedVocabulary, ", ")}
 }
 
 // CheckBinding validates a binding against the model it produces and the terms
@@ -524,9 +538,11 @@ func CheckBinding(model ArchitectureModel, binding Binding, pack *PackManifest, 
 		report.Selectors[role] = names
 	}
 	for _, class := range vocabularyClasses(binding.Vocabulary) {
-		if !vocabularyMatches(class, model, terms) {
-			report.UnmatchedVocabulary = append(report.UnmatchedVocabulary, class.group+"/"+class.name)
+		if vocabularyMatches(class, model, terms) {
+			report.MatchedVocabulary++
+			continue
 		}
+		report.UnmatchedVocabulary = append(report.UnmatchedVocabulary, class.group+"/"+class.name)
 	}
 	sort.Strings(report.EmptyRoles)
 	sort.Strings(report.UnmatchedVocabulary)

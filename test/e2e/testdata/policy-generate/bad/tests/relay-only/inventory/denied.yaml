@@ -1,0 +1,67 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata:
+  name: fixture
+  namespace: default
+spec:
+  repository: fixture
+  roles:
+    - guest
+    - host
+    - test
+  vocabulary:
+    channels:
+      relay:
+        - websocat
+    events:
+      network-report:
+        - vm.onNetwork
+    payloads:
+      network-info:
+        - address
+    purposes:
+      network-discovery:
+        - onNetwork
+    routes:
+      report:
+        - /v1/on-network
+  components:
+    - name: host
+      roles:
+        - host
+      source: observed
+    - name: guest
+      roles:
+        - guest
+      source: observed
+    - name: tests
+      roles:
+        - test
+      source: observed
+  effects:
+    - id: emit1
+      kind: event.emit
+      component: host
+      attrs:
+        type: vm.onNetwork
+      file: host/mod.ts
+      line: 12
+    - id: ssh1
+      kind: ssh.connect
+      component: tests
+      attrs:
+        target: guest
+      file: tests/flow_test.ts
+      line: 44
+  flows:
+    - from: guest
+      to: host
+      initiator: guest
+      channel: relay
+      carries:
+        - network-info
+      purpose: network-discovery
+      source: observed
+      evidence:
+        - emit1
+  triggers: []

@@ -1,0 +1,15 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RelayOnly
+metadata:
+  name: relay-only
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups:
+          - specs.publicdomainrelay.dev
+        kinds:
+          - ArchitectureModel
+  parameters:
+    guestRole: guest
+    relayClass: relay

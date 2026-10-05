@@ -267,11 +267,14 @@ func CheckGeneratedBinding(ctx context.Context, input BindingInput) (BindingResu
 		return result, nil
 	}
 	report := policy.CheckBinding(input.Model, binding, input.Pack, input.Terms)
+	message := fmt.Sprintf("%d role(s), %d/%d classes matched", len(binding.Roles), report.MatchedVocabulary, len(binding.Vocabulary.Classes()))
+	for _, note := range report.Notes() {
+		message += "; " + note
+	}
 	if !report.OK() {
 		result.Checks = append(result.Checks, failCheck("binding", strings.Join(report.Messages(), "; ")))
 	} else {
-		result.Checks = append(result.Checks, policy.Check{Name: "binding", Passed: true,
-			Message: fmt.Sprintf("%d role(s), %d classes", len(binding.Roles), len(binding.Vocabulary.Classes()))})
+		result.Checks = append(result.Checks, policy.Check{Name: "binding", Passed: true, Message: message})
 	}
 
 	suites, err := runPackSuites(ctx, input.PackFS)
@@ -428,7 +431,9 @@ func AnnotateGenerated(dir, slug string, requirements []string, generatedBy stri
 		annotations = map[string]any{}
 		metadata["annotations"] = annotations
 	}
-	annotations[policy.AnnotationSlug] = slug
+	// The slug is the directory name, not an annotation: the branch keeps it in
+	// the path and kcp drops it from the header, so writing it here would make
+	// the two forms differ and the sync would rewrite the branch every pass.
 	if generatedBy != "" {
 		annotations[policy.AnnotationGeneratedBy] = generatedBy
 	}

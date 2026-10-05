@@ -1,0 +1,3 @@
+repository: market-mini
+version: "1"
+defaultEnforcement: deny

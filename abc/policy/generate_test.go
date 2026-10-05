@@ -2,6 +2,7 @@ package policy
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -236,6 +237,47 @@ func TestCheckBindingAcceptsAMatchingBinding(t *testing.T) {
 	}
 	if len(report.Messages()) != 0 {
 		t.Errorf("a clean report carries messages: %v", report.Messages())
+	}
+}
+
+func TestCheckBindingRefusesAVocabularyThatMatchesNothing(t *testing.T) {
+	model := modelFixture()
+	model.Spec.Flows = nil
+	binding := Binding{
+		Roles:      map[string]RoleBinding{"host": {}, "guest": {}},
+		Vocabulary: Vocabulary{Channels: map[string][]string{"relay": {"websocat"}}},
+	}
+	report := CheckBinding(model, binding, &PackManifest{Name: "p", Roles: []string{"host", "guest"}, Vocabulary: []string{"channels/relay"}}, nil)
+	if report.OK() {
+		t.Fatal("a vocabulary that matches nothing was accepted")
+	}
+	if len(report.Notes()) != 0 {
+		t.Errorf("a refused binding carries notes: %v", report.Notes())
+	}
+	if !strings.Contains(strings.Join(report.Messages(), "; "), "maps onto nothing") {
+		t.Errorf("the messages read %v", report.Messages())
+	}
+}
+
+func TestCheckBindingNotesAClassNothingSpeaksYet(t *testing.T) {
+	model := modelFixture()
+	binding := Binding{
+		Roles: map[string]RoleBinding{"host": {}, "guest": {}},
+		Vocabulary: Vocabulary{
+			Payloads: map[string][]string{"network-info": {"address"}},
+			Routes:   map[string][]string{"telemetry": {"/v1/telemetry"}},
+		},
+	}
+	report := CheckBinding(model, binding, &PackManifest{Name: "p", Roles: []string{"host", "guest"}}, nil)
+	if !report.OK() {
+		t.Fatalf("a binding with one matching class was refused: %v", report.Messages())
+	}
+	if report.MatchedVocabulary != 1 {
+		t.Errorf("%d classes matched, want 1", report.MatchedVocabulary)
+	}
+	notes := report.Notes()
+	if len(notes) != 1 || !strings.Contains(notes[0], "routes/telemetry") {
+		t.Errorf("the notes are %v", notes)
 	}
 }
 
