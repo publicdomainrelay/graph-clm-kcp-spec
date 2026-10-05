@@ -1,0 +1,50 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  roles:
+  - guest
+  - host
+  vocabulary:
+    channels:
+      relay:
+      - websocat
+    payloads:
+      network-info:
+      - address
+    purposes:
+      network-discovery:
+      - onNetwork
+    routes:
+      report:
+      - /v1/on-network
+    reachInExceptions:
+    - lib/pds-client/**
+  components:
+  - name: host
+    roles:
+    - host
+    source: observed
+  - name: guest
+    roles:
+    - guest
+    source: observed
+  effects:
+  - id: fetch
+    kind: http.request
+    component: host
+    attrs:
+      url: https://pds.example/xrpc/com.atproto.repo.getRecord
+    file: lib/pds-client/records.ts
+    line: 106
+  flows:
+  - from: host
+    to: unknown
+    initiator: host
+    source: observed
+    evidence:
+    - fetch
+  triggers: []

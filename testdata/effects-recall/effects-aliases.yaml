@@ -1,0 +1,9 @@
+# Hand labels for fixtures/effects-aliases: the argv0, the host and the port
+# are held in names, so only a classifier that resolves the names finds them.
+files:
+- path: lib/requester/mod.ts
+  sites:
+  - {kind: ssh.connect, line: 10}
+- path: test/alias_test.ts
+  sites:
+  - {kind: net.dial, line: 10}

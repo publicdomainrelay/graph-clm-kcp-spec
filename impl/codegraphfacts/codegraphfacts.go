@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
@@ -32,31 +34,183 @@ type Options struct {
 
 	Tool string
 
+	// IndexInPlace allows the index to be written into a git checkout. Without
+	// it a checkout is never written to: a stale index is replaced by one over
+	// a copy, so a reader's tree stays theirs and no evaluation sees facts
+	// older than the code (review 0003 G5).
+	IndexInPlace bool
+
 	DB *codegraphsqlite.DB
 }
 
+const commitStamp = "specd-commit"
+
 func Build(ctx context.Context, repoPath string, opts Options) (policy.CodeGraph, error) {
-	database := opts.DB
-	if database == nil {
-		existing, ok, err := codegraphsqlite.OpenRepo(repoPath)
-		if err != nil {
-			return policy.CodeGraph{}, err
-		}
-		if !ok {
-			if _, err := codegraphsqlite.Ensure(ctx, repoPath, opts.Tool); err != nil {
-				return policy.CodeGraph{}, err
-			}
-			existing, ok, err = codegraphsqlite.OpenRepo(repoPath)
-			if err != nil {
-				return policy.CodeGraph{}, err
-			}
-			if !ok {
-				return policy.CodeGraph{}, fmt.Errorf("codegraphfacts: no index at %s", repoPath)
-			}
-		}
-		database = existing
+	if opts.DB != nil {
+		return FromDB(ctx, opts.DB, repoPath, opts)
 	}
+	root, cleanup, err := indexRoot(ctx, repoPath, opts)
+	if err != nil {
+		return policy.CodeGraph{}, err
+	}
+	defer cleanup()
+	database, ok, err := codegraphsqlite.OpenRepo(root)
+	if err != nil {
+		return policy.CodeGraph{}, err
+	}
+	if !ok {
+		return policy.CodeGraph{}, fmt.Errorf("codegraphfacts: no index at %s", root)
+	}
+	defer database.Close()
 	return FromDB(ctx, database, repoPath, opts)
+}
+
+// indexRoot names the tree the index is read from. A git checkout is indexed
+// in place only when its recorded index is fresh, or when IndexInPlace asks for
+// it; otherwise a copy is indexed, so the reader's tree is never written and no
+// stale index is ever read.
+func indexRoot(ctx context.Context, repoPath string, opts Options) (string, func(), error) {
+	root, err := filepath.Abs(repoPath)
+	if err != nil {
+		return "", nil, fmt.Errorf("codegraphfacts: resolve %s: %w", repoPath, err)
+	}
+	noop := func() {}
+	if !insideCheckout(root) {
+		return root, noop, ensureIndex(ctx, root, opts.Tool)
+	}
+	if indexFresh(ctx, root) {
+		return root, noop, nil
+	}
+	if opts.IndexInPlace {
+		return root, noop, ensureIndex(ctx, root, opts.Tool)
+	}
+	copyDir, err := os.MkdirTemp("", "specctl-codegraph-")
+	if err != nil {
+		return "", nil, fmt.Errorf("codegraphfacts: make the index copy: %w", err)
+	}
+	cleanup := func() { os.RemoveAll(copyDir) }
+	if err := copyTree(root, copyDir); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	if err := ensureIndex(ctx, copyDir, opts.Tool); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	return copyDir, cleanup, nil
+}
+
+// insideCheckout reports whether a tree is a checkout, or a directory of one.
+// The index of a checkout is the reader's own file: it is read when it is fresh
+// and replaced by a copy of the tree when it is not, never written.
+func insideCheckout(root string) bool {
+	if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
+		return true
+	}
+	out, err := exec.Command("git", "-C", root, "rev-parse", "--show-toplevel").Output()
+	return err == nil && strings.TrimSpace(string(out)) != ""
+}
+
+// indexFresh reports whether the index in root describes the tree as it is
+// now. The stamp records what was indexed: the commit of a checkout, which
+// also has to be clean, or the newest source mtime of a plain tree.
+func indexFresh(ctx context.Context, root string) bool {
+	if _, ok, err := codegraphsqlite.OpenRepo(root); err != nil || !ok {
+		return false
+	}
+	stamp, err := os.ReadFile(filepath.Join(root, codegraphsqlite.Directory, commitStamp))
+	if err != nil {
+		return false
+	}
+	value, ok := indexStamp(ctx, root)
+	return ok && strings.TrimSpace(string(stamp)) == value
+}
+
+func indexStamp(ctx context.Context, root string) (string, bool) {
+	if insideCheckout(root) {
+		head := GitCommit(ctx, root)
+		if head == "" {
+			return "", false
+		}
+		out, err := exec.CommandContext(ctx, "git", "-C", root, "status", "--porcelain").Output()
+		if err != nil || strings.TrimSpace(string(out)) != "" {
+			return "", false
+		}
+		return head, true
+	}
+	newest := int64(0)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if name := entry.Name(); path != root && (name == ".git" || name == codegraphsqlite.Directory || name == "node_modules") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return nil
+		}
+		if modified := info.ModTime().UnixNano(); modified > newest {
+			newest = modified
+		}
+		return nil
+	})
+	if err != nil {
+		return "", false
+	}
+	return strconv.FormatInt(newest, 10), true
+}
+
+func ensureIndex(ctx context.Context, root, tool string) error {
+	if _, err := codegraphsqlite.Ensure(ctx, root, tool); err != nil {
+		return err
+	}
+	value, ok := indexStamp(ctx, root)
+	if !ok {
+		value = "unknown"
+	}
+	data := []byte(value + "\n")
+	return os.WriteFile(filepath.Join(root, codegraphsqlite.Directory, commitStamp), data, 0o644)
+}
+
+// copyTree copies a checkout without its index or its git directory, so the
+// index over the copy describes the same code and no artefact lands in the
+// original.
+func copyTree(source, target string) error {
+	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		if relative == "." {
+			return nil
+		}
+		name := entry.Name()
+		if entry.IsDir() && (name == ".git" || name == codegraphsqlite.Directory || name == "node_modules") {
+			return filepath.SkipDir
+		}
+		destination := filepath.Join(target, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(destination, 0o755)
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(destination, data, 0o644)
+	})
 }
 
 func FromDB(ctx context.Context, database *codegraphsqlite.DB, repoPath string, opts Options) (policy.CodeGraph, error) {

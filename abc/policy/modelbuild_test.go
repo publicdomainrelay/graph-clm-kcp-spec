@@ -136,6 +136,113 @@ func TestBuildModelObservedFlows(t *testing.T) {
 	}
 }
 
+func TestBuildModelSiteTextStaysAtTheSite(t *testing.T) {
+	source := "Deno.test(\"direct\", () => {\n  new Deno.Command(\"ssh\", { args: [\"root@10.0.0.7\"] });\n});\n\nDeno.test(\"relayed\", () => {\n  new Deno.Command(\"ssh\", { args: [\"-o\", \"ProxyCommand=websocat --binary ws://relay/x\"] });\n});\n"
+	graph := CodeGraph{
+		APIVersion: APIVersion,
+		Kind:       CodeGraphKind,
+		Metadata:   ObjectMeta{Name: "sample"},
+		Spec: CodeGraphSpec{
+			Repository: "sample",
+			Files:      []CodeGraphFile{{Path: "test/integration_test.ts", Language: "typescript", Test: true}},
+			Nodes: []CodeGraphNode{{
+				ID: "file:test/integration_test.ts", Kind: "file", Name: "integration_test.ts",
+				File: "test/integration_test.ts", StartLine: 1, EndLine: 7, Text: source,
+			}},
+			Edges: []CodeGraphEdge{},
+			Texts: map[string]string{"test/integration_test.ts": source},
+		},
+	}
+	effects := []Effect{{
+		ID: "e-ssh", Kind: EffectSSHConnect, File: "test/integration_test.ts", Line: 2,
+		Node: "file:test/integration_test.ts", Component: "test",
+	}}
+	model, err := BuildModel(ModelInput{
+		Repository: "sample",
+		Graph:      graph,
+		Effects:    effects,
+		Binding:    modelBinding(),
+	})
+	if err != nil {
+		t.Fatalf("BuildModel: %v", err)
+	}
+	for _, flow := range model.Spec.Flows {
+		if containsString(flow.Evidence, "e-ssh") && flow.Channel == "relay" {
+			t.Fatalf("direct ssh borrowed the other test's relay channel: %+v", flow)
+		}
+	}
+}
+
+func TestContainsFoldMatchesWholeTokens(t *testing.T) {
+	if !containsFold("  address: \"x\"\n", "address") {
+		t.Fatal("a standalone term did not match")
+	}
+	if containsFold("guestAddress: \"x\"\n", "address") {
+		t.Fatal("a term inside a longer word matched")
+	}
+	if !containsFold("type: vm.onNetwork,", "vm.onNetwork") {
+		t.Fatal("a dotted term did not match")
+	}
+	if containsFold("type: xvm.onNetworkx,", "vm.onNetwork") {
+		t.Fatal("a dotted term inside a longer word matched")
+	}
+}
+
+func TestBuildModelMergeUnionsCarries(t *testing.T) {
+	model := ArchitectureModel{Spec: ArchitectureModelSpec{Flows: []ModelFlow{
+		{From: "guest", To: "host", Initiator: "guest", Source: SourceObserved, Carries: []string{"network-info"}, Evidence: []string{"a"}},
+		{From: "guest", To: "host", Initiator: "guest", Source: SourceObserved, Carries: []string{"other"}, Evidence: []string{"b"}},
+	}}}
+	merged := dedupeFlows(model.Spec.Flows)
+	if len(merged) != 1 {
+		t.Fatalf("flows = %+v, want one", merged)
+	}
+	if !containsString(merged[0].Carries, "network-info") || !containsString(merged[0].Carries, "other") {
+		t.Fatalf("merged carries = %v, want both", merged[0].Carries)
+	}
+}
+
+func TestBuildModelTriggerNeedsACallEdge(t *testing.T) {
+	source := "handle();\nemit();\n"
+	graph := CodeGraph{
+		APIVersion: APIVersion,
+		Kind:       CodeGraphKind,
+		Metadata:   ObjectMeta{Name: "sample"},
+		Spec: CodeGraphSpec{
+			Repository: "sample",
+			Files:      []CodeGraphFile{{Path: "hono-bidder/mod.ts", Language: "typescript"}},
+			Nodes: []CodeGraphNode{{
+				ID: "file:hono-bidder/mod.ts", Kind: "file", Name: "mod.ts",
+				File: "hono-bidder/mod.ts", StartLine: 1, EndLine: 2, Text: source,
+			}},
+			Edges: []CodeGraphEdge{},
+		},
+	}
+	effects := []Effect{
+		{ID: "handle", Kind: EffectHTTPHandle, File: "hono-bidder/mod.ts", Line: 1, Node: "file:hono-bidder/mod.ts", Component: "host", Attrs: map[string]string{"path": "/v1/on-network"}},
+		{ID: "emit", Kind: EffectEventEmit, File: "hono-bidder/mod.ts", Line: 2, Node: "file:hono-bidder/mod.ts", Component: "host", Attrs: map[string]string{"type": "vm.onNetwork"}},
+	}
+	triggers := effectTriggers(graph, effects, nil, 0, 0)
+	if len(triggers) != 0 {
+		t.Fatalf("same file node produced a trigger: %+v", triggers)
+	}
+	withEdge := effectTriggers(graph, effects, nil, 0, 0)
+	_ = withEdge
+	function := []Effect{
+		{ID: "handle", Kind: EffectHTTPHandle, File: "hono-bidder/mod.ts", Line: 1, Node: "fn:handle", Component: "host"},
+		{ID: "emit", Kind: EffectEventEmit, File: "hono-bidder/mod.ts", Line: 9, Node: "fn:emit", Component: "host"},
+	}
+	fnGraph := graph
+	fnGraph.Spec.Nodes = []CodeGraphNode{
+		{ID: "fn:handle", Kind: "function", Name: "handle", File: "hono-bidder/mod.ts", StartLine: 1, EndLine: 4},
+		{ID: "fn:emit", Kind: "function", Name: "emit", File: "hono-bidder/mod.ts", StartLine: 8, EndLine: 12},
+	}
+	fnGraph.Spec.Edges = []CodeGraphEdge{{Source: "fn:handle", Target: "fn:emit", Kind: "calls", Line: 2}}
+	if got := effectTriggers(fnGraph, function, nil, 0, 0); len(got) != 1 {
+		t.Fatalf("call edge produced no trigger: %+v", got)
+	}
+}
+
 func TestBuildModelTriggers(t *testing.T) {
 	model, err := BuildModel(ModelInput{
 		Repository: "sample",

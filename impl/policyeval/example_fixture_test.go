@@ -56,6 +56,58 @@ func fixtureObjects(t *testing.T, dir, repository string, library policy.Library
 	return graphObject, modelObject
 }
 
+// TestViolatingVariantsDeny runs the adversarial variants of review 0003, one
+// realistic violation each, against the library the compliant fixture is clean
+// under. Every one of them must deny (plan 0010 R9).
+func TestViolatingVariantsDeny(t *testing.T) {
+	if _, err := exec.LookPath("codegraph"); err != nil {
+		t.Skip("codegraph is not on PATH")
+	}
+	library, err := policyeval.Load(filepath.Join(root, "examples", "policies", "market-mini"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, variant := range []struct {
+		name       string
+		policy     string
+		constraint string
+	}{
+		{name: "violating-vb", policy: "relay-only-ssh", constraint: "rfp-relay-only-guest-ssh"},
+		{name: "violating-vc", policy: "relay-only-ssh", constraint: "rfp-relay-only-guest-ssh"},
+		{name: "violating-ve", policy: "rfp-relay-only-guest-ssh", constraint: "rfp-relay-only-guest-ssh"},
+		{name: "violating-vh1", policy: "rfp-host-reach-in", constraint: "rfp-host-reach-in"},
+		{name: "violating-vh2", policy: "rfp-host-reach-in", constraint: "rfp-host-reach-in"},
+		{name: "violating-vh3", policy: "rfp-host-reach-in", constraint: "rfp-host-reach-in"},
+	} {
+		t.Run(variant.name, func(t *testing.T) {
+			dir := fixture.CopyTree(t, filepath.Join("market-mini", variant.name))
+			graph, model := fixtureObjects(t, dir, "market-mini", library)
+			reviewed := []*unstructured.Unstructured{graph, model}
+			report, err := policyeval.EvaluateLibrary(context.Background(), library, reviewed, reviewed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			denies := 0
+			matched := false
+			for _, violation := range report.Violations {
+				if violation.Enforcement != policy.EnforcementDeny {
+					continue
+				}
+				denies++
+				if violation.Constraint == variant.constraint {
+					matched = true
+				}
+			}
+			if denies == 0 {
+				t.Fatal("the variant is clean")
+			}
+			if !matched {
+				t.Errorf("the variant does not trigger %s: %+v", variant.constraint, report.Violations)
+			}
+		})
+	}
+}
+
 func objectOf(t *testing.T, value any) (*unstructured.Unstructured, error) {
 	t.Helper()
 	encoded, err := json.Marshal(value)

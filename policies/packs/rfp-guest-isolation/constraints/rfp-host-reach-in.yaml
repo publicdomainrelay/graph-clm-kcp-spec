@@ -18,3 +18,5 @@ spec:
     reachInKinds:
     - container.exec
     - ssh.connect
+    - net.dial
+    - http.request

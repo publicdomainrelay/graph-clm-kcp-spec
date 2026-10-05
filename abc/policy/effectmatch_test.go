@@ -211,6 +211,126 @@ func TestEffectsIgnoreCommentsAndStrings(t *testing.T) {
 	}
 }
 
+func TestEffectsAttributeStayAtTheCallSite(t *testing.T) {
+	source := "import { createRelay } from \"x\";\n\nDeno.test(\"direct\", () => {\n  new Deno.Command(\"ssh\", { args: [\"-p\", \"2222\", \"root@10.0.0.7\", \"true\"] });\n});\n\nDeno.test(\"relayed\", () => {\n  new Deno.Command(\"ssh\", { args: [\"-o\", \"ProxyCommand=websocat --binary ws://relay/x\", \"root@guest\"] });\n});\n"
+	graph := testGraph(source, nil)
+	graph.Spec.Files[0].Language = "typescript"
+	matcher := compileOne(t, ClassifierPack{
+		Language: "typescript",
+		Rules: []EffectRule{{
+			ID: "ssh", Kind: EffectSSHConnect,
+			Call: &CallRule{Name: "Deno.Command", Argv0: []string{"ssh"}},
+			Extract: []ExtractRule{
+				{Attr: "proxyCommand", Regex: `ProxyCommand=([^\n,;]+)`, Trim: true},
+			},
+		}},
+	})
+	effects := matcher.Effects(graph, MatchOptions{})
+	if len(effects) != 2 {
+		t.Fatalf("got %d effects, want 2: %+v", len(effects), effects)
+	}
+	for _, effect := range effects {
+		switch effect.Line {
+		case 4:
+			if effect.Attr("proxyCommand") != "" {
+				t.Fatalf("direct ssh lent the other call's ProxyCommand: %+v", effect.Attrs)
+			}
+		case 8:
+			if effect.Attr("proxyCommand") == "" {
+				t.Fatalf("relayed ssh lost its own ProxyCommand: %+v", effect.Attrs)
+			}
+		default:
+			t.Fatalf("unexpected ssh site: %+v", effect)
+		}
+	}
+}
+
+func TestEffectsResolveConstantAliases(t *testing.T) {
+	pack := ClassifierPack{
+		Language: "typescript",
+		Rules: []EffectRule{
+			{
+				ID: "ssh", Kind: EffectSSHConnect,
+				Call:    &CallRule{Name: "Deno.Command", Argv0: []string{"ssh"}},
+				Target:  "argv0",
+				Extract: []ExtractRule{{Attr: "proxyCommand", Regex: `ProxyCommand=([^\n,;]+)`, Trim: true}},
+			},
+			{
+				ID: "dial", Kind: EffectNetDial,
+				Call:    &CallRule{Name: "Deno.connect"},
+				Extract: []ExtractRule{{Attr: "target", Regex: `hostname\s*:\s*["` + "`" + `]([^"` + "`" + `]+)["` + "`" + `]`}},
+			},
+		},
+	}
+	matcher := compileOne(t, pack)
+	source := "const SSH = \"ssh\";\nconst host = \"10.0.0.7\";\nconst proxy = \"ProxyCommand=websocat --binary ws://relay/x\";\nnew Deno.Command(SSH, { args: [\"-o\", proxy, `root@${host}`] });\nawait Deno.connect({ hostname: host, port: 2222 });\n"
+	effects := matcher.EffectsIn("x.ts", "typescript", source, MatchOptions{})
+	if len(effects) != 2 {
+		t.Fatalf("got %d effects, want 2: %+v", len(effects), effects)
+	}
+	if effects[0].Kind != EffectSSHConnect || effects[0].Attr("proxyCommand") == "" || effects[0].Attr("argv0") != "ssh" {
+		t.Fatalf("alias argv0 or proxy not resolved: %+v", effects[0])
+	}
+	if effects[1].Kind != EffectNetDial || effects[1].Attr("target") != "10.0.0.7" {
+		t.Fatalf("host variable not resolved: %+v", effects[1])
+	}
+}
+
+func TestEffectsResolveImportedConstants(t *testing.T) {
+	common := "export const EVENT_NSID = \"com.example.events.onNetwork\";\n"
+	bidder := "import { EVENT_NSID } from \"@market/market-common\";\n\nexport function emit() {\n  repo.createSignedRepoRecord(EVENT_NSID, {});\n}\n"
+	graph := CodeGraph{
+		APIVersion: APIVersion,
+		Kind:       CodeGraphKind,
+		Metadata:   ObjectMeta{Name: "sample"},
+		Spec: CodeGraphSpec{
+			Repository: "sample",
+			Files: []CodeGraphFile{
+				{Path: "lib/market-common/mod.ts", Language: "typescript"},
+				{Path: "lib/bidder/mod.ts", Language: "typescript"},
+			},
+			Nodes: []CodeGraphNode{
+				{ID: "fn:emit", Kind: "function", Name: "emit", File: "lib/bidder/mod.ts", StartLine: 3, EndLine: 5, Text: bidder},
+			},
+			Edges: []CodeGraphEdge{},
+			Texts: map[string]string{"lib/market-common/mod.ts": common, "lib/bidder/mod.ts": bidder},
+		},
+	}
+	matcher := compileOne(t, ClassifierPack{
+		Language: "typescript",
+		Rules: []EffectRule{{
+			ID: "emit", Kind: EffectEventEmit, Extra: true,
+			Call: &CallRule{Name: "createSignedRepoRecord", Any: true},
+			Extract: []ExtractRule{
+				{Attr: "type", Regex: `^\s*["\x27\x60]?([A-Za-z_$][\w$.]*)`},
+			},
+		}},
+	})
+	effects := matcher.Effects(graph, MatchOptions{IncludeExtras: true})
+	if len(effects) != 1 {
+		t.Fatalf("got %d effects, want 1: %+v", len(effects), effects)
+	}
+	if effects[0].Attr("type") != "com.example.events.onNetwork" {
+		t.Fatalf("imported NSID not resolved: %+v", effects[0].Attrs)
+	}
+}
+
+func TestEffectsConstantAliasesStayInCode(t *testing.T) {
+	pack := ClassifierPack{
+		Language: "go",
+		Rules: []EffectRule{{
+			ID: "ssh", Kind: EffectSSHConnect,
+			Call: &CallRule{Name: "exec.Command", Argv0: []string{"ssh"}},
+		}},
+	}
+	matcher := compileOne(t, pack)
+	source := "package svc\n\nconst sshBin = \"ssh\"\n\nvar note = \"sshBin\"\n\nfunc run() {\n\tother.sshBin(\"x\")\n\texec.Command(sshBin, \"root@guest\")\n}\n"
+	effects := matcher.EffectsIn("svc.go", "go", source, MatchOptions{})
+	if len(effects) != 1 || effects[0].Line != 9 {
+		t.Fatalf("constant alias matched outside its call: %+v", effects)
+	}
+}
+
 func TestEffectsExtrasToggle(t *testing.T) {
 	pack := ClassifierPack{
 		Language: "typescript",

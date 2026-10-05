@@ -90,6 +90,80 @@ func TestBuildIsDeterministicAndAssignsContexts(t *testing.T) {
 	}
 }
 
+func gitCommit(t *testing.T, repo string, message string) {
+	t.Helper()
+	run := func(args ...string) {
+		command := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		command.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=fixture", "GIT_AUTHOR_EMAIL=fixture@example.com",
+			"GIT_COMMITTER_NAME=fixture", "GIT_COMMITTER_EMAIL=fixture@example.com")
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	run("add", "-A")
+	run("commit", "-qm", message)
+}
+
+func nodeNames(graph policy.CodeGraph) map[string]bool {
+	out := map[string]bool{}
+	for _, node := range graph.Spec.Nodes {
+		out[node.Name] = true
+	}
+	return out
+}
+
+func TestBuildIgnoresAStaleIndexInACheckout(t *testing.T) {
+	requireCodegraph(t)
+	repo := t.TempDir()
+	source := filepath.Join(repo, "a.go")
+	if err := os.WriteFile(source, []byte("package a\n\nfunc One() int { return 1 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommit(t, repo, "one")
+	if _, err := codegraphfacts.Build(context.Background(), repo, codegraphfacts.Options{Repository: "a", IndexInPlace: true}); err != nil {
+		t.Fatal(err)
+	}
+	indexDir := filepath.Join(repo, ".codegraph")
+	if _, err := os.Stat(indexDir); err != nil {
+		t.Fatalf("--index-in-place did not write the index: %v", err)
+	}
+	if err := os.WriteFile(source, []byte("package a\n\nfunc Two() int { return 2 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	graph, err := codegraphfacts.Build(context.Background(), repo, codegraphfacts.Options{Repository: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := nodeNames(graph)
+	if !names["Two"] || names["One"] {
+		t.Fatalf("the stale index was read: %v", names)
+	}
+	if _, err := os.Stat(filepath.Join(indexDir, "specd-commit")); err != nil {
+		t.Fatalf("the default build removed the reader's index: %v", err)
+	}
+}
+
+func TestBuildDoesNotWriteAnIndexIntoACleanCheckout(t *testing.T) {
+	requireCodegraph(t)
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "a.go"), []byte("package a\n\nfunc One() int { return 1 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommit(t, repo, "one")
+	graph, err := codegraphfacts.Build(context.Background(), repo, codegraphfacts.Options{Repository: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !nodeNames(graph)["One"] {
+		t.Fatalf("the copy was not indexed: %v", nodeNames(graph))
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".codegraph")); !os.IsNotExist(err) {
+		t.Fatalf("the default build wrote an index into the checkout: %v", err)
+	}
+}
+
 func TestCapsTruncateText(t *testing.T) {
 	repo := t.TempDir()
 	big := make([]byte, policy.FileTextCap+128)

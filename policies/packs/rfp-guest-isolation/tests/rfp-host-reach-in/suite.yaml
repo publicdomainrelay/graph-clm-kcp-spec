@@ -31,3 +31,27 @@ tests:
     - inventory/model-denied-effect.yaml
     assertions:
     - violations: 1
+  - name: denied-container-inspect-for-the-address
+    object: inventory/model-denied-unknown-inspect.yaml
+    inventory:
+    - inventory/model-denied-unknown-inspect.yaml
+    assertions:
+    - violations: 1
+  - name: denied-a-fetch-to-an-unresolved-target
+    object: inventory/model-denied-unknown-fetch.yaml
+    inventory:
+    - inventory/model-denied-unknown-fetch.yaml
+    assertions:
+    - violations: 1
+  - name: denied-a-dial-to-the-guest-ssh-port
+    object: inventory/model-denied-unknown-dial.yaml
+    inventory:
+    - inventory/model-denied-unknown-dial.yaml
+    assertions:
+    - violations: 1
+  - name: allowed-a-target-the-binding-excepts
+    object: inventory/model-allowed-exception.yaml
+    inventory:
+    - inventory/model-allowed-exception.yaml
+    assertions:
+    - violations: 0

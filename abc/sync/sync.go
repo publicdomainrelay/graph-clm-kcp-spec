@@ -13,6 +13,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/mirror"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
+	policyglob "github.com/publicdomainrelay/graph-clm-kcp-spec/common/glob"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/kcp-libs/common/condition"
 )
@@ -386,30 +387,7 @@ func matchAny(globs []glob, name string) bool {
 }
 
 func globRegexp(pattern string) string {
-	builder := strings.Builder{}
-	builder.WriteString("^")
-	for index := 0; index < len(pattern); index++ {
-		switch char := pattern[index]; char {
-		case '*':
-			if index+1 < len(pattern) && pattern[index+1] == '*' {
-				if index+2 < len(pattern) && pattern[index+2] == '/' {
-					builder.WriteString("(?:.*/)?")
-					index += 2
-					continue
-				}
-				builder.WriteString(".*")
-				index++
-				continue
-			}
-			builder.WriteString("[^/]*")
-		case '?':
-			builder.WriteString("[^/]")
-		default:
-			builder.WriteString(regexp.QuoteMeta(string(char)))
-		}
-	}
-	builder.WriteString("$")
-	return builder.String()
+	return policyglob.Regexp(pattern)
 }
 
 func partitionName(directory, repositoryName string) string {

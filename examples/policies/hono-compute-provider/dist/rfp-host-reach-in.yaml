@@ -154,30 +154,38 @@ spec:
       the path. It\n# is how a rule that reads a CodeDiff tells the guest's files
       from the rest.\nfile_in_role(path, role) {\n\tcomponent := model_components[_]\n\tcomponent.roles[_]
       == role\n\tpattern := object.get(component, \"globs\", [])[_]\n\tglob.match(pattern,
-      [], path)\n}\n\n# event_class is an event.emit whose emitted type is one of
-      the terms the\n# binding wrote for an event class. The comparison is case-insensitive
+      [\"/\"], path)\n}\n\n# event_class is an event.emit whose emitted type is one
+      of the terms the\n# binding wrote for an event class. The comparison is case-insensitive
       and one\n# way: the emitted type carries the vocabulary term, as a constant
       name carries\n# the NSID it stands for.\nevent_class(effect, class) {\n\teffect.kind
       == \"event.emit\"\n\temitted := object.get(object.get(effect, \"attrs\", {}),
-      \"type\", \"\")\n\temitted != \"\"\n\tterm := vocabulary_terms(\"events\", class)[_]\n\tcontains(lower(emitted),
-      lower(term))\n}\n\n# route_class is an http.handle on a route the binding wrote
-      for a route class.\nroute_class(effect, class) {\n\teffect.kind == \"http.handle\"\n\troute
-      := object.get(object.get(effect, \"attrs\", {}), \"path\", \"\")\n\troute !=
-      \"\"\n\tterm := vocabulary_terms(\"routes\", class)[_]\n\tterm == route\n}\n\nroute_class(effect,
+      \"type\", \"\")\n\temitted != \"\"\n\tterm := vocabulary_terms(\"events\", class)[_]\n\tterm_in(emitted,
+      term)\n}\n\n# term_in matches a vocabulary term as a whole token. The comparison
+      is\n# case-insensitive; a term that is part of a longer word is not the class.\nterm_in(text,
+      term) {\n\tterm != \"\"\n\tlowered := lower(text)\n\tneedle := lower(term)\n\tstart
+      := indexof(lowered, needle)\n\tstart >= 0\n\ttoken_before(lowered, start)\n\ttoken_after(lowered,
+      start + count(needle))\n}\n\ntoken_before(text, index) {\n\tindex == 0\n}\n\ntoken_before(text,
+      index) {\n\tindex > 0\n\tnot is_token_char(substring(text, index-1, 1))\n}\n\ntoken_after(text,
+      index) {\n\tindex == count(text)\n}\n\ntoken_after(text, index) {\n\tindex <
+      count(text)\n\tnot is_token_char(substring(text, index, 1))\n}\n\nis_token_char(char)
+      {\n\tcontains(\"abcdefghijklmnopqrstuvwxyz0123456789_\", char)\n}\n\n# route_class
+      is an http.handle on a route the binding wrote for a route class.\nroute_class(effect,
       class) {\n\teffect.kind == \"http.handle\"\n\troute := object.get(object.get(effect,
       \"attrs\", {}), \"path\", \"\")\n\troute != \"\"\n\tterm := vocabulary_terms(\"routes\",
-      class)[_]\n\tglob.match(term, [], route)\n}\n\ndeclared(flow) {\n\tflow.source
-      == \"declared\"\n}\n\ndeclared(flow) {\n\tflow.source == \"both\"\n}\n\nobserved(flow)
-      {\n\tflow.source == \"observed\"\n}\n\nobserved(flow) {\n\tflow.source == \"both\"\n}\n\nforbidden(flow)
-      {\n\tflow.forbidden == true\n}\n\nflow_level(flow, level) {\n\tflow.level ==
-      level\n}\n\n# same_flow is the directed shape two flows share when one is a
-      declared\n# must-never and the other is a declared or observed flow that violates
-      it: the\n# initiating role, the role it acts on, the channel and the purpose.
-      A flow's\n# from is the context that declared it and its to is the peer, so
-      the role the\n# initiator acts on is the endpoint that is not the initiator.
-      The level, the\n# forbidden marker, the carried payloads, the source and the
-      evidence are not\n# part of the shape.\nsame_flow(left, right) {\n\tinitiator_of(left)
-      == initiator_of(right)\n\tacted_on(left) == acted_on(right)\n\tobject.get(left,
+      class)[_]\n\tterm == route\n}\n\nroute_class(effect, class) {\n\teffect.kind
+      == \"http.handle\"\n\troute := object.get(object.get(effect, \"attrs\", {}),
+      \"path\", \"\")\n\troute != \"\"\n\tterm := vocabulary_terms(\"routes\", class)[_]\n\tglob.match(term,
+      [\"/\"], route)\n}\n\ndeclared(flow) {\n\tflow.source == \"declared\"\n}\n\ndeclared(flow)
+      {\n\tflow.source == \"both\"\n}\n\nobserved(flow) {\n\tflow.source == \"observed\"\n}\n\nobserved(flow)
+      {\n\tflow.source == \"both\"\n}\n\nforbidden(flow) {\n\tflow.forbidden == true\n}\n\nflow_level(flow,
+      level) {\n\tflow.level == level\n}\n\n# same_flow is the directed shape two
+      flows share when one is a declared\n# must-never and the other is a declared
+      or observed flow that violates it: the\n# initiating role, the role it acts
+      on, the channel and the purpose. A flow's\n# from is the context that declared
+      it and its to is the peer, so the role the\n# initiator acts on is the endpoint
+      that is not the initiator. The level, the\n# forbidden marker, the carried payloads,
+      the source and the evidence are not\n# part of the shape.\nsame_flow(left, right)
+      {\n\tinitiator_of(left) == initiator_of(right)\n\tacted_on(left) == acted_on(right)\n\tobject.get(left,
       \"channel\", \"\") == object.get(right, \"channel\", \"\")\n\tobject.get(left,
       \"purpose\", \"\") == object.get(right, \"purpose\", \"\")\n}\n\ninitiator_of(flow)
       = initiator {\n\tinitiator := object.get(flow, \"initiator\", \"\")\n}\n\nacted_on(flow)
@@ -188,29 +196,47 @@ spec:
       := model_flows[_]\n\tforbidden(marker)\n\tsame_flow(flow, marker)\n}\n\nlocation(file,
       line) = {\"file\": file, \"line\": line}\n\nviolation(msg, details) = result
       {\n\tresult := {\"msg\": msg, \"details\": details}\n}\n\nglobs_match(globs,
-      path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [], path)\n}\n"
+      path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [\"/\"], path)\n}\n"
     rego: "package rfphostreachin\n\nimport data.lib.specd\n\nhost_role := object.get(input.parameters,
       \"hostRole\", \"host\")\n\nguest_role := object.get(input.parameters, \"guestRole\",
       \"guest\")\n\nnetwork_info_class := object.get(input.parameters, \"networkInfoClass\",
       \"network-info\")\n\nnetwork_discovery_class := object.get(input.parameters,
       \"networkDiscoveryClass\", \"network-discovery\")\n\ndefault_reach_in_kinds
-      := [\"container.exec\", \"ssh.connect\"]\n\nviolation[specd.violation(msg, details)]
-      {\n\tflow := specd.model_flows[_]\n\tspecd.initiator_in_role(flow, host_role)\n\tspecd.acted_on_in_role(flow,
-      guest_role)\n\tnetwork_flow(flow)\n\tmsg := sprintf(\"the host reaches into
-      the guest: %s -> %s (initiator %s, channel %s, purpose %s, carries %v)\",\n\t\t[flow.from,
-      flow.to, object.get(flow, \"initiator\", \"\"), object.get(flow, \"channel\",
-      \"\"), object.get(flow, \"purpose\", \"\"), object.get(flow, \"carries\", [])])\n\tdetails
-      := flow_details(flow, site_file(flow), site_line(flow))\n}\n\nviolation[specd.violation(msg,
+      := [\"container.exec\", \"ssh.connect\", \"net.dial\", \"http.request\"]\n\nviolation[specd.violation(msg,
+      details)] {\n\tflow := specd.model_flows[_]\n\tspecd.initiator_in_role(flow,
+      host_role)\n\treach_in_target(flow)\n\tnetwork_flow(flow)\n\tmsg := sprintf(\"the
+      host reaches into the guest: %s -> %s (initiator %s, channel %s, purpose %s,
+      carries %v)\",\n\t\t[flow.from, flow.to, object.get(flow, \"initiator\", \"\"),
+      object.get(flow, \"channel\", \"\"), object.get(flow, \"purpose\", \"\"), object.get(flow,
+      \"carries\", [])])\n\tdetails := flow_details(flow, site_file(flow), site_line(flow))\n}\n\nviolation[specd.violation(msg,
       details)] {\n\teffect := specd.model_effects[_]\n\treach_in_kind(effect.kind)\n\tspecd.component_in_role(effect.component,
-      host_role)\n\tflow := specd.model_flows[_]\n\tflow.evidence[_] == effect.id\n\tspecd.acted_on_in_role(flow,
-      guest_role)\n\tnot reported_as_flow(flow)\n\tmsg := sprintf(\"the host reaches
-      into the guest with %s: %s:%d\",\n\t\t[effect.kind, effect.file, object.get(effect,
-      \"line\", 0)])\n\tdetails := {\"effect\": effect, \"flow\": flow_details(flow,
-      effect.file, object.get(effect, \"line\", 0)), \"file\": effect.file, \"line\":
-      object.get(effect, \"line\", 0)}\n}\n\nreach_in_kind(kind) {\n\tkind == input.parameters.reachInKinds[_]\n}\n\nreach_in_kind(kind)
-      {\n\tnot configured_reach_in_kinds\n\tkind == default_reach_in_kinds[_]\n}\n\nconfigured_reach_in_kinds
+      host_role)\n\tflow := specd.model_flows[_]\n\tflow.evidence[_] == effect.id\n\tspecd.initiator_in_role(flow,
+      host_role)\n\treach_in_effect(flow, effect)\n\tnot reported_as_flow(flow)\n\tmsg
+      := sprintf(\"the host reaches into the guest with %s: %s:%d\",\n\t\t[effect.kind,
+      effect.file, object.get(effect, \"line\", 0)])\n\tdetails := {\"effect\": effect,
+      \"flow\": flow_details(flow, effect.file, object.get(effect, \"line\", 0)),
+      \"file\": effect.file, \"line\": object.get(effect, \"line\", 0)}\n}\n\n# reach_in_target
+      is the default: the host acting on the guest, and the host\n# acting on a target
+      the model could not resolve. The binding names the\n# exceptions -- the targets
+      a host reaches that are known not to be the guest --\n# so a new repository
+      does not have to rediscover its own reach-in verbs.\nreach_in_target(flow) {\n\tspecd.acted_on_in_role(flow,
+      guest_role)\n}\n\nreach_in_target(flow) {\n\tspecd.acted_on(flow) == \"unknown\"\n\tnot
+      reach_in_exception_flow(flow)\n}\n\nreach_in_effect(flow, effect) {\n\tspecd.acted_on_in_role(flow,
+      guest_role)\n}\n\nreach_in_effect(flow, effect) {\n\tspecd.acted_on(flow) ==
+      \"unknown\"\n\tnot reach_in_exception(effect)\n}\n\n# A flow whose evidence
+      is every effect the host reached with is excepted only\n# when each of those
+      effects names an excepted target: one exception must not\n# hide the rest of
+      a reach.\nreach_in_exception_flow(flow) {\n\tcount(flow.evidence) > 0\n\tnot
+      unexcepted_evidence(flow)\n}\n\nunexcepted_evidence(flow) {\n\teffect := specd.model_effect(flow.evidence[_])\n\tnot
+      reach_in_exception(effect)\n}\n\nreach_in_exception(effect) {\n\tpattern :=
+      reach_in_exception_patterns[_]\n\tglob.match(pattern, [\"/\"], effect.file)\n}\n\nreach_in_exception(effect)
+      {\n\tpattern := reach_in_exception_patterns[_]\n\tvalue := object.get(effect,
+      \"attrs\", {})[_]\n\tcontains(lower(value), lower(pattern))\n}\n\nreach_in_exception_patterns
+      := object.get(specd.model_vocabulary, \"reachInExceptions\", [])\n\nreach_in_kind(kind)
+      {\n\tkind == input.parameters.reachInKinds[_]\n}\n\nreach_in_kind(kind) {\n\tnot
+      configured_reach_in_kinds\n\tkind == default_reach_in_kinds[_]\n}\n\nconfigured_reach_in_kinds
       {\n\tcount(input.parameters.reachInKinds) > 0\n}\n\nreported_as_flow(flow) {\n\tspecd.initiator_in_role(flow,
-      host_role)\n\tspecd.acted_on_in_role(flow, guest_role)\n\tnetwork_flow(flow)\n}\n\nnetwork_flow(flow)
+      host_role)\n\treach_in_target(flow)\n\tnetwork_flow(flow)\n}\n\nnetwork_flow(flow)
       {\n\tobject.get(flow, \"purpose\", \"\") == network_discovery_class\n}\n\nnetwork_flow(flow)
       {\n\tobject.get(flow, \"carries\", [])[_] == network_info_class\n}\n\n# reach_in_evidence
       names where the reach-in happens: the evidence effect of\n# the flow that connects

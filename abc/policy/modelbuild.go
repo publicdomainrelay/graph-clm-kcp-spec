@@ -3,12 +3,12 @@ package policy
 import (
 	"fmt"
 	"net/url"
-	"path"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
 
+	policyglob "github.com/publicdomainrelay/graph-clm-kcp-spec/common/glob"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
 
@@ -399,8 +399,7 @@ func bestGlobRole(file string, roles []compiledRole) (string, bool) {
 	bestLength := -1
 	for _, role := range roles {
 		for _, pattern := range role.globs {
-			matched, err := path.Match(pattern, file)
-			if err != nil || !matched {
+			if !policyglob.Match(pattern, file) {
 				continue
 			}
 			if len(pattern) > bestLength || (len(pattern) == bestLength && role.name < best) {
@@ -454,7 +453,7 @@ func labelsMatch(wanted, labels map[string]string) bool {
 func roleMatchesFiles(role compiledRole, files []string, nodesByFile map[string][]CodeGraphNode) bool {
 	for _, file := range files {
 		for _, pattern := range role.globs {
-			if matched, err := path.Match(pattern, file); err == nil && matched {
+			if policyglob.Match(pattern, file) {
 				return true
 			}
 		}
@@ -486,6 +485,10 @@ type flowIndex struct {
 
 	nodeText map[string]string
 
+	nodeByID map[string]CodeGraphNode
+
+	fileText map[string]string
+
 	adjacency map[string][]string
 
 	neighborhoods map[string]string
@@ -500,13 +503,19 @@ func newFlowIndex(graph CodeGraph, model ArchitectureModel, rolesOf map[string][
 		payloads:      binding.Vocabulary.Payloads,
 		purposes:      binding.Vocabulary.Purposes,
 		nodeText:      map[string]string{},
+		nodeByID:      map[string]CodeGraphNode{},
+		fileText:      map[string]string{},
 		adjacency:     map[string][]string{},
 		neighborhoods: map[string]string{},
 	}
 	for _, node := range graph.Spec.Nodes {
 		if node.ID != "" {
 			index.nodeText[node.ID] = node.Text
+			index.nodeByID[node.ID] = node
 		}
+	}
+	for path, text := range graph.Spec.Texts {
+		index.fileText[path] = text
 	}
 	for _, edge := range graph.Spec.Edges {
 		if edge.Kind != "calls" {
@@ -690,7 +699,7 @@ func matchesAnyPattern(patterns []string, value string) bool {
 		if pattern == value {
 			return true
 		}
-		if matched, err := path.Match(pattern, value); err == nil && matched {
+		if policyglob.Match(pattern, value) {
 			return true
 		}
 	}
@@ -702,7 +711,7 @@ func (i *flowIndex) hintText(effect Effect) string {
 }
 
 func (i *flowIndex) siteText(effect Effect) string {
-	parts := []string{i.nodeText[effect.Node]}
+	parts := []string{i.effectSiteText(effect)}
 	keys := make([]string, 0, len(effect.Attrs))
 	for key := range effect.Attrs {
 		keys = append(keys, key)
@@ -714,8 +723,27 @@ func (i *flowIndex) siteText(effect Effect) string {
 	return strings.Join(parts, "\n")
 }
 
+func (i *flowIndex) effectSiteText(effect Effect) string {
+	node, ok := i.nodeByID[effect.Node]
+	if ok && node.Kind != "file" && node.StartLine > 0 {
+		return node.Text
+	}
+	return siteWindow(i.fileText[effect.File], effect.Line)
+}
+
+func (i *flowIndex) declarationText(id string) string {
+	node, ok := i.nodeByID[id]
+	if !ok || node.Kind == "file" || node.StartLine <= 0 {
+		return ""
+	}
+	return node.Text
+}
+
 func (i *flowIndex) neighborhood(node string) string {
 	if node == "" {
+		return ""
+	}
+	if node, ok := i.nodeByID[node]; ok && (node.Kind == "file" || node.StartLine <= 0) {
 		return ""
 	}
 	if cached, ok := i.neighborhoods[node]; ok {
@@ -728,7 +756,7 @@ func (i *flowIndex) neighborhood(node string) string {
 	for len(queue) > 0 && len(seen) < defaultHintNodes {
 		current := queue[0]
 		queue = queue[1:]
-		if text := i.nodeText[current]; text != "" {
+		if text := i.declarationText(current); text != "" {
 			parts = append(parts, text)
 		}
 		if depth[current] >= defaultHintHops {
@@ -842,11 +870,39 @@ func (i *flowIndex) purpose(effect Effect) string {
 	return ""
 }
 
+// containsFold matches a vocabulary term as a whole token: `address` is a
+// payload class, `guestAddress` is not. A substring match made almost any
+// guest call carry network-info (0003 B8).
 func containsFold(text, term string) bool {
 	if term == "" {
 		return false
 	}
-	return strings.Contains(strings.ToLower(text), strings.ToLower(term))
+	lowerText := strings.ToLower(text)
+	lowerTerm := strings.ToLower(term)
+	for offset := 0; offset <= len(lowerText)-len(lowerTerm); {
+		found := strings.Index(lowerText[offset:], lowerTerm)
+		if found < 0 {
+			return false
+		}
+		start := offset + found
+		end := start + len(lowerTerm)
+		if termBoundary(lowerText, start, end) {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+func termBoundary(text string, start, end int) bool {
+	if start > 0 && isTermByte(text[start-1]) {
+		return false
+	}
+	return end >= len(text) || !isTermByte(text[end])
+}
+
+func isTermByte(char byte) bool {
+	return char == '_' || (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9')
 }
 
 func mergeDeclaredFlows(observed []ModelFlow, interactions []DeclaredInteraction, rolesOf map[string][]string) []ModelFlow {
@@ -897,9 +953,7 @@ func dedupeFlows(flows []ModelFlow) []ModelFlow {
 			if merged.Source != flow.Source {
 				merged.Source = SourceBoth
 			}
-			if len(merged.Carries) == 0 {
-				merged.Carries = flow.Carries
-			}
+			merged.Carries = dedupeStrings(append(merged.Carries, flow.Carries...))
 			merged.Level = strongerLevel(merged.Level, flow.Level)
 			out[position] = merged
 			continue
@@ -989,12 +1043,19 @@ func effectTriggers(graph CodeGraph, effects []Effect, edgeKinds []string, maxRe
 		}
 	}
 
+	nodes := map[string]CodeGraphNode{}
+	for _, node := range graph.Spec.Nodes {
+		nodes[node.ID] = node
+	}
 	out := []ModelTrigger{}
 	seen := map[string]bool{}
 	for _, root := range roots {
 		reachable := reachableNodes(root.Node, adjacency, maxReach, maxHops)
 		for _, leaf := range leaves {
 			if root.ID == leaf.ID || !reachable[leaf.Node] {
+				continue
+			}
+			if leaf.Node == root.Node && !sameNodeDrives(nodes[leaf.Node], leaf) {
 				continue
 			}
 			key := root.ID + "\x00" + leaf.ID
@@ -1012,6 +1073,17 @@ func effectTriggers(graph CodeGraph, effects []Effect, edgeKinds []string, maxRe
 		return out[left].To < out[right].To
 	})
 	return out
+}
+
+// sameNodeDrives keeps a root and a leaf that share a node only when that node
+// is a real declaration and the leaf sits inside it. A file node is a whole
+// file, so an event.emit anywhere in a file with an http.handle would otherwise
+// count as driven by it; a trigger needs a call edge, not a shared node.
+func sameNodeDrives(node CodeGraphNode, leaf Effect) bool {
+	if node.Kind == "file" || node.StartLine <= 0 {
+		return false
+	}
+	return leaf.Line == 0 || (leaf.Line >= node.StartLine && leaf.Line <= node.EndLine)
 }
 
 func reachableNodes(root string, adjacency map[string][]string, maxReach, maxHops int) map[string]bool {

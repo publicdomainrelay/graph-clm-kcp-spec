@@ -858,6 +858,7 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 	specsOnly := fs.Bool("specs-only", false, "evaluate the declared state alone: the ArchitectureModel from the specs, no code and no effects")
 	output := fs.String("o", "text", "text or json")
 	strict := fs.Bool("strict", false, "exit 1 when a deny violation survives the cap")
+	indexInPlace := fs.Bool("index-in-place", false, "write the codegraph index into the checkout instead of a copy")
 	cacheDir := fs.String("cache-dir", defaultCacheDir(), "where a member repository is cloned")
 	memberPathFlags := memberPaths{}
 	fs.Var(memberPathFlags, "member", "clone the named member from a local path instead of its url (name=path); repeatable")
@@ -948,11 +949,12 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 
 	contexts := loadContexts(ctx, *path, *repository, *branch, *defaultBranch)
 	graph, err := codegraphfacts.Build(ctx, codeDir, codegraphfacts.Options{
-		Repository: *repository,
-		Branch:     *branch,
-		Commit:     resolved,
-		TestGlobs:  testGlobs,
-		Contexts:   codegraphfacts.ContextsByFile(contexts),
+		Repository:   *repository,
+		Branch:       *branch,
+		Commit:       resolved,
+		TestGlobs:    testGlobs,
+		Contexts:     codegraphfacts.ContextsByFile(contexts),
+		IndexInPlace: *indexInPlace,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
@@ -1100,6 +1102,7 @@ func runPolicyEffects(args []string, stdout, stderr io.Writer) int {
 	fs.Var(&classifiers, "classifiers", "directory of extra classifier packs; repeatable")
 	testGlobs := stringsFlag{}
 	fs.Var(&testGlobs, "test-glob", "test file glob; repeatable")
+	indexInPlace := fs.Bool("index-in-place", false, "write the codegraph index into the checkout instead of a copy")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -1139,11 +1142,12 @@ func runPolicyEffects(args []string, stdout, stderr io.Writer) int {
 
 	contexts := loadContexts(ctx, *path, *repository, *branch, *defaultBranch)
 	graph, err := codegraphfacts.Build(ctx, codeDir, codegraphfacts.Options{
-		Repository: *repository,
-		Branch:     *branch,
-		Commit:     resolved,
-		TestGlobs:  testGlobs,
-		Contexts:   codegraphfacts.ContextsByFile(contexts),
+		Repository:   *repository,
+		Branch:       *branch,
+		Commit:       resolved,
+		TestGlobs:    testGlobs,
+		Contexts:     codegraphfacts.ContextsByFile(contexts),
+		IndexInPlace: *indexInPlace,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy effects: %v\n", err)

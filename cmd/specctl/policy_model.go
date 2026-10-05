@@ -36,6 +36,7 @@ func runPolicyModel(args []string, stdout, stderr io.Writer) int {
 	fs.Var(&classifiers, "classifiers", "directory of extra classifier packs; repeatable")
 	testGlobs := stringsFlag{}
 	fs.Var(&testGlobs, "test-glob", "test file glob; repeatable")
+	indexInPlace := fs.Bool("index-in-place", false, "write the codegraph index into the checkout instead of a copy")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -82,11 +83,12 @@ func runPolicyModel(args []string, stdout, stderr io.Writer) int {
 
 	contexts := loadContexts(ctx, *path, *repository, *branch, *defaultBranch)
 	graph, err := codegraphfacts.Build(ctx, codeDir, codegraphfacts.Options{
-		Repository: *repository,
-		Branch:     *branch,
-		Commit:     resolved,
-		TestGlobs:  testGlobs,
-		Contexts:   codegraphfacts.ContextsByFile(contexts),
+		Repository:   *repository,
+		Branch:       *branch,
+		Commit:       resolved,
+		TestGlobs:    testGlobs,
+		Contexts:     codegraphfacts.ContextsByFile(contexts),
+		IndexInPlace: *indexInPlace,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy model: %v\n", err)

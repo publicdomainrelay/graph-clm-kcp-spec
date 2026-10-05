@@ -147,30 +147,38 @@ spec:
       the path. It\n# is how a rule that reads a CodeDiff tells the guest's files
       from the rest.\nfile_in_role(path, role) {\n\tcomponent := model_components[_]\n\tcomponent.roles[_]
       == role\n\tpattern := object.get(component, \"globs\", [])[_]\n\tglob.match(pattern,
-      [], path)\n}\n\n# event_class is an event.emit whose emitted type is one of
-      the terms the\n# binding wrote for an event class. The comparison is case-insensitive
+      [\"/\"], path)\n}\n\n# event_class is an event.emit whose emitted type is one
+      of the terms the\n# binding wrote for an event class. The comparison is case-insensitive
       and one\n# way: the emitted type carries the vocabulary term, as a constant
       name carries\n# the NSID it stands for.\nevent_class(effect, class) {\n\teffect.kind
       == \"event.emit\"\n\temitted := object.get(object.get(effect, \"attrs\", {}),
-      \"type\", \"\")\n\temitted != \"\"\n\tterm := vocabulary_terms(\"events\", class)[_]\n\tcontains(lower(emitted),
-      lower(term))\n}\n\n# route_class is an http.handle on a route the binding wrote
-      for a route class.\nroute_class(effect, class) {\n\teffect.kind == \"http.handle\"\n\troute
-      := object.get(object.get(effect, \"attrs\", {}), \"path\", \"\")\n\troute !=
-      \"\"\n\tterm := vocabulary_terms(\"routes\", class)[_]\n\tterm == route\n}\n\nroute_class(effect,
+      \"type\", \"\")\n\temitted != \"\"\n\tterm := vocabulary_terms(\"events\", class)[_]\n\tterm_in(emitted,
+      term)\n}\n\n# term_in matches a vocabulary term as a whole token. The comparison
+      is\n# case-insensitive; a term that is part of a longer word is not the class.\nterm_in(text,
+      term) {\n\tterm != \"\"\n\tlowered := lower(text)\n\tneedle := lower(term)\n\tstart
+      := indexof(lowered, needle)\n\tstart >= 0\n\ttoken_before(lowered, start)\n\ttoken_after(lowered,
+      start + count(needle))\n}\n\ntoken_before(text, index) {\n\tindex == 0\n}\n\ntoken_before(text,
+      index) {\n\tindex > 0\n\tnot is_token_char(substring(text, index-1, 1))\n}\n\ntoken_after(text,
+      index) {\n\tindex == count(text)\n}\n\ntoken_after(text, index) {\n\tindex <
+      count(text)\n\tnot is_token_char(substring(text, index, 1))\n}\n\nis_token_char(char)
+      {\n\tcontains(\"abcdefghijklmnopqrstuvwxyz0123456789_\", char)\n}\n\n# route_class
+      is an http.handle on a route the binding wrote for a route class.\nroute_class(effect,
       class) {\n\teffect.kind == \"http.handle\"\n\troute := object.get(object.get(effect,
       \"attrs\", {}), \"path\", \"\")\n\troute != \"\"\n\tterm := vocabulary_terms(\"routes\",
-      class)[_]\n\tglob.match(term, [], route)\n}\n\ndeclared(flow) {\n\tflow.source
-      == \"declared\"\n}\n\ndeclared(flow) {\n\tflow.source == \"both\"\n}\n\nobserved(flow)
-      {\n\tflow.source == \"observed\"\n}\n\nobserved(flow) {\n\tflow.source == \"both\"\n}\n\nforbidden(flow)
-      {\n\tflow.forbidden == true\n}\n\nflow_level(flow, level) {\n\tflow.level ==
-      level\n}\n\n# same_flow is the directed shape two flows share when one is a
-      declared\n# must-never and the other is a declared or observed flow that violates
-      it: the\n# initiating role, the role it acts on, the channel and the purpose.
-      A flow's\n# from is the context that declared it and its to is the peer, so
-      the role the\n# initiator acts on is the endpoint that is not the initiator.
-      The level, the\n# forbidden marker, the carried payloads, the source and the
-      evidence are not\n# part of the shape.\nsame_flow(left, right) {\n\tinitiator_of(left)
-      == initiator_of(right)\n\tacted_on(left) == acted_on(right)\n\tobject.get(left,
+      class)[_]\n\tterm == route\n}\n\nroute_class(effect, class) {\n\teffect.kind
+      == \"http.handle\"\n\troute := object.get(object.get(effect, \"attrs\", {}),
+      \"path\", \"\")\n\troute != \"\"\n\tterm := vocabulary_terms(\"routes\", class)[_]\n\tglob.match(term,
+      [\"/\"], route)\n}\n\ndeclared(flow) {\n\tflow.source == \"declared\"\n}\n\ndeclared(flow)
+      {\n\tflow.source == \"both\"\n}\n\nobserved(flow) {\n\tflow.source == \"observed\"\n}\n\nobserved(flow)
+      {\n\tflow.source == \"both\"\n}\n\nforbidden(flow) {\n\tflow.forbidden == true\n}\n\nflow_level(flow,
+      level) {\n\tflow.level == level\n}\n\n# same_flow is the directed shape two
+      flows share when one is a declared\n# must-never and the other is a declared
+      or observed flow that violates it: the\n# initiating role, the role it acts
+      on, the channel and the purpose. A flow's\n# from is the context that declared
+      it and its to is the peer, so the role the\n# initiator acts on is the endpoint
+      that is not the initiator. The level, the\n# forbidden marker, the carried payloads,
+      the source and the evidence are not\n# part of the shape.\nsame_flow(left, right)
+      {\n\tinitiator_of(left) == initiator_of(right)\n\tacted_on(left) == acted_on(right)\n\tobject.get(left,
       \"channel\", \"\") == object.get(right, \"channel\", \"\")\n\tobject.get(left,
       \"purpose\", \"\") == object.get(right, \"purpose\", \"\")\n}\n\ninitiator_of(flow)
       = initiator {\n\tinitiator := object.get(flow, \"initiator\", \"\")\n}\n\nacted_on(flow)
@@ -181,7 +189,7 @@ spec:
       := model_flows[_]\n\tforbidden(marker)\n\tsame_flow(flow, marker)\n}\n\nlocation(file,
       line) = {\"file\": file, \"line\": line}\n\nviolation(msg, details) = result
       {\n\tresult := {\"msg\": msg, \"details\": details}\n}\n\nglobs_match(globs,
-      path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [], path)\n}\n"
+      path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [\"/\"], path)\n}\n"
     rego: "package rfprelayonlyguestssh\n\nimport data.lib.specd\n\nguest_role :=
       object.get(input.parameters, \"guestRole\", \"guest\")\n\ntester_role := object.get(input.parameters,
       \"testRole\", \"test\")\n\nrelay_class := object.get(input.parameters, \"relayClass\",
@@ -192,13 +200,15 @@ spec:
       only through the relay\",\n\t\t[effect.component, relay_class, effect.file,
       object.get(effect, \"line\", 0)])\n\tdetails := {\"effect\": effect, \"relayClass\":
       relay_class, \"file\": effect.file, \"line\": object.get(effect, \"line\", 0)}\n}\n\n#
-      proxied keeps a compliant ssh whose proxy command is built elsewhere -- an\n#
-      injected transport object, a helper the walk does not reach -- out of the\n#
-      report. The ssh still has to be tunneled; the vocabulary names the tunnel\n#
-      when it can.\nproxied(effect) {\n\tproxy := object.get(object.get(effect, \"attrs\",
-      {}), \"proxyCommand\", \"\")\n\tproxy != \"\"\n}\n\nrelay_carried(id) {\n\tflow
-      := specd.model_flows[_]\n\tflow.evidence[_] == id\n\tflow.channel == relay_class\n}\n\nviolation[specd.violation(msg,
-      details)] {\n\teffect := specd.model_effects[_]\n\teffect.kind == \"net.dial\"\n\tspecd.component_in_role(effect.component,
+      proxied keeps an ssh whose proxy command names a transport the binding calls\n#
+      a relay out of the report. A proxy command that names no relay term -- a bare\n#
+      nc, an -W jump host, a tunnel the vocabulary does not know -- is not a relay,\n#
+      so the ssh is denied.\nproxied(effect) {\n\tproxy := object.get(object.get(effect,
+      \"attrs\", {}), \"proxyCommand\", \"\")\n\tproxy != \"\"\n\tterm := specd.vocabulary_terms(\"channels\",
+      relay_class)[_]\n\tcontains(lower(proxy), lower(term))\n}\n\nrelay_carried(id)
+      {\n\tflow := specd.model_flows[_]\n\tflow.evidence[_] == id\n\tflow.channel
+      == relay_class\n}\n\nviolation[specd.violation(msg, details)] {\n\teffect :=
+      specd.model_effects[_]\n\teffect.kind == \"net.dial\"\n\tspecd.component_in_role(effect.component,
       tester_role)\n\tflow := specd.model_flows[_]\n\tflow.evidence[_] == effect.id\n\tspecd.acted_on_in_role(flow,
       guest_role)\n\tmsg := sprintf(\"the test dials the guest directly: %s:%d\",
       [effect.file, object.get(effect, \"line\", 0)])\n\tdetails := {\"effect\": effect,

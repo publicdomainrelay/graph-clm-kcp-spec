@@ -55,6 +55,10 @@ roles:
       - _url_path
       - requester
       - REPORT_PATH
+      - getPdsEndpoint
+      - serviceEndpoint
+      - com\.atproto\.repo
+      - callService
   test:
     globs:
     - test/**

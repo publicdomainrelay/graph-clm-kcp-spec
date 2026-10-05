@@ -36,19 +36,35 @@ test_no_violation_when_the_ssh_is_carried_by_the_relay {
 	count(violations) == 0
 }
 
-# A tunneled ssh whose transport the vocabulary does not name is out of the
-# rule's reach: the ssh is proxied, and the binding has not said the proxy is
-# or is not the relay. Name the term in channels/relay to catch it.
-test_no_violation_when_the_proxy_is_a_transport_the_vocabulary_does_not_name {
+# A proxy that names no relay term is not a relay: a bare nc, an -W jump host,
+# or a tunnel the binding's vocabulary does not name is denied, and the binding
+# names an extra term when the tunnel is a relay.
+test_violation_when_the_proxy_is_a_transport_the_vocabulary_does_not_name {
 	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "chisel client https://relay 22"}, "file": "lib/requester/mod.ts", "line": 29}
 	flow := {"from": "requester", "to": "guest", "initiator": "requester", "source": "observed", "evidence": ["ssh"]}
 	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
-	count(violations) == 0
+	count(violations) == 1
 }
 
-test_no_violation_when_the_proxy_command_is_built_elsewhere {
+test_violation_when_the_proxy_command_names_no_relay_term {
 	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "${transport.proxyCommand()}"}, "file": "lib/requester/mod.ts", "line": 29}
 	flow := {"from": "requester", "to": "guest", "initiator": "requester", "source": "observed", "evidence": ["ssh"]}
+	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
+	count(violations) == 1
+}
+
+test_violation_when_the_proxy_is_nc_to_the_guest {
+	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "nc 10.0.0.7 2222"}, "file": "lib/requester/mod.ts", "line": 29}
+	flow := {"from": "requester", "to": "guest", "initiator": "requester", "source": "observed", "evidence": ["ssh"]}
+	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
+	count(violations) == 1
+}
+
+# A proxy command the walk could not resolve is still a relay when the flow the
+# model built for the ssh is carried by the relay channel.
+test_no_violation_when_the_relay_carries_the_unresolved_proxy {
+	ssh := {"id": "ssh", "kind": "ssh.connect", "component": "requester", "attrs": {"argv0": "ssh", "proxyCommand": "${transport.proxyCommand()}"}, "file": "lib/requester/mod.ts", "line": 29}
+	flow := {"from": "requester", "to": "guest", "initiator": "requester", "channel": "relay", "source": "observed", "evidence": ["ssh"]}
 	violations := violation with input as {"parameters": parameters, "review": review} with data.inventory as model(roles, [ssh], [flow])
 	count(violations) == 0
 }

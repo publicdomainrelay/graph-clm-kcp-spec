@@ -25,3 +25,21 @@ tests:
     - inventory/model-denied-test-dial.yaml
     assertions:
     - violations: 1
+  - name: denied-a-proxy-that-is-not-a-relay
+    object: inventory/model-denied-unrelayed-proxy.yaml
+    inventory:
+    - inventory/model-denied-unrelayed-proxy.yaml
+    assertions:
+    - violations: 1
+  - name: denied-a-test-ssh-without-a-tunnel
+    object: inventory/model-denied-test-ssh-without-a-tunnel.yaml
+    inventory:
+    - inventory/model-denied-test-ssh-without-a-tunnel.yaml
+    assertions:
+    - violations: 1
+  - name: denied-a-direct-ssh-beside-a-relayed-one-in-the-same-file
+    object: inventory/model-denied-two-tests-one-file.yaml
+    inventory:
+    - inventory/model-denied-two-tests-one-file.yaml
+    assertions:
+    - violations: 1
