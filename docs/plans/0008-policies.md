@@ -584,6 +584,44 @@ with the gate on. The result is a new pull request; #1 stays as it is.
 
 Order: after phase C's gate is fixed and merged (`policy-cm`).
 
+### I. Retry atproto-market#1 under policies, as a new PR
+
+https://github.com/publicdomainrelay/atproto-market/pull/1 (iroh/dumbpipe, head
+`spec/iroh-dumbpipe-20261004141803`) fails the strict P-guest-reports rule
+`guest-report-driven-onnetwork`. B2 measured this. The bidder emits
+`vm.onNetwork` from `providerIdPromise.then(...)`, not from the guest's report.
+
+1. **Baseline.** The phase B/B2 results for #1 are the baseline:
+   - 1 deny (`onnetwork` at `lib/market-bidder-compute/mod.ts:313`);
+   - `relay-only-ssh` clean;
+   - the model view from G2.
+
+   Add the plan 0009 portable pack results once G4 lands.
+2. **Retry.**
+   - `scripts/example-atproto-market-iroh-pr.sh` with the same PROMPT and a
+     fresh clone, on the `pre-iroh` base.
+   - `open-policy/atproto-market` is seeded from
+     `examples/policies/atproto-market` plus the library.
+   - P-relay and P-guest-reports are deny. Library code-safety and TLS rules
+     are deny. Quality rules are warn.
+   - The spec-time gate (0009 G3) and the realize gate both run.
+   - Live acceptance (`SSH_OK_VIA_IROH` through runComputeContract) gates as
+     in #1.
+3. **Publish** as a new PR on atproto-market. Its body compares it to #1:
+   - violations before vs after;
+   - gate denials and the agent's corrections;
+   - where `vm.onNetwork` is now emitted (from the guest-report handler);
+   - acceptance;
+   - the spec and diff size.
+4. **Record.** `docs/examples/atproto-market-iroh-pr.md` gets a "with
+   policies" round.
+5. **When the 0009 G5 multi-repository model lands,** also bind
+   `hono-compute-provider` and report the `inspectIp` / `pollSshExec`
+   reach-in. That fix belongs to a PR in that repository, not to this one.
+
+Order: after `policy-cm` and 0009 G3 are merged, and after phase H (deno-kcp)
+has proved the gate on a real run.
+
 ## Not in scope
 
 - Running the real Gatekeeper admission webhook inside kcp.
