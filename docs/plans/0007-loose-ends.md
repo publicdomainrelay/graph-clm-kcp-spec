@@ -1,6 +1,35 @@
 # PLAN 0007 - the loose ends a final analysis found
 
-Status: active. Owner: coordination agent. Executors: headless `deepseek-claude -p`.
+Status: done. Owner: coordination agent. Executors: headless `deepseek-claude -p`.
+
+What shipped, item by item:
+
+- 1: a named `specctl get -o json|yaml` writes the object, `kcpclient.Decode`
+  expands a `kind: List`, and the script's unwrap is gone.
+- 2: `specctl retry --reason <text>` keeps the failed changes and creates the
+  next attempt `<base>-aN` with `status.attempt`/`retryReason`/`retryBy`; specd
+  exempts a deliberate retry from the attempt cap.
+- 3: `specsync.OrderBatch` orders a batch by `spec.dependsOn`, and a realize
+  whose `filesTouched` names a file a context outside the batch observes gets
+  `FilesOutsideContext=True`.
+- 4: `Repository.spec.acceptanceOverrides` plus `specctl accept --override
+  <step> --reason <text>`; the commit trailer and the `AcceptanceOverridden`
+  condition record it, and specd consumes the entry it used.
+- 5: `oabranch.ChangeHistory` plus `persist.Restore` rebuild the `SpecChange`
+  history, superseded attempts included.
+- 6: a live e2e proves re-anchoring on a Go and a Deno/TypeScript edit;
+  `abc/sync.ReanchorRefs` held as written, no fix was needed.
+- 7: this document, the README's phase count and "what is next", the two worked
+  examples' headline diffs, and the plan statuses.
+
+Tests: unit tests for every item, and live tests
+`TestRestoreRebuildsTheChangeHistoryLive` and
+`TestReanchorKeepsUntouchedRequirementsCodeSyncedLive`. `gofmt`, `go vet ./...`
+and the offline `go test ./...` are green; the live suite is green except
+`TestPhase2IngestAndGraph/hydradb`, which fails on this machine because the
+shared HydraDB instance lost its SlateDB objects during the session (see the
+session report, not this plan). ArcadeDB, the default backend, and every other
+live test pass.
 
 Source: the follow-ups left open by plans 0002, 0004, 0005 and 0006, each named
 there with evidence and never closed. Every item ships with tests, and the whole
