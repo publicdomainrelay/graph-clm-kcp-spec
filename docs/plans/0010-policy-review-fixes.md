@@ -157,8 +157,12 @@ Each item, its commit and its test. All commits are on `policy-fix-s`.
 
 Status: done. Commits `02af779` (code fixes), `ce480b1` (layering, derived
 CRDs, docs digest), `c2744a4` (a bind draft reads the branch unresolved),
-`a5a6c86` (comments), `079a64d` (limits), and the re-run written into
-`docs/examples/atproto-market-policies.md`.
+`a5a6c86` (comments), `079a64d` (limits), `0c126cc` (the re-run, the plan
+status, the `--gator` rule), `5cd9c99` (the accepted change keeps the refused
+attempts in its agent log), `0e71f0a` (a library imports the conformance
+pack), `e0100ab` (merge of origin/main, track S), `4bfab7c` (comments the
+merge brought back) and `382d072` (track S's policykcp tests pass the CRD
+builder).
 
 D1. **Bind does not see the answer.**
 - Bind mode prompts carry the model built **without** the branch's existing
@@ -180,7 +184,13 @@ bare repository).
 
 D4. **Docs and examples.** `02af779` (propose-interactions, `--gator` with no
 suites, the worktree repository inference, the duplicate `vm.onNetwork`, the
-dead `draft.summary`, the classifier note), `ce480b1` (the stale digest).
+dead `draft.summary`, the classifier note), `ce480b1` (the stale digest),
+`0c126cc` (the `--gator` rule in the testing section). `--gator` over a
+directory with no suites now exits 1, so `policy test --dir D --gator` is
+green for `examples/policies/{atproto-market,deno-kcp,market-mini}`,
+`policies/library` and both packs, and refuses by design for
+`atproto-market-cross-repo`, `greenfield-market` and `hono-compute-provider`,
+which carry no suites.
 
 D5. **Style and layering.** `ce480b1` (the kcp writer takes a
 `policy.ConstraintCRDBuilder`; `policy.Unstructured` moves to `abc/policy`),
