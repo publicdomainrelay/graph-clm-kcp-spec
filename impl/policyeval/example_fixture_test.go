@@ -11,11 +11,15 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphfacts"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/effects"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 )
 
-func fixtureGraph(t *testing.T, dir, repository string, testGlobs []string) *unstructured.Unstructured {
+// fixtureObjects indexes a fixture, classifies its effects and builds the
+// ArchitectureModel, so the fixture exercises the portable pack as well as the
+// concrete library.
+func fixtureObjects(t *testing.T, dir, repository string, library policy.Library) (*unstructured.Unstructured, *unstructured.Unstructured) {
 	t.Helper()
 	absolute, err := filepath.Abs(dir)
 	if err != nil {
@@ -23,20 +27,42 @@ func fixtureGraph(t *testing.T, dir, repository string, testGlobs []string) *uns
 	}
 	graph, err := codegraphfacts.Build(context.Background(), absolute, codegraphfacts.Options{
 		Repository: repository,
-		TestGlobs:  testGlobs,
+		TestGlobs:  library.Manifest.TestGlobs,
 	})
 	if err != nil {
 		t.Fatalf("build %s: %v", dir, err)
 	}
-	encoded, err := json.Marshal(policy.CodeGraphObject(graph))
+	computed, err := effects.Apply(&graph, effects.Options{IncludeExtras: true})
+	if err != nil {
+		t.Fatalf("effects %s: %v", dir, err)
+	}
+	model, err := policy.BuildModel(policy.ModelInput{
+		Repository: repository,
+		Graph:      graph,
+		Effects:    computed,
+		Binding:    library.Manifest.Binding(),
+	})
+	if err != nil {
+		t.Fatalf("model %s: %v", dir, err)
+	}
+	graphObject, err := objectOf(t, policy.CodeGraphObject(graph))
 	if err != nil {
 		t.Fatal(err)
 	}
-	object, err := policyeval.Unstructured(encoded)
+	modelObject, err := objectOf(t, model)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return object
+	return graphObject, modelObject
+}
+
+func objectOf(t *testing.T, value any) (*unstructured.Unstructured, error) {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return policyeval.Unstructured(encoded)
 }
 
 func TestExamplePoliciesOverFixtures(t *testing.T) {
@@ -47,7 +73,8 @@ func TestExamplePoliciesOverFixtures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(library.Templates) != 4 || len(library.Constraints) != 5 {
+	// Four of the repository's own templates, five of the pack it imports.
+	if len(library.Templates) != 9 || len(library.Constraints) != 10 {
 		t.Fatalf("market-mini library: %d templates, %d constraints", len(library.Templates), len(library.Constraints))
 	}
 
@@ -60,9 +87,9 @@ func TestExamplePoliciesOverFixtures(t *testing.T) {
 	} {
 		t.Run(variant.name, func(t *testing.T) {
 			dir := fixture.CopyTree(t, filepath.Join("market-mini", variant.name))
-			graph := fixtureGraph(t, dir, "market-mini", library.Manifest.TestGlobs)
-			report, err := policyeval.EvaluateLibrary(context.Background(), library,
-				[]*unstructured.Unstructured{graph}, []*unstructured.Unstructured{graph})
+			graph, model := fixtureObjects(t, dir, "market-mini", library)
+			reviewed := []*unstructured.Unstructured{graph, model}
+			report, err := policyeval.EvaluateLibrary(context.Background(), library, reviewed, reviewed)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -94,10 +121,15 @@ func TestExamplePoliciesOverFixtures(t *testing.T) {
 				"guest-report-driven-emission",
 				"guest-report-driven-onnetwork",
 				"guest-report-cloud-init",
+				"rfp-host-reach-in",
+				"rfp-guest-reports-network",
 			} {
 				if !constraints[want] {
 					t.Errorf("violating fixture does not trigger %s: %v", want, constraints)
 				}
+			}
+			if !policies["rfp-host-reach-in"] || !policies["rfp-guest-reports-network"] {
+				t.Errorf("the imported pack did not run: %v", policies)
 			}
 		})
 	}

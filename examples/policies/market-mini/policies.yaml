@@ -1,4 +1,8 @@
 defaultEnforcement: deny
+imports:
+- pack: rfp-guest-isolation
+  source: embedded
+  version: v1
 repository: market-mini
 roles:
   guest:
@@ -6,6 +10,8 @@ roles:
     globs:
     - lib/cloud-init/**
     targets:
+      attrs:
+      - getNodeId
       routes:
       - /v1/on-network
   host:
@@ -54,3 +60,6 @@ vocabulary:
     network-discovery:
     - getNodeId
     - nodeId
+  routes:
+    report:
+    - /v1/on-network

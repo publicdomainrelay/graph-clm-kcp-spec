@@ -1,0 +1,34 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: rfpguestreportsnetwork
+  annotations:
+    specs.publicdomainrelay.dev/title: "the guest reports its network information and that report drives the host's emission"
+    specs.publicdomainrelay.dev/level: MUST
+    specs.publicdomainrelay.dev/origin: "plan 0009 G4, pack rfp-guest-isolation v1"
+    specs.publicdomainrelay.dev/calibration: "reads the ArchitectureModel: a declared or observed flow the guest initiates that carries network information must exist, and every event.emit of the network-report class in a host component must be triggered by the http.handle of the report route"
+spec:
+  crd:
+    spec:
+      names:
+        kind: RfpGuestReportsNetwork
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            hostRole:
+              type: string
+            guestRole:
+              type: string
+            networkInfoClass:
+              type: string
+            networkEventClass:
+              type: string
+            reportRouteClass:
+              type: string
+            reportPeerRoles:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh

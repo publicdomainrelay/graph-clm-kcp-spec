@@ -1,0 +1,16 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RfpRelayOnlyGuestSsh
+metadata:
+  name: rfp-relay-only-guest-ssh
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+    - apiGroups:
+      - specs.publicdomainrelay.dev
+      kinds:
+      - ArchitectureModel
+  parameters:
+    guestRole: guest
+    testRole: test
+    relayClass: relay

@@ -811,6 +811,7 @@ bin/specctl policy new relay-only-ssh --kind RelayOnlySsh --dir /tmp/policies \
   --title "ssh over the relay only" --pattern 'Deno\.connect' --glob 'test/**'
 bin/specctl policy test --dir /tmp/policies            # opa unit tests + gator suites
 bin/specctl policy test --dir /tmp/policies --gator    # the real gator binary too
+bin/specctl policy build --dir examples/policies/atproto-market  # dist, catalogue, policies.lock
 bin/specctl policy eval --worktree fixtures/market-mini/compliant
 bin/specctl policy eval --worktree fixtures/market-mini/violating -o json
 bin/specctl policy eval --repo deno-kcp --commit <sha> --path <clone> \
@@ -824,15 +825,27 @@ bin/specctl policy eval --repo greenfield-market --specs-only --path <clone> --l
 `spec.interactions` declares a flow with a peer before any code exists (`id`,
 `peer`, `initiator: self|peer`, `channel`, `carries`, `purpose`, `level`,
 `forbidden`), the spec hash covers it, and the CLM document carries it. The
-**spec-time gate** is `specd --policy-library DIR`: a `SpecToCode` change is
-evaluated against the ArchitectureModel built from the post-delta specs alone
-and a `deny` violation ends it as `Failed` with `PolicyValid=False` and
+**spec-time gate** is `specd --policy-library DIR` or, without the flag, the
+repository's own `open-policy/<repo>` branch -- the same library the realize
+gate and the audit read: a `SpecToCode` change is evaluated against the
+ArchitectureModel built from the post-delta specs alone and a `deny` violation
+ends it as `Failed` with `PolicyValid=False` and
 `reason: PolicyDeniedAtSpec`, before the agent runs. `specctl policy eval
 --specs-only --repo X --library DIR` is the same check offline, and
 `specctl policy model --propose-interactions` drafts the blocks from the
-observed flows. `policies/packs/conformance/` is the portable pack (an observed
+observed flows. `policies/packs/conformance/` is a portable pack (an observed
 flow with no declaration warns, a declared MUST flow with no evidence warns, a
-flow matching a declared must-never is denied).
+flow matching a declared must-never is denied). A repository binds a pack with
+`imports: [{pack, version, source}]` in `policies.yaml`: `specctl policy build`
+resolves it (embedded in the binary, `git:<url>@<ref>` or `oci:<ref>`), merges
+its templates into the repository library and pins the pack's sources by sha256
+in `policies.lock`. `policies/packs/rfp-guest-isolation/` is the first bound
+one -- the RFP flow's guest isolation rules over the model: the host never
+reaches into the guest, the guest reports its network information and that
+report drives the host's emission, ssh to a guest goes through the relay, and a
+transport or key material is installed by the guest's `user_data` rather than
+hand-assembled. `examples/policies/{atproto-market,market-mini,deno-kcp}`
+import it; their `roles` and `vocabulary` are the only per-repository input.
 
 `policy effects` classifies the code into the fixed effect vocabulary
 (`net.dial`, `http.request`, `ssh.connect`, `container.exec`, ...) with the
@@ -843,8 +856,11 @@ triggers. `eval` reviews the model as well, so a constraint can select it with
 `spec.kinds: [ArchitectureModel]`. `docs/policies.md` documents both.
 
 `policy eval` on `fixtures/market-mini/compliant` prints `violations: 0` and
-`clean`; the `violating` variant is denied by both example policies -- eleven
-deny violations from `relay-only-ssh` and the `guest-report-*` constraints. A
+`clean` under the repository's own constraints and the pack it imports; the
+`violating` variant is denied by both -- fifteen deny violations from
+`relay-only-ssh`, the `guest-report-*` constraints and the pack's
+`rfp-host-reach-in`, `rfp-guest-reports-network` and
+`rfp-relay-only-guest-ssh`. A
 repository with no policy branch falls back to
 `examples/policies/<repository>`. `--dir` writes a plain directory; without it
 `init`, `new` and `build` commit to the `open-policy/<repo>` branch of `--path`

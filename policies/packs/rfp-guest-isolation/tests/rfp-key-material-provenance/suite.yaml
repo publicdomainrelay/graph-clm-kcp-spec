@@ -1,0 +1,25 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: rfp-key-material-provenance
+tests:
+- name: rfp-key-material-provenance
+  template: ../../dist/rfp-key-material-provenance.yaml
+  constraint: ../../constraints/rfp-key-material-provenance.yaml
+  cases:
+  - name: allowed-the-guest-user-data-writes-the-root-key
+    object: inventory/codediff-allowed.yaml
+    inventory:
+    - inventory/codediff-allowed.yaml
+    - inventory/codegraph.yaml
+    - inventory/model.yaml
+    assertions:
+    - violations: 0
+  - name: denied-a-script-makes-key-material-by-hand
+    object: inventory/codediff-denied.yaml
+    inventory:
+    - inventory/codediff-denied.yaml
+    - inventory/codegraph.yaml
+    - inventory/model.yaml
+    assertions:
+    - violations: 1

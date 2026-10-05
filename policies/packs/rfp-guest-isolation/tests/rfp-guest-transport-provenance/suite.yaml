@@ -1,0 +1,25 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: rfp-guest-transport-provenance
+tests:
+- name: rfp-guest-transport-provenance
+  template: ../../dist/rfp-guest-transport-provenance.yaml
+  constraint: ../../constraints/rfp-guest-transport-provenance.yaml
+  cases:
+  - name: allowed-the-guest-user-data-installs-the-transport
+    object: inventory/codediff-allowed.yaml
+    inventory:
+    - inventory/codediff-allowed.yaml
+    - inventory/codegraph.yaml
+    - inventory/model.yaml
+    assertions:
+    - violations: 0
+  - name: denied-a-script-hand-assembles-the-guest
+    object: inventory/codediff-denied.yaml
+    inventory:
+    - inventory/codediff-denied.yaml
+    - inventory/codegraph.yaml
+    - inventory/model.yaml
+    assertions:
+    - violations: 1

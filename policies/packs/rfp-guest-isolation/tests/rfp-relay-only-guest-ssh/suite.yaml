@@ -1,0 +1,27 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: rfp-relay-only-guest-ssh
+tests:
+- name: rfp-relay-only-guest-ssh
+  template: ../../dist/rfp-relay-only-guest-ssh.yaml
+  constraint: ../../constraints/rfp-relay-only-guest-ssh.yaml
+  cases:
+  - name: allowed-relayed-ssh
+    object: inventory/model-allowed.yaml
+    inventory:
+    - inventory/model-allowed.yaml
+    assertions:
+    - violations: 0
+  - name: denied-ssh-inside-a-test-body
+    object: inventory/model-denied-file-level-ssh.yaml
+    inventory:
+    - inventory/model-denied-file-level-ssh.yaml
+    assertions:
+    - violations: 1
+  - name: denied-test-dials-the-guest
+    object: inventory/model-denied-test-dial.yaml
+    inventory:
+    - inventory/model-denied-test-dial.yaml
+    assertions:
+    - violations: 1

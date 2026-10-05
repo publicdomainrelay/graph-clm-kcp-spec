@@ -11,18 +11,61 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 )
 
+// Load reads a policy tree and resolves the packs it imports. A directory with
+// a policies.yaml is a repository's library; a directory with a pack.yaml is a
+// pack.
 func Load(dir string) (policy.Library, error) {
 	return LoadFS(os.DirFS(dir))
 }
 
 func LoadFS(fsys fs.FS) (policy.Library, error) {
-	library := policy.Library{Files: map[string][]byte{}}
+	library, err := LoadRaw(fsys)
+	if err != nil {
+		return policy.Library{}, err
+	}
+	if len(library.Manifest.Imports) == 0 {
+		return library, nil
+	}
+	resolved, _, err := ResolveImports(library, ImportOptions{})
+	if err != nil {
+		return policy.Library{}, err
+	}
+	return resolved, nil
+}
 
+// LoadRaw reads a policy tree without resolving its imports.
+func LoadRaw(fsys fs.FS) (policy.Library, error) {
 	if data, err := fs.ReadFile(fsys, policy.PoliciesPath); err == nil {
-		library.Files[policy.PoliciesPath] = data
-		if err := yaml.Unmarshal(data, &library.Manifest); err != nil {
+		var manifest policy.PolicyLibrary
+		if err := yaml.Unmarshal(data, &manifest); err != nil {
 			return policy.Library{}, err
 		}
+		return loadTree(fsys, manifest, policy.PoliciesPath, data)
+	}
+	if data, err := fs.ReadFile(fsys, policy.PackManifestPath); err == nil {
+		var manifest policy.PackManifest
+		if err := yaml.Unmarshal(data, &manifest); err != nil {
+			return policy.Library{}, err
+		}
+		library, err := loadTree(fsys, policy.PolicyLibrary{
+			Repository: manifest.Name,
+			Version:    manifest.Version,
+		}, policy.PackManifestPath, data)
+		if err != nil {
+			return policy.Library{}, err
+		}
+		library.Pack = &manifest
+		return library, nil
+	}
+	// A tree with neither manifest still loads: its templates, constraints and
+	// library are the pack's own, with no repository and no binding.
+	return loadTree(fsys, policy.PolicyLibrary{}, "", nil)
+}
+
+func loadTree(fsys fs.FS, manifest policy.PolicyLibrary, manifestPath string, manifestData []byte) (policy.Library, error) {
+	library := policy.Library{Manifest: manifest, Files: map[string][]byte{}}
+	if manifestPath != "" {
+		library.Files[manifestPath] = manifestData
 	}
 
 	if data, err := fs.ReadFile(fsys, policy.LibPath); err == nil {

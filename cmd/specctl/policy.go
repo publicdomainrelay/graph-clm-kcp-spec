@@ -172,13 +172,48 @@ func (t policyTarget) apply(ctx context.Context, add map[string][]byte, remove [
 	return policygit.Update(ctx, store, t.ref(), add, remove, message)
 }
 
-func (t policyTarget) load(ctx context.Context) (policy.Library, error) {
+func (t policyTarget) loadRaw(ctx context.Context) (policy.Library, error) {
 	if !t.onBranch() {
-		return policyeval.Load(t.dir)
+		library, err := policyeval.LoadRaw(os.DirFS(t.dir))
+		if err != nil {
+			return policy.Library{}, err
+		}
+		if data, err := os.ReadFile(filepath.Join(t.dir, policy.LockPath)); err == nil {
+			library.Files[policy.LockPath] = data
+		}
+		return library, nil
 	}
 	store := oagit.Store{Repo: t.path}
 	library, _, err := policygit.Read(ctx, store, t.ref())
 	return library, err
+}
+
+func (t policyTarget) load(ctx context.Context) (policy.Library, error) {
+	library, err := t.loadRaw(ctx)
+	if err != nil {
+		return policy.Library{}, err
+	}
+	resolved, _, err := resolveLibraryImports(library, false)
+	return resolved, err
+}
+
+// resolveLibraryImports merges the packs a library imports. The lock the
+// library carries pins them; verify refuses a pack that moved.
+func resolveLibraryImports(library policy.Library, verify bool) (policy.Library, []policy.LockEntry, error) {
+	if len(library.Manifest.Imports) == 0 {
+		return library, nil, nil
+	}
+	lock := policy.PackLock{}
+	pinned := false
+	if data, ok := library.Files[policy.LockPath]; ok {
+		parsed, err := policyeval.ParseLock(data)
+		if err != nil {
+			return policy.Library{}, nil, err
+		}
+		lock = parsed
+		pinned = true
+	}
+	return policyeval.ResolveImports(library, policyeval.ImportOptions{Lock: &lock, Verify: verify && pinned})
 }
 
 func addPolicyTargetFlags(fs *flag.FlagSet) *policyTarget {
@@ -389,6 +424,7 @@ func runPolicyBuild(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("specctl policy build", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	target := addPolicyTargetFlags(fs)
+	relock := fs.Bool("relock", false, "write the resolved pack digests into "+policy.LockPath+" even when a pin moved")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -397,11 +433,16 @@ func runPolicyBuild(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "specctl policy build: --repo is required when writing a policy branch")
 		return exitUsage
 	}
-	return buildTarget(context.Background(), target, stdout, stderr)
+	return buildTarget(context.Background(), target, stdout, stderr, *relock)
 }
 
-func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Writer) int {
-	library, err := target.load(ctx)
+func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Writer, relock bool) int {
+	raw, err := target.loadRaw(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy build: %v\n", err)
+		return exitError
+	}
+	library, entries, err := resolveLibraryImports(raw, !relock)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy build: %v\n", err)
 		return exitError
@@ -427,6 +468,15 @@ func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Wr
 	}
 	add[policy.CataloguePath] = policyeval.Catalogue(library)
 	written = append(written, policy.CataloguePath)
+	if len(entries) > 0 {
+		encoded, err := policyeval.EncodeLock(entries)
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl policy build: %v\n", err)
+			return exitError
+		}
+		add[policy.LockPath] = encoded
+		written = append(written, policy.LockPath)
+	}
 
 	message := fmt.Sprintf("policy(%s): build\n", target.repo)
 	if _, err := target.apply(ctx, add, nil, message); err != nil {
@@ -437,7 +487,17 @@ func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Wr
 	for _, path := range written {
 		fmt.Fprintln(stdout, path)
 	}
+	for _, entry := range entries {
+		fmt.Fprintf(stdout, "pack %s@%s %s %s\n", entry.Pack, entry.Version, shortDigest(entry.SHA256), entry.Source)
+	}
 	return exitOK
+}
+
+func shortDigest(digest string) string {
+	if len(digest) > 12 {
+		return digest[:12]
+	}
+	return digest
 }
 
 func runPolicyTest(args []string, stdout, stderr io.Writer) int {
@@ -455,7 +515,7 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 	}
 	target.resolveRepo()
 	ctx := context.Background()
-	if code := buildTarget(ctx, target, stdout, stderr); code != exitOK {
+	if code := buildTarget(ctx, target, stdout, stderr, false); code != exitOK {
 		return code
 	}
 
@@ -469,12 +529,9 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 	modules := map[string]string{policy.LibPath: policyeval.Lib(), policy.LibTestPath: policyeval.LibTest()}
 	for _, template := range library.Templates {
 		slug := policy.TemplateSlug(template)
-		source, err := os.ReadFile(filepath.Join(target.dir, filepath.FromSlash(policy.TemplateSourcePath(slug))))
-		if err != nil {
-			fmt.Fprintf(stderr, "specctl policy test: %v\n", err)
-			return exitError
-		}
-		modules[policy.TemplateSourcePath(slug)] = string(source)
+		// The template came from the pack registry when the repository imports
+		// it, so the source the library resolved is the source to test.
+		modules[policy.TemplateSourcePath(slug)] = template.Rego
 		if test, ok := policyeval.TemplateTest(os.DirFS(target.dir), slug); ok {
 			modules[policy.TemplateTestPath(slug)] = string(test)
 		}
@@ -707,6 +764,7 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 			return exitError
 		}
+		diff.Spec.Repository = *repository
 		diffObject, err := policyeval.Unstructured(marshalObject(policy.CodeDiffObject(diff)))
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
@@ -890,14 +948,14 @@ func loadLibrary(ctx context.Context, repository, libraryDir, path, branch, defa
 	if err != nil {
 		return policy.Library{}, err
 	}
-	if len(library.Templates) > 0 || repository == "" {
-		return library, nil
+	if len(library.Templates) == 0 && repository != "" {
+		fallback := filepath.Join("examples", "policies", repository)
+		if _, statErr := os.Stat(filepath.Join(fallback, policy.PoliciesPath)); statErr == nil {
+			return policyeval.Load(fallback)
+		}
 	}
-	fallback := filepath.Join("examples", "policies", repository)
-	if _, statErr := os.Stat(filepath.Join(fallback, policy.PoliciesPath)); statErr == nil {
-		return policyeval.Load(fallback)
-	}
-	return library, nil
+	resolved, _, err := resolveLibraryImports(library, false)
+	return resolved, err
 }
 
 func classifierDirs(worktree string, explicit []string) []string {

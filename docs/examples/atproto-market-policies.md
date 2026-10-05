@@ -38,7 +38,7 @@ bin/specctl policy eval --repo atproto-market --commit 7a2e9d9 \
 `codegraph`, and evaluates; the clone is not modified. Each run takes about a
 second.
 
-## Results
+### Results
 
 | ref | commit | violations |
 | --- | --- | --- |
@@ -49,6 +49,16 @@ second.
 `relay-only-ssh` and `guest-report-cloud-init` are clean at all three refs.
 All three refs violate P-guest-reports under the strict reading (below); none
 of them is compliant.
+
+This library now imports the portable pack `rfp-guest-isolation` (plan 0009
+G4), whose `RfpHostReachIn`, `RfpGuestReportsNetwork` and
+`RfpRelayOnlyGuestSsh` restate the same two rules over the ArchitectureModel.
+The table above is the concrete templates, which is what the output blocks
+below record; a run of the library as it stands today prints twice as many
+violations, the pack naming the same sites (`6 deny` at `master`, `2` at
+`pre-iroh` and at the spec branch, all reported at the same `file:line`). Plan
+0009 G4 has the pack's verdicts next to these and the table of every
+difference.
 
 ## The strict reading
 

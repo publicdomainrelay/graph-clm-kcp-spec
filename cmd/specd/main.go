@@ -147,7 +147,7 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	fs.IntVar(&config.maxAttempts, "max-attempts", specd.DefaultMaxAttempts, "how many attempts one drift episode gets")
 	fs.DurationVar(&config.retryBackoff, "retry-backoff", specd.DefaultRetryBackoff, "wait before the second attempt at an episode")
 	fs.DurationVar(&config.batchWindow, "batch-window", specd.DefaultBatchWindow, "how long the oldest pending spec to code change of a repository waits for siblings before its batch starts")
-	fs.StringVar(&config.policyLibrary, "policy-library", os.Getenv("SPECD_POLICY_LIBRARY"), "directory of the policy tree the spec-time gate reads; empty turns the gate off")
+	fs.StringVar(&config.policyLibrary, "policy-library", os.Getenv("SPECD_POLICY_LIBRARY"), "directory of the policy tree the spec-time gate reads; empty reads the repository policy branch, the same source the realize gate and the audit read")
 	bolt := boltflags.Add(fs)
 	if err := fs.Parse(args); err != nil {
 		return config, bolt, err

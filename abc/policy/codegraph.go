@@ -141,6 +141,10 @@ type CodeDiffFile struct {
 type CodeDiffSpec struct {
 	Change string `json:"change,omitempty"`
 
+	// Repository names the repository the diff belongs to, so a rule that
+	// reads the diff resolves the CodeGraph of the same evaluation.
+	Repository string `json:"repository,omitempty"`
+
 	Base string `json:"base,omitempty"`
 
 	Head string `json:"head,omitempty"`

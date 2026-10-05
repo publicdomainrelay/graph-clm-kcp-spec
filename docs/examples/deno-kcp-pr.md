@@ -1040,6 +1040,13 @@ templates: 8  constraints: 8
 violations: 7 (deny 7, warn 0, dryrun 0)
 ```
 
+This is the library as phase H recorded it. It now imports the portable pack
+`rfp-guest-isolation` (plan 0009 G4), so a run of the library as it stands
+today prints the seven above plus whatever the pack's model rules say about the
+same commit (`templates: 13  constraints: 13`); the block is the concrete
+templates, which is what the rest of this document reads. Plan 0009 G4 has the
+pack's atproto-market verdicts and what it does and does not catch.
+
 The same run with `--library policies/library` (7 templates, no deno-kcp
 binding) reports the same seven. `main` itself, with and without `--diff-base`,
 is `clean`: 0 violations -- the CodeDiff rules have no diff to read, and

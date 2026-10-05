@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/delta"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
@@ -17,14 +18,11 @@ import (
 
 // specGate evaluates a SpecToCode batch against the ArchitectureModel built
 // from the post-delta specs alone, before anything is realized. It returns nil
-// when no policy library is configured.
+// when the repository has no policy library.
 func (c *Controller) specGate(ctx context.Context, namespace string, repository *spec.Repository, members []*spec.SpecChange) (*policyeval.SpecResult, error) {
-	if c.opts.PolicyLibrary == "" {
-		return nil, nil
-	}
-	library, err := policyeval.Load(c.opts.PolicyLibrary)
+	library, err := c.specGateLibrary(ctx, repository)
 	if err != nil {
-		return nil, fmt.Errorf("specd: read the policy library %s: %w", c.opts.PolicyLibrary, err)
+		return nil, err
 	}
 	if len(library.Templates) == 0 {
 		return nil, nil
@@ -64,6 +62,25 @@ func (c *Controller) specGate(ctx context.Context, namespace string, repository 
 		return nil, err
 	}
 	return &result, nil
+}
+
+// specGateLibrary is the library the spec-time gate reads. `--policy-library`
+// overrides it; without one the gate reads the same repository policy branch
+// the realize gate and the audit read, so the three never disagree about which
+// policies are in force.
+func (c *Controller) specGateLibrary(ctx context.Context, repository *spec.Repository) (policy.Library, error) {
+	if c.opts.PolicyLibrary != "" {
+		library, err := policyeval.Load(c.opts.PolicyLibrary)
+		if err != nil {
+			return policy.Library{}, fmt.Errorf("specd: read the policy library %s: %w", c.opts.PolicyLibrary, err)
+		}
+		return library, nil
+	}
+	gate, err := c.loadPolicyGate(ctx, repository)
+	if err != nil || gate == nil {
+		return policy.Library{}, err
+	}
+	return gate.Library, nil
 }
 
 // recordPolicyDenied sends a batch back to drafting with the policy messages

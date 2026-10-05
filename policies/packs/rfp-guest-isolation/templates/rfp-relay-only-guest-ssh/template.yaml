@@ -1,0 +1,26 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: rfprelayonlyguestssh
+  annotations:
+    specs.publicdomainrelay.dev/title: "ssh to a guest goes through the relay"
+    specs.publicdomainrelay.dev/level: MUST
+    specs.publicdomainrelay.dev/origin: "plan 0009 G4, pack rfp-guest-isolation v1"
+    specs.publicdomainrelay.dev/calibration: "reads the ArchitectureModel: every ssh.connect effect outside the guest role must be carried by a relay-channel flow, which catches an ssh written directly inside a test body as a file-level effect, and no net.dial effect of a test component may act on the guest"
+spec:
+  crd:
+    spec:
+      names:
+        kind: RfpRelayOnlyGuestSsh
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            guestRole:
+              type: string
+            testRole:
+              type: string
+            relayClass:
+              type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh

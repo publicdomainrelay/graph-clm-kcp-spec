@@ -1,0 +1,19 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  roles:
+  - guest
+  components:
+  - name: guest
+    roles:
+    - guest
+    globs:
+    - lib/common/cloud-init-common/**
+    source: observed
+  effects: []
+  flows: []
+  triggers: []

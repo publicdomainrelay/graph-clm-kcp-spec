@@ -1,0 +1,24 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeGraph
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  repository: pack-fixture
+  files: []
+  nodes: []
+  edges: []
+  texts: {}
+  effects:
+  - id: userDataKey
+    kind: file.write
+    component: guest
+    file: lib/common/cloud-init-common/mod.ts
+    line: 487
+  - id: keygen
+    kind: proc.exec
+    component: unknown
+    attrs:
+      argv0: ssh-keygen
+    file: scripts/bring-up-guest.sh
+    line: 21

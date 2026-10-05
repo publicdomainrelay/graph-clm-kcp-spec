@@ -1,4 +1,8 @@
 defaultEnforcement: deny
+imports:
+- pack: rfp-guest-isolation
+  source: embedded
+  version: v1
 repository: deno-kcp
 roles:
   guest:
@@ -61,19 +65,36 @@ vocabulary:
     - dnsshim
     - dnsShim
   events:
+    network-report:
+    - DenoPod
+    - deno.computer
+    - status.phase
     workload-report:
     - DenoPod
     - deno.computer
     - status.phase
   payloads:
+    network-info:
+    - svc.kcp.local
+    - ServiceDomain
+    - FQDN
+    - serviceResolver
     service-name:
     - svc.kcp.local
     - ServiceDomain
     - FQDN
     - serviceResolver
   purposes:
+    network-discovery:
+    - dnsshim
+    - dnsShim
+    - serviceResolver
+    - buildServices
     service-discovery:
     - dnsshim
     - dnsShim
     - serviceResolver
     - buildServices
+  routes:
+    report:
+    - /v1/*/on-network

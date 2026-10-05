@@ -1,0 +1,14 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeDiff
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  base: aaa0000000000000000000000000000000000000
+  head: bbb0000000000000000000000000000000000000
+  files:
+  - path: scripts/bring-up-guest.sh
+    status: added
+    added:
+    - line: 21
+      text: docker run --rm --mount type=bind,src=/bin/websocat,dst=/bin/websocat guest

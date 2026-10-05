@@ -8,3 +8,8 @@ repository: market-mini
 | guest-report-driven-emission | the guest network identity and the vm.onNetwork event are emitted from an inbound guest report | MUST | error | - | guest-report-driven-emission (deny), guest-report-driven-onnetwork (deny) |
 | guest-report-reach-in | the network emitter never reaches into the guest | MUST | error | - | guest-report-reach-in (deny) |
 | relay-only-ssh | integration tests ssh to a guest only over the relay | MUST | error | - | relay-only-ssh (deny) |
+| rfp-guest-reports-network | the guest reports its network information and that report drives the host's emission | MUST | error | - | rfp-guest-reports-network (deny) |
+| rfp-guest-transport-provenance | a guest transport is installed by the guest's user_data, not hand-assembled elsewhere | MUST | error | - | rfp-guest-transport-provenance (deny) |
+| rfp-host-reach-in | the host never reaches into the guest for network discovery | MUST | error | - | rfp-host-reach-in (deny) |
+| rfp-key-material-provenance | ssh key material is placed by the guest's user_data, never assembled by hand | MUST | error | - | rfp-key-material-provenance (deny) |
+| rfp-relay-only-guest-ssh | ssh to a guest goes through the relay | MUST | error | - | rfp-relay-only-guest-ssh (deny) |

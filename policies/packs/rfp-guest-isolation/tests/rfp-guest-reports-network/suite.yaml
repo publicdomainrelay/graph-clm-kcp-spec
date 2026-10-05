@@ -1,0 +1,27 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: rfp-guest-reports-network
+tests:
+- name: rfp-guest-reports-network
+  template: ../../dist/rfp-guest-reports-network.yaml
+  constraint: ../../constraints/rfp-guest-reports-network.yaml
+  cases:
+  - name: allowed-report-driven-emission
+    object: inventory/model-allowed.yaml
+    inventory:
+    - inventory/model-allowed.yaml
+    assertions:
+    - violations: 0
+  - name: denied-emission-from-the-lifecycle
+    object: inventory/model-denied-lifecycle.yaml
+    inventory:
+    - inventory/model-denied-lifecycle.yaml
+    assertions:
+    - violations: 1
+  - name: denied-no-guest-report
+    object: inventory/model-denied-no-report.yaml
+    inventory:
+    - inventory/model-denied-no-report.yaml
+    assertions:
+    - violations: 1

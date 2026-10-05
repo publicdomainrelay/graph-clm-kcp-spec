@@ -1,0 +1,14 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeDiff
+metadata:
+  name: pack-fixture
+  namespace: default
+spec:
+  base: aaa0000000000000000000000000000000000000
+  head: bbb0000000000000000000000000000000000000
+  files:
+  - path: lib/common/cloud-init-common/mod.ts
+    status: modified
+    added:
+    - line: 487
+      text: 'path: "/root/.ssh/authorized_keys",'
