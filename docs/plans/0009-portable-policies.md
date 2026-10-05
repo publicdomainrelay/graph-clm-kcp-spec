@@ -665,10 +665,12 @@ Four changes, each because a rule could not be written honestly without it:
   Target resolution keeps reading the site alone, so the flow set does not
   drift.
 
-Effects are unchanged in count at all three refs (203 / 189 / 202); the flow
-sets change only in their attributes and their dedupe (master 15 flows,
-pre-iroh 14, spec 16 -- G2 recorded 15/15/17, the difference being the
-attribute hints that no longer merge two flows into one).
+The effects are unchanged at all three refs (203 / 189 / 202, counted after
+this work); the flow sets change only in their attributes and their dedupe:
+master 15 flows, pre-iroh 14, spec 16, where G2 recorded 15 for pre-iroh and
+18 for the spec branch. The difference is the attribute and symbol hints: a
+flow that G2 merged out of two targets is now two flows, or one, depending on
+which hint resolves. The verdicts above do not depend on it.
 
 #### The pack against plan-0008 phase B/B2
 
