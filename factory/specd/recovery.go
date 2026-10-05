@@ -173,7 +173,7 @@ func (c *Controller) recoverOrphanedPolicyChanges(ctx context.Context, namespace
 		if !ok {
 			continue
 		}
-		if !c.orphaned(change.Status.Owner, change.Status.OwnerPid) {
+		if change.Status.Owner == "" || !c.orphaned(change.Status.Owner, change.Status.OwnerPid) {
 			continue
 		}
 		if _, err := c.client.PatchStatus(ctx, specapi.PolicyChangeGVR, namespace, change.Name, map[string]any{

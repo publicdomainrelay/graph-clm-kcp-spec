@@ -311,30 +311,39 @@ func TestPolicyChangeOwnedByALiveProcessIsLeftAlone(t *testing.T) {
 }
 
 func TestReleasingAPolicyClaimSaysTheProcessDied(t *testing.T) {
-	deadProcesses(t)
-	cluster := newFakeCluster()
-	apply(t, cluster, draftingPolicyChange("another", 999999))
-	controller := testController(cluster)
+	for _, phase := range []string{policy.PolicyPhaseDrafting, policy.PolicyPhaseTesting, policy.PolicyPhaseEvaluated} {
+		t.Run(phase, func(t *testing.T) {
+			deadProcesses(t)
+			cluster := newFakeCluster()
+			change := draftingPolicyChange("another", 999999)
+			change.Status.Phase = phase
+			apply(t, cluster, change)
+			controller := testController(cluster)
 
-	object, err := cluster.Get(context.Background(), specapi.PolicyChangeGVR, specapi.DefaultNamespace, "policy-calc")
-	if err != nil {
-		t.Fatal(err)
-	}
-	typed, err := kcpclient.Typed(object)
-	if err != nil {
-		t.Fatal(err)
-	}
-	controller.releasePolicyClaim(context.Background(), specapi.DefaultNamespace, typed.(*policy.PolicyChange))
+			object, err := cluster.Get(context.Background(), specapi.PolicyChangeGVR, specapi.DefaultNamespace, "policy-calc")
+			if err != nil {
+				t.Fatal(err)
+			}
+			typed, err := kcpclient.Typed(object)
+			if err != nil {
+				t.Fatal(err)
+			}
+			controller.releasePolicyClaim(context.Background(), specapi.DefaultNamespace, typed.(*policy.PolicyChange))
 
-	after, err := cluster.Get(context.Background(), specapi.PolicyChangeGVR, specapi.DefaultNamespace, "policy-calc")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if owner, _, _ := unstructured.NestedString(after.Object, "status", "owner"); owner != "" {
-		t.Errorf("owner = %q, want released", owner)
-	}
-	if message, _, _ := unstructured.NestedString(after.Object, "status", "message"); !strings.Contains(message, RecoveredPolicyReason) {
-		t.Errorf("message = %q, want %q", message, RecoveredPolicyReason)
+			after, err := cluster.Get(context.Background(), specapi.PolicyChangeGVR, specapi.DefaultNamespace, "policy-calc")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if owner, _, _ := unstructured.NestedString(after.Object, "status", "owner"); owner != "" {
+				t.Errorf("owner = %q, want released", owner)
+			}
+			if message, _, _ := unstructured.NestedString(after.Object, "status", "message"); !strings.Contains(message, RecoveredPolicyReason) {
+				t.Errorf("message = %q, want %q", message, RecoveredPolicyReason)
+			}
+			if kept, _, _ := unstructured.NestedString(after.Object, "status", "phase"); kept != phase {
+				t.Errorf("phase = %q, want %q kept", kept, phase)
+			}
+		})
 	}
 }
 
