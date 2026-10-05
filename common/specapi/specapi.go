@@ -64,6 +64,10 @@ const (
 	ConditionBranchMismatch = "BranchMismatch"
 
 	ConditionRequirementsUnimplemented = "RequirementsUnimplemented"
+
+	ConditionAcceptanceOverridden = "AcceptanceOverridden"
+
+	ConditionFilesOutsideContext = "FilesOutsideContext"
 )
 
 const (
@@ -96,6 +100,10 @@ const (
 
 	ReasonRequirementsImplemented = "RequirementsImplemented"
 	ReasonRequirementsMissing     = "RequirementsUnimplemented"
+
+	ReasonAcceptanceOverridden = "AcceptanceOverridden"
+
+	ReasonFilesOutsideContext = "FilesOutsideContext"
 )
 
 const (

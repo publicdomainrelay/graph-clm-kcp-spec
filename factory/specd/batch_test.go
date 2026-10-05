@@ -189,3 +189,29 @@ func TestSiblingLandedSeesACommitAnotherChangeRecorded(t *testing.T) {
 		t.Error("a branch that did not move was reported as moved")
 	}
 }
+
+func TestPlanBatchOrdersADependentContextAfterItsDependency(t *testing.T) {
+	cluster := batchCluster(t)
+	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
+		systemContext.Spec.Repository = "calc"
+		systemContext.Spec.DependsOn = []string{"sc.cmd-calc"}
+	}))
+	base := time.Unix(100, 0)
+	apply(t, cluster, pendingChange("calc-s2c-1", "calc", base))
+	apply(t, cluster, pendingChange("cmd-calc-s2c-1", "cmd-calc", base.Add(time.Second)))
+	controller := testController(cluster)
+	controller.opts.BatchWindow = 0
+
+	plan, err := controller.planBatch(context.Background(), specapi.DefaultNamespace,
+		readChange(t, cluster, "calc-s2c-1"), readRepository(t, cluster, "calc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := []string{}
+	for _, member := range plan.members {
+		names = append(names, member.Name)
+	}
+	if strings.Join(names, ",") != "cmd-calc-s2c-1,calc-s2c-1" {
+		t.Errorf("members = %v, want the dependency before its dependent", names)
+	}
+}

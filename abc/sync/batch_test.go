@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
 
@@ -113,4 +114,71 @@ func TestSiblingLandedOnlyCountsAnotherCommittedChange(t *testing.T) {
 	if SiblingLanded(changes, "calc", "base", "other", []string{"calc-a"}) {
 		t.Error("a commit nobody recorded counted as a sibling landing")
 	}
+}
+
+func TestOrderBatchPutsADependencyBeforeItsDependent(t *testing.T) {
+	at := time.Unix(100, 0)
+	calc := changeRef("calc", "repo", specapi.PhasePending, at)
+	calc.DependsOn = []string{"sc.cmd-calc"}
+	cli := changeRef("cmd-calc", "repo", specapi.PhasePending, at.Add(time.Second))
+	ordered := OrderBatch([]ChangeRef{calc, cli})
+	if ordered[0].Name != "cmd-calc" || ordered[1].Name != "calc" {
+		t.Fatalf("order = %v, want the dependency first", names(ordered))
+	}
+}
+
+func TestOrderBatchKeepsIndependentMembersAndBreaksCycles(t *testing.T) {
+	at := time.Unix(100, 0)
+	first := changeRef("a", "repo", specapi.PhasePending, at)
+	second := changeRef("b", "repo", specapi.PhasePending, at.Add(time.Second))
+	if ordered := OrderBatch([]ChangeRef{first, second}); ordered[0].Name != "a" || ordered[1].Name != "b" {
+		t.Fatalf("independent order = %v, want the input order", names(ordered))
+	}
+	first.DependsOn = []string{"sc.b"}
+	second.DependsOn = []string{"sc.a"}
+	ordered := OrderBatch([]ChangeRef{first, second})
+	if len(ordered) != 2 {
+		t.Fatalf("a cycle dropped a member: %v", names(ordered))
+	}
+}
+
+func TestOrderBatchIgnoresRefsThatAreNotMembers(t *testing.T) {
+	at := time.Unix(100, 0)
+	calc := changeRef("calc", "repo", specapi.PhasePending, at)
+	calc.DependsOn = []string{"sc.elsewhere", "self", "sc."}
+	cli := changeRef("cli", "repo", specapi.PhasePending, at.Add(time.Second))
+	ordered := OrderBatch([]ChangeRef{calc, cli})
+	if ordered[0].Name != "calc" || ordered[1].Name != "cli" {
+		t.Fatalf("order = %v, want the input order", names(ordered))
+	}
+}
+
+func TestFilesOwnedElsewhereNamesOnlyAnotherContextsFiles(t *testing.T) {
+	observed := map[string]spec.ObservedFacts{
+		"calc":     {Files: []string{"calc/calc.go"}},
+		"registry": {Files: []string{"registry/registry.go"}, TreeFiles: []string{"registry/README.md"}},
+	}
+	outside := FilesOwnedElsewhere(
+		[]string{"calc/calc.go", "registry/registry.go", "registry/README.md", "calc/new.go"},
+		[]string{"calc"}, observed)
+	if len(outside) != 2 {
+		t.Fatalf("outside = %+v", outside)
+	}
+	if owners := outside["registry/registry.go"]; len(owners) != 1 || owners[0] != "registry" {
+		t.Errorf("registry/registry.go owners = %v", owners)
+	}
+	if _, found := outside["calc/new.go"]; found {
+		t.Error("a new file no context observes must not be flagged")
+	}
+	if _, found := outside["calc/calc.go"]; found {
+		t.Error("a member's own file must not be flagged")
+	}
+}
+
+func names(changes []ChangeRef) []string {
+	out := make([]string, 0, len(changes))
+	for _, change := range changes {
+		out = append(out, change.Name)
+	}
+	return out
 }

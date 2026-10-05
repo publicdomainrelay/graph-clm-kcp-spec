@@ -364,7 +364,10 @@ spec:
               type: string
             conditions:
               description: RequirementsUnimplemented is True when the realized diff
-                does not implement every added or changed requirement
+                does not implement every added or changed requirement; FilesOutsideContext
+                is True when the realize touched files a context outside the batch
+                owns; AcceptanceOverridden is True when a gating acceptance step failed
+                and an operator's override let the commit land
               items:
                 properties:
                   lastTransitionTime:

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -77,8 +78,9 @@ func (c *Controller) planBatch(ctx context.Context, namespace string, change *sp
 	for index := range changes {
 		byName[changes[index].Name] = &changes[index]
 	}
-	members := make([]*spec.SpecChange, 0, len(pending))
-	for _, ref := range pending {
+	ordered := specsync.OrderBatch(pending)
+	members := make([]*spec.SpecChange, 0, len(ordered))
+	for _, ref := range ordered {
 		if member, found := byName[ref.Name]; found {
 			members = append(members, member)
 		}
@@ -87,31 +89,33 @@ func (c *Controller) planBatch(ctx context.Context, namespace string, change *sp
 }
 
 func (c *Controller) changeRefs(ctx context.Context, namespace string, changes []spec.SpecChange) ([]specsync.ChangeRef, error) {
-	owners, err := c.contextRepositories(ctx, namespace)
+	contexts, err := c.contextObjects(ctx, namespace)
 	if err != nil {
 		return nil, err
 	}
 	refs := make([]specsync.ChangeRef, 0, len(changes))
 	for _, change := range changes {
+		context := contexts[change.Spec.SystemContext]
 		refs = append(refs, specsync.ChangeRef{
 			Name:          change.Name,
 			SystemContext: change.Spec.SystemContext,
-			Repository:    owners[change.Spec.SystemContext],
+			Repository:    context.Spec.Repository,
 			Direction:     change.Spec.Direction,
 			Phase:         change.Status.Phase,
 			Commit:        change.Status.Commit,
 			CreatedAt:     change.GetCreationTimestamp().Time,
+			DependsOn:     context.Spec.DependsOn,
 		})
 	}
 	return refs, nil
 }
 
-func (c *Controller) contextRepositories(ctx context.Context, namespace string) (map[string]string, error) {
+func (c *Controller) contextObjects(ctx context.Context, namespace string) (map[string]spec.SystemContext, error) {
 	listed, err := c.client.List(ctx, specapi.SystemContextGVR, namespace)
 	if err != nil {
 		return nil, err
 	}
-	owners := make(map[string]string, len(listed.Items))
+	contexts := make(map[string]spec.SystemContext, len(listed.Items))
 	for index := range listed.Items {
 		typed, err := kcpclient.Typed(&listed.Items[index])
 		if err != nil {
@@ -121,9 +125,9 @@ func (c *Controller) contextRepositories(ctx context.Context, namespace string) 
 		if !ok {
 			continue
 		}
-		owners[systemContext.Name] = systemContext.Spec.Repository
+		contexts[systemContext.Name] = *systemContext
 	}
-	return owners, nil
+	return contexts, nil
 }
 
 func (c *Controller) runBatch(ctx context.Context, namespace string, repository *spec.Repository, plan batchPlan) (time.Duration, error) {
@@ -252,6 +256,7 @@ func (c *Controller) movedSinceBase(ctx context.Context, namespace string, repos
 }
 
 func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, repository *spec.Repository, members []*spec.SpecChange, result realize.Result) {
+	outside := c.filesOutsideBatch(ctx, namespace, repository, members, result.FilesTouched)
 	for _, member := range members {
 		c.writeFullLog(member.Name, result)
 		status := map[string]any{
@@ -270,9 +275,10 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 		if len(result.Acceptance) > 0 {
 			status["acceptance"] = result.Acceptance
 		}
+		conditions := condition.Copy(member.Status.Conditions)
+		conditionsChanged := false
 		if verdicts, found := result.Coverage[member.Name]; found && len(verdicts) > 0 {
 			status["requirementCoverage"] = verdicts
-			conditions := condition.Copy(member.Status.Conditions)
 			missing := coverage.Missing(verdicts)
 			if len(missing) > 0 {
 				condition.SetTrue(&conditions, member.GetGeneration(), specapi.ConditionRequirementsUnimplemented,
@@ -283,6 +289,14 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 				condition.SetFalse(&conditions, member.GetGeneration(), specapi.ConditionRequirementsUnimplemented,
 					specapi.ReasonRequirementsImplemented, "every added or changed requirement is implemented")
 			}
+			conditionsChanged = true
+		}
+		if len(outside) > 0 {
+			condition.SetTrue(&conditions, member.GetGeneration(), specapi.ConditionFilesOutsideContext,
+				specapi.ReasonFilesOutsideContext, outsideContextsMessage(outside))
+			conditionsChanged = true
+		}
+		if conditionsChanged {
 			status["conditions"] = conditions
 		}
 		if record, ok := batchProgress(members, result); ok {
@@ -298,7 +312,50 @@ func (c *Controller) recordBatchSuccess(ctx context.Context, namespace string, r
 	if result.CoverageError != "" {
 		logged = append(logged, "coverageError", result.CoverageError)
 	}
+	if len(outside) > 0 {
+		logged = append(logged, "filesOutsideContext", len(outside))
+		c.log.Warn("the realize touched files another context owns",
+			"repository", repository.Name, "files", outsideContextsMessage(outside))
+	}
 	c.log.Info("spec to code done", logged...)
+}
+
+func (c *Controller) filesOutsideBatch(ctx context.Context, namespace string, repository *spec.Repository, members []*spec.SpecChange, touched []string) map[string][]string {
+	if len(touched) == 0 {
+		return nil
+	}
+	contexts, err := c.contextObjects(ctx, namespace)
+	if err != nil {
+		return nil
+	}
+	observed := map[string]spec.ObservedFacts{}
+	for name, context := range contexts {
+		if context.Spec.Repository == repository.Name {
+			observed[name] = context.Status.Observed
+		}
+	}
+	names := make([]string, 0, len(members))
+	for _, member := range members {
+		names = append(names, member.Spec.SystemContext)
+	}
+	return specsync.FilesOwnedElsewhere(touched, names, observed)
+}
+
+func outsideContextsMessage(outside map[string][]string) string {
+	files := make([]string, 0, len(outside))
+	for file := range outside {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	parts := make([]string, 0, len(files))
+	for _, file := range files {
+		parts = append(parts, file+" ("+strings.Join(outside[file], ", ")+")")
+	}
+	message := "the realize touched files another context owns: " + strings.Join(parts, ", ")
+	if len(message) > messageLimit {
+		message = message[:messageLimit]
+	}
+	return message
 }
 
 func verdictIDs(verdicts []coverage.Verdict) []string {

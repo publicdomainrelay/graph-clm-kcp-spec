@@ -381,7 +381,7 @@ spec:
                         type: string
                 conditions:
                   type: array
-                  description: RequirementsUnimplemented is True when the realized diff does not implement every added or changed requirement
+                  description: RequirementsUnimplemented is True when the realized diff does not implement every added or changed requirement; FilesOutsideContext is True when the realize touched files a context outside the batch owns; AcceptanceOverridden is True when a gating acceptance step failed and an operator's override let the commit land
                   x-kubernetes-list-type: map
                   x-kubernetes-list-map-keys: [type]
                   items:
