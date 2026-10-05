@@ -1,0 +1,92 @@
+language: go
+version: "1"
+rules:
+  - id: exec-command-ssh
+    kind: ssh.connect
+    call: {name: exec.Command, argv0: [ssh]}
+    target: argv0
+    extract:
+      - {attr: proxyCommand, regex: 'ProxyCommand=([^"\s]+)'}
+  - id: exec-command-container
+    kind: container.exec
+    call: {name: exec.Command, argv0: [docker, podman, nerdctl, container, virsh, lxc, incus]}
+    extract:
+      - {attr: runtime, regex: '^\s*"([^"]+)"'}
+  - id: exec-command-context-ssh
+    kind: ssh.connect
+    call: {name: exec.CommandContext, argv0: [ssh]}
+    target: argv0
+    extract:
+      - {attr: proxyCommand, regex: 'ProxyCommand=([^"\s]+)'}
+  - id: exec-command-context-container
+    kind: container.exec
+    call: {name: exec.CommandContext, argv0: [docker, podman, nerdctl, container, virsh, lxc, incus]}
+    extract:
+      - {attr: runtime, regex: '^\s*"([^"]+)"'}
+  - id: exec-command
+    kind: proc.exec
+    call: {name: exec.Command}
+    target: argv0
+  - id: exec-command-context
+    kind: proc.exec
+    call: {name: exec.CommandContext}
+  - id: ssh-dial
+    kind: ssh.connect
+    requiresImport: '(?:golang\.org/x/)?crypto/ssh$'
+    call: {name: ssh.Dial}
+  - id: net-dial
+    kind: net.dial
+    call: {name: net.Dial, targetArg: 1}
+    target: target
+  - id: net-dial-timeout
+    kind: net.dial
+    call: {name: net.DialTimeout, targetArg: 1}
+    target: target
+  - id: net-listen
+    kind: net.listen
+    call: {name: net.Listen, targetArg: 1}
+    target: target
+  - id: http-get
+    kind: http.request
+    call: {name: http.Get}
+    target: url
+  - id: http-post
+    kind: http.request
+    call: {name: http.Post}
+    target: url
+  - id: http-head
+    kind: http.request
+    call: {name: http.Head}
+    target: url
+  - id: http-new-request
+    kind: http.request
+    call: {name: http.NewRequest}
+  - id: http-new-request-context
+    kind: http.request
+    call: {name: http.NewRequestWithContext}
+  - id: http-handle-func
+    kind: http.handle
+    call: {name: http.HandleFunc}
+    extract:
+      - {attr: method, regex: '^\s*"([A-Z]+)\s'}
+      - {attr: path, regex: '^\s*"(?:[A-Z]+\s+)?([^"\s]+)"'}
+  - id: mux-handle-func
+    kind: http.handle
+    call: {name: mux.HandleFunc}
+    extract:
+      - {attr: method, regex: '^\s*"([A-Z]+)\s'}
+      - {attr: path, regex: '^\s*"(?:[A-Z]+\s+)?([^"\s]+)"'}
+  - id: http-handle
+    kind: http.handle
+    call: {name: http.Handle}
+  - id: mux-handle
+    kind: http.handle
+    call: {name: mux.Handle}
+  - id: os-write-file
+    kind: file.write
+    call: {name: os.WriteFile}
+    target: path
+  - id: os-create
+    kind: file.write
+    call: {name: os.Create}
+    target: path
