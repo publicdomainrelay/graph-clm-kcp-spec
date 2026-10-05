@@ -1,0 +1,37 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: ArchitectureModel
+metadata:
+  name: greenfield-market
+  namespace: default
+spec:
+  repository: greenfield-market
+  components:
+  - name: guest
+    roles: [guest]
+    context: guest
+    source: declared
+  - name: host
+    roles: [host]
+    context: host
+    source: declared
+  effects: []
+  flows:
+  - from: guest
+    to: host
+    initiator: host
+    channel: relay
+    carries: [network-info]
+    purpose: network-discovery
+    level: MUST
+    forbidden: true
+    source: declared
+  - from: guest
+    to: host
+    initiator: host
+    channel: relay
+    carries: [network-info]
+    purpose: network-discovery
+    level: SHOULD
+    source: observed
+    evidence: [e9]
+  triggers: []

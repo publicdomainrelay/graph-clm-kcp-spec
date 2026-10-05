@@ -127,6 +127,61 @@ function methodObservedNext(): ObservedFacts {
   return next;
 }
 
+function marketSpec(): SystemContextSpec {
+  return {
+    repository: "greenfield-market",
+    upstream: "self",
+    intent: "A market guest that reports its own network information.",
+    interactions: [
+      {
+        id: "i.report",
+        peer: "host",
+        initiator: "self",
+        channel: "relay",
+        carries: ["network-info"],
+        purpose: "network-discovery",
+        level: "MUST",
+      },
+      {
+        id: "i.no-reach-in",
+        peer: "host",
+        initiator: "peer",
+        channel: "relay",
+        carries: ["network-info"],
+        purpose: "network-discovery",
+        level: "MUST",
+        forbidden: true,
+      },
+    ],
+  };
+}
+
+function marketSpecNext(): SystemContextSpec {
+  const next = marketSpec();
+  next.interactions = [
+    {
+      id: "i.no-reach-in",
+      peer: "host",
+      initiator: "peer",
+      channel: "relay",
+      carries: ["network-info"],
+      purpose: "network-discovery",
+      level: "MUST",
+      forbidden: true,
+    },
+    {
+      id: "i.report",
+      peer: "host",
+      initiator: "self",
+      channel: "relay",
+      carries: ["network-info"],
+      purpose: "network-discovery",
+      level: "SHOULD",
+    },
+  ];
+  return next;
+}
+
 function golden(name: string): Delta {
   return JSON.parse(readFileSync(new URL(`../../testdata/delta/${name}`, import.meta.url), "utf8")) as Delta;
 }
@@ -136,6 +191,15 @@ test("the delta mirror matches the Go golden files", () => {
   assert.deepEqual(diffObserved(calcObserved(), subtractObserved()), golden("observed-edit.json"));
   assert.deepEqual(diff(methodSpec(), methodSpecNext()), golden("method-edit.json"));
   assert.deepEqual(diffObserved(methodObserved(), methodObservedNext()), golden("method-observed-edit.json"));
+  assert.deepEqual(diff(marketSpec(), marketSpecNext()), golden("interactions-edit.json"));
+});
+
+test("the model zone carries declared interactions", () => {
+  const rendered = renderModelZone("guest", "greenfield-market", marketSpec());
+  const parsed = parseModelZone(rendered);
+  assert.deepEqual(parsed.interactions, canonicalSpec(marketSpec()).interactions);
+  assert.equal(deltaEmpty(diff(marketSpec(), mergeDeclared(marketSpec(), parsed))), true);
+  assert.deepEqual(apply(marketSpec(), diff(marketSpec(), marketSpecNext())), canonicalSpec(marketSpecNext()));
 });
 
 test("a method keyed by its receiver is one entry of its own", () => {

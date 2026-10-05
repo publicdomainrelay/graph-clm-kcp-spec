@@ -1,4 +1,5 @@
 import {
+  canonicalInteractions,
   canonicalInterfaces,
   canonicalObserved,
   canonicalSet,
@@ -11,6 +12,8 @@ import {
   OP_REMOVED,
   type Delta,
   type FieldDelta,
+  type Interaction,
+  type InteractionDelta,
   type Interface,
   type InterfaceDelta,
   type ObservedDelta,
@@ -38,6 +41,8 @@ export function diff(oldSpec: SystemContextSpec, newSpec: SystemContextSpec): De
   if (requirements.length) out.requirements = requirements;
   const interfaces = diffInterfaces(oldSpec.interfaces ?? [], newSpec.interfaces ?? []);
   if (interfaces.length) out.interfaces = interfaces;
+  const interactions = diffInteractions(oldSpec.interactions ?? [], newSpec.interactions ?? []);
+  if (interactions.length) out.interactions = interactions;
   return out;
 }
 
@@ -67,6 +72,7 @@ export function apply(base: SystemContextSpec, change: Delta): SystemContextSpec
   if (change.codeRefs) out.codeRefs = applySet(base.codeRefs ?? [], change.codeRefs);
   if (change.requirements?.length) out.requirements = applyRequirements(base.requirements ?? [], change.requirements);
   if (change.interfaces?.length) out.interfaces = applyInterfaces(base.interfaces ?? [], change.interfaces);
+  if (change.interactions?.length) out.interactions = applyInteractions(base.interactions ?? [], change.interactions);
   return canonicalSpec(out);
 }
 
@@ -86,7 +92,7 @@ export function deltaEmpty(change: Delta): boolean {
   if (!emptySet(change.overlay) || !emptySet(change.dependsOn) || !emptySet(change.introduces) || !emptySet(change.codeRefs)) {
     return false;
   }
-  if (change.requirements?.length || change.interfaces?.length) return false;
+  if (change.requirements?.length || change.interfaces?.length || change.interactions?.length) return false;
   if (change.observed) {
     if (!emptySet(change.observed.files) || change.observed.interfaces?.length || change.observed.fingerprint) return false;
   }
@@ -109,6 +115,7 @@ export function count(change: Delta): Counts {
   }
   for (const entry of change.requirements ?? []) tally(counts, entry.op);
   for (const entry of change.interfaces ?? []) tally(counts, entry.op);
+  for (const entry of change.interactions ?? []) tally(counts, entry.op);
   if (change.observed) {
     counts.added += change.observed.files?.added?.length ?? 0;
     counts.removed += change.observed.files?.removed?.length ?? 0;
@@ -237,6 +244,54 @@ function applyInterfaces(base: readonly Interface[], change: readonly InterfaceD
     else if (entry.to) entries.set(entry.name, entry.to);
   }
   return canonicalInterfaces([...entries.values()]);
+}
+
+function diffInteractions(oldList: readonly Interaction[], newList: readonly Interaction[]): InteractionDelta[] {
+  const before = index(oldList, (entry) => entry.id);
+  const after = index(newList, (entry) => entry.id);
+  const out: InteractionDelta[] = [];
+  for (const id of unionKeys(before, after)) {
+    const from = before.get(id);
+    const to = after.get(id);
+    if (!from) {
+      out.push({ op: OP_ADDED, id, to: canonicalInteractions([to as Interaction])[0] });
+    } else if (!to) {
+      out.push({ op: OP_REMOVED, id, from: canonicalInteractions([from])[0] });
+    } else {
+      const canonicalFrom = canonicalInteractions([from])[0] as Interaction;
+      const canonicalTo = canonicalInteractions([to])[0] as Interaction;
+      if (same(canonicalFrom, canonicalTo)) continue;
+      out.push({
+        op: OP_CHANGED,
+        id,
+        from: canonicalFrom,
+        to: canonicalTo,
+        fields: changedInteractionFields(canonicalFrom, canonicalTo),
+      });
+    }
+  }
+  return out;
+}
+
+function applyInteractions(base: readonly Interaction[], change: readonly InteractionDelta[]): Interaction[] {
+  const entries = index(base, (entry) => entry.id);
+  for (const entry of change) {
+    if (entry.op === OP_REMOVED) entries.delete(entry.id);
+    else if (entry.to) entries.set(entry.id, entry.to);
+  }
+  return canonicalInteractions([...entries.values()]);
+}
+
+function changedInteractionFields(from: Interaction, to: Interaction): string[] {
+  const fields: string[] = [];
+  if (from.peer !== to.peer) fields.push("peer");
+  if (from.initiator !== to.initiator) fields.push("initiator");
+  if (from.channel !== to.channel) fields.push("channel");
+  if (!same(from.carries ?? [], to.carries ?? [])) fields.push("carries");
+  if (from.purpose !== to.purpose) fields.push("purpose");
+  if (from.level !== to.level) fields.push("level");
+  if ((from.forbidden ?? false) !== (to.forbidden ?? false)) fields.push("forbidden");
+  return fields.sort();
 }
 
 function changedInterfaceFields(from: Interface, to: Interface): string[] {

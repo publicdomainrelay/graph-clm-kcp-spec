@@ -1,7 +1,7 @@
 apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
-  name: v1alpha1-6.specchanges.specs.publicdomainrelay.dev
+  name: v1alpha1-7.specchanges.specs.publicdomainrelay.dev
 spec:
   group: specs.publicdomainrelay.dev
   names:
@@ -72,6 +72,90 @@ spec:
                     to:
                       type: string
                   type: object
+                interactions:
+                  items:
+                    properties:
+                      fields:
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
+                      from:
+                        properties:
+                          carries:
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: set
+                          channel:
+                            type: string
+                          forbidden:
+                            type: boolean
+                          id:
+                            type: string
+                          initiator:
+                            type: string
+                          level:
+                            enum:
+                            - MUST
+                            - SHOULD
+                            - MAY
+                            type: string
+                          peer:
+                            type: string
+                          purpose:
+                            type: string
+                        required:
+                        - id
+                        - peer
+                        - initiator
+                        type: object
+                      id:
+                        type: string
+                      op:
+                        enum:
+                        - added
+                        - removed
+                        - changed
+                        type: string
+                      to:
+                        properties:
+                          carries:
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: set
+                          channel:
+                            type: string
+                          forbidden:
+                            type: boolean
+                          id:
+                            type: string
+                          initiator:
+                            type: string
+                          level:
+                            enum:
+                            - MUST
+                            - SHOULD
+                            - MAY
+                            type: string
+                          peer:
+                            type: string
+                          purpose:
+                            type: string
+                        required:
+                        - id
+                        - peer
+                        - initiator
+                        type: object
+                    required:
+                    - op
+                    - id
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                  - id
+                  x-kubernetes-list-type: map
                 interfaces:
                   items:
                     properties:

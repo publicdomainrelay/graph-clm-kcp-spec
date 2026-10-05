@@ -75,6 +75,8 @@ const (
 	ConditionPolicyCompliant = "PolicyCompliant"
 
 	ConditionPolicyReady = "PolicyReady"
+
+	ConditionPolicyValid = "PolicyValid"
 )
 
 const (
@@ -117,6 +119,12 @@ const (
 	ReasonPolicyDenied     = "PolicyDenied"
 	ReasonPolicyRestored   = "PolicyRestored"
 	ReasonPolicyInvalid    = "PolicyInvalid"
+
+	ReasonPolicyDeniedAtSpec = "PolicyDeniedAtSpec"
+
+	ReasonPolicyAllowed = "PolicyAllowed"
+
+	ReasonPolicyGateError = "PolicyGateError"
 )
 
 const (

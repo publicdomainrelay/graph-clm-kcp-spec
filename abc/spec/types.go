@@ -238,6 +238,42 @@ type Interface struct {
 }
 
 const (
+	InitiatorSelf = "self"
+
+	InitiatorPeer = "peer"
+
+	DefaultInteractionLevel Level = LevelShould
+)
+
+func Initiators() []string {
+	return []string{InitiatorSelf, InitiatorPeer}
+}
+
+// Interaction is one declared flow between this context and a peer, keyed by
+// id. It is the spec-level fact a portable policy reads, so a decision about
+// who talks to whom is checkable before any code exists. A flow marked
+// forbidden is a declared "must never": it is kept in the model as a
+// declared-forbidden entry and a matching declared or observed flow is a
+// violation.
+type Interaction struct {
+	ID string `json:"id"`
+
+	Peer string `json:"peer"`
+
+	Initiator string `json:"initiator"`
+
+	Channel string `json:"channel,omitempty"`
+
+	Carries []string `json:"carries,omitempty"`
+
+	Purpose string `json:"purpose,omitempty"`
+
+	Level Level `json:"level,omitempty"`
+
+	Forbidden bool `json:"forbidden,omitempty"`
+}
+
+const (
 	ArchKindNode     = "node"
 	ArchKindDocument = "document"
 )
@@ -280,6 +316,7 @@ type SystemContextSpec struct {
 	Intent       string        `json:"intent,omitempty"`
 	Requirements []Requirement `json:"requirements,omitempty"`
 	Interfaces   []Interface   `json:"interfaces,omitempty"`
+	Interactions []Interaction `json:"interactions,omitempty"`
 	CodeRefs     []string      `json:"codeRefs,omitempty"`
 	Arch         *ArchSpec     `json:"arch,omitempty"`
 }

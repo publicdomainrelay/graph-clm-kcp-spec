@@ -127,6 +127,9 @@ func specSubject(context spec.SystemContext, previous []byte, removed bool) stri
 	for _, declared := range change.Interfaces {
 		parts = append(parts, op(declared.Op)+declared.Name)
 	}
+	for _, interaction := range change.Interactions {
+		parts = append(parts, op(interaction.Op)+interaction.ID)
+	}
 	return "spec(" + context.Name + "): " + joined(parts, "no declared change")
 }
 
@@ -552,6 +555,9 @@ func requirementDelta(baseline, current []spec.SystemContext) map[string][]strin
 		for _, requirement := range change.Requirements {
 			lines = append(lines, requirementLine(requirement))
 		}
+		for _, interaction := range change.Interactions {
+			lines = append(lines, interactionLine(interaction))
+		}
 		if len(lines) > 0 {
 			out[context.Name] = lines
 		}
@@ -571,6 +577,44 @@ func requirementLine(change spec.RequirementDelta) string {
 		fields = fmt.Sprintf("%s -> %s", change.From.Level, change.To.Level)
 	}
 	return fmt.Sprintf("changed `%s` (%s): %s", change.ID, fields, textOf(change.To))
+}
+
+func interactionLine(change spec.InteractionDelta) string {
+	switch change.Op {
+	case spec.OpAdded:
+		return fmt.Sprintf("interaction added `%s` (%s): %s", change.ID, levelOfInteraction(change.To), flowOf(change.To))
+	case spec.OpRemoved:
+		return fmt.Sprintf("interaction removed `%s` (%s)", change.ID, levelOfInteraction(change.From))
+	}
+	return fmt.Sprintf("interaction changed `%s` (%s): %s",
+		change.ID, strings.Join(change.Fields, ", "), flowOf(change.To))
+}
+
+func levelOfInteraction(interaction *spec.Interaction) spec.Level {
+	if interaction == nil {
+		return ""
+	}
+	return spec.CanonicalInteraction(*interaction).Level
+}
+
+func flowOf(interaction *spec.Interaction) string {
+	if interaction == nil {
+		return ""
+	}
+	fields := []string{
+		"initiator=" + interaction.Initiator,
+		"peer=" + interaction.Peer,
+	}
+	if interaction.Channel != "" {
+		fields = append(fields, "channel="+interaction.Channel)
+	}
+	if interaction.Purpose != "" {
+		fields = append(fields, "purpose="+interaction.Purpose)
+	}
+	if interaction.Forbidden {
+		fields = append(fields, "forbidden")
+	}
+	return quote(strings.Join(fields, " "))
 }
 
 func levelOf(requirement *spec.Requirement) spec.Level {

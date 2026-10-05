@@ -26,6 +26,7 @@ func Diff(old, new spec.SystemContextSpec) spec.Delta {
 	out.CodeRefs = diffSet(old.CodeRefs, new.CodeRefs)
 	out.Requirements = diffRequirements(old.Requirements, new.Requirements)
 	out.Interfaces = diffInterfaces(old.Interfaces, new.Interfaces)
+	out.Interactions = diffInteractions(old.Interactions, new.Interactions)
 	return out
 }
 
@@ -74,6 +75,9 @@ func Apply(base spec.SystemContextSpec, change spec.Delta) spec.SystemContextSpe
 	}
 	if len(change.Interfaces) > 0 {
 		out.Interfaces = applyInterfaces(base.Interfaces, change.Interfaces)
+	}
+	if len(change.Interactions) > 0 {
+		out.Interactions = applyInteractions(base.Interactions, change.Interactions)
 	}
 	return spec.Canonicalize(out)
 }
@@ -153,6 +157,22 @@ func Details(change spec.Delta) []string {
 	for _, declared := range change.Interfaces {
 		out = append(out, interfaceLine(declared))
 	}
+	for _, interaction := range change.Interactions {
+		out = append(out, interactionLine(interaction))
+	}
+	return out
+}
+
+// RemovedInteractionIDs lists, sorted, the interaction ids the delta deletes.
+// It is the set an apply has to see named explicitly before it will remove.
+func RemovedInteractionIDs(change spec.Delta) []string {
+	out := []string{}
+	for _, interaction := range change.Interactions {
+		if interaction.Op == spec.OpRemoved {
+			out = append(out, interaction.ID)
+		}
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -177,6 +197,17 @@ func requirementLine(change spec.RequirementDelta) string {
 		return "- " + change.ID
 	default:
 		return "~ " + change.ID + fieldSuffix(change.Fields)
+	}
+}
+
+func interactionLine(change spec.InteractionDelta) string {
+	switch change.Op {
+	case spec.OpAdded:
+		return "+ interaction " + change.ID
+	case spec.OpRemoved:
+		return "- interaction " + change.ID
+	default:
+		return "~ interaction " + change.ID + fieldSuffix(change.Fields)
 	}
 }
 
@@ -366,6 +397,89 @@ func changedInterfaceFields(from, to spec.Interface) []string {
 	}
 	sort.Strings(fields)
 	return fields
+}
+
+func diffInteractions(old, new []spec.Interaction) []spec.InteractionDelta {
+	before := indexInteractions(old)
+	after := indexInteractions(new)
+	keys := unionKeys(before, after)
+	out := []spec.InteractionDelta{}
+	for _, id := range keys {
+		from, hadBefore := before[id]
+		to, hasAfter := after[id]
+		switch {
+		case !hadBefore:
+			entry := spec.CanonicalInteraction(to)
+			out = append(out, spec.InteractionDelta{Op: spec.OpAdded, ID: id, To: &entry})
+		case !hasAfter:
+			entry := spec.CanonicalInteraction(from)
+			out = append(out, spec.InteractionDelta{Op: spec.OpRemoved, ID: id, From: &entry})
+		default:
+			canonicalFrom := spec.CanonicalInteraction(from)
+			canonicalTo := spec.CanonicalInteraction(to)
+			if reflect.DeepEqual(canonicalFrom, canonicalTo) {
+				continue
+			}
+			out = append(out, spec.InteractionDelta{
+				Op:     spec.OpChanged,
+				ID:     id,
+				From:   &canonicalFrom,
+				To:     &canonicalTo,
+				Fields: changedInteractionFields(canonicalFrom, canonicalTo),
+			})
+		}
+	}
+	return out
+}
+
+func applyInteractions(base []spec.Interaction, change []spec.InteractionDelta) []spec.Interaction {
+	entries := indexInteractions(base)
+	for _, entry := range change {
+		switch entry.Op {
+		case spec.OpAdded, spec.OpChanged:
+			if entry.To != nil {
+				entries[entry.ID] = *entry.To
+			}
+		case spec.OpRemoved:
+			delete(entries, entry.ID)
+		}
+	}
+	return spec.CanonicalInteractions(mapValues(entries))
+}
+
+func changedInteractionFields(from, to spec.Interaction) []string {
+	fields := []string{}
+	if from.Peer != to.Peer {
+		fields = append(fields, spec.FieldPeer)
+	}
+	if from.Initiator != to.Initiator {
+		fields = append(fields, spec.FieldInitiator)
+	}
+	if from.Channel != to.Channel {
+		fields = append(fields, spec.FieldChannel)
+	}
+	if !reflect.DeepEqual(from.Carries, to.Carries) {
+		fields = append(fields, spec.FieldCarries)
+	}
+	if from.Purpose != to.Purpose {
+		fields = append(fields, spec.FieldPurpose)
+	}
+	if from.Level != to.Level {
+		fields = append(fields, spec.FieldLevel)
+	}
+	if from.Forbidden != to.Forbidden {
+		fields = append(fields, spec.FieldForbidden)
+	}
+	sort.Strings(fields)
+	return fields
+}
+
+func indexInteractions(interactions []spec.Interaction) map[string]spec.Interaction {
+	out := make(map[string]spec.Interaction, len(interactions))
+	for _, interaction := range interactions {
+		out[interaction.ID] = interaction
+	}
+	return out
 }
 
 func diffObservedInterfaces(old, new []spec.ObservedInterface) []spec.ObservedInterfaceDelta {

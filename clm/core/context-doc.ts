@@ -1,7 +1,13 @@
 import { parse, stringify } from "yaml";
 
-import { canonicalInterfaces, canonicalRequirements, canonicalSet, canonicalSpec } from "./canonical.ts";
-import type { Interface, Requirement, SystemContextSpec } from "./types.ts";
+import {
+  canonicalInteractions,
+  canonicalInterfaces,
+  canonicalRequirements,
+  canonicalSet,
+  canonicalSpec,
+} from "./canonical.ts";
+import type { Interaction, Interface, Requirement, SystemContextSpec } from "./types.ts";
 
 export const MANAGED_BEGIN = "<!-- SPECD_MANAGED_BEGIN -->";
 export const MANAGED_END = "<!-- SPECD_MANAGED_END -->";
@@ -75,6 +81,7 @@ interface SpecBlock {
   introduces?: string[];
   requirements?: Requirement[];
   interfaces?: Interface[];
+  interactions?: Interaction[];
 }
 
 export function declared(inSpec: SystemContextSpec): SystemContextSpec {
@@ -83,6 +90,7 @@ export function declared(inSpec: SystemContextSpec): SystemContextSpec {
     upstream: inSpec.upstream ?? "",
     requirements: canonicalRequirements(inSpec.requirements ?? []),
     interfaces: canonicalInterfaces(inSpec.interfaces ?? []),
+    interactions: canonicalInteractions(inSpec.interactions ?? []),
   };
   if (inSpec.overlay?.length) out.overlay = canonicalSet(inSpec.overlay);
   if (inSpec.orchestrator) out.orchestrator = inSpec.orchestrator;
@@ -101,6 +109,7 @@ export function mergeDeclared(base: SystemContextSpec, declaredSpec: SystemConte
   out.introduces = declaredSpec.introduces;
   out.requirements = declaredSpec.requirements;
   out.interfaces = declaredSpec.interfaces;
+  out.interactions = declaredSpec.interactions;
   return canonicalSpec(out);
 }
 
@@ -181,6 +190,7 @@ function renderBlock(spec: SystemContextSpec): string {
     introduces: spec.introduces?.length ? spec.introduces : undefined,
     requirements: spec.requirements?.length ? spec.requirements : undefined,
     interfaces: spec.interfaces?.length ? spec.interfaces : undefined,
+    interactions: spec.interactions?.length ? spec.interactions : undefined,
   });
 }
 
@@ -199,6 +209,7 @@ function parseBlock(body: string): SystemContextSpec {
   if (Array.isArray(block.introduces)) out.introduces = block.introduces.map(String);
   if (Array.isArray(block.requirements)) out.requirements = block.requirements;
   if (Array.isArray(block.interfaces)) out.interfaces = block.interfaces;
+  if (Array.isArray(block.interactions)) out.interactions = block.interactions;
   return out;
 }
 

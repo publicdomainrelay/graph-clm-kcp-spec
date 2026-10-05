@@ -27,6 +27,7 @@ func runPolicyModel(args []string, stdout, stderr io.Writer) int {
 	defaultBranch := fs.String("default-branch", "main", "default code branch")
 	libraryDir := fs.String("library", "", "read the policy library from this directory instead of the branch")
 	output := fs.String("o", "text", "text or json")
+	propose := fs.Bool("propose-interactions", false, "print a YAML interactions block per context, proposed from the observed flows")
 	classifiers := stringsFlag{}
 	fs.Var(&classifiers, "classifiers", "directory of extra classifier packs; repeatable")
 	testGlobs := stringsFlag{}
@@ -108,6 +109,10 @@ func runPolicyModel(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 
+	if *propose {
+		fmt.Fprint(stdout, proposeInteractions(model))
+		return exitOK
+	}
 	if *output == "json" {
 		encoded, err := json.MarshalIndent(model, "", "  ")
 		if err != nil {
@@ -124,9 +129,158 @@ func runPolicyModel(args []string, stdout, stderr io.Writer) int {
 func modelContexts(contexts []spec.SystemContext) []policy.ModelContext {
 	out := make([]policy.ModelContext, 0, len(contexts))
 	for _, context := range contexts {
-		out = append(out, policy.ModelContext{Name: context.Name, Labels: context.Labels})
+		out = append(out, policy.ModelContext{
+			Name:         context.Name,
+			Labels:       context.Labels,
+			Interactions: declaredInteractionsOf(context.Spec.Interactions),
+		})
 	}
 	return out
+}
+
+func declaredInteractionsOf(interactions []spec.Interaction) []policy.DeclaredInteraction {
+	out := make([]policy.DeclaredInteraction, 0, len(interactions))
+	for _, interaction := range interactions {
+		out = append(out, policy.DeclaredInteraction{
+			Peer:      interaction.Peer,
+			Initiator: interaction.Initiator,
+			Channel:   interaction.Channel,
+			Carries:   interaction.Carries,
+			Purpose:   interaction.Purpose,
+			Level:     string(interaction.Level),
+			Forbidden: interaction.Forbidden,
+		})
+	}
+	return out
+}
+
+// proposeInteractions writes a pasteable interactions block per declared
+// context, derived from the observed flows whose source side is one of the
+// context's roles. It is a draft: the level is proposed as SHOULD and nothing
+// is applied.
+func proposeInteractions(model policy.ArchitectureModel) string {
+	builder := &strings.Builder{}
+	builder.WriteString("# Proposed interactions, derived from observed flows.\n")
+	builder.WriteString("# Paste a block into the spec block of its context, set the level, then apply.\n")
+	proposed := 0
+	for _, component := range model.Spec.Components {
+		label := component.Context
+		if label == "" {
+			// A role-owned file group has no context yet; propose under the
+			// component's own name so the block still says where it came from.
+			label = component.Name
+		}
+		sources := map[string]bool{component.Context: true, component.Name: true}
+		for _, role := range component.Roles {
+			sources[role] = true
+		}
+		lines := []string{}
+		seen := map[string]bool{}
+		for _, flow := range model.Spec.Flows {
+			if !policy.Observed(flow) || !sources[flow.From] {
+				continue
+			}
+			initiator := "peer"
+			if sources[flow.Initiator] {
+				initiator = "self"
+			}
+			proposal := policy.DeclaredInteraction{
+				Peer:      flow.To,
+				Initiator: initiator,
+				Channel:   flow.Channel,
+				Carries:   flow.Carries,
+				Purpose:   flow.Purpose,
+				Level:     string(policy.LevelShould),
+			}
+			id := interactionID(label, proposal)
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			lines = append(lines, renderInteraction(proposedInteraction{
+				ID:        id,
+				Peer:      proposal.Peer,
+				Initiator: proposal.Initiator,
+				Channel:   proposal.Channel,
+				Carries:   proposal.Carries,
+				Purpose:   proposal.Purpose,
+				Level:     proposal.Level,
+			}))
+		}
+		if len(lines) == 0 {
+			continue
+		}
+		proposed++
+		fmt.Fprintf(builder, "\n# context: %s\ninteractions:\n", label)
+		for _, line := range lines {
+			builder.WriteString(line)
+			builder.WriteString("\n")
+		}
+	}
+	if proposed == 0 {
+		builder.WriteString("# No observed flow maps to a declared context; nothing to propose.\n")
+	}
+	return builder.String()
+}
+
+type proposedInteraction struct {
+	ID string `json:"id"`
+
+	Peer string `json:"peer"`
+
+	Initiator string `json:"initiator"`
+
+	Channel string `json:"channel,omitempty"`
+
+	Carries []string `json:"carries,omitempty"`
+
+	Purpose string `json:"purpose,omitempty"`
+
+	Level string `json:"level"`
+}
+
+// renderInteraction writes one item in the field order the CRD and the CLM
+// block use, so a pasted proposal reads like the spec a person would write.
+func renderInteraction(proposal proposedInteraction) string {
+	builder := &strings.Builder{}
+	fmt.Fprintf(builder, "  - id: %s\n", proposal.ID)
+	fmt.Fprintf(builder, "    peer: %s\n", proposal.Peer)
+	fmt.Fprintf(builder, "    initiator: %s\n", proposal.Initiator)
+	if proposal.Channel != "" {
+		fmt.Fprintf(builder, "    channel: %s\n", proposal.Channel)
+	}
+	if len(proposal.Carries) > 0 {
+		fmt.Fprintf(builder, "    carries: [%s]\n", strings.Join(proposal.Carries, ", "))
+	}
+	if proposal.Purpose != "" {
+		fmt.Fprintf(builder, "    purpose: %s\n", proposal.Purpose)
+	}
+	fmt.Fprintf(builder, "    level: %s", proposal.Level)
+	return builder.String()
+}
+
+func interactionID(context string, proposal policy.DeclaredInteraction) string {
+	parts := []string{context, proposal.Peer, proposal.Purpose}
+	return "i." + slug(strings.Join(parts, "-"))
+}
+
+func slug(value string) string {
+	lowered := strings.ToLower(value)
+	builder := &strings.Builder{}
+	lastDash := false
+	for _, char := range lowered {
+		switch {
+		case char >= 'a' && char <= 'z', char >= '0' && char <= '9':
+			builder.WriteRune(char)
+			lastDash = false
+		default:
+			if !lastDash {
+				builder.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	return strings.Trim(builder.String(), "-")
 }
 
 func printModel(out io.Writer, commit string, model policy.ArchitectureModel) {

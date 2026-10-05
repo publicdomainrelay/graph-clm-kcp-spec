@@ -148,7 +148,7 @@ func TestName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "v1alpha1-6.systemcontexts.specs.publicdomainrelay.dev"; name != want {
+	if want := "v1alpha1-7.systemcontexts.specs.publicdomainrelay.dev"; name != want {
 		t.Fatalf("name = %q, want %q", name, want)
 	}
 }

@@ -97,6 +97,11 @@ usage:
       --diff-base also derives a CodeDiff between REF and the evaluated commit,
       so the provisioning and disabled-verification templates have an object
       to review
+  specctl policy eval --repo X --specs-only [--path <git repo>] [--library D] [-o text|json]
+      [--strict]
+      the spec-time half of the gate, offline: build the ArchitectureModel from
+      the SystemContexts on the open-architecture branch, declared facts only,
+      and evaluate the library against it. No code is indexed
   specctl policy effects [--worktree P | --commit C] [--repo X] [--path <git repo>]
       [--classifiers DIR] [--kind K] [--no-extras] [-o text|json]
       classify the code into the fixed effect vocabulary (net.dial, ssh.connect,
@@ -575,6 +580,7 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 	defaultBranch := fs.String("default-branch", "main", "default code branch")
 	libraryDir := fs.String("library", "", "read the policy library from this directory instead of the branch")
 	diffBase := fs.String("diff-base", "", "ref to diff the evaluated commit against; builds a CodeDiff")
+	specsOnly := fs.Bool("specs-only", false, "evaluate the declared state alone: the ArchitectureModel from the specs, no code and no effects")
 	output := fs.String("o", "text", "text or json")
 	strict := fs.Bool("strict", false, "exit 1 when a deny violation survives the cap")
 	testGlobs := stringsFlag{}
@@ -603,6 +609,39 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 	if len(library.Templates) == 0 {
 		fmt.Fprintf(stderr, "specctl policy eval: no policies for %s; run specctl policy init --repo %s\n", *repository, *repository)
 		return exitError
+	}
+
+	if *specsOnly {
+		contexts := loadContexts(ctx, *path, *repository, *branch, *defaultBranch)
+		result, err := policyeval.CheckSpecs(ctx, policyeval.SpecInput{
+			Repository: *repository,
+			Contexts:   contexts,
+			Binding:    library.Manifest.Binding(),
+			Library:    library,
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
+			return exitError
+		}
+		store := oagit.Store{Repo: *path}
+		if tip, tipErr := store.Tip(ctx, oabranch.RefFor(*repository, *branch, *defaultBranch)); tipErr == nil {
+			result.Report.Commit = tip
+		}
+		if *output == "json" {
+			encoded, err := json.MarshalIndent(result.Report, "", "  ")
+			if err != nil {
+				fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
+				return exitError
+			}
+			fmt.Fprintln(stdout, string(encoded))
+		} else {
+			printReport(stdout, result.Report)
+			fmt.Fprintf(stdout, "spec gate: %s\n", specGateVerdict(result.Decision))
+		}
+		if *strict && result.Decision.Blocked {
+			return exitError
+		}
+		return exitOK
 	}
 
 	codeDir := *worktree
@@ -743,6 +782,13 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	return exitOK
+}
+
+func specGateVerdict(decision policy.Decision) string {
+	if !decision.Blocked {
+		return fmt.Sprintf("allowed (%d warned, %d dryrun)", len(decision.Warned), len(decision.DryRun))
+	}
+	return "denied: " + strings.Join(decision.Messages(), "; ")
 }
 
 func runPolicyEffects(args []string, stdout, stderr io.Writer) int {

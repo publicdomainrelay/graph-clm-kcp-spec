@@ -136,6 +136,29 @@ func (c *Controller) runBatch(ctx context.Context, namespace string, repository 
 		return 0, nil
 	}
 
+	work, idle, err := c.splitByDelta(ctx, namespace, members)
+	if err != nil {
+		c.recordBatchFailure(ctx, namespace, members, realize.Result{}, err, len(repository.Spec.Verify) > 0)
+		return 0, nil
+	}
+
+	// The spec-time gate runs on the changes that would realize, before the
+	// agent and before the batch is marked Running.
+	if len(work) > 0 {
+		gated, err := c.specGate(ctx, namespace, repository, work)
+		if err != nil {
+			c.recordPolicyGateError(ctx, namespace, members, err)
+			return 0, nil
+		}
+		if gated != nil && gated.Decision.Blocked {
+			c.recordPolicyDenied(ctx, namespace, members, gated)
+			return 0, nil
+		}
+		if gated != nil {
+			c.clearPolicyDenial(ctx, namespace, members)
+		}
+	}
+
 	for _, member := range members {
 		if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, member.Name, map[string]any{
 			"phase":   specapi.PhaseRunning,
@@ -143,12 +166,6 @@ func (c *Controller) runBatch(ctx context.Context, namespace string, repository 
 		}); err != nil {
 			return 0, err
 		}
-	}
-
-	work, idle, err := c.splitByDelta(ctx, namespace, members)
-	if err != nil {
-		c.recordBatchFailure(ctx, namespace, members, realize.Result{}, err, len(repository.Spec.Verify) > 0)
-		return 0, nil
 	}
 
 	result := realize.Result{Context: members[0].Spec.SystemContext, Branch: batchBranch(work, idle, members)}

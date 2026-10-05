@@ -16,6 +16,17 @@ export interface Interface {
   file?: string;
 }
 
+export interface Interaction {
+  id: string;
+  peer: string;
+  initiator: "self" | "peer";
+  channel?: string;
+  carries?: string[];
+  purpose?: string;
+  level?: Level;
+  forbidden?: boolean;
+}
+
 export interface ObservedInterface {
   name: string;
   kind?: string;
@@ -41,6 +52,7 @@ export interface SystemContextSpec {
   intent?: string;
   requirements?: Requirement[];
   interfaces?: Interface[];
+  interactions?: Interaction[];
   codeRefs?: string[];
 }
 
@@ -134,6 +146,14 @@ export interface InterfaceDelta {
   fields?: string[];
 }
 
+export interface InteractionDelta {
+  op: Op;
+  id: string;
+  from?: Interaction;
+  to?: Interaction;
+  fields?: string[];
+}
+
 export interface ObservedInterfaceDelta {
   op: Op;
   name: string;
@@ -158,5 +178,6 @@ export interface Delta {
   codeRefs?: StringSetDelta;
   requirements?: RequirementDelta[];
   interfaces?: InterfaceDelta[];
+  interactions?: InteractionDelta[];
   observed?: ObservedDelta;
 }

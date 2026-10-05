@@ -817,7 +817,22 @@ bin/specctl policy eval --repo deno-kcp --commit 0f1078d --path <clone> \
   --diff-base 0f1078d^ --library policies/library    # CodeDiff rules need --diff-base
 bin/specctl policy effects --worktree fixtures/market-mini/compliant
 bin/specctl policy model --worktree fixtures/market-mini/compliant
+bin/specctl policy model --worktree fixtures/market-mini/compliant --propose-interactions
+bin/specctl policy eval --repo greenfield-market --specs-only --path <clone> --library policies/packs/conformance
 ```
+
+`spec.interactions` declares a flow with a peer before any code exists (`id`,
+`peer`, `initiator: self|peer`, `channel`, `carries`, `purpose`, `level`,
+`forbidden`), the spec hash covers it, and the CLM document carries it. The
+**spec-time gate** is `specd --policy-library DIR`: a `SpecToCode` change is
+evaluated against the ArchitectureModel built from the post-delta specs alone
+and a `deny` violation ends it as `Failed` with `PolicyValid=False` and
+`reason: PolicyDeniedAtSpec`, before the agent runs. `specctl policy eval
+--specs-only --repo X --library DIR` is the same check offline, and
+`specctl policy model --propose-interactions` drafts the blocks from the
+observed flows. `policies/packs/conformance/` is the portable pack (an observed
+flow with no declaration warns, a declared MUST flow with no evidence warns, a
+flow matching a declared must-never is denied).
 
 `policy effects` classifies the code into the fixed effect vocabulary
 (`net.dial`, `http.request`, `ssh.connect`, `container.exec`, ...) with the
@@ -1154,7 +1169,7 @@ works against it without extra flags.
 | Kind | Purpose | Key fields |
 | --- | --- | --- |
 | `Repository` | a codebase under management, and the one manifest that populates an unknown one | `spec.source.path` / `spec.source.git`, `spec.branch`, `spec.verify`, `spec.acceptance[]` (name, command, timeoutSeconds, gate, env), `spec.agent`, `spec.populate` (partition, include, exclude, summarize, arch, root, agent), `status.phase`, `status.contexts`, `status.resolvedPath`, the `Indexed` and `Populated` conditions |
-| `SystemContext` | one spec node (one system context) | `spec.repository`, `spec.upstream`, `spec.overlay`, `spec.orchestrator`, `spec.dependsOn[]`, `spec.introduces[]`, `spec.intent`, `spec.requirements[]`, `spec.interfaces[]`, `spec.codeRefs[]`, `spec.arch` |
+| `SystemContext` | one spec node (one system context) | `spec.repository`, `spec.upstream`, `spec.overlay`, `spec.orchestrator`, `spec.dependsOn[]`, `spec.introduces[]`, `spec.intent`, `spec.requirements[]`, `spec.interfaces[]`, `spec.interactions[]`, `spec.codeRefs[]`, `spec.arch` |
 | `SpecChange` | one direction-tagged change, the unit of work | `spec.systemContext`, `spec.direction`, `spec.delta`, `spec.toSpecHash` / `spec.toCommit`, `status.phase`, `status.branch`, `status.commit`, `status.verifyExitCode`, `status.filesTouched`, `status.acceptance[]` (name, exitCode, durationSeconds, passed, outputTail) |
 
 `SystemContext.status` carries the code facts (`observed.files`,

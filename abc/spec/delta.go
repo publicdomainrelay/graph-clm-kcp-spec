@@ -13,6 +13,13 @@ const (
 	FieldFile      = "file"
 	FieldLine      = "line"
 	FieldID        = "codegraphId"
+
+	FieldPeer      = "peer"
+	FieldInitiator = "initiator"
+	FieldChannel   = "channel"
+	FieldCarries   = "carries"
+	FieldPurpose   = "purpose"
+	FieldForbidden = "forbidden"
 )
 
 type FieldDelta struct {
@@ -47,6 +54,18 @@ type InterfaceDelta struct {
 	From *Interface `json:"from,omitempty"`
 
 	To *Interface `json:"to,omitempty"`
+
+	Fields []string `json:"fields,omitempty"`
+}
+
+type InteractionDelta struct {
+	Op string `json:"op"`
+
+	ID string `json:"id"`
+
+	From *Interaction `json:"from,omitempty"`
+
+	To *Interaction `json:"to,omitempty"`
 
 	Fields []string `json:"fields,omitempty"`
 }
@@ -90,6 +109,8 @@ type Delta struct {
 
 	Interfaces []InterfaceDelta `json:"interfaces,omitempty"`
 
+	Interactions []InteractionDelta `json:"interactions,omitempty"`
+
 	Observed *ObservedDelta `json:"observed,omitempty"`
 }
 
@@ -100,7 +121,7 @@ func (d Delta) Empty() bool {
 	if !emptySet(d.Overlay) || !emptySet(d.DependsOn) || !emptySet(d.Introduces) || !emptySet(d.CodeRefs) {
 		return false
 	}
-	if len(d.Requirements) > 0 || len(d.Interfaces) > 0 {
+	if len(d.Requirements) > 0 || len(d.Interfaces) > 0 || len(d.Interactions) > 0 {
 		return false
 	}
 	if d.Observed != nil {
@@ -144,6 +165,9 @@ func (d Delta) Count() Counts {
 	}
 	for _, declared := range d.Interfaces {
 		counts.add(declared.Op)
+	}
+	for _, interaction := range d.Interactions {
+		counts.add(interaction.Op)
 	}
 	if d.Observed != nil {
 		if d.Observed.Files != nil {

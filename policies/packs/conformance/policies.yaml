@@ -1,0 +1,3 @@
+defaultEnforcement: deny
+repository: conformance
+version: "1"

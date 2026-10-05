@@ -120,6 +120,11 @@ type Options struct {
 
 	BatchWindow time.Duration
 
+	// PolicyLibrary is the directory of the policy tree (policies.yaml,
+	// templates/, constraints/) the spec-time gate reads. Empty turns the gate
+	// off; a library with no templates is a no-op.
+	PolicyLibrary string
+
 	// LogDir keeps the full agent log and the raw verify output of a realized
 	// change. Empty means no log is kept; the change record carries the
 	// agent's report and the verify summary either way.

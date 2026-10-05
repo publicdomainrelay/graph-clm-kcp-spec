@@ -479,12 +479,97 @@ Honest reading:
 - `net.dial` 0.000: `serve.addRelay` dials the relay websocket inside the serve
   module; the caller never opens one, so there is no site to classify.
 
-### G3. Declared interactions
+### G3. Declared interactions -- done (`ddb5c76`, `144c16f`, `795724f`)
 
-- The SystemContext `interactions` schema: CRD + schemagen + CLM block + the
-  apply guard.
-- Populate/CodeToSpec propose interactions.
-- The declared-vs-observed conformance rule.
+What is built:
+
+- **The schema.** `SystemContext.spec.interactions` is a keyed list (`id`,
+  `peer`, `initiator`, `channel`, `carries`, `purpose`, `level`, `forbidden`)
+  in `abc/spec`, in the CRD, in `deploy/apiresourceschemas` (schemagen
+  revision 6, the APIExport names bumped with it) and in the delta of a
+  `SpecChange`. `abc/spec.Canonicalize` sorts it by id and defaults the level
+  to `SHOULD`, so an unset level and an explicit `SHOULD` hash the same, and
+  `HashSystemContextSpec` covers the interactions: editing them is a real spec
+  change. `ValidateSystemContext` refuses a missing id, a duplicate id, a
+  missing peer, an initiator that is not `self` or `peer`, an unknown level and
+  an empty carry. `abc/mirror` and `abc/oabranch` round trip the block to
+  `specs/*.yaml` and name an interaction change in the branch record. The
+  delta algebra (`abc/delta`, `spec.Delta`, the CLM mirror in `clm/core/delta.ts`)
+  diffs it by id; a new golden `testdata/delta/interactions-edit.json` pins the
+  JSON for both sides, and the CLM test compares them.
+- **The CLM block.** `clm/core` renders and parses `interactions:` in the spec
+  block (Go in `abc/clm`, TypeScript in `clm/core`), `impl/clm` refuses a
+  removal the document does not name under `removed:` or pass to
+  `--allow-remove` -- interactions and requirements share the marker -- and
+  `cc-clm-mod`'s vendored core is rebuilt. `pi-hydradb-clm` reads the same core.
+- **The model.** `abc/policy` builds declared flows from the interactions: each
+  context's own list with the context as its self, `initiator: self|peer`
+  resolved to the role that initiates, a `forbidden` marker kept as its own
+  declared entry (dedupe never merges it with a flow that is not forbidden)
+  and a matching observed flow merged to `both`. `ModelFlow` gained `level`
+  and `forbidden`. `lib.specd` gained `forbidden(flow)`, `flow_level(flow, l)`,
+  `same_flow(a, b)` and `forbidden_matches(flow)`, with opa unit tests; the
+  directed shape they compare -- initiator, the role it acts on, channel,
+  purpose -- is mirrored by Go's `policy.SameShape`. The model now carries the
+  namespace `default`, without which an inventory lookup from a rule found
+  nothing.
+- **The conformance pack.** `policies/packs/conformance/` with three templates
+  over the model: `ConformanceObservedUndeclared` (warn, an observed flow with
+  no declared interaction of the same shape), `ConformanceMustUnrealized`
+  (warn, a declared `MUST` flow with no observed evidence once the model
+  carries effects) and `ConformanceForbiddenFlow` (deny, a declared or observed
+  flow matching a declared must-never). Each has a constraint and a gator suite
+  with an allowed and a denied case (6/6), the rules read optional flow fields
+  with `object.get` (a flow without `evidence`, `channel`, `purpose` or
+  `initiator` is common), and `impl/policyeval` fails when `dist/`,
+  `CATALOGUE.md` or the embedded lib goes stale.
+- **Proposing interactions.** `specctl policy model --propose-interactions`
+  prints a pasteable `interactions:` block per component from the observed
+  flows, with the initiator read off the model and the level proposed as
+  `SHOULD`. The CodeToSpec drafting prompt is not yet given the flows: the
+  summarize path has no binding or effects, so that half is G6's (it needs the
+  binding G4 lands). The CLI is the minimum the plan asked for and it works on
+  a real checkout.
+- **The spec-time gate.** `policyeval.CheckSpecs` builds the ArchitectureModel
+  from declared facts only (the post-delta specs, the binding, no code, no
+  effects) and evaluates the library; `specd --policy-library DIR` calls it in
+  the realize path before the agent runs. A deny is recorded on every member of
+  the batch as `phase: Failed`, the message names the constraints, the
+  condition `PolicyValid=False` carries `reason: PolicyDeniedAtSpec`, no
+  worktree branch is opened and nothing is realized; a library that cannot be
+  read fails the change with `PolicyGateError` rather than passing silently,
+  and a change the gate now accepts has the condition cleared to `True`. The
+  gate is off unless `--policy-library` is set (or `SPECD_POLICY_LIBRARY`).
+  `specctl policy eval --specs-only` is the same check offline: it reads the
+  contexts from the `open-architecture/<repository>` branch, builds the
+  declared model and prints the report and `spec gate: allowed|denied`, with
+  `--strict` for exit 1.
+- **The live proof.** `fixtures/greenfield-market` is a spec-only repository
+  (a README and a plan, no code). `test/e2e/policy_gate_live_test.go` starts a
+  private kcp, applies the repository and two contexts, settles them against a
+  clean spec, then edits the host to declare `initiator: self` toward the guest:
+  the `SpecToCode` change comes back `Failed` with
+  `policy denied at spec time: ... matches the declared must-never guest -> host`,
+  `PolicyValid=False/PolicyDeniedAtSpec`, HEAD unchanged and no `spec/*` branch.
+  The fixed spec (the guest initiates) passes the gate, realizes with the
+  scripted agent and lands `market/host-report.md`. Green in 12 s.
+
+Checked by hand too: the same two runs through `specctl policy eval
+--specs-only --library policies/packs/conformance` on a temporary clone whose
+`open-architecture/greenfield-market` branch carries the violating spec
+(`spec gate: denied: ...`, 1 deny violation) and the fixed one (`clean`,
+`spec gate: allowed`, exit 0 under `--strict`).
+
+Remaining, honestly:
+
+- Pack import (`imports: [{pack: ...}]`), pinning and `policy bind` are G4/G6;
+  the conformance pack is a directory a repository copies, and the binding is
+  the repository's own `policies.yaml` (the e2e runs the pack with an empty
+  binding, where a context name is its own role).
+- The drafting prompt does not yet receive the observed flows (G6, above).
+- `interactions` are not seeded from an open architecture document and
+  `specctl export --format arch` does not carry them (the arch node body is
+  free-form, so nothing is lost).
 
 ### G4. Packs
 

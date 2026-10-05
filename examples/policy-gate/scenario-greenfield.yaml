@@ -1,0 +1,12 @@
+# The scripted agent of the spec-time gate live test. The spec gate runs
+# before the agent, so the violating edit never reaches it; the fixed spec
+# does, and the agent writes the one file the fixed spec asks for.
+realize:
+  host:
+    - write:
+        path: market/host-report.md
+        contents: |
+          # The host's side of the report
+
+          The host accepts the guest's network report on /v1/on-network and
+          records it. It never asks the guest for it.

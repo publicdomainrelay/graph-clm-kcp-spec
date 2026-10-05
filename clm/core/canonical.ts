@@ -1,4 +1,6 @@
-import type { Interface, ObservedFacts, ObservedInterface, Requirement, SystemContextSpec } from "./types.ts";
+import type { Interaction, Interface, ObservedFacts, ObservedInterface, Requirement, SystemContextSpec } from "./types.ts";
+
+export const DEFAULT_INTERACTION_LEVEL = "SHOULD";
 
 export function canonicalSet(values: readonly string[]): string[] {
   return [...new Set(values)].sort();
@@ -14,10 +16,25 @@ export function canonicalInterfaces(interfaces: readonly Interface[]): Interface
   return [...interfaces].sort((left, right) => (left.name < right.name ? -1 : 1));
 }
 
+export function canonicalInteraction(interaction: Interaction): Interaction {
+  return {
+    ...interaction,
+    carries: canonicalSet(interaction.carries ?? []),
+    level: interaction.level ?? DEFAULT_INTERACTION_LEVEL,
+  };
+}
+
+export function canonicalInteractions(interactions: readonly Interaction[]): Interaction[] {
+  return [...interactions]
+    .map(canonicalInteraction)
+    .sort((left, right) => (left.id < right.id ? -1 : 1));
+}
+
 export function canonicalSpec(inSpec: SystemContextSpec): SystemContextSpec {
   const out: SystemContextSpec = { ...inSpec };
   out.requirements = canonicalRequirements(inSpec.requirements ?? []);
   out.interfaces = canonicalInterfaces(inSpec.interfaces ?? []);
+  out.interactions = canonicalInteractions(inSpec.interactions ?? []);
   out.codeRefs = canonicalSet(inSpec.codeRefs ?? []);
   out.overlay = canonicalSet(inSpec.overlay ?? []);
   out.dependsOn = canonicalSet(inSpec.dependsOn ?? []);
