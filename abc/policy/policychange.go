@@ -108,7 +108,7 @@ type PolicyChangeStatus struct {
 	// Binding is the roles and vocabulary a bind change proposed.
 	Binding *Binding `json:"binding,omitempty"`
 
-	Violations []Violation `json:"violations,omitempty"`
+	Violations []CompactViolation `json:"violations,omitempty"`
 
 	Attempt int `json:"attempt,omitempty"`
 
@@ -119,6 +119,42 @@ type PolicyChangeStatus struct {
 	Message string `json:"message,omitempty"`
 
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// CompactViolation is a violation as a status field carries it: the report's
+// fields flattened, so a reader does not have to decode an ObjectRef.
+type CompactViolation struct {
+	Policy string `json:"policy,omitempty"`
+
+	Constraint string `json:"constraint,omitempty"`
+
+	Enforcement Enforcement `json:"enforcement,omitempty"`
+
+	Severity Severity `json:"severity,omitempty"`
+
+	Msg string `json:"msg,omitempty"`
+
+	Object string `json:"object,omitempty"`
+
+	File string `json:"file,omitempty"`
+
+	Line int `json:"line,omitempty"`
+}
+
+func CompactViolationOf(violation Violation) CompactViolation {
+	out := CompactViolation{
+		Policy:      violation.Policy,
+		Constraint:  violation.Constraint,
+		Enforcement: violation.Enforcement,
+		Severity:    violation.Severity,
+		Msg:         violation.Msg,
+		Object:      violation.Object.String(),
+	}
+	if violation.Location != nil {
+		out.File = violation.Location.File
+		out.Line = violation.Location.Line
+	}
+	return out
 }
 
 type PolicyChange struct {

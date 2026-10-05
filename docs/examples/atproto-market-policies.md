@@ -315,3 +315,34 @@ line of the provisioning-lifecycle emitter.
 | `guest-report-driven-emission` | the guest identity is emitted from an inbound handler that receives the guest's report, not from the provisioning lifecycle | the guest reports itself; the host does not derive its identity |
 | `guest-report-driven-onnetwork` | the `vm.onNetwork` record is emitted from an inbound handler that receives the guest's report, not from the provisioning lifecycle | the guest reports itself on the network; the host does not announce it |
 | `guest-report-cloud-init` | a cloud-init `UserDataModule` publishes the guest's address or routing outbound | the guest transport is born from cloud-init and reports out |
+
+# Generated: the same two invariants, authored from one sentence
+
+Plan 0009 G6 generates the policies from the operator's sentence instead of
+hand-writing them. This is the real run: a fresh clone,
+`/home/johnandersen777/policy-g6-work/atproto-market`, never edited and never
+pushed, with the policy branch seeded from `examples/policies/atproto-market`
+(the G4 binding, so the harness reads the same roles and vocabulary the pack
+does).
+
+```bash
+git clone https://github.com/publicdomainrelay/atproto-market \
+  /home/johnandersen777/policy-g6-work/atproto-market
+cd /home/johnandersen777/policy-g6-work/atproto-market
+bin/specctl up --repo . --agent claude --summarize=false
+
+bin/specctl policy generate --repo atproto-market --slug relay-only-guest-ssh \
+  --prompt "integration tests with bidder and requester MUST always make ssh connections over the relay" \
+  --requirement lib-requester-xrpc#r.relay --wait
+bin/specctl policy accept atproto-market-relay-only-guest-ssh
+
+bin/specctl policy generate --repo atproto-market --slug guest-reports-network \
+  --prompt "the bidder and the compute provider MUST NEVER reach into the guest for the vm.onNetwork event, the guest MUST reach out to it to provide the address, routing / iroh / fedproxy info" \
+  --requirement lib-market-bidder-compute#r.on-network --enforcement deny --wait
+bin/specctl policy accept atproto-market-guest-reports-network
+
+bin/specctl policy bind --repo atproto-market --pack rfp-guest-isolation --wait
+```
+
+The harness is `deepseek-claude` (the default agent kind), one model call per
+attempt, about five minutes each.

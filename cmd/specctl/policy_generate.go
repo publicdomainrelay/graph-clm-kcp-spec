@@ -253,12 +253,9 @@ func printPolicyChange(out io.Writer, change *policy.PolicyChange) {
 	}
 	fmt.Fprintf(out, "violations against the head model: %d\n", len(change.Status.Violations))
 	for _, violation := range change.Status.Violations {
-		location := ""
-		if violation.Location != nil {
-			location = violation.Location.File
-			if violation.Location.Line > 0 {
-				location = fmt.Sprintf("%s:%d", violation.Location.File, violation.Location.Line)
-			}
+		location := violation.File
+		if violation.Line > 0 {
+			location = fmt.Sprintf("%s:%d", violation.File, violation.Line)
 		}
 		fmt.Fprintf(out, "  %-8s %-10s %s  %s\n", violation.Enforcement, violation.Severity, violation.Constraint, location)
 		fmt.Fprintf(out, "           %s\n", violation.Msg)

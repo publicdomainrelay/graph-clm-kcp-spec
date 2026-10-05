@@ -694,18 +694,9 @@ func (c *Controller) recordPolicyEvaluated(ctx context.Context, namespace string
 			Output: checksOutput(draft.checks),
 		}
 	}
-	violations := []map[string]any{}
+	violations := make([]policy.CompactViolation, 0, len(draft.report.Violations))
 	for _, violation := range draft.report.Violations {
-		violations = append(violations, map[string]any{
-			"policy":      violation.Policy,
-			"constraint":  violation.Constraint,
-			"enforcement": string(violation.Enforcement),
-			"severity":    string(violation.Severity),
-			"msg":         violation.Msg,
-			"object":      violation.Object.String(),
-			"file":        locationFile(violation),
-			"line":        locationLine(violation),
-		})
+		violations = append(violations, policy.CompactViolationOf(violation))
 	}
 	status["violations"] = violations
 	if policyCommit != "" {
@@ -839,20 +830,6 @@ func checksOutput(checks []policy.Check) string {
 func evaluatedMessage(draft policyDraft) string {
 	return fmt.Sprintf("%d check(s) passed, %d violation(s) against the head model",
 		passedChecks(draft.checks), len(draft.report.Violations))
-}
-
-func locationFile(violation policy.Violation) string {
-	if violation.Location == nil {
-		return ""
-	}
-	return violation.Location.File
-}
-
-func locationLine(violation policy.Violation) int {
-	if violation.Location == nil {
-		return 0
-	}
-	return violation.Location.Line
 }
 
 // readTree reads every file of a directory, keyed by its slash path.
