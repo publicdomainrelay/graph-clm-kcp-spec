@@ -486,11 +486,17 @@ func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Wr
 	}
 	add[policy.CataloguePath] = policyeval.Catalogue(library)
 	written = append(written, policy.CataloguePath)
-	if len(entries) > 0 || len(members) > 0 {
-		pins := make([]policy.MemberLock, 0, len(members))
-		for _, member := range members {
-			pins = append(pins, member.Lock())
-		}
+	// A build that resolved no member -- `policy test`, which renders the
+	// library and reads no other repository -- keeps the pins the lock already
+	// carries instead of dropping them.
+	pins := []policy.MemberLock{}
+	if existing := lockOf(library); existing != nil {
+		pins = append(pins, existing.Members...)
+	}
+	for _, member := range members {
+		pins = append(pins, member.Lock())
+	}
+	if len(entries) > 0 || len(pins) > 0 {
 		encoded, err := policyeval.EncodeLockWithMembers(entries, pins)
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl policy build: %v\n", err)
