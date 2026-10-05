@@ -491,9 +491,10 @@ are pushed.
    - **kcp metadata leaked into the comparison.** kcp adds `kcp.io/cluster` to
      every object it serves, and the kcp form of a template carries the slug as
      an annotation while the branch keeps it in the directory name. Both sides
-     of `policykcp.Distinct` therefore always differed, so every Repository
-     resync rewrote the policy branch from kcp and committed cluster metadata
-     into it. `ParseTemplateObject` drops both now and `Files` writes the
+     of `policykcp.Distinct` therefore always differed, so the reconcile took
+     the kcp-to-branch direction once per restore and wrote cluster metadata
+     into the policy branch (it stopped there only because the branch then
+     matched kcp). `ParseTemplateObject` drops both now and `Files` writes the
      branch header the way `specctl policy build` does.
    - **A failing template hid the rest.** `Apply` returned at the first error,
      so a restore that could not create one constraint CRD left kcp half
