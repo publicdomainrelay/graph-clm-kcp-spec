@@ -425,6 +425,9 @@ func runPolicyBuild(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	target := addPolicyTargetFlags(fs)
 	relock := fs.Bool("relock", false, "write the resolved pack digests into "+policy.LockPath+" even when a pin moved")
+	cacheDir := fs.String("cache-dir", defaultCacheDir(), "where a member repository is cloned")
+	memberPathFlags := memberPaths{}
+	fs.Var(memberPathFlags, "member", "clone the named member from a local path instead of its url (name=path); repeatable")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -433,10 +436,10 @@ func runPolicyBuild(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "specctl policy build: --repo is required when writing a policy branch")
 		return exitUsage
 	}
-	return buildTarget(context.Background(), target, stdout, stderr, *relock)
+	return buildTarget(context.Background(), target, stdout, stderr, *relock, *cacheDir, memberPathFlags)
 }
 
-func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Writer, relock bool) int {
+func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Writer, relock bool, cacheDir string, memberPathFlags memberPaths) int {
 	raw, err := target.loadRaw(ctx)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy build: %v\n", err)
@@ -447,6 +450,17 @@ func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Wr
 		fmt.Fprintf(stderr, "specctl policy build: %v\n", err)
 		return exitError
 	}
+	members, err := policyeval.ResolveMembers(ctx, memberRefs(library, cacheDir), library, policyeval.MemberOptions{
+		CacheDir: cacheDir,
+		Lock:     lockOf(library),
+		Verify:   !relock,
+		Paths:    memberPathFlags,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy build: %v\n", err)
+		return exitError
+	}
+	defer cleanupMembers(members)
 	if len(library.Templates) == 0 && !target.onBranch() {
 		fmt.Fprintf(stderr, "specctl policy build: %s has no templates\n", target.dir)
 		return exitError
@@ -468,8 +482,12 @@ func buildTarget(ctx context.Context, target *policyTarget, stdout, stderr io.Wr
 	}
 	add[policy.CataloguePath] = policyeval.Catalogue(library)
 	written = append(written, policy.CataloguePath)
-	if len(entries) > 0 {
-		encoded, err := policyeval.EncodeLock(entries)
+	if len(entries) > 0 || len(members) > 0 {
+		pins := make([]policy.MemberLock, 0, len(members))
+		for _, member := range members {
+			pins = append(pins, member.Lock())
+		}
+		encoded, err := policyeval.EncodeLockWithMembers(entries, pins)
 		if err != nil {
 			fmt.Fprintf(stderr, "specctl policy build: %v\n", err)
 			return exitError
@@ -515,7 +533,7 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 	}
 	target.resolveRepo()
 	ctx := context.Background()
-	if code := buildTarget(ctx, target, stdout, stderr, false); code != exitOK {
+	if code := buildTarget(ctx, target, stdout, stderr, false, "", nil); code != exitOK {
 		return code
 	}
 
@@ -640,6 +658,9 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 	specsOnly := fs.Bool("specs-only", false, "evaluate the declared state alone: the ArchitectureModel from the specs, no code and no effects")
 	output := fs.String("o", "text", "text or json")
 	strict := fs.Bool("strict", false, "exit 1 when a deny violation survives the cap")
+	cacheDir := fs.String("cache-dir", defaultCacheDir(), "where a member repository is cloned")
+	memberPathFlags := memberPaths{}
+	fs.Var(memberPathFlags, "member", "clone the named member from a local path instead of its url (name=path); repeatable")
 	testGlobs := stringsFlag{}
 	fs.Var(&testGlobs, "test-glob", "test file glob; repeatable")
 	if err := fs.Parse(args); err != nil {
@@ -737,8 +758,14 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 		return exitError
 	}
+	libraryClassifiers, classifierCleanup, err := policyeval.LibraryClassifierDirs(library, codeDir, "")
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
+		return exitError
+	}
+	defer classifierCleanup()
 	computed, err := effects.Apply(&graph, effects.Options{
-		ClassifiersDirs: classifierDirs(codeDir, nil),
+		ClassifiersDirs: classifierDirs(codeDir, libraryClassifiers),
 		IncludeExtras:   true,
 	})
 	if err != nil {
@@ -774,12 +801,19 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		inventory = append(inventory, diffObject)
 	}
 
-	model, err := policy.BuildModel(policy.ModelInput{
+	members, err := policyeval.ResolveMembers(ctx, library.Manifest.Members, library, memberOptions(*cacheDir, memberPathFlags))
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
+		return exitError
+	}
+	defer cleanupMembers(members)
+	model, memberPins, err := policyeval.BuildEvaluationModel(ctx, policyeval.ModelRequest{
 		Repository: *repository,
 		Graph:      graph,
 		Effects:    computed,
 		Contexts:   modelContexts(contexts),
-		Binding:    library.Manifest.Binding(),
+		Library:    library,
+		Members:    members,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
@@ -822,6 +856,7 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
 		return exitError
 	}
+	report.Members = memberPins
 
 	if *output == "json" {
 		encoded, err := json.MarshalIndent(report, "", "  ")
@@ -1056,6 +1091,77 @@ func hasExampleLibrary(repository string) bool {
 	return err == nil
 }
 
+// defaultCacheDir is the state directory a member repository is cloned under,
+// the same one specd reads a Repository git source into.
+func defaultCacheDir() string {
+	if fromEnv := os.Getenv("SPECD_CACHE_DIR"); fromEnv != "" {
+		return fromEnv
+	}
+	return ".kcp-specd/cache"
+}
+
+// memberPaths is the repeatable `--member name=path` override: it clones a
+// named member from a local checkout, so an offline run reads the same commit
+// the declared ref names without reaching its url.
+type memberPaths map[string]string
+
+func (m memberPaths) String() string {
+	names := make([]string, 0, len(m))
+	for name := range m {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, name+"="+m[name])
+	}
+	return strings.Join(parts, ",")
+}
+
+func (m memberPaths) Set(value string) error {
+	name, path, ok := strings.Cut(value, "=")
+	if !ok || name == "" || path == "" {
+		return fmt.Errorf("--member wants name=path")
+	}
+	m[name] = path
+	return nil
+}
+
+// memberOptions says where a member checkout is cached. An empty cache dir
+// keeps the clone in a temporary directory the caller removes.
+func memberOptions(cacheDir string, paths memberPaths) policyeval.MemberOptions {
+	return policyeval.MemberOptions{CacheDir: cacheDir, Paths: paths}
+}
+
+// memberRefs is the members a build reads. `specctl policy test` builds
+// without a cache: it renders the library and never reads another repository,
+// so it pins nothing.
+func memberRefs(library policy.Library, cacheDir string) []policy.Member {
+	if cacheDir == "" {
+		return nil
+	}
+	return library.Manifest.Members
+}
+
+// lockOf is the lock a library carries, for the member pins a build verifies.
+func lockOf(library policy.Library) *policy.PackLock {
+	data, ok := library.Files[policy.LockPath]
+	if !ok {
+		return nil
+	}
+	lock, err := policyeval.ParseLock(data)
+	if err != nil {
+		return nil
+	}
+	return &lock
+}
+
+func cleanupMembers(members []policyeval.ResolvedMember) {
+	for _, member := range members {
+		member.Cleanup()
+	}
+}
+
 func marshalObject(value any) []byte {
 	encoded, err := yaml.Marshal(value)
 	if err != nil {
@@ -1082,6 +1188,9 @@ func defaultOr(value, fallback string) string {
 func printReport(out io.Writer, report policy.Report) {
 	fmt.Fprintf(out, "repository: %s  commit: %s\n", report.Repository, shortCommit(report.Commit))
 	fmt.Fprintf(out, "templates: %d  constraints: %d\n", report.Templates, report.Constraints)
+	for _, member := range report.Members {
+		fmt.Fprintf(out, "member: %s %s at %s\n", member.Name, member.Ref, shortCommit(member.Commit))
+	}
 	fmt.Fprintf(out, "violations: %d (deny %d, warn %d, dryrun %d)\n",
 		len(report.Violations),
 		report.Totals[policy.EnforcementDeny],

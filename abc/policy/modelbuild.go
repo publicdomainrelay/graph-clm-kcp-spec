@@ -64,6 +64,25 @@ type DeclaredInteraction struct {
 	Forbidden bool `json:"forbidden,omitempty"`
 }
 
+// ModelMember is one other repository the model is built over. Its components
+// are named <name>/<context>, so a report tells whose code a component is and
+// two repositories never collide on a name.
+type ModelMember struct {
+	Name string
+
+	Graph CodeGraph
+
+	Effects []Effect
+
+	Contexts []ModelContext
+
+	Interactions []DeclaredInteraction
+
+	// Binding is the library's binding merged with the member's own roles: the
+	// vocabulary is shared, the selectors are the member's files'.
+	Binding Binding
+}
+
 type ModelInput struct {
 	Repository string
 
@@ -76,6 +95,8 @@ type ModelInput struct {
 	Binding Binding
 
 	Interactions []DeclaredInteraction
+
+	Members []ModelMember
 
 	TriggerEdgeKinds []string
 
@@ -147,7 +168,99 @@ func compileRoles(binding Binding) ([]compiledRole, error) {
 	return out, nil
 }
 
+// BuildModel builds the ArchitectureModel of one repository and merges the
+// models of every member into it. A member's components keep their own name
+// prefixed with the member name, so the merged model is still readable and a
+// rule that reads roles never has to know which checkout a component is from.
 func BuildModel(input ModelInput) (ArchitectureModel, error) {
+	model, err := buildRepository(input.Repository, input)
+	if err != nil {
+		return ArchitectureModel{}, err
+	}
+	for _, member := range input.Members {
+		sub, err := buildRepository(member.Name, ModelInput{
+			Repository:       member.Name,
+			Graph:            member.Graph,
+			Effects:          member.Effects,
+			Contexts:         member.Contexts,
+			Binding:          member.Binding,
+			Interactions:     member.Interactions,
+			TriggerEdgeKinds: input.TriggerEdgeKinds,
+			MaxReach:         input.MaxReach,
+			MaxReachHops:     input.MaxReachHops,
+		})
+		if err != nil {
+			return ArchitectureModel{}, err
+		}
+		model = mergeModels(model, prefixModel(sub, member.Name+"/", sub.Spec.Roles))
+	}
+	model.Metadata.Name = input.Repository
+	model.Spec.Repository = input.Repository
+	model.Spec.Roles = input.Binding.RoleNames()
+	model.Spec.Vocabulary = input.Binding.Vocabulary
+	model.Sort()
+	return model, nil
+}
+
+// prefixModel rewrites one repository's model as a member's: every component,
+// every effect and every file it names carries the member prefix, and a flow
+// endpoint that is a component name (not a role) is prefixed with it. Role
+// names are the portable vocabulary and stay as they are.
+func prefixModel(model ArchitectureModel, prefix string, roleNames []string) ArchitectureModel {
+	components := map[string]bool{}
+	for _, component := range model.Spec.Components {
+		components[component.Name] = true
+	}
+	endpoint := func(name string) string {
+		if components[name] && !slices.Contains(roleNames, name) {
+			return prefix + name
+		}
+		return name
+	}
+	for index := range model.Spec.Components {
+		model.Spec.Components[index].Name = prefix + model.Spec.Components[index].Name
+		if model.Spec.Components[index].Context != "" {
+			model.Spec.Components[index].Context = prefix + model.Spec.Components[index].Context
+		}
+	}
+	for index := range model.Spec.Effects {
+		effect := &model.Spec.Effects[index]
+		effect.ID = prefix + effect.ID
+		if effect.Component != "" {
+			effect.Component = prefix + effect.Component
+		}
+		effect.File = prefix + effect.File
+	}
+	for index := range model.Spec.Flows {
+		flow := &model.Spec.Flows[index]
+		flow.From = endpoint(flow.From)
+		flow.To = endpoint(flow.To)
+		flow.Initiator = endpoint(flow.Initiator)
+		for position, evidence := range flow.Evidence {
+			flow.Evidence[position] = prefix + evidence
+		}
+	}
+	for index := range model.Spec.Triggers {
+		model.Spec.Triggers[index].From = prefix + model.Spec.Triggers[index].From
+		model.Spec.Triggers[index].To = prefix + model.Spec.Triggers[index].To
+	}
+	model.Spec.Repository = prefix[:len(prefix)-1]
+	model.Metadata.Name = prefix[:len(prefix)-1]
+	return model
+}
+
+// mergeModels folds a member's model into the repository's. The roles are the
+// union, the vocabulary is the importing library's, and two flows of the same
+// shape merge their evidence instead of doubling the report.
+func mergeModels(base, member ArchitectureModel) ArchitectureModel {
+	base.Spec.Components = append(base.Spec.Components, member.Spec.Components...)
+	base.Spec.Effects = append(base.Spec.Effects, member.Spec.Effects...)
+	base.Spec.Triggers = append(base.Spec.Triggers, member.Spec.Triggers...)
+	base.Spec.Flows = dedupeFlows(append(base.Spec.Flows, member.Spec.Flows...))
+	return base
+}
+
+func buildRepository(repository string, input ModelInput) (ArchitectureModel, error) {
 	roles, err := compileRoles(input.Binding)
 	if err != nil {
 		return ArchitectureModel{}, err
@@ -239,9 +352,9 @@ func BuildModel(input ModelInput) (ArchitectureModel, error) {
 	model := ArchitectureModel{
 		APIVersion: APIVersion,
 		Kind:       ArchitectureModelKind,
-		Metadata:   ObjectMeta{Name: input.Repository, Namespace: specapi.DefaultNamespace},
+		Metadata:   ObjectMeta{Name: repository, Namespace: specapi.DefaultNamespace},
 		Spec: ArchitectureModelSpec{
-			Repository: input.Repository,
+			Repository: repository,
 			Roles:      input.Binding.RoleNames(),
 			Vocabulary: input.Binding.Vocabulary,
 			Components: components,

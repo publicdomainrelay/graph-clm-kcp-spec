@@ -101,6 +101,88 @@ func (l PolicyLibrary) Binding() Binding {
 	return out
 }
 
+// Merge folds another binding's roles into this one: a role both declare
+// carries the union of their selectors, so a member repository adds to the
+// abstract role instead of replacing it. The vocabulary and the imports stay
+// this binding's.
+func (b Binding) Merge(other Binding) Binding {
+	out := Binding{
+		Roles:      map[string]RoleBinding{},
+		Vocabulary: b.Vocabulary,
+		Imports:    b.Imports,
+	}
+	for name, role := range b.Roles {
+		out.Roles[name] = role
+	}
+	for name, role := range other.Roles {
+		existing, ok := out.Roles[name]
+		if !ok {
+			out.Roles[name] = role
+			continue
+		}
+		out.Roles[name] = mergeRoleBindings(existing, role)
+	}
+	return out
+}
+
+func mergeRoleBindings(left, right RoleBinding) RoleBinding {
+	return RoleBinding{
+		Contexts: appendUnique(left.Contexts, right.Contexts),
+		Labels:   mergeLabels(left.Labels, right.Labels),
+		Globs:    appendUnique(left.Globs, right.Globs),
+		Symbols:  appendUnique(left.Symbols, right.Symbols),
+		Declared: left.Declared || right.Declared,
+		Targets:  mergeTargets(left.Targets, right.Targets),
+	}
+}
+
+func mergeLabels(left, right map[string]string) map[string]string {
+	if len(left) == 0 && len(right) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for key, value := range left {
+		out[key] = value
+	}
+	for key, value := range right {
+		out[key] = value
+	}
+	return out
+}
+
+func mergeTargets(left, right *RoleTargets) *RoleTargets {
+	if left == nil && right == nil {
+		return nil
+	}
+	out := &RoleTargets{}
+	if left != nil {
+		out.Hosts = append([]string{}, left.Hosts...)
+		out.NSIDs = append([]string{}, left.NSIDs...)
+		out.Routes = append([]string{}, left.Routes...)
+		out.Symbols = append([]string{}, left.Symbols...)
+		out.Attrs = append([]string{}, left.Attrs...)
+	}
+	if right != nil {
+		out.Hosts = appendUnique(out.Hosts, right.Hosts)
+		out.NSIDs = appendUnique(out.NSIDs, right.NSIDs)
+		out.Routes = appendUnique(out.Routes, right.Routes)
+		out.Symbols = appendUnique(out.Symbols, right.Symbols)
+		out.Attrs = appendUnique(out.Attrs, right.Attrs)
+	}
+	return out
+}
+
+func appendUnique(base, extra []string) []string {
+	out := append([]string{}, base...)
+	for _, value := range extra {
+		if value == "" || slices.Contains(out, value) {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
 func (b Binding) RoleNames() []string {
 	out := make([]string, 0, len(b.Roles))
 	for name := range b.Roles {

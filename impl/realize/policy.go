@@ -36,6 +36,15 @@ type PolicyGateOptions struct {
 
 	Contexts map[string]string
 
+	// ModelContexts are the SystemContexts the ArchitectureModel is built
+	// from: a pack rule reads their labels and their declared interactions, so
+	// a realize reviews the same model an offline evaluation does.
+	ModelContexts []policy.ModelContext
+
+	// MemberCacheDir is where the repositories the library names as members are
+	// cloned. Empty keeps every clone temporary.
+	MemberCacheDir string
+
 	Reviewed []*unstructured.Unstructured
 
 	Inventory []*unstructured.Unstructured
@@ -84,8 +93,36 @@ func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Dec
 	if err != nil {
 		return policy.Decision{}, policy.Report{}, err
 	}
+	members, err := policyeval.ResolveMembers(ctx, gate.Library.Manifest.Members, gate.Library, policyeval.MemberOptions{
+		CacheDir: gate.MemberCacheDir,
+		Lock:     gateLock(gate.Library),
+	})
+	if err != nil {
+		return policy.Decision{}, policy.Report{}, fmt.Errorf("realize: resolve the policy members: %w", err)
+	}
+	defer func() {
+		for _, member := range members {
+			member.Cleanup()
+		}
+	}()
+	model, memberPins, err := policyeval.BuildEvaluationModel(ctx, policyeval.ModelRequest{
+		Repository: options.Repository.Name,
+		Graph:      graph,
+		Effects:    graph.Spec.Effects,
+		Contexts:   gate.ModelContexts,
+		Library:    gate.Library,
+		Members:    members,
+		Tool:       options.Tool,
+	})
+	if err != nil {
+		return policy.Decision{}, policy.Report{}, fmt.Errorf("realize: build the architecture model: %w", err)
+	}
+	modelObject, err := policyObject(model)
+	if err != nil {
+		return policy.Decision{}, policy.Report{}, err
+	}
 
-	reviewed := []*unstructured.Unstructured{graphObject, diffObject}
+	reviewed := []*unstructured.Unstructured{graphObject, diffObject, modelObject}
 	reviewed = append(reviewed, gate.Reviewed...)
 	inventory := append([]*unstructured.Unstructured{}, reviewed...)
 	inventory = append(inventory, gate.Inventory...)
@@ -100,8 +137,22 @@ func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Dec
 	if err != nil {
 		return policy.Decision{}, policy.Report{}, fmt.Errorf("realize: evaluate the policies: %w", err)
 	}
+	report.Members = memberPins
 	decision := policy.Decide(report, gate.Repository, gate.Overrides)
 	return decision, report, nil
+}
+
+// gateLock is the member pins the library's own policies.lock carries.
+func gateLock(library policy.Library) *policy.PackLock {
+	data, ok := library.Files[policy.LockPath]
+	if !ok {
+		return nil
+	}
+	lock, err := policyeval.ParseLock(data)
+	if err != nil {
+		return nil
+	}
+	return &lock
 }
 
 // buildGateGraph indexes the worktree head. The index lives in a .codegraph

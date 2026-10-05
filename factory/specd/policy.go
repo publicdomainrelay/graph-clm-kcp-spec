@@ -146,16 +146,62 @@ func (c *Controller) realizePolicyGate(ctx context.Context, namespace string, re
 		inventory = append(inventory, object)
 	}
 	return &realize.PolicyGateOptions{
-		Library:    gate.Library,
-		Repository: gate.Repository,
-		Overrides:  gate.Overrides,
-		Commit:     base,
-		Branch:     repository.Spec.Branch,
-		TestGlobs:  gate.Library.Manifest.TestGlobs,
-		Contexts:   codegraphfacts.ContextsByFile(contexts),
-		Reviewed:   reviewed,
-		Inventory:  inventory,
+		Library:        gate.Library,
+		Repository:     gate.Repository,
+		Overrides:      gate.Overrides,
+		Commit:         base,
+		Branch:         repository.Spec.Branch,
+		TestGlobs:      gate.Library.Manifest.TestGlobs,
+		Contexts:       codegraphfacts.ContextsByFile(contexts),
+		ModelContexts:  modelContexts(contexts),
+		MemberCacheDir: c.opts.CacheDir,
+		Reviewed:       reviewed,
+		Inventory:      inventory,
 	}, nil
+}
+
+// gateLock is the member pins the library's own policies.lock carries, so an
+// audit reports the commit a member was pinned to when the branch was built.
+func gateLock(library policy.Library) *policy.PackLock {
+	data, ok := library.Files[policy.LockPath]
+	if !ok {
+		return nil
+	}
+	lock, err := policyeval.ParseLock(data)
+	if err != nil {
+		return nil
+	}
+	return &lock
+}
+
+// modelContexts is the ArchitectureModel's view of a repository's contexts:
+// the labels and the declared interactions a portable rule reads.
+func modelContexts(contexts []spec.SystemContext) []policy.ModelContext {
+	out := make([]policy.ModelContext, 0, len(contexts))
+	for _, context := range contexts {
+		out = append(out, policy.ModelContext{
+			Name:         context.Name,
+			Labels:       context.Labels,
+			Interactions: systemContextInteractions(context.Spec.Interactions),
+		})
+	}
+	return out
+}
+
+func systemContextInteractions(interactions []spec.Interaction) []policy.DeclaredInteraction {
+	out := make([]policy.DeclaredInteraction, 0, len(interactions))
+	for _, interaction := range interactions {
+		out = append(out, policy.DeclaredInteraction{
+			Peer:      interaction.Peer,
+			Initiator: interaction.Initiator,
+			Channel:   interaction.Channel,
+			Carries:   interaction.Carries,
+			Purpose:   interaction.Purpose,
+			Level:     string(spec.CanonicalInteraction(interaction).Level),
+			Forbidden: interaction.Forbidden,
+		})
+	}
+	return out
 }
 
 // reconcileRepositoryPolicy keeps kcp and the policy branch in step and audits
@@ -297,16 +343,51 @@ func (c *Controller) auditRepositoryPolicy(
 		inventory = append(inventory, object)
 	}
 
+	members, err := policyeval.ResolveMembers(ctx, library.Manifest.Members, library, policyeval.MemberOptions{
+		CacheDir: c.opts.CacheDir,
+		Lock:     gateLock(library),
+	})
+	if err != nil {
+		return fmt.Errorf("resolve the policy members: %w", err)
+	}
+	defer func() {
+		for _, member := range members {
+			member.Cleanup()
+		}
+	}()
+	model, memberPins, err := policyeval.BuildEvaluationModel(ctx, policyeval.ModelRequest{
+		Repository: repository.Name,
+		Graph:      graph,
+		Effects:    graph.Spec.Effects,
+		Contexts:   modelContexts(contexts),
+		Library:    library,
+		Members:    members,
+		Tool:       c.opts.Tool,
+	})
+	if err != nil {
+		return fmt.Errorf("build the architecture model: %w", err)
+	}
+	modelDocument, err := yaml.Marshal(model)
+	if err != nil {
+		return err
+	}
+	modelObject, err := policyeval.Unstructured(modelDocument)
+	if err != nil {
+		return err
+	}
+	inventory = append(inventory, modelObject)
+
 	report, err := policyeval.Evaluate(ctx, policyeval.Evaluation{
 		Library:    library,
 		Repository: repository.Name,
 		Commit:     commit,
-		Reviewed:   []*unstructured.Unstructured{graphObject},
+		Reviewed:   []*unstructured.Unstructured{graphObject, modelObject},
 		Inventory:  inventory,
 	})
 	if err != nil {
 		return fmt.Errorf("evaluate: %w", err)
 	}
+	report.Members = memberPins
 
 	status := policyStatusOf(report, policyCommit)
 	if _, err := c.client.PatchStatus(ctx, specapi.RepositoryGVR, namespace, repository.Name,

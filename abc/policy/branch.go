@@ -20,6 +20,8 @@ const (
 
 	ConstraintsDir = "constraints"
 
+	ClassifiersDir = "classifiers"
+
 	TestsDir = "tests"
 
 	DistDir = "dist"
@@ -129,6 +131,16 @@ type PolicyLibrary struct {
 	Vocabulary *Vocabulary `json:"vocabulary,omitempty"`
 
 	Imports []PackImport `json:"imports,omitempty"`
+
+	// Members are other repositories the model is built over besides this one,
+	// so a rule sees a flow that crosses a repository boundary.
+	Members []Member `json:"members,omitempty"`
+
+	// Classifiers names classifier packs under the library's classifiers/
+	// directory that apply to this repository's code, so a repository whose
+	// effect sites the shared packs do not know can name them without editing
+	// its code. Empty reads the checkout's own classifiers/ directory.
+	Classifiers []string `json:"classifiers,omitempty"`
 }
 
 func (l PolicyLibrary) EnforcementFallback() Enforcement {

@@ -413,9 +413,18 @@ func ParseLock(data []byte) (policy.PackLock, error) {
 
 // EncodeLock writes a lock with its imports in a stable order.
 func EncodeLock(entries []policy.LockEntry) ([]byte, error) {
+	return EncodeLockWithMembers(entries, nil)
+}
+
+// EncodeLockWithMembers pins the imported packs and the member repositories a
+// library reads, so a second build evaluates the same cross-repository model.
+func EncodeLockWithMembers(entries []policy.LockEntry, members []policy.MemberLock) ([]byte, error) {
 	lock := policy.PackLock{Imports: []policy.LockEntry{}}
 	for _, entry := range entries {
 		lock.Set(entry)
+	}
+	for _, member := range members {
+		lock.SetMember(member)
 	}
 	return yaml.Marshal(lock)
 }

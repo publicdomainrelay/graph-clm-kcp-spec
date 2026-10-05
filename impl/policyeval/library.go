@@ -86,6 +86,21 @@ func loadTree(fsys fs.FS, manifest policy.PolicyLibrary, manifestPath string, ma
 		}
 	}
 
+	entries, err = fs.ReadDir(fsys, policy.ClassifiersDir)
+	if err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+				continue
+			}
+			file := path.Join(policy.ClassifiersDir, entry.Name())
+			data, err := fs.ReadFile(fsys, file)
+			if err != nil {
+				return policy.Library{}, err
+			}
+			library.Files[file] = data
+		}
+	}
+
 	entries, err = fs.ReadDir(fsys, policy.ConstraintsDir)
 	if err == nil {
 		for _, entry := range entries {

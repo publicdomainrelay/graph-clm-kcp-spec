@@ -106,6 +106,10 @@ func (s PackSource) String() string {
 // content twice.
 type PackLock struct {
 	Imports []LockEntry `json:"imports"`
+
+	// Members pins every member repository to the commit its ref resolved to,
+	// so a second build reads the same cross-repository model.
+	Members []MemberLock `json:"members,omitempty"`
 }
 
 type LockEntry struct {
@@ -153,6 +157,39 @@ func (l PackLock) Matches(entry LockEntry) bool {
 		return false
 	}
 	return pinned.SHA256 == entry.SHA256
+}
+
+// Member returns the pin of a member.
+func (l PackLock) Member(name string) (MemberLock, bool) {
+	for _, member := range l.Members {
+		if member.Name == name {
+			return member, true
+		}
+	}
+	return MemberLock{}, false
+}
+
+// SetMember records a member's pin, replacing an earlier one.
+func (l *PackLock) SetMember(member MemberLock) {
+	for index := range l.Members {
+		if l.Members[index].Name == member.Name {
+			l.Members[index] = member
+			return
+		}
+	}
+	l.Members = append(l.Members, member)
+	slices.SortStableFunc(l.Members, func(left, right MemberLock) int {
+		return strings.Compare(left.Name, right.Name)
+	})
+}
+
+// MemberMatches reports whether a member's resolved commit is the pinned one.
+func (l PackLock) MemberMatches(member MemberLock) bool {
+	pinned, ok := l.Member(member.Name)
+	if !ok {
+		return false
+	}
+	return pinned.Commit == member.Commit
 }
 
 // ImportReference is the pack@version an import names.
