@@ -1,7 +1,11 @@
 package kcpproc
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -11,6 +15,30 @@ import (
 	"testing"
 	"time"
 )
+
+func TestMain(m *testing.M) {
+	if os.Getenv("KCPPROC_HELPER") == "1" {
+		os.Exit(m.Run())
+	}
+	ledger, err := os.MkdirTemp("", "kcpproc-ledger-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "kcpproc: %v\n", err)
+		os.Exit(1)
+	}
+	os.Setenv(LedgerEnv, filepath.Join(ledger, "ledger"))
+	code := m.Run()
+	leaks := Leaks()
+	for _, leak := range leaks {
+		fmt.Fprintf(os.Stderr, "kcpproc: leaked kcp %d and kine %d on the root %s\n", leak.KcpPid, leak.KinePid, leak.Root)
+		Terminate(leak.KcpPid, leak.Root)
+		Terminate(leak.KinePid, leak.Root)
+	}
+	if len(leaks) > 0 {
+		code = 1
+	}
+	os.RemoveAll(ledger)
+	os.Exit(code)
+}
 
 func requireKcp(t *testing.T) {
 	t.Helper()
@@ -35,7 +63,7 @@ func TestFixedPortsAndEndpointRoundTrip(t *testing.T) {
 	root := t.TempDir()
 	port := freePort(t)
 	kinePort := freePort(t)
-	instance, err := Start(ctx, Options{Root: root, KcpPort: port, KinePort: kinePort})
+	instance, err := Start(ctx, Options{Root: root, KcpPort: port, KinePort: kinePort, DieWithStarter: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +99,7 @@ func TestProbeAdoptsTheRealPidsAndStopWaitsForThem(t *testing.T) {
 	defer cancel()
 
 	root := t.TempDir()
-	instance, err := Start(ctx, Options{Root: root})
+	instance, err := Start(ctx, Options{Root: root, DieWithStarter: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,10 +146,11 @@ func TestStartStopStartResumesOnOneRoot(t *testing.T) {
 	defer cancel()
 
 	root := t.TempDir()
-	first, err := Start(ctx, Options{Root: root})
+	first, err := Start(ctx, Options{Root: root, DieWithStarter: true})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { Stop(first) })
 	if err := SaveEndpoint(first); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +164,7 @@ func TestStartStopStartResumesOnOneRoot(t *testing.T) {
 		t.Fatalf("Stop left %v alive", live)
 	}
 
-	second, err := Start(ctx, Options{Root: root})
+	second, err := Start(ctx, Options{Root: root, DieWithStarter: true})
 	if err != nil {
 		t.Fatalf("a restart on a root this process used: %v", err)
 	}
@@ -187,7 +216,7 @@ func TestTwoInstancesRunSideBySideOnKernelPorts(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			instances[index], errs[index] = Start(ctx, Options{Root: root})
+			instances[index], errs[index] = Start(ctx, Options{Root: root, DieWithStarter: true})
 		}()
 	}
 	wait.Wait()
@@ -219,5 +248,99 @@ func TestTwoInstancesRunSideBySideOnKernelPorts(t *testing.T) {
 	}
 	if !Ready(second) {
 		t.Fatal("stopping one instance touched the other")
+	}
+}
+
+func TestKcpStarterHelper(t *testing.T) {
+	if os.Getenv("KCPPROC_HELPER") != "1" {
+		t.Skip("not the starter helper")
+	}
+	instance, err := Start(context.Background(), Options{
+		Root:           os.Getenv("KCPPROC_HELPER_ROOT"),
+		DieWithStarter: true,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "kcpproc helper: %v\n", err)
+		os.Exit(1)
+	}
+	data, err := json.Marshal(instance)
+	if err != nil {
+		os.Exit(1)
+	}
+	fmt.Printf("READY %s\n", data)
+	select {}
+}
+
+func TestKcpDiesWithItsStarter(t *testing.T) {
+	requireKcp(t)
+	root := t.TempDir()
+	helper := exec.Command(os.Args[0], "-test.run=^TestKcpStarterHelper$", "-test.timeout=0")
+	helper.Env = append(os.Environ(), "KCPPROC_HELPER=1", "KCPPROC_HELPER_ROOT="+root)
+	stdout, err := helper.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper.Stderr = os.Stderr
+	if err := helper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = helper.Process.Kill()
+		_ = helper.Wait()
+	})
+
+	instance := readHelperInstance(t, stdout)
+	if instance.KcpPid <= 0 || instance.KinePid <= 0 {
+		t.Fatalf("the helper reported no pids: %+v", instance)
+	}
+	if !alive(instance.KcpPid) || !alive(instance.KinePid) {
+		t.Fatalf("the helper's kcp and kine are not running: %+v", instance)
+	}
+	if err := helper.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = helper.Wait()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if !alive(instance.KcpPid) && !alive(instance.KinePid) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("kcp %d (alive %v) and kine %d (alive %v) outlived the process that started them",
+		instance.KcpPid, alive(instance.KcpPid), instance.KinePid, alive(instance.KinePid))
+}
+
+func readHelperInstance(t *testing.T, stdout io.Reader) Instance {
+	t.Helper()
+	lines := make(chan string)
+	go func() {
+		defer close(lines)
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		if err := scanner.Err(); err != nil {
+			lines <- "ERROR " + err.Error()
+		}
+	}()
+	deadline := time.After(3 * time.Minute)
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				t.Fatal("the starter helper exited before it reported its kcp")
+			}
+			if payload, found := strings.CutPrefix(line, "READY "); found {
+				instance := Instance{}
+				if err := json.Unmarshal([]byte(payload), &instance); err != nil {
+					t.Fatalf("the starter helper's report: %v", err)
+				}
+				return instance
+			}
+		case <-deadline:
+			t.Fatal("the starter helper did not report its kcp within 3 minutes")
+		}
 	}
 }

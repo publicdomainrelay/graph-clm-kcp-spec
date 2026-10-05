@@ -72,6 +72,13 @@ func TestMain(m *testing.M) {
 		createdDocs = docs
 	}
 
+	ledger, err := os.MkdirTemp("", "specd-e2e-ledger-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "e2e: %v\n", err)
+		os.Exit(1)
+	}
+	os.Setenv(kcpproc.LedgerEnv, filepath.Join(ledger, "ledger"))
+
 	lock, err := startClusterForTests()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "e2e: %v\n", err)
@@ -88,9 +95,19 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	mark(os.Getenv("SPECD_LIVE_LOCK_MARK"), "end")
 	stopClusterForTests(lock)
+	leaks := kcpproc.Leaks()
+	for _, leak := range leaks {
+		fmt.Fprintf(os.Stderr, "e2e: leaked kcp %d and kine %d on the root %s\n", leak.KcpPid, leak.KinePid, leak.Root)
+		kcpproc.Terminate(leak.KcpPid, leak.Root)
+		kcpproc.Terminate(leak.KinePid, leak.Root)
+	}
+	if len(leaks) > 0 {
+		code = 1
+	}
 	if createdDocs != "" {
 		os.RemoveAll(createdDocs)
 	}
+	os.RemoveAll(ledger)
 	os.Exit(code)
 }
 
@@ -134,7 +151,7 @@ func startClusterForTests() (*runlock.Lock, error) {
 	if err != nil {
 		return nil, err
 	}
-	instance, err := kcpproc.Start(context.Background(), kcpproc.Options{Root: stateRoot})
+	instance, err := kcpproc.Start(context.Background(), kcpproc.Options{Root: stateRoot, DieWithStarter: true})
 	if err != nil {
 		os.RemoveAll(stateRoot)
 		return nil, err

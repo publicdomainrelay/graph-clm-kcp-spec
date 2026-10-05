@@ -3,6 +3,7 @@ package runlock_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,27 @@ import (
 )
 
 const markerTest = "^TestPhase12LiveLockMarker$"
+
+func TestMain(m *testing.M) {
+	ledger, err := os.MkdirTemp("", "runlock-ledger-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "runlock: %v\n", err)
+		os.Exit(1)
+	}
+	os.Setenv(kcpproc.LedgerEnv, filepath.Join(ledger, "ledger"))
+	code := m.Run()
+	leaks := kcpproc.Leaks()
+	for _, leak := range leaks {
+		fmt.Fprintf(os.Stderr, "runlock: leaked kcp %d and kine %d on the root %s\n", leak.KcpPid, leak.KinePid, leak.Root)
+		kcpproc.Terminate(leak.KcpPid, leak.Root)
+		kcpproc.Terminate(leak.KinePid, leak.Root)
+	}
+	if len(leaks) > 0 {
+		code = 1
+	}
+	os.RemoveAll(ledger)
+	os.Exit(code)
+}
 
 func liveTools(t *testing.T) {
 	t.Helper()
@@ -89,7 +111,7 @@ func TestTwoRunsNamingOneKcpSerialise(t *testing.T) {
 	marks := filepath.Join(t.TempDir(), "marks")
 	stateRoot := t.TempDir()
 
-	instance, err := kcpproc.Start(context.Background(), kcpproc.Options{Root: stateRoot})
+	instance, err := kcpproc.Start(context.Background(), kcpproc.Options{Root: stateRoot, DieWithStarter: true})
 	if err != nil {
 		t.Skipf("cannot start a kcp for the shared-kcp case: %v", err)
 	}
