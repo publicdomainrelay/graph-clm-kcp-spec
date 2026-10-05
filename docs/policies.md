@@ -428,7 +428,10 @@ that moves the violation inside the same declaration keeps the key, so a
 waiver written from one run still matches the next and a pre-existing violation
 the base carried stays `inherited` after the realize rewrote the file. A
 location with no enclosing declaration (a file-level node, a diff line) still
-keys on file and line. `--base REF`
+keys on file and line, and a violation with no site at all -- a declared flow a
+rule reports before any code exists -- keys on the clause that reported it and
+the facts it reported, so one waiver on one declared reach-in does not cover
+the next. `--base REF`
 adds the comparison the gates make: a violation the base carried is
 `inherited`; without it every violation is `new`. `-o json` prints the same
 list for a script. `status` is one of `new`, `inherited` and `waived`.
@@ -456,6 +459,14 @@ specctl policy fix 9ed63c01ff399590 --repo atproto-market \
 spec-to-code change or what a controller would put in `Instruction`; `--write
 FILE` writes the whole request.
 
+`--apply` creates the change itself: a `SpecChange` with direction
+`SpecToCode` on the SystemContext `--system-context` names, whose
+`toSpecHash` is `--spec-hash`, and whose annotations carry the prompt, the
+constraint and the site. The spec flow the repository already runs realizes
+it. `--dry-run` prints that object and creates nothing; without
+`--system-context` and `--spec-hash` the verb refuses, because an offline
+evaluation reads the code and the policy branch, not the contexts.
+
 `specctl policy waive <key> --reason R [--owner O] [--expires DATE]` records the
 other decision: the violation is accepted. It writes one file,
 `exceptions/<key>.yaml`, onto the policy branch (or into `--dir`):
@@ -478,9 +489,12 @@ makes a `SystemContext` non-compliant. An exception with an `expires` that has
 passed is dropped and reported on stderr rather than honoured.
 
 `--expires` takes an RFC3339 timestamp or `YYYY-MM-DD`. A waiver is
-site-scoped: the same rule firing at a new site is a new finding. A waiver that
-names only `constraint` (no key, file, line or object) waives every violation
-of that constraint, which is what an acceptance override does.
+site-scoped by its key: the same rule firing at a new site is a new finding,
+and a key that matches no violation of the report is reported as **stale**,
+with the file to remove. An exception file is decoded strictly, so a misspelt
+field is refused rather than read as a wider waiver; a rule-wide waiver says
+so, `scope: rule`, and carries no key. A site-scoped exception with no key, or
+a rule-scoped one with a key, is refused at load.
 
 **3. Re-run.**
 
@@ -716,8 +730,8 @@ The first bound pack: the user's three rules for a running guest, written once.
 | template | enforcement | fires when |
 | --- | --- | --- |
 | `RfpHostReachIn` | deny | a flow the host initiates acts on the guest and carries network information or has network discovery as its purpose; or a `container.exec`/`ssh.connect` effect in a host component reaches the guest and no such flow rule reported it |
-| `RfpGuestReportsNetwork` | deny | once the model carries effects, no declared or observed flow has the guest initiating toward another role carrying `network-info`; or an `event.emit` of the `network-report` class in a host component is not triggered by the `http.handle` of the `routes/report` route |
-| `RfpRelayOnlyGuestSsh` | deny | an `ssh.connect` effect outside the guest role is a direct connection -- no `proxyCommand`, or one that only dials the guest, and no `relay`-channel flow carries it; this catches an ssh written directly inside a test body as a file-level effect -- or a `net.dial` effect of a test component acts on the guest. Any other proxy command is a relay |
+| `RfpGuestReportsNetwork` | deny | once the model carries effects, no declared or observed flow has the guest initiating toward another role carrying `network-info`; or an `event.emit` of the `network-report` class in a host component is not triggered by the `http.handle` of the `routes/report` route; or a `file.read` effect sits on the emitter's call chain, which is the model showing the emitted address came from a source the host read itself |
+| `RfpRelayOnlyGuestSsh` | deny | an `ssh.connect` effect outside the guest role reaches the guest -- it names the guest, names nothing the model can read, or a flow says it acted on the guest -- and carries no relay. `socat ... TCP4:`, `nc.openbsd`, `openssl s_client`, a python socket, `/dev/tcp/`, scp, autossh, sshpass, an absolute `ssh` and an `sh -c "ssh ..."` are the ssh family and are read by their own destination. A `ProxyCommand` counts as direct only when its own destination is the guest, the ssh's own target, `%h`, or something unresolved; a `ProxyJump`/`-J` hop, a SOCKS proxy, an `-F` config and `ssh -W ... jumphost` are relays. A `net.dial` of a test component to the guest or to an unresolved target denies unless the binding's `reachInExceptions` names it; a declared flow that reaches the guest over a channel naming no relay term denies at spec time |
 
 Version `v2` moved the two provisioning provenance templates to the opt-in
 pack below; `v1` importers bump their import and relock with
@@ -1493,20 +1507,24 @@ treats that as a violation of its require rather than as a separate warning.
 
 ### A direct dial the proxy command hides
 
-`relay-only-guest-ssh` denies an ssh outside the guest role that is a direct
-connection: no `proxyCommand` at all, or one that only dials the guest
-(`nc`/`ncat`/`netcat`, `socat ... TCP:`, `/dev/tcp/`, `ssh -W` or `-J`). A
-`relay`-channel flow the model built for the ssh also passes it. A relay is
-anything that is not a direct connection, so any other proxy command passes,
-named or not -- the org relay, `fedproxy`, `websocat`, `iroh`, `dumbpipe`,
-`cloudflared`, an injected transport object, an expression the walk could not
-resolve (plan 0010 U2). The class `channels/relay` is an optional naming hint:
-a binding that maps it gets the channel on the model's flows and a name in the
-messages; a binding that omits it is still bound and still checked.
+`rfp-relay-only-guest-ssh` denies an ssh outside the guest role whose own
+arguments reach the guest and carry no relay (plan 0010 U2, review 0006 N1 and
+N4). A relay is anything that is not a direct connection, so any proxy the rule
+cannot read as a dial to the guest passes: the org relay, `fedproxy`,
+`websocat`, `iroh`, `dumbpipe`, `cloudflared`, an injected transport object, an
+expression the walk could not resolve. The class `channels/relay` is an
+optional naming hint: a binding that maps it gets the channel on the model's
+flows and a name in the messages, and it is what the spec-time clause reads; a
+binding that omits it is still bound and still checked at the effect level.
 
-The limit is the shape of the proxy command. A direct dial wrapped in a program
-the pattern list does not know (`ProxyCommand=./dial-guest.sh`) reads as a
-relay.
+Three limits remain. A direct dial wrapped in a program the patterns do not
+know (`ProxyCommand=./dial-guest.sh`) reads as a relay. An ssh to a *literal*
+address the binding does not name -- `ssh root@10.0.0.7` with no
+`targets.hosts` for the guest -- is a host the binding knows nothing about, so
+the rule leaves it alone: bind the guest's addresses under
+`roles.guest.targets.hosts` and the flow resolves. And the spec-time clause
+needs the binding to list its relay terms under `channels/<relayClass>`; a
+binding that does not is checked only once code exists.
 
 ### The harness is not sandboxed by specd
 
@@ -1560,9 +1578,12 @@ own and their shape follows the Go types in `abc/policy`.
 
 A change-scoped gate compares violations by constraint, object and site. A
 rule over the declared `ArchitectureModel` (the conformance pack's
-`forbidden-flow`, for example) carries no file location, so two violations of
-the same rule on the same object share one key. A change that adds a second
-such violation to an object the base already flagged reads as inherited.
+`forbidden-flow`, for example) carries no file location, so its key is the
+clause that reported it and the facts it reported -- the roles, the channel,
+the purpose, the payloads. Two declared flows of the same rule on the same
+object therefore keep distinct keys, and a waiver on one does not cover the
+other. Two violations the rule reports with the same facts still share a key:
+they are indistinguishable to the rule.
 
 Code rules are anchored, not line-keyed: the site is the enclosing declaration
 plus the effect's kind and attributes. Two effects of the same rule in one
@@ -1596,6 +1617,19 @@ violation in one round and changes something else in the next, with kcp
 carrying both. The end-to-end measurement on a real repository is
 `docs/examples/atproto-market-policies.md`, which runs the offline
 `--inherited` form of the same decision.
+
+### Rule 2's provenance is read only where the model shows an emission
+
+`rfp-guest-reports-network` denies an emitted network report whose emitter has a
+`file.read` on its call chain, which is how the review's `h/dhcp_leases` run --
+an address read from the host's DHCP lease file -- is caught. The check needs
+the model to carry an `event.emit` effect for the emitter. A repository whose
+emitter returns an object literal, as market-mini's fixture does, produces no
+such effect, and the pack sees nothing; the repository's own rule over the
+CodeGraph carries the check there (`guest-report-driven-onnetwork` in
+`examples/policies/market-mini`, `hostSourcePatterns`). A host source that is
+not a file read -- a value fetched from another service, a shell command the
+classifier files under `proc.exec` -- is not on the chain either.
 
 ### A finding key can repeat within one object
 

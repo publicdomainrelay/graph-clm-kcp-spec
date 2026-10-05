@@ -33,22 +33,29 @@ These are stated rather than hidden: each is a place where the rules are
 weaker than they read.
 
 - **A direct dial the proxy command hides.** `rfp-relay-only-guest-ssh` denies
-  an ssh outside the guest role that is carried by no `relay`-channel flow and
-  is a direct connection: it carries no `proxyCommand`, or one that only dials
-  the guest (`nc`/`ncat`/`netcat`, `socat ... TCP:`, `/dev/tcp/`, `ssh -W` or
-  `-J`). Any other proxy command passes, named or not, because a relay is
-  anything that is not a direct connection. The limit is the shape of the
-  proxy command: a direct dial wrapped in a program the pattern list does not
-  know (`ProxyCommand=./dial-guest.sh`) reads as a relay. The rule still
-  catches the regression it guards -- a direct ssh with no tunnel at all -- and
-  any `net.dial` from a test that acts on the guest. See
+  an ssh outside the guest role whose own arguments reach the guest and carry
+  no relay -- `socat ... TCP4:`, `nc.openbsd`, `openssl s_client`, a python
+  socket, `/dev/tcp/`, scp, autossh, sshpass, an absolute `ssh`, an
+  `sh -c "ssh ..."` (review 0006 N4). A `ProxyCommand` counts as direct only
+  when its own destination is the guest, the ssh's own target, `%h`, or
+  something unresolved; a `ProxyJump`/`-J` hop, a SOCKS proxy, an `-F` config
+  and `ssh -W ... jumphost` are relays. Two limits remain: a direct dial
+  wrapped in a program the patterns do not know
+  (`ProxyCommand=./dial-guest.sh`) reads as a relay, and an ssh to a literal
+  address the binding does not name is left alone -- bind the guest's
+  addresses under `roles.guest.targets.hosts`. See
   `templates/rfp-relay-only-guest-ssh/src.rego` and plan 0010 U2.
 - **Effects inside a test body.** The CodeGraph has one node per declaration,
   so a `Deno.test` callback body is a *file-level* effect: an ssh spawned
-  inside it is still denied (it is outside the guest role and no relay-channel
-  flow carries it), but a rule that needs the declaring symbol or a channel
-  from the test does not see the body. Plan 0009 G4 gap (a) and
-  `docs/policies.md`, "Limits", carry the detail.
+  inside it is still denied (it is outside the guest role and no relay carries
+  it), but a rule that needs the declaring symbol or a channel from the test
+  does not see the body. Plan 0009 G4 gap (a) and `docs/policies.md`,
+  "Limits", carry the detail.
+- **Rule 2's provenance needs an emission the model can see.** The host-source
+  check reads a `file.read` effect on the emitter's call chain, so it needs an
+  `event.emit` effect for the emitter; a repository whose emitter returns an
+  object literal is checked by its own rule over the CodeGraph instead
+  (review 0006 N8, `docs/policies.md`).
 - **Effects see declarations, not the guest's shell.** A transport installed
   from a `user_data` string is not an effect, so
   `rfp-provisioning-provenance`'s `rfp-guest-transport-provenance` treats the

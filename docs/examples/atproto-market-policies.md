@@ -587,6 +587,17 @@ files differ now, in the requester role only. A bind re-run after the merge is
 what would judge the merged rules; the plan's Order section puts that with the
 other post-merge re-runs.
 
+Round 2 (review 0006 N10) checked the one copy path the request can carry.
+`TestTheBindRequestCarriesTheCodeAndNoBinding` perturbs a fixture -- the
+requester directory is renamed -- builds the bind request the controller
+builds, and asserts that the request carries an empty `Binding`, a model with
+the roles, the vocabulary and the component globs stripped, and the perturbed
+repository's own paths. Removing the bind branch's `binding = policy.Binding{}`
+makes the test fail, so a request that carried the answer would be caught. What
+the test cannot reach is the harness itself: a bind re-run on a perturbed clone
+with a live model, scored field by field, is not part of round 2, and the
+remaining copy path is the unconfined harness the limit below records.
+
 Honest reading: the harness wrote the identical manifest on the first attempt
 with no access to it. It read the repository's own code -- the module cache of
 the checkout holds the compiled sources, and the prompt's model names every

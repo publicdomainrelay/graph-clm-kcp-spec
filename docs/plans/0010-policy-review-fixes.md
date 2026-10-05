@@ -303,6 +303,29 @@ acceptance override, but they reuse `policy.Override`, so `Decide`,
 `DecideBaseline` and the audit's waived reporting share one code path. An
 exception that has expired is dropped and reported, never silently honoured.
 
+## Round 2 (review 0006): done
+
+Branch `policy-r2`, on top of the `policy-i2` merge (`539bbbd`, which brings
+`e12560a`: a violation's key is its declaration, not its line).
+
+| item | commit | what landed |
+| --- | --- | --- |
+| N1 | `e65167d` | `relay_carried` is gone from both rule-1 clauses: the exemption comes from the ssh's own arguments. Pack suite cases and `fixtures/market-mini/violating-vn1-{callee,comment}` deny the review's two runs |
+| N2 | `71e4e6d` | a violation with no site keys on the clause that reported it and the facts it reported; the realize gate grows the reviewer's line-shift case over the three violating fixture files |
+| N3 | `12e3c0e` | exception files decode strictly, an unknown field is refused, a site-scoped exception needs its key, a rule-wide one says `scope: rule`, and a key matching no violation is reported stale |
+| N4 | `d133dad` | the classifier reads the ssh family (scp, sftp, autossh, sshpass, absolute paths, shell strings, `node:child_process`), the destination, `ProxyJump`/`-J` and `-F`, and resolves a constant a template literal interpolates. The rule decides on the effect's own arguments: direct when the ProxyCommand's destination is the guest, the ssh's own target, `%h` or unresolved; a hop, a SOCKS proxy or a config is a relay. Nine violating fixtures and `compliant-relays` pin both halves |
+| N5 | `d133dad` | the test-dial clause reads the same way: a dial to the guest or to an unresolved target denies unless `reachInExceptions` names it, so review 0003's vD (`violating-vn5-test-dial`) denies on real code |
+| N6 | `d133dad` | a shell string whose command is an ssh or a container command, and the same through `node:child_process`, are classified by their embedded argv0 (`violating-vn6-{sh-container,child-process}`) |
+| N7 | `2118a75` | both offline eval paths read the library's exceptions through the gates' `Waivers`: the text report prints `waived`, `-o json` carries the waived keys, `--strict` fails only on a deny that survives them |
+| N8 | `1018a3f` | a new `file.read` effect kind; rule 2b denies an emitter with a host-side read on its call chain. market-mini's concrete rule carries the same check over CodeGraph nodes; the split is a recorded limit |
+| N9 | `fc821a9` | `policy fix --apply --system-context S --spec-hash H` builds and creates the SpecChange (prompt, constraint and site on its annotations); `--dry-run` prints it, `--write` writes it |
+| N10 | `4d39d0b` | the bind leak: a bind run over a perturbed clone, transcript outside the sandbox, scored field by field -- recorded in `docs/examples/atproto-market-policies.md` (see below) |
+| low | `1840cbe` | A3 stale inlined lib, G6 (one `GateLock`, guarded `inventory[:1]`, the change source's `TestGlobs`), D3 (the mutation check reads the generated rule only), B9 (a spec-time clause for rule 1), `policy build` prunes a deleted template's dist, `pack.yaml` says two rules, `abc/policy`'s comment lines removed |
+
+The low items that are recorded rather than fixed: D2 (the harness is not
+sandboxed by specd) and A2 (specd evaluates the derived kinds, not an
+in-cluster Gatekeeper) stay as they were; both already have a Limits entry.
+
 ## Round 2 (review 0006)
 
 `docs/reviews/0006-policies-follow-up.md` re-checked everything above on
