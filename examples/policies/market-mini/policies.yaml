@@ -1,0 +1,3 @@
+defaultEnforcement: dryrun
+repository: market-mini
+version: "1"

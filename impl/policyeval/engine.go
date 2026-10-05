@@ -193,7 +193,7 @@ func (e *Engine) violations(object *unstructured.Unstructured, results []*types.
 		details := DetailsOf(result)
 		location := LocationOf(details)
 		violation := policy.Violation{
-			Policy:       template.Name,
+			Policy:       policy.TemplateSlug(template),
 			Title:        template.Title,
 			Level:        template.Level,
 			Severity:     template.Severity,

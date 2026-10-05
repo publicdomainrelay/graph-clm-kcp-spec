@@ -1,0 +1,21 @@
+apiVersion: test.gatekeeper.sh/v1alpha1
+kind: Suite
+metadata:
+  name: no-direct-guest-connect
+tests:
+  - name: no-direct-guest-connect
+    template: ../../dist/no-direct-guest-connect.yaml
+    constraint: ../../constraints/no-direct-guest-connect.yaml
+    cases:
+      - name: allowed
+        object: inventory/codegraph-allowed.yaml
+        inventory:
+          - inventory/codegraph-allowed.yaml
+        assertions:
+          - violations: 0
+      - name: denied
+        object: inventory/codegraph-denied.yaml
+        inventory:
+          - inventory/codegraph-denied.yaml
+        assertions:
+          - violations: 1

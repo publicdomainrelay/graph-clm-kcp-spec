@@ -95,6 +95,8 @@ func KnownLevel(level Level) bool {
 type Template struct {
 	Name string
 
+	Slug string
+
 	Kind string
 
 	Title string
@@ -201,6 +203,13 @@ func splitList(value string) []string {
 	return out
 }
 
+func TemplateSlug(t Template) string {
+	if t.Slug != "" {
+		return t.Slug
+	}
+	return t.Name
+}
+
 func (t Template) Header() ([]byte, error) {
 	header := TemplateHeader{
 		APIVersion: "templates.gatekeeper.sh/v1",
@@ -299,7 +308,7 @@ func ParseConstraint(doc []byte, template string) (Constraint, error) {
 
 func (c Constraint) Document() ([]byte, error) {
 	doc := ConstraintDoc{
-		APIVersion: constraintAPIVersion(c.Kind),
+		APIVersion: ConstraintAPIVersion,
 		Kind:       c.Kind,
 		Metadata:   ConstraintMeta{Name: c.Name},
 		Spec: ConstraintSpecIn{
@@ -312,10 +321,6 @@ func (c Constraint) Document() ([]byte, error) {
 }
 
 const ConstraintAPIVersion = "constraints.gatekeeper.sh/v1beta1"
-
-func constraintAPIVersion(kind string) string {
-	return ConstraintAPIVersion
-}
 
 type ObjectRef struct {
 	APIVersion string `json:"apiVersion,omitempty"`

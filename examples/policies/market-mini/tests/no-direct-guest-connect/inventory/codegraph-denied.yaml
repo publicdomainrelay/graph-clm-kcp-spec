@@ -1,0 +1,17 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: CodeGraph
+metadata:
+  name: no-direct-guest-connect
+  namespace: default
+spec:
+  commit: "0000000000000000000000000000000000000000"
+  edges: []
+  files:
+  - language: typescript
+    path: test/denied.ts
+    test: false
+  nodes: []
+  repository: no-direct-guest-connect
+  texts:
+    test/denied.ts: |
+      const x = Deno.connect

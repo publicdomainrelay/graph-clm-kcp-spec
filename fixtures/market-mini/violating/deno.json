@@ -1,0 +1,16 @@
+{
+  "workspace": [
+    "./lib/market-common",
+    "./lib/cloud-init",
+    "./lib/compute-provider",
+    "./lib/requester",
+    "./hono-bidder"
+  ],
+  "imports": {
+    "@market-mini/market-common": "./lib/market-common/mod.ts",
+    "@market-mini/cloud-init": "./lib/cloud-init/mod.ts",
+    "@market-mini/compute-provider": "./lib/compute-provider/mod.ts",
+    "@market-mini/requester": "./lib/requester/mod.ts",
+    "@market-mini/hono-bidder": "./hono-bidder/mod.ts"
+  }
+}

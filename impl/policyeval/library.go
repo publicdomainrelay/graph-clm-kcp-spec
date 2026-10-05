@@ -85,6 +85,7 @@ func loadTemplate(fsys fs.FS, name string) (policy.Template, error) {
 	if err != nil {
 		return policy.Template{}, err
 	}
+	template.Slug = name
 	if template.Name == "" {
 		template.Name = name
 	}

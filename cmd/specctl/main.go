@@ -181,6 +181,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runAccept(rest, stdout, stderr)
 	case "eval":
 		return runEval(rest, stdout, stderr)
+	case "policy":
+		return runPolicy(rest, stdout, stderr)
 	case "kcp":
 		return runKcp(rest, stdout, stderr)
 	case "version":
@@ -430,6 +432,11 @@ usage:
       instances run side by side; a fixed port still works
   specctl kcp stop [--root <dir>]
   specctl kcp endpoint [--root <dir>] [-o json|sh]
+  specctl policy init|new|build|test|eval
+      policies over the spec objects and the code: create the open-policy/<repo>
+      branch, scaffold a Gatekeeper template, build dist/, run the opa unit
+      tests and the gator suites through the built-in engine, and audit a
+      checkout or a commit without a controller
   specctl eval [--fixtures fixtures] [--agent claude|claude-mod|pi]
       [--scenarios <glob>] [--out docs/eval/run-<date>.md]
       one Repository manifest per fixture, then one spec edit per scenario
