@@ -14,13 +14,17 @@ inventory := {
 					{"id": "fn:emit", "name": "emitOnNetwork", "qualifiedName": "Bidder.emitOnNetwork", "file": "hono-bidder/mod.ts", "context": "hono-bidder", "text": "emitOnNetwork()\n"},
 					{"id": "fn:getNodeId", "name": "getNodeId", "qualifiedName": "Provider.getNodeId", "file": "hono-bidder/mod.ts", "context": "hono-bidder", "text": "getNodeId(providerId)\n"},
 					{"id": "fn:report", "name": "onNetworkReport", "qualifiedName": "report.onNetworkReport", "file": "lib/report.ts", "context": "lib", "text": "report the ticket\n"},
+					{"id": "file:test/other_test.ts", "kind": "file", "name": "other_test.ts", "qualifiedName": "other_test.ts", "file": "test/other_test.ts", "text": ""},
 				],
 				"edges": [
 					{"source": "fn:emit", "target": "fn:getNodeId", "kind": "calls", "line": 12},
 					{"source": "fn:report", "target": "fn:emit", "kind": "calls", "line": 4},
 					{"source": "fn:emit", "target": "fn:report", "kind": "references", "line": 5},
 				],
-				"texts": {"hono-bidder/mod.ts": "const x = 1\nemitOnNetwork()\nfetch(guestAddress)\n"},
+				"texts": {
+					"hono-bidder/mod.ts": "const x = 1\nemitOnNetwork()\nfetch(guestAddress)\n",
+					"test/bidder_test.ts": "Deno.test(\"drives the contract\", () => { runComputeContract() })\n",
+				},
 			},
 		}},
 		"Repository": {"market": {"metadata": {"name": "market", "namespace": "default"}, "spec": {"branch": "main"}}},
@@ -105,6 +109,13 @@ test_reaching_walks_backwards {
 	reached["fn:report"]
 }
 
+test_closure_includes_an_isolated_root {
+	reached := closure_from(["file:test/other_test.ts"], ["calls"]) with input as code_graph_input with data.inventory as inventory
+	reached["file:test/other_test.ts"]
+	back := closure_reaching(["file:test/other_test.ts"], ["calls"]) with input as code_graph_input with data.inventory as inventory
+	back["file:test/other_test.ts"]
+}
+
 test_lines_matching {
 	lines := lines_matching("hono-bidder/mod.ts", "fetch") with input as code_graph_input with data.inventory as inventory
 	count(lines) == 1
@@ -121,6 +132,67 @@ test_violation_and_location_shape {
 	v.msg == "bad"
 	v.details.file == "a.ts"
 	v.details.line == 7
+}
+
+test_tests_matching_text_selects_driving_tests {
+	files := tests_matching_text(["**/*_test.ts"], "Deno\\.test") with input as code_graph_input with data.inventory as inventory
+	count(files) == 1
+}
+
+test_node_lookup_and_id_selection {
+	one := node("fn:emit") with input as code_graph_input with data.inventory as inventory
+	one.name == "emitOnNetwork"
+	selected := nodes_with_id({"fn:emit", "fn:report"}) with input as code_graph_input with data.inventory as inventory
+	count(selected) == 2
+}
+
+test_file_node_resolves_the_file_node {
+	one := file_node("test/other_test.ts") with input as code_graph_input with data.inventory as inventory
+	one.kind == "file"
+	one.id == "file:test/other_test.ts"
+}
+
+test_nodes_identified_matches_name_text_and_qualified {
+	by_name := nodes_identified("onNetworkReport") with input as code_graph_input with data.inventory as inventory
+	count(by_name) == 1
+	by_text := nodes_identified("getNodeId") with input as code_graph_input with data.inventory as inventory
+	count(by_text) == 1
+	by_qualified := nodes_identified("^report\\.") with input as code_graph_input with data.inventory as inventory
+	count(by_qualified) == 1
+}
+
+test_nodes_matching_text_and_globs {
+	all := nodes_matching_text("getNodeId") with input as code_graph_input with data.inventory as inventory
+	count(all) == 1
+	scoped := nodes_matching_globs(["lib/**"], "report") with input as code_graph_input with data.inventory as inventory
+	count(scoped) == 1
+}
+
+test_nodes_reachable_from_matches_text {
+	found := nodes_reachable_from(["fn:emit"], ["calls"], "getNodeId") with input as code_graph_input with data.inventory as inventory
+	count(found) == 1
+}
+
+test_node_match_line_is_the_real_line {
+	item := {"id": "fn:x", "file": "a.ts", "startLine": 10, "text": "one\ntwo\nthree\ngetNodeId(p)\n"}
+	line := node_match_line(item, "getNodeId\\(") with input as code_graph_input
+	line == 13
+}
+
+test_first_line_is_one_based {
+	line := first_line("hono-bidder/mod.ts", "fetch") with input as code_graph_input with data.inventory as inventory
+	line == 3
+}
+
+test_definition_node_excludes_file_and_import {
+	definition_node({"kind": "function"}) with input as code_graph_input
+	not definition_node({"kind": "file"}) with input as code_graph_input
+	not definition_node({"kind": "import"}) with input as code_graph_input
+}
+
+test_matches_globs {
+	matches_globs(["test/**"], "test/a.ts") with input as code_graph_input
+	not matches_globs(["test/**"], "lib/a.ts") with input as code_graph_input
 }
 
 test_missing_inventory_is_empty_not_undefined {
