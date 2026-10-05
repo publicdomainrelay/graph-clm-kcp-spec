@@ -59,6 +59,15 @@ func GeneratePrompt(request policy.GenerateRequest) string {
 	}
 	fmt.Fprintf(&builder, "The constraint's enforcementAction is %s.\n\n", defaultEnforcement(request.Enforcement))
 
+	if len(request.Failures) > 0 {
+		fmt.Fprintf(&builder, "## attempt %d was refused\n\n", request.Attempt-1)
+		builder.WriteString("The tree you wrote is gone. These checks refused it, and the same checks run again:\n\n")
+		for _, failure := range request.Failures {
+			builder.WriteString("- " + failure + "\n")
+		}
+		builder.WriteString("\nWrite the whole tree again, with the failure fixed.\n\n")
+	}
+
 	builder.WriteString("## the binding in force\n\n")
 	builder.WriteString(renderBinding(request))
 	builder.WriteString("\n")
