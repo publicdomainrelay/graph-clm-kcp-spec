@@ -319,7 +319,7 @@ Branch `policy-r2`, on top of the `policy-i2` merge (`539bbbd`, which brings
 | N7 | `2118a75` | both offline eval paths read the library's exceptions through the gates' `Waivers`: the text report prints `waived`, `-o json` carries the waived keys, `--strict` fails only on a deny that survives them |
 | N8 | `1018a3f` | a new `file.read` effect kind; rule 2b denies an emitter with a host-side read on its call chain. market-mini's concrete rule carries the same check over CodeGraph nodes; the split is a recorded limit |
 | N9 | `fc821a9` | `policy fix --apply --system-context S --spec-hash H` builds and creates the SpecChange (prompt, constraint and site on its annotations); `--dry-run` prints it, `--write` writes it |
-| N10 | `4d39d0b` | the bind leak: a bind run over a perturbed clone, transcript outside the sandbox, scored field by field -- recorded in `docs/examples/atproto-market-policies.md` (see below) |
+| N10 | `88083f3` | the bind leak: a bind run over a perturbed clone, transcript outside the sandbox, scored field by field -- recorded in `docs/examples/atproto-market-policies.md` (see below) |
 | low | `1840cbe` | A3 stale inlined lib, G6 (one `GateLock`, guarded `inventory[:1]`, the change source's `TestGlobs`), D3 (the mutation check reads the generated rule only), B9 (a spec-time clause for rule 1), `policy build` prunes a deleted template's dist, `pack.yaml` says two rules, `abc/policy`'s comment lines removed |
 
 The low items that are recorded rather than fixed: D2 (the harness is not
