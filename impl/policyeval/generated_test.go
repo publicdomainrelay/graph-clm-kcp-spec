@@ -200,10 +200,14 @@ func writeGeneratedTree(t *testing.T, options treeOptions) string {
 func generatedInput(t *testing.T, dir string) GeneratedInput {
 	t.Helper()
 	return GeneratedInput{
-		Dir:          dir,
-		Slug:         "relay-only",
-		Repository:   "fixture",
-		Contexts:     []string{"lib-bidder"},
+		Dir:        dir,
+		Slug:       "relay-only",
+		Repository: "fixture",
+		Contexts:   []string{"lib-bidder"},
+		Binding: policy.Binding{Roles: map[string]policy.RoleBinding{
+			"guest": {Targets: &policy.RoleTargets{Attrs: []string{"getNodeId"}}},
+		}},
+		Classifiers:  []string{"compute-provider.yaml"},
 		Vocabulary:   policy.MutationVocabulary{HostRole: "host", GuestRole: "guest"},
 		GeneratedBy:  "relay-only-abc",
 		Requirements: []string{"lib-bidder#r.relay"},
@@ -328,6 +332,59 @@ spec:
 	}
 	if check := checkByName(t, result, "shape"); !strings.Contains(check.Message, "ArchitectureModel") {
 		t.Errorf("the shape failure reads %q", check.Message)
+	}
+}
+
+// TestCheckGeneratedRefusesARuleThatReadsAHint pins plan 0010 D2: a portable
+// rule may not depend on a repository-specific target hint -- the getNodeId
+// verb, or a repository's own classifier pack -- because a second repository
+// has neither.
+func TestCheckGeneratedRefusesARuleThatReadsAHint(t *testing.T) {
+	hint := `package relayonly
+
+import data.lib.specd
+
+violation[specd.violation(msg, details)] {
+	effect := specd.model_effects[_]
+	effect.attrs.getNodeId
+	msg := "the rule reads the repository's own hint"
+	details := {"effect": effect.id}
+}
+`
+	dir := writeGeneratedTree(t, treeOptions{source: hint})
+	result, err := CheckGenerated(context.Background(), generatedInput(t, dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed() {
+		t.Fatal("a rule that reads getNodeId passed")
+	}
+	portable := checkByName(t, result, "portable")
+	if !strings.Contains(portable.Message, "getNodeId") {
+		t.Errorf("the portability failure reads %q", portable.Message)
+	}
+
+	classifier := `package relayonly
+
+import data.lib.specd
+
+violation[specd.violation(msg, details)] {
+	effect := specd.model_effects[_]
+	effect.file == "compute-provider.yaml"
+	msg := "the rule names a classifier pack"
+	details := {"effect": effect.id}
+}
+`
+	dir = writeGeneratedTree(t, treeOptions{source: classifier})
+	result, err = CheckGenerated(context.Background(), generatedInput(t, dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed() {
+		t.Fatal("a rule that names a classifier pack passed")
+	}
+	if message := checkByName(t, result, "portable").Message; !strings.Contains(message, "compute-provider") {
+		t.Errorf("the portability failure reads %q", message)
 	}
 }
 

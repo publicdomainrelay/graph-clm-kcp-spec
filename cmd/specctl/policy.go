@@ -756,16 +756,22 @@ func runPolicyTest(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "suites: %d/%d cases passed\n", passedCases, totalCases)
 
-	if *withGator && len(suites) > 0 {
-		bin := *gatorBin
-		if bin == "" {
-			bin = os.Getenv("SPECD_GATOR")
-		}
-		if bin == "" {
-			bin = defaultGator
-		}
-		if code := runGator(bin, filepath.Join(target.dir, policy.TestsDir), stdout, stderr); code != exitOK {
+	if *withGator {
+		if len(suites) == 0 {
+			fmt.Fprintf(stderr, "specctl policy test: gator: no suites under %s, nothing was verified\n",
+				filepath.Join(target.dir, policy.TestsDir))
 			failed++
+		} else {
+			bin := *gatorBin
+			if bin == "" {
+				bin = os.Getenv("SPECD_GATOR")
+			}
+			if bin == "" {
+				bin = defaultGator
+			}
+			if code := runGator(bin, filepath.Join(target.dir, policy.TestsDir), stdout, stderr); code != exitOK {
+				failed++
+			}
 		}
 	}
 
@@ -1223,18 +1229,29 @@ func repositoryForWorktree(worktree string) string {
 	}
 	base := filepath.Base(absolute)
 	parent := filepath.Base(filepath.Dir(absolute))
-	if hasExampleLibrary(base) {
+	if findExampleLibrary(absolute, base) != "" {
 		return base
 	}
-	if parent != "." && parent != string(filepath.Separator) && hasExampleLibrary(parent) {
+	if parent != "." && parent != string(filepath.Separator) && findExampleLibrary(absolute, parent) != "" {
 		return parent
 	}
 	return base
 }
 
-func hasExampleLibrary(repository string) bool {
-	_, err := os.Stat(filepath.Join("examples", "policies", repository, policy.PoliciesPath))
-	return err == nil
+// findExampleLibrary walks up from the worktree looking for the checkout that
+// carries examples/policies/<repository>, so the repository a worktree belongs
+// to does not depend on the process working directory.
+func findExampleLibrary(dir, repository string) string {
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "examples", "policies", repository, policy.PoliciesPath)); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 // defaultCacheDir is the state directory a member repository is cloned under,

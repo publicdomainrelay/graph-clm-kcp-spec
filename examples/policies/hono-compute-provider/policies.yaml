@@ -43,7 +43,6 @@ vocabulary:
     network-report:
     - COMPUTE_EVENTS_VM_ON_NETWORK_NSID
     - vm.onNetwork
-    - vm.onNetwork
   payloads:
     network-info:
     - address

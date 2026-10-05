@@ -32,6 +32,8 @@ type GeneratedInput struct {
 
 	Contexts []string
 
+	Classifiers []string
+
 	Vocabulary policy.MutationVocabulary
 
 	GeneratedBy string
@@ -113,7 +115,7 @@ func CheckGenerated(ctx context.Context, input GeneratedInput) (GeneratedResult,
 	result.Checks = append(result.Checks, policy.Check{Name: "shape", Passed: true, Message: input.Slug})
 
 	template := library.Templates[0]
-	if findings := policy.PortabilityFindings(template.Rego, policy.ForbiddenIdentifiers(input.Binding, input.Repository, input.Contexts)); len(findings) > 0 {
+	if findings := policy.PortabilityFindings(template.Rego, policy.ForbiddenIdentifiers(input.Binding, input.Classifiers, input.Repository, input.Contexts)); len(findings) > 0 {
 		result.Checks = append(result.Checks, failCheck("portable",
 			"the rule names "+strings.Join(findings, ", ")+"; a portable rule reads roles and vocabulary classes only"))
 	} else {

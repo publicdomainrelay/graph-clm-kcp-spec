@@ -8,6 +8,7 @@ import (
 )
 
 //go:embed all:rfp-guest-isolation
+//go:embed all:conformance
 var embedded embed.FS
 
 // FS is the registry of the packs embedded in specd and specctl. Adding a pack

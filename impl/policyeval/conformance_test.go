@@ -205,6 +205,7 @@ func TestExampleDistAndCatalogueAreCurrent(t *testing.T) {
 	for _, pattern := range []string{
 		filepath.Join(root, "examples", "policies", "*"),
 		filepath.Join(root, "policies", "*"),
+		filepath.Join(root, "policies", "packs", "*"),
 	} {
 		matches, err := filepath.Glob(pattern)
 		if err != nil {

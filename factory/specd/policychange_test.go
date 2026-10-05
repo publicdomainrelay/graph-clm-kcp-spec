@@ -191,3 +191,79 @@ func TestPolicyChangeRecordDropsClusterBookkeeping(t *testing.T) {
 		t.Errorf("the record is not a PolicyChange:\n%s", record)
 	}
 }
+
+// TestRenderBindModelStripsTheBinding pins plan 0010 D1: the model a bind-mode
+// prompt carries has no role, no glob and no vocabulary of the branch's
+// existing binding.
+func TestRenderBindModelStripsTheBinding(t *testing.T) {
+	model := policy.ArchitectureModel{
+		Spec: policy.ArchitectureModelSpec{
+			Repository: "atproto-market",
+			Roles:      []string{"guest", "host"},
+			Vocabulary: policy.Vocabulary{Channels: map[string][]string{"relay": {"websocat"}}},
+			Components: []policy.ModelComponent{
+				{Name: "lib-market-bidder", Roles: []string{"host"}, Globs: []string{"lib/market-bidder/**"}, Source: policy.SourceObserved},
+			},
+			Effects:  []policy.Effect{{ID: "e1", Kind: "container.exec", Component: "lib-market-bidder", File: "lib/market-bidder/mod.ts", Line: 12}},
+			Flows:    []policy.ModelFlow{{From: "lib-market-bidder", To: "lib-requester", Source: policy.SourceObserved}},
+			Triggers: []policy.ModelTrigger{},
+		},
+	}
+	rendered := renderBindModel(model)
+	for _, unwanted := range []string{"roles:", "globs:", "websocat", "host", "relay:"} {
+		if strings.Contains(rendered, unwanted) {
+			t.Errorf("the rendered model carries %q:\n%s", unwanted, rendered)
+		}
+	}
+	for _, want := range []string{"lib-market-bidder", "lib/market-bidder/mod.ts"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("the rendered model drops the evidence %q:\n%s", want, rendered)
+		}
+	}
+	if len(model.Spec.Components[0].Globs) != 1 || len(model.Spec.Roles) != 2 {
+		t.Error("renderBindModel mutated the model it was given")
+	}
+}
+
+// TestBindRequestCarriesNoBindingNorVocabulary pins plan 0010 D1: a bind-mode
+// request hands the harness a model built without the branch's binding and an
+// empty binding, so the prompt cannot contain the answer.
+func TestBindRequestCarriesNoBindingNorVocabulary(t *testing.T) {
+	controller := &Controller{}
+	source := repositoryModelSource{
+		repository: "atproto-market",
+		graph: policy.CodeGraph{
+			Spec: policy.CodeGraphSpec{
+				Repository: "atproto-market",
+				Files:      []policy.CodeGraphFile{{Path: "lib/market-bidder/mod.ts", Context: "lib-market-bidder"}},
+			},
+		},
+	}
+	change := policyChange("atproto-market-bind-rfp-guest-isolation", func(ch *policy.PolicyChange) {
+		ch.Spec.Repository = "atproto-market"
+		ch.Spec.Pack = "rfp-guest-isolation"
+		ch.Spec.Slug = "rfp-guest-isolation"
+	})
+	binding := policy.Binding{
+		Roles:      map[string]policy.RoleBinding{"host": {Globs: []string{"lib/market-bidder/**"}}},
+		Vocabulary: policy.Vocabulary{Channels: map[string][]string{"relay": {"websocat"}}},
+	}
+	repository := &spec.Repository{ObjectMeta: objectMetaFor("atproto-market")}
+	request, err := controller.policyGenerateRequest(change, repository, t.TempDir(), source, binding,
+		&policy.PackManifest{Name: "rfp-guest-isolation", Version: "v1", Roles: []string{"guest", "host", "test"}},
+		nil, policy.Library{}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(request.Binding.RoleNames()) != 0 || len(request.Binding.Vocabulary.Classes()) != 0 {
+		t.Errorf("the bind request carries the branch binding: %+v", request.Binding)
+	}
+	for _, unwanted := range []string{"roles:", "globs:", "websocat", "lib/market-bidder/**"} {
+		if strings.Contains(request.Model, unwanted) {
+			t.Errorf("the bind request model carries %q:\n%s", unwanted, request.Model)
+		}
+	}
+	if request.Mode != policy.GenerateModeBind {
+		t.Errorf("the request mode is %q", request.Mode)
+	}
+}

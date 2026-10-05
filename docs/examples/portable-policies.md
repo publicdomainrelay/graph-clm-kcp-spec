@@ -6,6 +6,14 @@ it, to that second repository alone, and to a repository that is only specs.
 Only `policies.yaml` changes between the three. This is the run plan 0009 phase
 G5 records; `scripts/example-portable-policies.sh` repeats it.
 
+One correction to "only `policies.yaml` changes": two of the three bindings --
+`atproto-market-cross-repo` and `hono-compute-provider` -- also need a
+`classifiers/compute-provider.yaml` file, because the shared effect packs do not
+know that repository's `inspectIp` and `backend.exec` verbs. The repository
+data file changes too, not only the binding. Plan 0010 R3 and R4 make the
+reach-in rule deny by default for unknown targets and resolve aliases, which is
+meant to make that classifier file unnecessary for this pack.
+
 The pack's rules, in one line each:
 
 | template | fires when |

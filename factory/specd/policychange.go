@@ -126,12 +126,11 @@ func (c *Controller) draftPolicyChange(ctx context.Context, namespace string, ch
 		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, err.Error())
 		return 0, nil
 	}
-	model, inventory, err := c.repositoryModel(ctx, namespace, repository, path, contexts, binding)
+	source, err := c.repositorySource(ctx, namespace, repository, path, contexts)
 	if err != nil {
 		c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, "build the model: "+err.Error())
 		return 0, nil
 	}
-
 	dir, err := c.policyScratchDir(namespace, change.Name)
 	if err != nil {
 		return 0, err
@@ -156,18 +155,22 @@ func (c *Controller) draftPolicyChange(ctx context.Context, namespace string, ch
 			c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, err.Error())
 			return 0, nil
 		}
-		request := c.policyGenerateRequest(change, repository, dir, model, binding, pack, contexts, branchLibrary, attempt, failures)
+		request, err := c.policyGenerateRequest(change, repository, dir, source, binding, pack, contexts, branchLibrary, attempt, failures)
+		if err != nil {
+			c.failPolicyChange(ctx, namespace, change, specapi.ReasonPolicyGateError, err.Error())
+			return 0, nil
+		}
 		generated, err := generator.Generate(ctx, request)
 		if err != nil {
 			failures = append(failures, "the harness failed: "+err.Error())
 			c.recordPolicyAttempt(ctx, namespace, change, dir, attempt, failures, generated.Summary)
 			continue
 		}
-		draft.summary = generated.Summary
-		draft, err = c.checkPolicyDraft(ctx, change, repository, dir, binding, pack, packLibrary, packFS, model, inventory, contexts, branchLibrary, request)
+		draft, err = c.checkPolicyDraft(ctx, change, repository, dir, binding, pack, packLibrary, packFS, source, contexts, branchLibrary, request)
 		if err != nil {
 			return 0, err
 		}
+		draft.summary = generated.Summary
 		if !draft.failed() {
 			break
 		}
@@ -204,14 +207,28 @@ func (c *Controller) policyGenerateRequest(
 	change *policy.PolicyChange,
 	repository *spec.Repository,
 	dir string,
-	model policy.ArchitectureModel,
+	source repositoryModelSource,
 	binding policy.Binding,
 	pack *policy.PackManifest,
 	contexts []spec.SystemContext,
 	branchLibrary policy.Library,
 	attempt int,
 	failures []string,
-) policy.GenerateRequest {
+) (policy.GenerateRequest, error) {
+	bindMode := change.Spec.Mode() == policy.GenerateModeBind
+	buildBinding := binding
+	if bindMode {
+		buildBinding = policy.Binding{}
+	}
+	model, err := source.model(buildBinding)
+	if err != nil {
+		return policy.GenerateRequest{}, err
+	}
+	rendered := renderModel(model)
+	if bindMode {
+		binding = policy.Binding{}
+		rendered = renderBindModel(model)
+	}
 	return policy.GenerateRequest{
 		Mode:         change.Spec.Mode(),
 		Repository:   repository.Name,
@@ -224,11 +241,28 @@ func (c *Controller) policyGenerateRequest(
 		Enforcement:  change.Spec.EnforcementAction,
 		Pack:         pack,
 		Binding:      binding,
-		Model:        renderModel(model),
+		Model:        rendered,
 		Existing:     templateNames(branchLibrary),
 		Attempt:      attempt,
 		Failures:     failures,
+	}, nil
+}
+
+// renderBindModel strips the binding out of the model a bind-mode prompt
+// carries: the harness sees the code's own components, effects and flows, never
+// the roles, the globs or the vocabulary the branch already declares.
+func renderBindModel(model policy.ArchitectureModel) string {
+	stripped := model
+	stripped.Spec.Roles = nil
+	stripped.Spec.Vocabulary = policy.Vocabulary{}
+	components := make([]policy.ModelComponent, len(model.Spec.Components))
+	copy(components, model.Spec.Components)
+	for index := range components {
+		components[index].Roles = nil
+		components[index].Globs = nil
 	}
+	stripped.Spec.Components = components
+	return renderModel(stripped)
 }
 
 func (c *Controller) checkPolicyDraft(
@@ -240,15 +274,22 @@ func (c *Controller) checkPolicyDraft(
 	pack *policy.PackManifest,
 	packLibrary policy.Library,
 	packFS fs.FS,
-	model policy.ArchitectureModel,
-	inventory []*unstructured.Unstructured,
+	source repositoryModelSource,
 	contexts []spec.SystemContext,
 	branchLibrary policy.Library,
 	request policy.GenerateRequest,
 ) (policyDraft, error) {
 	draft := policyDraft{dir: dir, manifest: branchLibrary.Manifest}
-	reviewed := inventory[:1]
 	if change.Spec.Mode() == policy.GenerateModeBind {
+		generated, err := readBinding(dir)
+		if err != nil {
+			draft.checks = append(draft.checks, policy.Check{Name: "manifest", Passed: false, Message: err.Error()})
+			return draft, nil
+		}
+		model, inventory, err := source.modelAndInventory(generated.Binding())
+		if err != nil {
+			return draft, err
+		}
 		result, err := policyeval.CheckGeneratedBinding(ctx, policyeval.BindingInput{
 			Dir:         dir,
 			Repository:  repository.Name,
@@ -259,7 +300,7 @@ func (c *Controller) checkPolicyDraft(
 			Model:       model,
 			Terms:       contextTerms(contexts),
 			Commit:      codegraphfacts.GitCommit(ctx, repository.WorkPath()),
-			Reviewed:    reviewed,
+			Reviewed:    inventory[:1],
 			Inventory:   inventory,
 		})
 		if err != nil {
@@ -271,17 +312,22 @@ func (c *Controller) checkPolicyDraft(
 		return draft, nil
 	}
 
+	inventory, err := source.onlyInventory(binding)
+	if err != nil {
+		return draft, err
+	}
 	result, err := policyeval.CheckGenerated(ctx, policyeval.GeneratedInput{
 		Dir:          dir,
 		Slug:         request.Slug,
 		Binding:      binding,
 		Repository:   repository.Name,
 		Contexts:     contextNamesOf(contexts),
+		Classifiers:  branchLibrary.Manifest.Classifiers,
 		Vocabulary:   policy.MutationVocabularyOf(binding, packRoles(binding, pack)),
 		GeneratedBy:  change.Name,
 		Requirements: change.Spec.Requirements,
 		Commit:       codegraphfacts.GitCommit(ctx, repository.WorkPath()),
-		Reviewed:     reviewed,
+		Reviewed:     inventory[:1],
 		Inventory:    inventory,
 	})
 	if err != nil {
@@ -565,16 +611,66 @@ func (c *Controller) policyPack(change *policy.PolicyChange, branchLibrary polic
 	return library.Pack, library, fsys, nil
 }
 
-// repositoryModel builds the head ArchitectureModel of a repository and the
-// inventory its rules read: the model, the Repository and every context.
-func (c *Controller) repositoryModel(
+// repositoryModelSource is a repository's graph, effects and contexts, read
+// once, so a model can be built several times with different bindings: the
+// prompt's model and the checked model of a generated binding must not be the
+// same one.
+type repositoryModelSource struct {
+	repository string
+
+	graph policy.CodeGraph
+
+	effects []policy.Effect
+
+	contexts []policy.ModelContext
+
+	objects []*unstructured.Unstructured
+}
+
+func (s repositoryModelSource) model(binding policy.Binding) (policy.ArchitectureModel, error) {
+	return policy.BuildModel(policy.ModelInput{
+		Repository: s.repository,
+		Graph:      s.graph,
+		Effects:    s.effects,
+		Contexts:   s.contexts,
+		Binding:    binding,
+	})
+}
+
+func (s repositoryModelSource) inventory(model policy.ArchitectureModel) ([]*unstructured.Unstructured, error) {
+	modelObject, err := policyeval.Unstructured([]byte(renderModel(model)))
+	if err != nil {
+		return nil, err
+	}
+	return append([]*unstructured.Unstructured{modelObject}, s.objects...), nil
+}
+
+func (s repositoryModelSource) modelAndInventory(binding policy.Binding) (policy.ArchitectureModel, []*unstructured.Unstructured, error) {
+	model, err := s.model(binding)
+	if err != nil {
+		return policy.ArchitectureModel{}, nil, err
+	}
+	inventory, err := s.inventory(model)
+	if err != nil {
+		return policy.ArchitectureModel{}, nil, err
+	}
+	return model, inventory, nil
+}
+
+func (s repositoryModelSource) onlyInventory(binding policy.Binding) ([]*unstructured.Unstructured, error) {
+	_, inventory, err := s.modelAndInventory(binding)
+	return inventory, err
+}
+
+// repositorySource reads the head graph and effects of a repository and the
+// inventory its rules read, once for every model built from it.
+func (c *Controller) repositorySource(
 	ctx context.Context,
 	namespace string,
 	repository *spec.Repository,
 	path string,
 	contexts []spec.SystemContext,
-	binding policy.Binding,
-) (policy.ArchitectureModel, []*unstructured.Unstructured, error) {
+) (repositoryModelSource, error) {
 	commit := codegraphfacts.GitCommit(ctx, path)
 	graph, err := codegraphfacts.Build(ctx, path, codegraphfacts.Options{
 		Repository: repository.Name,
@@ -585,16 +681,16 @@ func (c *Controller) repositoryModel(
 		Tool:       c.opts.Tool,
 	})
 	if err != nil {
-		return policy.ArchitectureModel{}, nil, err
+		return repositoryModelSource{}, err
 	}
 	if _, err := effects.Apply(&graph, effects.Options{
 		ClassifiersDirs: effects.Dirs(path),
 		IncludeExtras:   true,
 	}); err != nil {
-		return policy.ArchitectureModel{}, nil, err
+		return repositoryModelSource{}, err
 	}
 	modelContexts := make([]policy.ModelContext, 0, len(contexts))
-	objects := make([]*unstructured.Unstructured, 0, len(contexts)+2)
+	objects := make([]*unstructured.Unstructured, 0, len(contexts)+1)
 	for _, context := range contexts {
 		modelContexts = append(modelContexts, policy.ModelContext{
 			Name:         context.Name,
@@ -603,29 +699,34 @@ func (c *Controller) repositoryModel(
 		})
 		object, err := kcpclient.Unstructured(&context)
 		if err != nil {
-			return policy.ArchitectureModel{}, nil, err
+			return repositoryModelSource{}, err
 		}
 		objects = append(objects, object)
 	}
-	model, err := policy.BuildModel(policy.ModelInput{
-		Repository: repository.Name,
-		Graph:      graph,
-		Effects:    graph.Spec.Effects,
-		Contexts:   modelContexts,
-		Binding:    binding,
-	})
-	if err != nil {
-		return policy.ArchitectureModel{}, nil, err
-	}
-	modelObject, err := policyeval.Unstructured([]byte(renderModel(model)))
-	if err != nil {
-		return policy.ArchitectureModel{}, nil, err
-	}
 	repositoryObject, err := kcpclient.Unstructured(repository)
 	if err != nil {
-		return policy.ArchitectureModel{}, nil, err
+		return repositoryModelSource{}, err
 	}
-	return model, append([]*unstructured.Unstructured{modelObject}, append([]*unstructured.Unstructured{repositoryObject}, objects...)...), nil
+	return repositoryModelSource{
+		repository: repository.Name,
+		graph:      graph,
+		effects:    graph.Spec.Effects,
+		contexts:   modelContexts,
+		objects:    append([]*unstructured.Unstructured{repositoryObject}, objects...),
+	}, nil
+}
+
+// readBinding reads the policies.yaml a harness wrote in bind mode.
+func readBinding(dir string) (policy.PolicyLibrary, error) {
+	data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(policy.PoliciesPath)))
+	if err != nil {
+		return policy.PolicyLibrary{}, err
+	}
+	manifest := policy.PolicyLibrary{}
+	if err := yaml.Unmarshal(data, &manifest); err != nil {
+		return policy.PolicyLibrary{}, err
+	}
+	return manifest, nil
 }
 
 func modelInteractions(interactions []spec.Interaction) []policy.DeclaredInteraction {
@@ -674,6 +775,9 @@ func (c *Controller) recordPolicyEvaluated(ctx context.Context, namespace string
 		"attempt": attempt,
 		"checks":  draft.checks,
 		"message": evaluatedMessage(draft),
+	}
+	if draft.summary != "" {
+		status["agentLog"] = tailMessage(draft.summary)
 	}
 	if change.Spec.Mode() == policy.GenerateModeBind {
 		binding := draft.manifest.Binding()

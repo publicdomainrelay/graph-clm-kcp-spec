@@ -210,3 +210,99 @@ func TestDefaultSlugIsKebabAndBounded(t *testing.T) {
 		t.Errorf("an explicit slug became %q", given)
 	}
 }
+
+// TestProposeInteractionsDropsAnUnknownPeer pins plan 0010 D4: a flow whose
+// target role is unknown names no context, so the proposal must drop it rather
+// than emit `peer: unknown`.
+func TestProposeInteractionsDropsAnUnknownPeer(t *testing.T) {
+	model := policy.ArchitectureModel{
+		Spec: policy.ArchitectureModelSpec{
+			Components: []policy.ModelComponent{
+				{Name: "lib-requester-xrpc", Context: "lib-requester-xrpc", Source: policy.SourceBoth},
+			},
+			Flows: []policy.ModelFlow{
+				{
+					From: "lib-requester-xrpc", To: policy.RoleUnknown,
+					Purpose: "network-discovery", Source: policy.SourceObserved,
+				},
+				{
+					From: "lib-requester-xrpc", To: "lib-market-bidder",
+					Purpose: "relay", Source: policy.SourceObserved,
+				},
+			},
+		},
+	}
+	output := proposeInteractions(model)
+	if strings.Contains(output, "peer: "+policy.RoleUnknown) {
+		t.Errorf("the proposal emits an unknown peer:\n%s", output)
+	}
+	if !strings.Contains(output, "peer: lib-market-bidder") {
+		t.Errorf("the proposal drops the resolvable peer:\n%s", output)
+	}
+}
+
+// TestRepositoryForWorktreeUsesTheWorktreeNotTheWorkingDirectory pins plan
+// 0010 D4 (0004 bug 4): the same absolute worktree resolves to the same
+// repository wherever specctl was launched.
+func TestRepositoryForWorktreeUsesTheWorktreeNotTheWorkingDirectory(t *testing.T) {
+	worktree, err := filepath.Abs(filepath.Join("..", "..", "fixtures", "market-mini", "compliant"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "market-mini"
+	if got := repositoryForWorktree(worktree); got != want {
+		t.Errorf("from the repository root: got %q, want %q", got, want)
+	}
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(previous) })
+	if got := repositoryForWorktree(worktree); got != want {
+		t.Errorf("from an unrelated directory: got %q, want %q", got, want)
+	}
+}
+
+// TestPolicyTestWithGatorRefusesAnEmptySuiteSet pins plan 0010 D4: a --gator
+// run with no suites must say so, not pass silently.
+func TestPolicyTestWithGatorRefusesAnEmptySuiteSet(t *testing.T) {
+	source := filepath.Join("..", "..", "examples", "policies", "market-mini")
+	dir := filepath.Join(t.TempDir(), "market-mini")
+	if err := copyTreeForTest(source, dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, policy.TestsDir)); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := runWith("policy", "test", "--dir", dir, "--gator")
+	if code == exitOK {
+		t.Errorf("a gator run with no suites passed: stderr %q", stderr)
+	}
+	if !strings.Contains(stderr, "no suites") {
+		t.Errorf("stderr does not say there were no suites: %q", stderr)
+	}
+}
+
+func copyTreeForTest(source, target string) error {
+	return filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		to := filepath.Join(target, relative)
+		if info.IsDir() {
+			return os.MkdirAll(to, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(to, data, info.Mode().Perm())
+	})
+}

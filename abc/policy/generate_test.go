@@ -158,10 +158,13 @@ func TestMutationVocabularyOfFallsBackToAnyClassName(t *testing.T) {
 func TestForbiddenIdentifiersDropsVocabularyLikeSegments(t *testing.T) {
 	binding := Binding{Roles: map[string]RoleBinding{
 		"guest": {Globs: []string{"lib/common/cloud-init-common/**", "lib/market-bidder-agent/**"}},
-		"host":  {Symbols: []string{"createMarketBidder"}},
+		"host":  {Symbols: []string{"createMarketBidder"}, Targets: &RoleTargets{Attrs: []string{"getNodeId"}}},
 	}}
-	forbidden := ForbiddenIdentifiers(binding, "atproto-market", []string{"lib-requester", "atproto-market"})
-	for _, want := range []string{"atproto-market", "lib-requester", "cloud-init-common", "market-bidder-agent"} {
+	forbidden := ForbiddenIdentifiers(binding, []string{"compute-provider.yaml"}, "atproto-market", []string{"lib-requester", "atproto-market"})
+	for _, want := range []string{
+		"atproto-market", "lib-requester", "cloud-init-common", "market-bidder-agent",
+		"getNodeId", "compute-provider.yaml", "compute-provider",
+	} {
 		if !slices.Contains(forbidden, want) {
 			t.Errorf("%q is not forbidden: %v", want, forbidden)
 		}

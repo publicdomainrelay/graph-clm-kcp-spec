@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -85,10 +86,10 @@ type Generator interface {
 }
 
 // ForbiddenIdentifiers names the strings a portable source must not mention:
-// the repository, its context names and the literal segments of the role globs.
-// Vocabulary terms are not forbidden -- they are the language a portable rule
-// is written in -- so a role's symbols and target hints are left out.
-func ForbiddenIdentifiers(binding Binding, repository string, contexts []string) []string {
+// the repository, its context names, the literal segments of the role globs,
+// the repository's classifier packs and the role target hints. Vocabulary terms
+// are not forbidden -- they are the language a portable rule is written in.
+func ForbiddenIdentifiers(binding Binding, classifiers []string, repository string, contexts []string) []string {
 	out := []string{}
 	if repository != "" {
 		out = append(out, repository)
@@ -99,12 +100,41 @@ func ForbiddenIdentifiers(binding Binding, repository string, contexts []string)
 		}
 	}
 	for _, name := range binding.RoleNames() {
+		targets := binding.Roles[name].Targets
+		if targets == nil {
+			continue
+		}
+		for _, attr := range targets.Attrs {
+			if attr != "" {
+				out = append(out, attr)
+			}
+		}
+	}
+	for _, name := range binding.RoleNames() {
 		for _, glob := range binding.Roles[name].Globs {
 			out = append(out, globLiterals(glob)...)
 		}
 	}
+	for _, classifier := range classifiers {
+		out = append(out, classifierLiterals(classifier)...)
+	}
 	sort.Strings(out)
 	return dedupeStrings(out)
+}
+
+// classifierLiterals names a classifier pack by its file name and by its stem,
+// so `compute-provider.yaml` forbids both `compute-provider.yaml` and
+// `compute-provider` in a portable source.
+func classifierLiterals(classifier string) []string {
+	name := strings.TrimSpace(classifier)
+	if name == "" {
+		return nil
+	}
+	out := []string{name}
+	if stem := strings.TrimSuffix(filepath.Base(name), filepath.Ext(name)); stem != name && stem != "" {
+		out = append(out, stem)
+	}
+	return out
 }
 
 // globLiterals names the directory and file names of a glob, without its

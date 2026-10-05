@@ -37,27 +37,41 @@ func LoadFS(fsys fs.FS) (policy.Library, error) {
 
 // LoadRaw reads a policy tree without resolving its imports.
 func LoadRaw(fsys fs.FS) (policy.Library, error) {
-	if data, err := fs.ReadFile(fsys, policy.PoliciesPath); err == nil {
-		var manifest policy.PolicyLibrary
-		if err := yaml.Unmarshal(data, &manifest); err != nil {
+	packData, packErr := fs.ReadFile(fsys, policy.PackManifestPath)
+	policiesData, policiesErr := fs.ReadFile(fsys, policy.PoliciesPath)
+	if packErr == nil {
+		// A pack is a pack even when it also carries a policies.yaml for its
+		// own enforcement defaults: the pack manifest names it and declares the
+		// binding it needs, so an import of it resolves.
+		var pack policy.PackManifest
+		if err := yaml.Unmarshal(packData, &pack); err != nil {
 			return policy.Library{}, err
 		}
-		return loadTree(fsys, manifest, policy.PoliciesPath, data)
-	}
-	if data, err := fs.ReadFile(fsys, policy.PackManifestPath); err == nil {
-		var manifest policy.PackManifest
-		if err := yaml.Unmarshal(data, &manifest); err != nil {
-			return policy.Library{}, err
+		manifest := policy.PolicyLibrary{Repository: pack.Name, Version: pack.Version}
+		if policiesErr == nil {
+			if err := yaml.Unmarshal(policiesData, &manifest); err != nil {
+				return policy.Library{}, err
+			}
+			if manifest.Repository == "" {
+				manifest.Repository = pack.Name
+			}
 		}
-		library, err := loadTree(fsys, policy.PolicyLibrary{
-			Repository: manifest.Name,
-			Version:    manifest.Version,
-		}, policy.PackManifestPath, data)
+		library, err := loadTree(fsys, manifest, policy.PackManifestPath, packData)
 		if err != nil {
 			return policy.Library{}, err
 		}
-		library.Pack = &manifest
+		if policiesErr == nil {
+			library.Files[policy.PoliciesPath] = policiesData
+		}
+		library.Pack = &pack
 		return library, nil
+	}
+	if policiesErr == nil {
+		var manifest policy.PolicyLibrary
+		if err := yaml.Unmarshal(policiesData, &manifest); err != nil {
+			return policy.Library{}, err
+		}
+		return loadTree(fsys, manifest, policy.PoliciesPath, policiesData)
 	}
 	// A tree with neither manifest still loads: its templates, constraints and
 	// library are the pack's own, with no repository and no binding.

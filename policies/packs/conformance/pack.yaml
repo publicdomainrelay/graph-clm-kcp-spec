@@ -1,0 +1,10 @@
+name: conformance
+version: v1
+description: >-
+  The declared-interaction conformance rules: a flow that matches a declared
+  must-never, a MUST interaction no flow realizes, and an observed flow no
+  declared interaction allows. The templates read declared interactions and
+  flows only, so the pack names no role and no vocabulary class and any
+  repository can import it.
+roles: []
+vocabulary: []

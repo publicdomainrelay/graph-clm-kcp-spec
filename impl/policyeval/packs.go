@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -268,6 +269,12 @@ func ociPackFS(imp policy.PackImport, source policy.PackSource, opts ImportOptio
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("policyeval: oci reference %s: %w", reference, err)
 	}
+	// A registry on the loopback address is plain HTTP, the way a local
+	// docker or oras registry is: a test or a development machine has no
+	// certificate for it.
+	if isLoopbackRegistry(repository.Reference.Registry) {
+		repository.PlainHTTP = true
+	}
 	tag := repository.Reference.Reference
 	if tag == "" {
 		tag = "latest"
@@ -301,6 +308,19 @@ func ociPackFS(imp policy.PackImport, source policy.PackSource, opts ImportOptio
 		return nil, func() {}, err
 	}
 	return os.DirFS(out), innerCleanup, nil
+}
+
+func isLoopbackRegistry(host string) bool {
+	hostname := host
+	if colon := strings.LastIndex(host, ":"); colon > 0 {
+		hostname = host[:colon]
+	}
+	hostname = strings.Trim(hostname, "[]")
+	if hostname == "localhost" {
+		return true
+	}
+	address := net.ParseIP(hostname)
+	return address != nil && address.IsLoopback()
 }
 
 func materializeOCI(ctx context.Context, store *orasoci.Store, tag, dir string) error {

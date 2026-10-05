@@ -201,6 +201,9 @@ func proposeInteractions(model policy.ArchitectureModel) string {
 			if !policy.Observed(flow) || !sources[flow.From] {
 				continue
 			}
+			if unknownTarget(flow.To) {
+				continue
+			}
 			initiator := "peer"
 			if sources[flow.Initiator] {
 				initiator = "self"
@@ -242,6 +245,13 @@ func proposeInteractions(model policy.ArchitectureModel) string {
 		builder.WriteString("# No observed flow maps to a declared context; nothing to propose.\n")
 	}
 	return builder.String()
+}
+
+// unknownTarget reports a flow whose peer is not a context or a role: pasting
+// `peer: unknown` names nothing the spec can resolve, so the proposal is
+// dropped rather than emitted.
+func unknownTarget(peer string) bool {
+	return peer == "" || peer == policy.RoleUnknown
 }
 
 type proposedInteraction struct {
