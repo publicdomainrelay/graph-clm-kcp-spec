@@ -470,9 +470,10 @@ are pushed.
    - the audit sets `PolicyCompliant` False on the context that owns the
      violating file and fills `Repository.status.policy` totals;
    - `TestPolicyLibrariesApplyWholeIntoKcp` seeds
-     `examples/policies/atproto-market` and `policies/library` onto policy
-     branches, restores each branch into kcp and asserts every template's
-     constraint CRD is `Established` and every constraint is applied.
+     `examples/policies/market-mini`, `examples/policies/atproto-market` and
+     `policies/library` onto policy branches, restores each branch into kcp and
+     asserts every template's constraint CRD is `Established` and every
+     constraint is applied.
 
    **What held the phase C branch back** (`dab3863`): the branch merged with
    phase B, so `examples/policies/market-mini` grew from the phase A

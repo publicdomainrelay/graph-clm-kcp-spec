@@ -953,11 +953,11 @@ func TestPolicyCliDrivesKcp(t *testing.T) {
 	}
 }
 
-// TestPolicyLibrariesApplyWholeIntoKcp restores the two real libraries, the
-// atproto-market examples and the ported opa-first-stab library, and asserts
-// every template's constraint CRD is established and every constraint is
-// applied: a template kcp refuses must fail here with the reason, not leave a
-// half-applied library behind.
+// TestPolicyLibrariesApplyWholeIntoKcp restores the three real libraries, the
+// market-mini twin, the atproto-market examples and the ported opa-first-stab
+// library, and asserts every template's constraint CRD is established and
+// every constraint is applied: a template kcp refuses must fail here with the
+// reason, not leave a half-applied library behind.
 func TestPolicyLibrariesApplyWholeIntoKcp(t *testing.T) {
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
@@ -983,6 +983,7 @@ func TestPolicyLibrariesApplyWholeIntoKcp(t *testing.T) {
 		dir        string
 		repository string
 	}{
+		{dir: filepath.Join("examples", "policies", "market-mini"), repository: "policy-market-mini"},
 		{dir: filepath.Join("examples", "policies", "atproto-market"), repository: "policy-atproto-market"},
 		{dir: filepath.Join("policies", "library"), repository: "policy-library"},
 	} {
