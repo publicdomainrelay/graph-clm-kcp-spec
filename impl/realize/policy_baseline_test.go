@@ -100,6 +100,63 @@ func TestTheRealizeGateInheritsAViolationTheBaseAlreadyCarried(t *testing.T) {
 	}
 }
 
+// The reviewer's case (review 0006 N2): one comment line at the top of a file
+// moves every line below it. The violations in it are inside declarations, so
+// their keys must not move and the base's violations must stay inherited.
+func TestTheRealizeGateInheritsAViolationAfterALineShift(t *testing.T) {
+	if _, err := exec.LookPath("codegraph"); err != nil {
+		t.Skip("codegraph is not on PATH")
+	}
+	for _, path := range []string{
+		filepath.Join("hono-bidder", "mod.ts"),
+		filepath.Join("lib", "requester", "mod.ts"),
+		filepath.Join("test", "bidder_requester_integration_test.ts"),
+	} {
+		t.Run(path, func(t *testing.T) {
+			dir := fixture.Copy(t, filepath.Join("market-mini", "violating"))
+			base := headCommit(t, dir)
+
+			full := filepath.Join(dir, path)
+			contents, err := os.ReadFile(full)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(full, append([]byte("// a header comment\n"), contents...), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			fixture.Commit(t, dir, "docs: a header comment")
+
+			decision, report := gateForBaselineTest(t, dir, base)
+			if decision.Blocked {
+				t.Fatalf("one added comment line made a pre-existing violation new: %+v", decision.Denied)
+			}
+			if len(decision.Inherited) == 0 {
+				t.Fatalf("no inherited violation after the shift; head report %+v", report.Violations)
+			}
+			atSite := 0
+			for _, violation := range report.Violations {
+				if violation.Location == nil || violation.Location.File != filepath.ToSlash(path) {
+					continue
+				}
+				atSite++
+				inherited := false
+				for _, kept := range decision.Inherited {
+					if policy.Key(kept) == policy.Key(violation) {
+						inherited = true
+					}
+				}
+				if !inherited {
+					t.Errorf("the violation of %s at %s:%d is not inherited after the shift",
+						violation.Constraint, violation.Location.File, violation.Location.Line)
+				}
+			}
+			if atSite == 0 {
+				t.Fatalf("the fixture carries no violation in %s; the test is vacuous", path)
+			}
+		})
+	}
+}
+
 func TestTheRealizeGateDeniesAReachInTheChangeAdds(t *testing.T) {
 	if _, err := exec.LookPath("codegraph"); err != nil {
 		t.Skip("codegraph is not on PATH")

@@ -61,6 +61,41 @@ func TestAWaiverWrittenFromAnAnchoredKeySurvivesTheEdit(t *testing.T) {
 	}
 }
 
+func declaredReachIn(channel, purpose string) policy.Violation {
+	return policy.Violation{
+		Constraint:  "rfp-host-reach-in",
+		Enforcement: policy.EnforcementDeny,
+		Msg:         "the host reaches into the guest: host -> guest (initiator host, channel " + channel + ", purpose " + purpose + ", carries [network-info])",
+		Object:      policy.ObjectRef{Kind: policy.ArchitectureKind, Name: "market-mini"},
+		Location:    nil,
+		Details: map[string]any{
+			"from":      "host",
+			"to":        "guest",
+			"initiator": "host",
+			"channel":   channel,
+			"purpose":   purpose,
+			"carries":   []any{"network-info"},
+			"source":    "declared",
+			"evidence":  []any{},
+		},
+	}
+}
+
+func TestASitelessViolationKeysOnItsClauseAndNotOnNothing(t *testing.T) {
+	reachIn := declaredReachIn("direct", "network-discovery")
+	other := declaredReachIn("relay", "provision")
+	if policy.Key(reachIn) == policy.Key(other) {
+		t.Error("two declared violations without a site share a key")
+	}
+	same := declaredReachIn("direct", "network-discovery")
+	if policy.Key(reachIn) != policy.Key(same) {
+		t.Errorf("the same declared violation keys on %s then %s", policy.Key(reachIn), policy.Key(same))
+	}
+	if policy.Key(reachIn) == policy.Key(emissionAt(257)) {
+		t.Error("a siteless violation shares a key with an unrelated one")
+	}
+}
+
 func TestAnUnanchoredViolationStillKeysOnItsLine(t *testing.T) {
 	graph := anchorGraph()
 	outside := policy.Violation{

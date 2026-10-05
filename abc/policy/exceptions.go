@@ -118,8 +118,10 @@ func Key(violation Violation) string {
 			violation.Location.File, violation.Location.Declaration,
 			violation.Location.Kind, violation.Location.Attrs)
 	}
-	file, line := Site(violation)
-	return ViolationID(violation.Constraint, violation.Object.String(), file, strconv.Itoa(line))
+	if file, line := Site(violation); file != "" {
+		return ViolationID(violation.Constraint, violation.Object.String(), file, strconv.Itoa(line))
+	}
+	return ViolationID(violation.Constraint, violation.Object.String(), "no-site", ClauseIdentity(violation))
 }
 
 func Site(violation Violation) (string, int) {
