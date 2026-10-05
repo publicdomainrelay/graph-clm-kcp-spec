@@ -182,10 +182,12 @@ usage:
       branch, under exceptions/<key>.yaml. Every gate, the audit and an
       offline evaluation honour it and report the violation as waived
   specctl policy fix <key> [--repo X --worktree P | --commit C] [-o yaml|json|text]
-      [--write FILE]
+      [--write FILE] [--apply [--dry-run] --system-context S --spec-hash H]
       turn one finding into a SpecChange request: the violation, its site and
       the instruction the normal spec flow hands to the agent. -o text prints
-      the prompt alone
+      the prompt alone. --apply creates the SpecChange itself -- a spec-to-code
+      change on the named SystemContext, with the prompt on its annotations --
+      and --dry-run prints that object without creating it
 
 gator suite paths: a suite in <dir>/tests/<name>/suite.yaml references the
 built template as ../../dist/<name>.yaml, so run 'policy build' before

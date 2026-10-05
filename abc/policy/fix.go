@@ -4,7 +4,44 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 )
+
+const (
+	AnnotationFixPrompt = Group + "/fix-prompt"
+
+	AnnotationFixConstraint = Group + "/fix-constraint"
+
+	AnnotationFixSite = Group + "/fix-site"
+)
+
+// FixChange is the SpecChange a fix request becomes: a spec-to-code change on
+// the violation's SystemContext. The prompt rides on it as an annotation, so
+// the spec flow the repository already runs realizes the fix and a reader of
+// the change sees the violation it answers.
+func FixChange(request FixRequest, name, systemContext, specHash string) *spec.SpecChange {
+	annotations := map[string]string{
+		AnnotationFixPrompt:     request.Prompt,
+		AnnotationFixConstraint: request.Constraint,
+	}
+	if request.Site != "" {
+		annotations[AnnotationFixSite] = request.Site
+	}
+	change := &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Annotations: annotations},
+		Spec: spec.SpecChangeSpec{
+			SystemContext: systemContext,
+			Direction:     specapi.DirectionSpecToCode,
+			ToSpecHash:    specHash,
+		},
+	}
+	change.SetDefaults()
+	return change
+}
 
 // FixRequest is what `specctl policy fix` hands to the normal spec flow: the
 // violation, the context it was found in, and the instruction a spec-to-code

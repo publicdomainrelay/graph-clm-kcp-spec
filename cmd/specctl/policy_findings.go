@@ -21,6 +21,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codediff"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphfacts"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/effects"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
 )
 
@@ -531,7 +532,12 @@ func runPolicyFix(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	options := findingsOptions{}
 	target := addFindingsFlags(fs, &options)
+	globals := addGlobals(fs)
 	write := fs.String("write", "", "write the request to this file instead of stdout")
+	apply := fs.Bool("apply", false, "create the SpecChange that realizes the fix instead of printing the request")
+	dryRun := fs.Bool("dry-run", false, "with --apply, print the SpecChange and create nothing")
+	systemContext := fs.String("system-context", "", "the SystemContext the change belongs to")
+	specHash := fs.String("spec-hash", "", "the sha256 of that context's spec; the change carries it as its target")
 	key, flags := splitPositional(args)
 	if err := fs.Parse(flags); err != nil {
 		return exitUsage
@@ -553,6 +559,17 @@ func runPolicyFix(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	request := policy.BuildFixRequest(library, violation)
+	if *apply || *dryRun {
+		return createFixChange(request, fixChangeOptions{
+			globals:       globals,
+			systemContext: *systemContext,
+			specHash:      *specHash,
+			dryRun:        *dryRun,
+			write:         *write,
+			stdout:        stdout,
+			stderr:        stderr,
+		})
+	}
 	if options.output == "text" {
 		fmt.Fprintln(stdout, request.Prompt)
 		return exitOK
@@ -579,5 +596,76 @@ func runPolicyFix(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	fmt.Fprintf(stdout, "wrote the SpecChange request for %s to %s\n", violation.Constraint, *write)
+	return exitOK
+}
+
+type fixChangeOptions struct {
+	globals *globals
+
+	systemContext string
+
+	specHash string
+
+	dryRun bool
+
+	write string
+
+	stdout io.Writer
+
+	stderr io.Writer
+}
+
+// createFixChange turns a fix request into the SpecChange the spec flow
+// realizes. The change needs a target: a SystemContext and the sha256 of its
+// spec. Both are flags, because an offline evaluation reads the code and the
+// policy branch, not the contexts; a caller that knows the change's context
+// names it.
+func createFixChange(request policy.FixRequest, options fixChangeOptions) int {
+	name := options.systemContext
+	if strings.TrimSpace(name) == "" {
+		fmt.Fprintln(options.stderr, "specctl policy fix: --apply needs --system-context: the change belongs to a SystemContext")
+		return exitUsage
+	}
+	if !specapi.IsHash(options.specHash) {
+		fmt.Fprintf(options.stderr, "specctl policy fix: --spec-hash %q is not a sha256 hex digest; the change carries it as its target\n", options.specHash)
+		return exitUsage
+	}
+	change := policy.FixChange(request, spec.ChangeNameSpecToCode(name, options.specHash), name, options.specHash)
+	if options.globals != nil && options.globals.namespace != "" {
+		change.Namespace = options.globals.namespace
+	}
+	document, err := yaml.Marshal(change)
+	if err != nil {
+		fmt.Fprintf(options.stderr, "specctl policy fix: %v\n", err)
+		return exitError
+	}
+	if options.write != "" {
+		if err := os.WriteFile(options.write, document, 0o644); err != nil {
+			fmt.Fprintf(options.stderr, "specctl policy fix: %v\n", err)
+			return exitError
+		}
+		fmt.Fprintf(options.stdout, "wrote the SpecChange for %s to %s\n", request.Constraint, options.write)
+		return exitOK
+	}
+	if options.dryRun {
+		fmt.Fprint(options.stdout, string(document))
+		return exitOK
+	}
+	client, err := options.globals.client()
+	if err != nil {
+		fmt.Fprintf(options.stderr, "specctl policy fix: %v\n", err)
+		return exitError
+	}
+	object, err := kcpclient.Unstructured(change)
+	if err != nil {
+		fmt.Fprintf(options.stderr, "specctl policy fix: %v\n", err)
+		return exitError
+	}
+	created, err := client.Create(context.Background(), object)
+	if err != nil {
+		fmt.Fprintf(options.stderr, "specctl policy fix: %v\n", err)
+		return exitError
+	}
+	fmt.Fprintf(options.stdout, "specchange/%s created for %s at %s\n", created.GetName(), request.Constraint, defaultOr(request.Site, "the model"))
 	return exitOK
 }

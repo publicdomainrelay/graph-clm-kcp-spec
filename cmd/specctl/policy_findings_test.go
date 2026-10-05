@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"sigs.k8s.io/yaml"
 )
 
 func requireCodegraph(t *testing.T) {
@@ -226,6 +228,63 @@ func TestPolicyFixTurnsAFindingIntoASpecChangeRequest(t *testing.T) {
 	}
 	if !strings.Contains(request["prompt"].(string), target.Message) {
 		t.Errorf("the prompt does not carry the violation message: %v", request["prompt"])
+	}
+}
+
+// `policy fix --apply` creates the SpecChange the spec flow realizes, instead
+// of only printing the request (review 0006 N9). --dry-run prints it.
+func TestPolicyFixApplyBuildsASpecChange(t *testing.T) {
+	requireCodegraph(t)
+	findings := runFindings(t, findingsLibrary(t))
+	target := findings[0]
+	hash := strings.Repeat("ab", 32)
+
+	code, stdout, stderr := runWith("policy", "fix", target.Key,
+		"--apply", "--dry-run", "--system-context", "market-mini",
+		"--spec-hash", hash,
+		"--repo", "market-mini", "--worktree", violatingFixture(t),
+		"--library", findingsLibrary(t))
+	if code != exitOK {
+		t.Fatalf("fix --apply --dry-run: code %d, stderr %q", code, stderr)
+	}
+	var change struct {
+		Metadata struct {
+			Name        string            `json:"name"`
+			Annotations map[string]string `json:"annotations"`
+		} `json:"metadata"`
+		Spec struct {
+			SystemContext string `json:"systemContext"`
+			Direction     string `json:"direction"`
+			ToSpecHash    string `json:"toSpecHash"`
+		} `json:"spec"`
+	}
+	if err := yaml.Unmarshal([]byte(stdout), &change); err != nil {
+		t.Fatalf("the change is not readable YAML: %v\n%s", err, stdout)
+	}
+	if change.Spec.SystemContext != "market-mini" || change.Spec.Direction != "SpecToCode" || change.Spec.ToSpecHash != hash {
+		t.Errorf("the change does not target the context: %+v", change.Spec)
+	}
+	if !strings.Contains(change.Metadata.Name, "market-mini-s2c-") {
+		t.Errorf("the change name does not name the context and the direction: %q", change.Metadata.Name)
+	}
+	if !strings.Contains(change.Metadata.Annotations["specs.publicdomainrelay.dev/fix-prompt"], target.Message) {
+		t.Errorf("the change does not carry the prompt: %v", change.Metadata.Annotations)
+	}
+	if change.Metadata.Annotations["specs.publicdomainrelay.dev/fix-constraint"] != target.Constraint {
+		t.Errorf("the change does not carry the constraint: %v", change.Metadata.Annotations)
+	}
+}
+
+func TestPolicyFixApplyRefusesWithoutATarget(t *testing.T) {
+	requireCodegraph(t)
+	findings := runFindings(t, findingsLibrary(t))
+	code, _, stderr := runWith("policy", "fix", findings[0].Key, "--apply", "--dry-run",
+		"--repo", "market-mini", "--worktree", violatingFixture(t), "--library", findingsLibrary(t))
+	if code != exitUsage {
+		t.Fatalf("code %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(stderr, "--system-context") {
+		t.Errorf("stderr does not ask for the context: %q", stderr)
 	}
 }
 
