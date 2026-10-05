@@ -884,7 +884,7 @@ https://github.com/publicdomainrelay/atproto-market/pull/1 (iroh/dumbpipe, head
    - The acceptances for the emission are what the gate reported: `waived` on
      every attempt, including the two changes that landed, and the audit read
      `violations 2, deny 2, waived 2`.
-3. **Publish.** A new PR on atproto-market, #1 untouched. Its body compares it
+3. **Published.** [atproto-market#2](https://github.com/publicdomainrelay/atproto-market/pull/2), #1 untouched. Its body compares it
    to #1 (findings at the base, inherited and waived; new violations in #1's
    diff against this branch's diff; the gate denials and the corrections;
    acceptance; the spec and diff size) and states plainly that the host-emitted
@@ -913,9 +913,9 @@ https://github.com/publicdomainrelay/atproto-market/pull/1 (iroh/dumbpipe, head
    three contexts that carry the requester flow and the container harness never
    passed the acceptance gate: the guest boots from the RFP cloud-init, the
    dumbpipe listener runs and the ticket is extracted, but the guest's report
-   never reaches the requester, so `sshReady` stays false. Ten attempts, four
-   requirement amendments and ten `specctl retry --reason` rounds is where the
-   session stopped; the change-scoped gate is what stopped it, and the deny it
+   never reaches the requester, so `sshReady` stays false. Eleven automatic
+   attempts, three requirement amendments and seven `specctl retry --reason`
+   rounds is where the session stopped; the change-scoped gate is what stopped it, and the deny it
    raised (a direct ssh in the harness, `rfp-relay-only-guest-ssh`) is the one
    the plan asked to see.
 

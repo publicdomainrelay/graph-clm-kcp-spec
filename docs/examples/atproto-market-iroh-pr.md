@@ -811,7 +811,11 @@ ever attaching to it.
 
 The same sentence, run again from `pre-iroh` on a fresh clone, this time with the
 policy gate on. [#1](https://github.com/publicdomainrelay/atproto-market/pull/1)
-is untouched; the retry is its own branch and its own pull request.
+is untouched; the retry is its own pull request,
+[#2](https://github.com/publicdomainrelay/atproto-market/pull/2), on
+`spec/iroh-dumbpipe-policy2-20261005`, with the orphan branches
+`open-architecture/atproto-market--spec-iroh-dumbpipe-policy2-20261005` and
+`open-policy/atproto-market--spec-iroh-dumbpipe-policy2-20261005`.
 
 ```bash
 HYDRA=/home/johnandersen777/src/publicdomainrelay-kcp/hydradb-policy-i2
@@ -896,7 +900,7 @@ fix both readings were `2 new`.
 | policy branch | `open-policy/atproto-market--spec-iroh-dumbpipe-policy2-20261005`, seeded at `bddba0c` |
 | policy tests at seed time | opa 67/67, suites 11/11 |
 | harness: research + spec edit | 4 SpecToCode changes in 5 min |
-| realize rounds | 10 attempts; see the gate table below |
+| realize rounds | 11 automatic attempts for the longest change; see the gate table below |
 | acceptance | `deno test --allow-all test/bidder_container_integration_test.ts`, gated, 1800 s per step |
 
 ### The gate, per attempt
@@ -959,7 +963,8 @@ the transport itself works -- the guest boots from the RFP cloud-init, the
 dumbpipe listener runs, the ticket is extracted, and the guest-side reporter
 starts -- but the report never reaches the requester, so `sshReady` stays false
 and the suite fails on `guest must become reachable`. The failing rounds ended
-`receiptOk: true, bids: 1, sshReady: false` in 5 minutes. Ten attempts is where
-this session stopped; the change-scoped gate is what stopped it, and that is the
+`receiptOk: true, bids: 1, sshReady: false` in 5 minutes. Eleven automatic
+attempts, three requirement amendments and seven `specctl retry --reason` rounds
+is where this session stopped; the change-scoped gate is what stopped it, and that is the
 gate working.
 
