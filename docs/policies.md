@@ -398,6 +398,96 @@ message about the same site is not a new violation.
 against, so it always gates the whole declared state; `--strict` exits 1 on any
 deny. That is deliberate: it evaluates a state, not a change.
 
+### Find existing violations and decide
+
+A repository that has been developing for a while already violates something.
+The change-scoped gates keep that from blocking every edit, but somebody has to
+decide, one violation at a time, whether it gets fixed or accepted. Three verbs
+do that, and both work on a checkout, a commit or the policy branch.
+
+**1. List them.**
+
+```bash
+specctl policy findings --repo atproto-market --worktree /path/to/atproto-market \
+  --base d20070c --library examples/policies/atproto-market
+```
+
+```
+key              status    constraint               site                          message
+d3dac3b0fbc49c88 inherited guest-report-driven-onnetwork lib/market-bidder-compute/mod.ts:304 createVmBidderCallbacks emits the vm.onNetwork event from the provisioning lifecycle, not from an inbound guest report
+39eb35808df2f09d inherited rfp-guest-reports-network lib/market-bidder-compute/mod.ts:304 the host emits the network report "COMPUTE_EVENTS_VM_ONNETWORK_NSID" from the provisioning lifecycle, not from the http.handle of the guest's report: lib/market-bidder-compute/mod.ts:304
+findings: 0 new, 2 inherited, 0 waived
+```
+
+Each finding carries its **key**: the constraint, the object and the site,
+hashed. The key is stable across runs, so it is what a waiver is written
+against and what a `status.policy` entry can be looked up by. `--base REF`
+adds the comparison the gates make: a violation the base carried is
+`inherited`; without it every violation is `new`. `-o json` prints the same
+list for a script. `status` is one of `new`, `inherited` and `waived`.
+
+**2. Fix it, or waive it.**
+
+`specctl policy fix <key>` turns one finding into a **SpecChange request**: the
+constraint, its level, the object, the site, the violation message, the
+requirements the rule enforces, and the instruction the normal spec flow hands
+to the agent. It is a request, not a change -- the spec flow reviews it and
+decides how the code or the spec answers it.
+
+```bash
+specctl policy fix d3dac3b0fbc49c88 --repo atproto-market \
+  --worktree /path/to/atproto-market --library examples/policies/atproto-market
+# repository: atproto-market
+# constraint: guest-report-driven-onnetwork
+# site: lib/market-bidder-compute/mod.ts:304
+# prompt: |-
+#   A policy violation must be fixed in atproto-market.
+#   ...
+```
+
+`-o text` prints the prompt alone, which is what a person pastes into a
+spec-to-code change or what a controller would put in `Instruction`; `--write
+FILE` writes the whole request.
+
+`specctl policy waive <key> --reason R [--owner O] [--expires DATE]` records the
+other decision: the violation is accepted. It writes one file,
+`exceptions/<key>.yaml`, onto the policy branch (or into `--dir`):
+
+```yaml
+constraint: guest-report-driven-onnetwork
+file: lib/market-bidder-compute/mod.ts
+key: d3dac3b0fbc49c88
+line: 304
+object: CodeGraph default/atproto-market
+owner: john
+reason: the emitted address may be a public IPv4 the client can judge
+```
+
+Every path that decides honours it -- the offline evaluation, the spec gate,
+the realize gate and the audit -- and reports the violation as **waived**,
+with its reason and owner, never dropped. In kcp the violation stays in
+`status.policy.violations` with `waived: true` and its `key`, and it no longer
+makes a `SystemContext` non-compliant. An exception with an `expires` that has
+passed is dropped and reported on stderr rather than honoured.
+
+`--expires` takes an RFC3339 timestamp or `YYYY-MM-DD`. A waiver is
+site-scoped: the same rule firing at a new site is a new finding. A waiver that
+names only `constraint` (no key, file, line or object) waives every violation
+of that constraint, which is what an acceptance override does.
+
+**3. Re-run.**
+
+```bash
+specctl policy findings --repo atproto-market --worktree /path/to/atproto-market \
+  --base d20070c --library examples/policies/atproto-market
+# findings: 0 new, 1 inherited, 1 waived
+```
+
+`specctl policy eval --inherited --diff-base REF` is the same reading inside
+`eval`: the base ref is evaluated too, inherited violations are printed as warn,
+and `--strict` fails only on a *new* deny. That is the offline form of what the
+gates do, and it is how the pre-existing violation is measured without kcp.
+
 ### The conformance pack
 
 `policies/packs/conformance/` is the first portable pack: three templates over
@@ -1277,6 +1367,11 @@ the triggers; `-o json` prints the `ArchitectureModel` object.
 - `-o json` prints the full `policy.Report`; the default prints a table.
 - `--strict` exits 1 when a `deny` violation survives the repository's
   enforcement cap.
+- `--inherited` needs `--diff-base REF` and evaluates that ref too, so the
+  report is change-scoped: a violation the base already carried is printed as
+  inherited warn, a durable exception as waived, and `--strict` fails only on a
+  new deny. `specctl policy findings` prints the same list with the stable key
+  of each violation (see "Find existing violations and decide").
 - `--specs-only` skips the code entirely: it reads the `SystemContext`s from
   `specs/*.yaml` on the `open-architecture/<repository>` branch, builds the
   declared-only `ArchitectureModel` and evaluates the library against it. It is
@@ -1462,16 +1557,29 @@ it. It therefore always gates the whole declared state, and `--strict` exits 1
 on any deny, including one the in-cluster spec gate would call inherited. Use
 `specd` (or the realize gate) to observe the change-scoped verdict.
 
-### No live test lands a pre-existing violation through the realize gate
+### No live kcp test lands a pre-existing violation through the realize gate
 
 The realize gate's base evaluation runs on every deny (the live suite proves
 the deny is still raised for a new violation), and the inherited/denied split
 is unit-tested on `policy.DecideBaseline` and on the spec-time gate, which
-shares it. No live test yet drives a two-round episode where the first round
-lands a violation with no policy branch and the second round changes something
-else; the fixture harness would need a per-context scenario for the second
-round. The behavior is identical on both gates because both call the same
-decision function, but the end-to-end arrangement is not pinned.
+shares it. `impl/realize/policy_baseline_test.go` now drives `runPolicyGate`
+itself on a real worktree: the violating market-mini fixture plus an unrelated
+commit reports the pre-existing violations as inherited and does not block,
+while an added host reach-in is denied at the new site. What is still not
+pinned is the *in-cluster* two-round episode: a live test that lands a
+violation in one round and changes something else in the next, with kcp
+carrying both. The end-to-end measurement on a real repository is
+`docs/examples/atproto-market-policies.md`, which runs the offline
+`--inherited` form of the same decision.
+
+### A finding key can repeat within one object
+
+The key is (constraint, object, site). A rule that reports two different
+details at the same site -- `guest-report-reach-in` names the emitter it
+reached from -- produces one key twice, so `policy findings` prints two rows
+with the same key and a waiver for that key covers both. Waiving is therefore
+per-site, not per-message; a rule whose message is the difference should name
+that difference in the rule, or be waived constraint-wide knowing the scope.
 
 ## Troubleshooting
 

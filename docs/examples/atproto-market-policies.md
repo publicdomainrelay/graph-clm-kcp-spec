@@ -282,37 +282,42 @@ in-repo, `inspectIp` is not.
 ## `relay-only-ssh` is not vacuous
 
 `relay-only-ssh` reports zero at all three refs, which is only meaningful if it
-actually reaches the ssh invocations. To prove the reachability, run with the
-allowed transports replaced by a name that cannot occur:
+actually reaches the ssh invocations. Since plan 0010 U2 the rule denies only a
+*direct* connection: an ssh with no `ProxyCommand`, or one whose `ProxyCommand`
+only dials the guest (`nc`/`ncat`/`netcat`, `socat ... TCP:`, `/dev/tcp/`,
+`ssh -W`/`-J`). Any other proxy command is a relay, named or not, so the
+allowlist of transports is gone -- these sshs pass because they *have* a
+`ProxyCommand`, whether it carries `websocat`, `dumbpipe connect`, `iroh
+connect` or a name the binding never heard of.
+
+The reachability proof is therefore to call every proxy command a direct dial:
 
 ```bash
 cp -r examples/policies/atproto-market /tmp/atpm-debug
-sed -i -E 's/^    - (websocat|fedproxy|relay-subscriber|dumbpipe connect|iroh connect)$/    - __no_such_transport__/' \
-  /tmp/atpm-debug/constraints/relay-only-ssh.yaml
-bin/specctl policy eval --repo atproto-market --commit 7a2e9d9 \
-  --path /home/johnandersen777/policy-b2-work/atproto-market --library /tmp/atpm-debug
+python3 - <<'PY'
+import pathlib
+p = pathlib.Path("/tmp/atpm-debug/constraints/relay-only-ssh.yaml")
+p.write_text(p.read_text().replace(
+    "    - '\\b(nc|ncat|netcat)\\b'\n", "    - 'ProxyCommand'\n"))
+PY
+bin/specctl policy eval --repo atproto-market \
+  --worktree /home/johnandersen777/policy-u-work/atproto-market-master \
+  --library /tmp/atpm-debug
 ```
 
-Every allowed transport has to go: replacing only `websocat` leaves the spec
-branch passing, because its `ProxyCommand` carries `dumbpipe connect` /
-`iroh connect`. With all five replaced, `master` reports 36 deny violations,
-33 of them `relay-only-ssh` at `lib/requester-xrpc/mod.ts:691` (22) and
-`:734` (11) (`new Deno.Command("ssh", ...)`), reached from 11 driven tests
+With `directProxyPatterns: ['ProxyCommand']` every ssh outside the guest role
+is reported. `master` reports 39 deny violations, 33 of them `relay-only-ssh`
+at `lib/requester-xrpc/mod.ts:691` (22) and `:734` (11) (`new
+Deno.Command("ssh", ...)`), reached from 11 driven tests
 (`bidder_container_integration_test.ts`, `bidder_ssh_relay_test.ts`,
-`gateway_ssh_integration_test.ts`, ...). At `spec/iroh-dumbpipe` it reports
-27 `relay-only-ssh` violations at `lib/requester-xrpc/mod.ts:979` (18) and
-`:1012` (9), reached from 9 driven tests. With the real allowlist
-(`websocat`, `fedproxy`, `relay-subscriber`,
-`dumbpipe connect`, `iroh connect`) all of them pass: at master the ssh args
-come from `sshTunnelArgs` with `ProxyCommand=...websocat...`, and at the spec
-branch from `defaultProxyCommand` (`dumbpipe connect <ticket>`) or
-`createIrohSshSessionProvider` (`iroh connect --bridge ...`).
-
-The same proof is what fixed the calibration: the fixture's compliant
-requester builds `ProxyCommand` in one function and the transport name
-(`relay-subscriber`) in another, so the rule accepts a `ProxyCommand` and an
-allowed transport that are both reachable from the ssh invocation, rather than
-requiring both in one node.
+`gateway_ssh_integration_test.ts`, ...). At `spec/iroh-dumbpipe` (`ffac22e`)
+it reports 29, 27 of them `relay-only-ssh` at `lib/requester-xrpc/mod.ts:979`
+(18) and `:1012` (9), reached from 9 driven tests. With the real library both
+refs report 2 violations and none of them `relay-only-ssh`: at master the ssh
+args come from `sshTunnelArgs` with `ProxyCommand=...websocat...`, and at the
+spec branch from `defaultProxyCommand` (`dumbpipe connect <ticket>`) or
+`createIrohSshSessionProvider` (`iroh connect --bridge ...`). U2's rule reaches
+the same sites R2's did; it just no longer cares which transport is named.
 
 `guest-report-driven-onnetwork` is not vacuous by construction: it reports a
 violation at every ref, at the `createRepoRecord(COMPUTE_EVENTS_VM_ONNETWORK_NSID`
@@ -322,7 +327,7 @@ line of the provisioning-lifecycle emitter.
 
 | policy | what it checks | why it matters |
 | --- | --- | --- |
-| `relay-only-ssh` | a test that drives a bidder and a requester reaches ssh only through a `ProxyCommand` whose transport the RFP cloud-init deploys, and never dials a guest address | the relay is the registry; nothing talks to a guest except through it |
+| `relay-only-ssh` | a test that drives a bidder and a requester reaches ssh only through a `ProxyCommand` -- any relay counts, a direct dial does not -- and never dials a guest address | the relay is the registry; nothing talks to a guest except through it |
 | `guest-report-reach-in` | nothing reachable from the network emitter (or the emitter itself) queries the guest -- `getNodeId`, container exec/inspect, an agent query, a raw ssh | the host must not reach into a guest it provisioned |
 | `guest-report-driven-emission` | the guest identity is emitted from an inbound handler that receives the guest's report, not from the provisioning lifecycle | the guest reports itself; the host does not derive its identity |
 | `guest-report-driven-onnetwork` | the `vm.onNetwork` record is emitted from an inbound handler that receives the guest's report, not from the provisioning lifecycle | the guest reports itself on the network; the host does not announce it |
@@ -608,6 +613,98 @@ carries `status.enforcedBy: [relayonlyguestssh]` and
 `SystemContext/lib-market-bidder-compute` carries
 `[guestreportsnetwork]`; a context whose requirements no policy names carries
 the empty list, not the last answer.
+
+## Find the pre-existing violation and decide (plan 0010 U3, U4)
+
+Rule 2 is enforced on the delta (track S6): the gates block only a violation
+the change introduced, and a pre-existing one is `inherited`. The bidder's
+host-emitted `vm.onNetwork` carrying the provisioned IP is exactly that: a
+known, accepted violation the user decided **not** to fix, because the IP may
+be a public IPv4 the client can judge.
+
+This is the whole workflow on a fresh clone of the repository at pre-iroh
+`d20070c`, with one unrelated commit on top (the clone is never edited or
+pushed; the policy library is a copy):
+
+```bash
+git clone /path/to/atproto-market /home/johnandersen777/policy-u-work/atproto-market
+cd /home/johnandersen777/policy-u-work/atproto-market
+git checkout -b u3-check d20070c
+printf '\n// unrelated note\n' >> lib/common/market-common/mod.ts
+git commit -am "docs: an unrelated note"
+cp -r examples/policies/atproto-market /tmp/atpm-demo
+```
+
+**1. List.** With `--inherited`, `policy eval` evaluates `--diff-base` too:
+
+```bash
+bin/specctl policy eval --repo atproto-market \
+  --worktree /home/johnandersen777/policy-u-work/atproto-market \
+  --diff-base d20070c --inherited --strict --library /tmp/atpm-demo
+# key              status    constraint                 site
+# d3dac3b0fbc49c88 inherited guest-report-driven-onnetwork lib/market-bidder-compute/mod.ts:304
+# 39eb35808df2f09d inherited rfp-guest-reports-network    lib/market-bidder-compute/mod.ts:304
+# findings: 0 new, 2 inherited, 0 waived
+# exit 0
+```
+
+`--strict` exits 0 because neither violation is new. The emission site is the
+`createRepoRecord(COMPUTE_EVENTS_VM_ONNETWORK_NSID, {address: provisionIp, ...})`
+call in `createVmBidderCallbacks`: the host announces the guest's address from
+the provisioning lifecycle instead of letting the guest report it.
+`policy findings --base d20070c` prints the same list with the same keys.
+
+**2. Decide not to fix it.** Record the reason on the policy branch:
+
+```bash
+bin/specctl policy waive d3dac3b0fbc49c88 \
+  --reason "the emitted address may be a public IPv4 the client can judge, so the host may announce it" \
+  --owner john --repo atproto-market \
+  --worktree /home/johnandersen777/policy-u-work/atproto-market \
+  --library /tmp/atpm-demo --dir /tmp/atpm-demo
+# waived guest-report-driven-onnetwork at lib/market-bidder-compute/mod.ts
+# wrote exceptions/d3dac3b0fbc49c88.yaml
+```
+
+The file it writes:
+
+```yaml
+constraint: guest-report-driven-onnetwork
+file: lib/market-bidder-compute/mod.ts
+key: d3dac3b0fbc49c88
+line: 304
+object: CodeGraph default/atproto-market
+owner: john
+reason: the emitted address may be a public IPv4 the client can judge, so the host
+  may announce it
+```
+
+**3. Re-run.**
+
+```bash
+bin/specctl policy findings --repo atproto-market \
+  --worktree /home/johnandersen777/policy-u-work/atproto-market \
+  --base d20070c --library /tmp/atpm-demo
+# d3dac3b0fbc49c88 waived    guest-report-driven-onnetwork lib/market-bidder-compute/mod.ts:304
+#                            reason: the emitted address may be a public IPv4 the client can judge...
+# 39eb35808df2f09d inherited rfp-guest-reports-network    lib/market-bidder-compute/mod.ts:304
+# findings: 0 new, 1 inherited, 1 waived
+```
+
+The waived violation is still listed, with its reason and owner. Nothing was
+dropped, and no gate blocks on it: the realize gate and the audit read the same
+exceptions.
+
+**The other decision is to fix it.** `specctl policy fix <key>` turns the
+finding into a SpecChange request -- the violation message, the site and the
+instruction the spec flow hands to the agent -- and the fix path itself is
+shown on the fixtures in `docs/policies.md` and
+`scripts/example-policy-findings.sh`.
+
+`scripts/example-policy-findings.sh` runs both decisions end to end: the waiver
+above on the real clone, and, on `fixtures/market-mini/violating`, a `policy
+findings` listing, a `policy fix` request for the `relay-only-ssh` violation, a
+`policy waive` for the host reach-in and the re-run that reports it waived.
 
 ## Honest reading
 

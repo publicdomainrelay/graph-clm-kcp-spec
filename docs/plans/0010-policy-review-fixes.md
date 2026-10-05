@@ -279,3 +279,24 @@ U4. **Find existing violations and decide.** A documented, demoed workflow:
    reported as `waived`).
 
 The onNetwork IP is the demo's waiver example.
+
+### User corrections: status
+
+All on `policy-u`. R2 is superseded by U2: the relay rule no longer requires a
+vocabulary term, and the limits it recorded in `docs/policies.md` and in the
+pack README are rewritten.
+
+| item | commit | what landed |
+| --- | --- | --- |
+| port | `6e0fac9` | `fix(sync)`: `MigrateDeclared` does not rewrite a bare interface name onto one the spec already declares (policy-i `7f99527`), with its test |
+| port | `a39ac48` | `fix(policy)`: `policy test --gator` finds gator on `PATH` and names every candidate it looked at (policy-i `8e80b41`), with its two tests |
+| U2 | `6801724` | `RfpRelayOnlyGuestSsh` and the concrete `relay-only-ssh` template deny only a direct connection; `channels/relay` leaves the pack's required vocabulary; `chisel` and an unresolved proxy command pass, `nc <guest> 22` still denies, `iroh connect` is an allowed case in the pack, the examples and the opa tests |
+| U1 | `04d61ae` | `rfp-guest-isolation` v2 keeps the three isolation rules; `rfp-provisioning-provenance` v1 is the opt-in pack the two provenance templates moved to; every importing binding bumps to v2 and relocks, none imports the new pack; `docs/policies.md` states that the library and every pack are opt-in |
+| U3 | `fd7a900` | `impl/realize/policy_baseline_test.go` drives `runPolicyGate` on the violating market-mini worktree: an unrelated commit leaves the pre-existing reach-in and emission inherited, an added host reach-in is denied. Verified on the real repository: a fresh `/home/johnandersen777/policy-u-work/atproto-market` clone at pre-iroh `d20070c` plus an unrelated commit reports `0 new, 2 inherited` through `policy eval --inherited`, the bidder's host-emitted `vm.onNetwork` among them |
+| U4 | `4030d39` | durable `exceptions/<key>.yaml` on the policy branch, honoured by the offline evaluation, both gates and the audit (reported as `waived`, never dropped); `policy findings`, `policy eval --inherited`, `policy waive <key>`, `policy fix <key>`; `policy fix` produces the SpecChange request and `impl/realize/policy_fix_test.go` drives it through the scripted agent and the gate again |
+| U4 docs | this commit | `docs/policies.md` "Find existing violations and decide" and its limits; the `atproto-market-policies.md` demo on the fresh clone (list, waive the onNetwork IP, re-run) and the U2 rewrite of its `relay-only-ssh` non-vacuity proof, re-measured; `scripts/example-policy-findings.sh` |
+
+U4's durable waivers are site-scoped by key, not by constraint like an
+acceptance override, but they reuse `policy.Override`, so `Decide`,
+`DecideBaseline` and the audit's waived reporting share one code path. An
+exception that has expired is dropped and reported, never silently honoured.
