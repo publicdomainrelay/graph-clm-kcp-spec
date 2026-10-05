@@ -81,6 +81,8 @@ func TestTypeScriptFixture(t *testing.T) {
 		"42|net.listen|port=9999",
 		"43|net.dial|port=22 target=10.0.0.5",
 		"44|net.dial|url=wss://relay.example/tunnel",
+		"51|http.request|argv0=curl",
+		"57|container.exec|runtime=compute-provider verb=getNodeId",
 	})
 }
 
@@ -99,8 +101,8 @@ func TestTypeScriptWithoutExtras(t *testing.T) {
 		}
 		bytes++
 	}
-	if bytes != 11 {
-		t.Fatalf("got %d effects without extras, want 11", bytes)
+	if bytes != 12 {
+		t.Fatalf("got %d effects without extras, want 12", bytes)
 	}
 }
 

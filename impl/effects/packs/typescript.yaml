@@ -69,24 +69,48 @@ rules:
   - id: xrpc-call-service
     kind: http.request
     extra: true
-    call: {name: callService, member: true}
+    call: {name: callService, any: true}
+    args: {regex: '^\s*(?:"|\x27|\x60|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*[,)])'}
     target: url
   - id: atproto-create-record
     kind: event.emit
     extra: true
-    call: {name: createRepoRecord, member: true}
+    call: {name: createRepoRecord, any: true}
+    args: {regex: '^\s*(?:"|\x27|\x60|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*[,)])'}
   - id: atproto-create-signed-record
     kind: event.emit
     extra: true
-    call: {name: createSignedRepoRecord, member: true}
+    call: {name: createSignedRepoRecord, any: true}
+    args: {regex: '^\s*(?:"|\x27|\x60|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*[,)])'}
   - id: atproto-put-record
     kind: event.emit
     extra: true
-    call: {name: putRecord, member: true}
+    call: {name: putRecord, any: true}
+    args: {regex: '^\s*(?:"|\x27|\x60|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*[,)])'}
   - id: atproto-get-record
     kind: event.receive
     extra: true
-    call: {name: getRecord, member: true}
+    call: {name: getRecord, any: true}
+    args: {regex: '^\s*(?:"|\x27|\x60|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*[,)])'}
+  - id: atproto-apply-writes
+    kind: event.emit
+    extra: true
+    call: {name: applyWrites, member: true}
   - id: hono-route
     kind: http.handle
     route: {methods: [get, post, put, patch, delete, options, head, all, route]}
+  - id: ts-string-curl
+    kind: http.request
+    inStrings: true
+    command: {name: curl}
+    args: {regex: 'https?://|\$\{?[A-Za-z_]'}
+  - id: ts-string-ssh
+    kind: ssh.connect
+    inStrings: true
+    command: {name: ssh}
+    args: {regex: '@[A-Za-z0-9]'}
+  - id: compute-provider-guest-query
+    kind: container.exec
+    extra: true
+    call: {name: getNodeId, member: true}
+    attrs: {verb: getNodeId, runtime: compute-provider}
