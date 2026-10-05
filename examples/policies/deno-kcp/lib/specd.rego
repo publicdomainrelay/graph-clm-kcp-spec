@@ -359,6 +359,49 @@ observed(flow) {
 	flow.source == "both"
 }
 
+forbidden(flow) {
+	flow.forbidden == true
+}
+
+flow_level(flow, level) {
+	flow.level == level
+}
+
+# same_flow is the directed shape two flows share when one is a declared
+# must-never and the other is a declared or observed flow that violates it: the
+# initiating role, the role it acts on, the channel and the purpose. A flow's
+# from is the context that declared it and its to is the peer, so the role the
+# initiator acts on is the endpoint that is not the initiator. The level, the
+# forbidden marker, the carried payloads, the source and the evidence are not
+# part of the shape.
+same_flow(left, right) {
+	initiator_of(left) == initiator_of(right)
+	acted_on(left) == acted_on(right)
+	object.get(left, "channel", "") == object.get(right, "channel", "")
+	object.get(left, "purpose", "") == object.get(right, "purpose", "")
+}
+
+initiator_of(flow) = initiator {
+	initiator := object.get(flow, "initiator", "")
+}
+
+acted_on(flow) = flow.to {
+	initiator_of(flow) == flow.from
+}
+
+acted_on(flow) = flow.from {
+	initiator_of(flow) == flow.to
+}
+
+# forbidden_matches names every flow that violates a declared must-never: a flow
+# of the same shape that is not itself the marker.
+forbidden_matches(flow) {
+	not forbidden(flow)
+	marker := model_flows[_]
+	forbidden(marker)
+	same_flow(flow, marker)
+}
+
 location(file, line) = {"file": file, "line": line}
 
 violation(msg, details) = result {

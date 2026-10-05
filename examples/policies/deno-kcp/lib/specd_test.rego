@@ -339,3 +339,50 @@ test_declared_and_observed_cover_both {
 	observedOnly := [flow | flow := model_flows[_]; observed(flow); not declared(flow)] with input as model_input with data.inventory as model_inventory
 	count(observedOnly) == 1
 }
+
+marker_inventory := {"namespace": {"default": {"specs.publicdomainrelay.dev/v1alpha1": {
+	"ArchitectureModel": {"marker": {
+		"metadata": {"name": "marker", "namespace": "default"},
+		"spec": {
+			"repository": "marker",
+			"components": [],
+			"effects": [],
+			"flows": [
+				{"from": "guest", "to": "host", "initiator": "host", "channel": "relay", "purpose": "network-discovery", "level": "MUST", "forbidden": true, "source": "declared"},
+				{"from": "guest", "to": "host", "initiator": "host", "channel": "relay", "purpose": "network-discovery", "level": "SHOULD", "source": "observed", "evidence": ["x1"]},
+				{"from": "host", "to": "requester", "initiator": "host", "channel": "relay", "purpose": "network-report", "level": "MUST", "source": "declared"},
+			],
+			"triggers": [],
+		},
+	}},
+}}}}
+
+marker_input := {"review": {"kind": {"kind": "CodeGraph"}, "object": {"metadata": {"name": "marker", "namespace": "default"}, "spec": {"repository": "marker"}}}}
+
+test_forbidden_reads_the_marker {
+	markers := [flow | flow := model_flows[_]; forbidden(flow)] with input as marker_input with data.inventory as marker_inventory
+	count(markers) == 1
+	markers[0].initiator == "host"
+}
+
+test_same_flow_ignores_the_marker_and_the_source {
+	marker := [flow | flow := model_flows[_]; forbidden(flow)][0] with input as marker_input with data.inventory as marker_inventory
+	reaching := [flow | flow := model_flows[_]; observed(flow)][0] with input as marker_input with data.inventory as marker_inventory
+	other := [flow | flow := model_flows[_]; flow.purpose == "network-report"][0] with input as marker_input with data.inventory as marker_inventory
+	same_flow(marker, reaching)
+	not same_flow(marker, other)
+}
+
+test_forbidden_matches_names_the_real_flow_not_the_marker {
+	matched := [flow | flow := model_flows[_]; forbidden_matches(flow)] with input as marker_input with data.inventory as marker_inventory
+	count(matched) == 1
+	not forbidden(matched[0])
+	observed(matched[0])
+}
+
+test_flow_level_reads_the_declared_level {
+	must := [flow | flow := model_flows[_]; flow_level(flow, "MUST")] with input as marker_input with data.inventory as marker_inventory
+	count(must) == 2
+	none := [flow | flow := model_flows[_]; flow_level(flow, "MAY")] with input as marker_input with data.inventory as marker_inventory
+	count(none) == 0
+}
