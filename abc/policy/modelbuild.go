@@ -508,6 +508,10 @@ type flowIndex struct {
 
 	nodeText map[string]string
 
+	nodeByID map[string]CodeGraphNode
+
+	fileText map[string]string
+
 	adjacency map[string][]string
 
 	neighborhoods map[string]string
@@ -522,13 +526,19 @@ func newFlowIndex(graph CodeGraph, model ArchitectureModel, rolesOf map[string][
 		payloads:      binding.Vocabulary.Payloads,
 		purposes:      binding.Vocabulary.Purposes,
 		nodeText:      map[string]string{},
+		nodeByID:      map[string]CodeGraphNode{},
+		fileText:      map[string]string{},
 		adjacency:     map[string][]string{},
 		neighborhoods: map[string]string{},
 	}
 	for _, node := range graph.Spec.Nodes {
 		if node.ID != "" {
 			index.nodeText[node.ID] = node.Text
+			index.nodeByID[node.ID] = node
 		}
+	}
+	for path, text := range graph.Spec.Texts {
+		index.fileText[path] = text
 	}
 	for _, edge := range graph.Spec.Edges {
 		if edge.Kind != "calls" {
@@ -733,7 +743,7 @@ func (i *flowIndex) hintText(effect Effect) string {
 // symbol hint is matched against: a hint names something the caller says, not
 // something a declaration it happens to call says.
 func (i *flowIndex) siteText(effect Effect) string {
-	parts := []string{i.nodeText[effect.Node]}
+	parts := []string{i.effectSiteText(effect)}
 	keys := make([]string, 0, len(effect.Attrs))
 	for key := range effect.Attrs {
 		keys = append(keys, key)
@@ -750,8 +760,30 @@ func (i *flowIndex) siteText(effect Effect) string {
 // the site itself: an ssh site builds its ProxyCommand through one helper that
 // calls another. The walk is bounded in hops and nodes, and it is what makes
 // the vocabulary resolve a delegated channel.
+// effectSiteText is what the effect itself says. A site inside a real
+// declaration reads that declaration; a site the graph only knows as its file
+// reads a window around the site, so a file's other calls never lend it a hint.
+func (i *flowIndex) effectSiteText(effect Effect) string {
+	node, ok := i.nodeByID[effect.Node]
+	if ok && node.Kind != "file" && node.StartLine > 0 {
+		return node.Text
+	}
+	return siteWindow(i.fileText[effect.File], effect.Line)
+}
+
+func (i *flowIndex) declarationText(id string) string {
+	node, ok := i.nodeByID[id]
+	if !ok || node.Kind == "file" || node.StartLine <= 0 {
+		return ""
+	}
+	return node.Text
+}
+
 func (i *flowIndex) neighborhood(node string) string {
 	if node == "" {
+		return ""
+	}
+	if node, ok := i.nodeByID[node]; ok && (node.Kind == "file" || node.StartLine <= 0) {
 		return ""
 	}
 	if cached, ok := i.neighborhoods[node]; ok {
@@ -764,7 +796,7 @@ func (i *flowIndex) neighborhood(node string) string {
 	for len(queue) > 0 && len(seen) < defaultHintNodes {
 		current := queue[0]
 		queue = queue[1:]
-		if text := i.nodeText[current]; text != "" {
+		if text := i.declarationText(current); text != "" {
 			parts = append(parts, text)
 		}
 		if depth[current] >= defaultHintHops {

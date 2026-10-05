@@ -136,6 +136,43 @@ func TestBuildModelObservedFlows(t *testing.T) {
 	}
 }
 
+func TestBuildModelSiteTextStaysAtTheSite(t *testing.T) {
+	source := "Deno.test(\"direct\", () => {\n  new Deno.Command(\"ssh\", { args: [\"root@10.0.0.7\"] });\n});\n\nDeno.test(\"relayed\", () => {\n  new Deno.Command(\"ssh\", { args: [\"-o\", \"ProxyCommand=websocat --binary ws://relay/x\"] });\n});\n"
+	graph := CodeGraph{
+		APIVersion: APIVersion,
+		Kind:       CodeGraphKind,
+		Metadata:   ObjectMeta{Name: "sample"},
+		Spec: CodeGraphSpec{
+			Repository: "sample",
+			Files:      []CodeGraphFile{{Path: "test/integration_test.ts", Language: "typescript", Test: true}},
+			Nodes: []CodeGraphNode{{
+				ID: "file:test/integration_test.ts", Kind: "file", Name: "integration_test.ts",
+				File: "test/integration_test.ts", StartLine: 1, EndLine: 7, Text: source,
+			}},
+			Edges: []CodeGraphEdge{},
+			Texts: map[string]string{"test/integration_test.ts": source},
+		},
+	}
+	effects := []Effect{{
+		ID: "e-ssh", Kind: EffectSSHConnect, File: "test/integration_test.ts", Line: 2,
+		Node: "file:test/integration_test.ts", Component: "test",
+	}}
+	model, err := BuildModel(ModelInput{
+		Repository: "sample",
+		Graph:      graph,
+		Effects:    effects,
+		Binding:    modelBinding(),
+	})
+	if err != nil {
+		t.Fatalf("BuildModel: %v", err)
+	}
+	for _, flow := range model.Spec.Flows {
+		if containsString(flow.Evidence, "e-ssh") && flow.Channel == "relay" {
+			t.Fatalf("direct ssh borrowed the other test's relay channel: %+v", flow)
+		}
+	}
+}
+
 func TestBuildModelTriggers(t *testing.T) {
 	model, err := BuildModel(ModelInput{
 		Repository: "sample",

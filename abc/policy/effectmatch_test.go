@@ -211,6 +211,40 @@ func TestEffectsIgnoreCommentsAndStrings(t *testing.T) {
 	}
 }
 
+func TestEffectsAttributeStayAtTheCallSite(t *testing.T) {
+	source := "import { createRelay } from \"x\";\n\nDeno.test(\"direct\", () => {\n  new Deno.Command(\"ssh\", { args: [\"-p\", \"2222\", \"root@10.0.0.7\", \"true\"] });\n});\n\nDeno.test(\"relayed\", () => {\n  new Deno.Command(\"ssh\", { args: [\"-o\", \"ProxyCommand=websocat --binary ws://relay/x\", \"root@guest\"] });\n});\n"
+	graph := testGraph(source, nil)
+	graph.Spec.Files[0].Language = "typescript"
+	matcher := compileOne(t, ClassifierPack{
+		Language: "typescript",
+		Rules: []EffectRule{{
+			ID: "ssh", Kind: EffectSSHConnect,
+			Call: &CallRule{Name: "Deno.Command", Argv0: []string{"ssh"}},
+			Extract: []ExtractRule{
+				{Attr: "proxyCommand", Regex: `ProxyCommand=([^\n,;]+)`, Trim: true},
+			},
+		}},
+	})
+	effects := matcher.Effects(graph, MatchOptions{})
+	if len(effects) != 2 {
+		t.Fatalf("got %d effects, want 2: %+v", len(effects), effects)
+	}
+	for _, effect := range effects {
+		switch effect.Line {
+		case 4:
+			if effect.Attr("proxyCommand") != "" {
+				t.Fatalf("direct ssh lent the other call's ProxyCommand: %+v", effect.Attrs)
+			}
+		case 8:
+			if effect.Attr("proxyCommand") == "" {
+				t.Fatalf("relayed ssh lost its own ProxyCommand: %+v", effect.Attrs)
+			}
+		default:
+			t.Fatalf("unexpected ssh site: %+v", effect)
+		}
+	}
+}
+
 func TestEffectsExtrasToggle(t *testing.T) {
 	pack := ClassifierPack{
 		Language: "typescript",

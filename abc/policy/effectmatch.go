@@ -353,7 +353,7 @@ func (m *Matcher) Effects(graph CodeGraph, opts MatchOptions) []Effect {
 				sites := scan.sites(rule, claimed[file.Path])
 				for _, site := range sites {
 					node := nodeAt(graph, file.Path, site.line)
-					effect := m.effect(rule, file, site, node, contexts.text(file.Path, node.ID))
+					effect := m.effect(rule, file, site, node, contexts.site(file.Path, node, source, site.line))
 					out = append(out, effect)
 				}
 			}
@@ -1105,6 +1105,68 @@ func newContextCache(graph CodeGraph) *contextCache {
 		cache.byFile[node.File] = append(cache.byFile[node.File], index)
 	}
 	return cache
+}
+
+// site is the text an extract rule may fall back to. A call site inside a real
+// declaration reads that declaration and the declarations it calls; a site the
+// graph only knows as its file reads a window around the site, because a file's
+// other calls must never lend an attribute to this one.
+func (c *contextCache) site(file string, node CodeGraphNode, source string, line int) string {
+	if node.Kind == "file" || node.ID == "" {
+		return siteWindow(source, line)
+	}
+	return c.text(file, node.ID)
+}
+
+func siteWindow(source string, line int) string {
+	lines := strings.Split(source, "\n")
+	if line < 1 || line > len(lines) {
+		return ""
+	}
+	start := line - 1
+	if start > 0 {
+		start--
+	}
+	end := line - 1
+	if callEnd := callEndLine(source, line); callEnd > end {
+		end = callEnd
+	}
+	if end >= len(lines) {
+		end = len(lines) - 1
+	}
+	return strings.Join(lines[start:end+1], "\n")
+}
+
+func callEndLine(source string, line int) int {
+	offset := lineOffset(source, line)
+	if offset < 0 {
+		return -1
+	}
+	rest := source[offset:]
+	open := strings.IndexByte(rest, '(')
+	if open < 0 {
+		return -1
+	}
+	_, close := balancedArgs(rest, open)
+	if close < 0 {
+		return -1
+	}
+	return line - 1 + strings.Count(rest[:close], "\n")
+}
+
+func lineOffset(source string, line int) int {
+	if line < 1 {
+		return -1
+	}
+	offset := 0
+	for index := 1; index < line; index++ {
+		next := strings.IndexByte(source[offset:], '\n')
+		if next < 0 {
+			return -1
+		}
+		offset += next + 1
+	}
+	return offset
 }
 
 func (c *contextCache) text(file, id string) string {
