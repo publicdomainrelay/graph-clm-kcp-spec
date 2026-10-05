@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/claudecli"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/piagent"
@@ -158,6 +159,21 @@ func (f *Factory) PopulateConfiguredFor(repository *spec.Repository) bool {
 		return true
 	}
 	return f.KindFor(repository) != ""
+}
+
+// GeneratorFor builds the policy harness of a repository: the same agent kind
+// a realize uses, asked to author a policy tree or a binding in dir instead of
+// code.
+func (f *Factory) GeneratorFor(repository *spec.Repository, dir string) (policy.Generator, error) {
+	built, err := f.Agent(repository, dir)
+	if err != nil {
+		return nil, err
+	}
+	generator, ok := built.(policy.Generator)
+	if !ok {
+		return nil, fmt.Errorf("agentfactory: the %q agent cannot author a policy", f.KindFor(repository))
+	}
+	return generator, nil
 }
 
 func (f *Factory) AgentFor(selection *spec.AgentSpec, repository *spec.Repository, dir string) (agent.Agent, error) {

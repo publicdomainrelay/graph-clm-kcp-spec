@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 )
 
 type Requirement struct {
@@ -69,10 +70,32 @@ type Step struct {
 	Delete *Delete `json:"delete,omitempty"`
 }
 
+// GeneratedFile is one file a scripted generation writes, relative to the
+// directory the request names.
+type GeneratedFile struct {
+	Path string `json:"path"`
+
+	Contents string `json:"contents"`
+}
+
+// Generation is one scripted policy authoring: the files of a policy tree, or
+// the policies.yaml of a binding.
+type Generation struct {
+	Summary string `json:"summary,omitempty"`
+
+	Files []GeneratedFile `json:"files,omitempty"`
+}
+
 type Scenario struct {
 	Contexts map[string]Draft `json:"contexts"`
 
 	Realize map[string][]Step `json:"realize"`
+
+	// Policies and Bindings are the scripted generations, one entry per
+	// attempt, the way Attempts carries one step list per realize.
+	Policies [][]Generation `json:"policies,omitempty"`
+
+	Bindings [][]Generation `json:"bindings,omitempty"`
 
 	// Attempts, when a context names it, replaces Realize for that context
 	// with one step list per attempt: the first realize applies the first
@@ -141,6 +164,53 @@ func (a *Agent) Realize(_ context.Context, request agent.RealizeRequest) (agent.
 				return result, fmt.Errorf("scriptedagent: step %d of %s: %w", index, member.Context, err)
 			}
 			result.Files = append(result.Files, files...)
+		}
+	}
+	return result, nil
+}
+
+// Generate writes the scripted policy tree of an attempt. The scenario's
+// Policies section is the policy mode, Bindings the bind mode; an attempt past
+// the end of the list repeats the last one, so a scenario may write a first
+// attempt a check refuses and a second one that passes.
+func (a *Agent) Generate(_ context.Context, request policy.GenerateRequest) (policy.GenerateResult, error) {
+	if a.scenario == nil {
+		return policy.GenerateResult{}, fmt.Errorf("scriptedagent: no scenario")
+	}
+	if request.Dir == "" {
+		return policy.GenerateResult{}, fmt.Errorf("scriptedagent: the generate request names no directory")
+	}
+	generations := a.scenario.Policies
+	if request.Mode == policy.GenerateModeBind {
+		generations = a.scenario.Bindings
+	}
+	if len(generations) == 0 {
+		return policy.GenerateResult{}, fmt.Errorf("scriptedagent: the scenario has no %s generation", request.Mode)
+	}
+	index := request.Attempt - 1
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(generations) {
+		index = len(generations) - 1
+	}
+	result := policy.GenerateResult{}
+	for _, step := range generations[index] {
+		if step.Summary != "" {
+			result.Summary = step.Summary
+		}
+		for _, file := range step.Files {
+			path, err := resolve(request.Dir, file.Path)
+			if err != nil {
+				return result, err
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return result, err
+			}
+			if err := os.WriteFile(path, []byte(file.Contents), 0o644); err != nil {
+				return result, err
+			}
+			result.Files = append(result.Files, file.Path)
 		}
 	}
 	return result, nil
