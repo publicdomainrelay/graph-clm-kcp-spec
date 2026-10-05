@@ -967,6 +967,11 @@ Two more things ended the run:
   `Failed` with the message the tool itself uses on restore (`restored: the branch
   recorded this change as Running`) released the queue. A `Running` change with no
   live realize is a defect worth fixing in `specd`; it cost about 25 minutes here.
+  Fixed on `fix-running-recovery`: a change in flight records the specd process
+  that drives it, a restarted specd treats a `Running` change whose owner is gone
+  as orphaned, cleans up its worktree, fails it with
+  `specd restarted mid-realize` and re-drives the episode; see the README's
+  controller section and `docs/plans/0010-policy-review-fixes.md`.
 
 ### Fix rounds, all through the spec flow
 
