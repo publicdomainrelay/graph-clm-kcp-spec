@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/oabranch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/org"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/orgfixture"
 )
@@ -362,5 +363,32 @@ func TestCloneHelperFetchesMemberBranches(t *testing.T) {
 	states, _ := root.Members(context.Background(), MembersOptions{})
 	if got := byName(states)["market"]; got.State != org.StateResolved {
 		t.Fatalf("market = %+v", got)
+	}
+}
+
+func TestAnnotateAddsMembersToAPersistSnapshot(t *testing.T) {
+	f := orgfixture.Build(t, orgfixture.Default())
+	clone := f.Clone("annotate", 0)
+	ctx := context.Background()
+
+	// persist builds its Root from the repository's path, so a root that is
+	// itself a submodule of something larger does not describe its parent.
+	root := &Root{Dir: clone, Name: f.Spec.Root, Env: f.Env()}
+	snapshot := oabranch.Snapshot{}
+	if err := root.Annotate(ctx, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Members) != 3 || snapshot.Extra[org.MembersPath] == nil {
+		t.Fatalf("snapshot = %+v", snapshot)
+	}
+	manifest, err := org.ParseManifest(snapshot.Extra[org.MembersPath])
+	if err != nil || manifest.Metadata.Name != f.Spec.Root {
+		t.Fatalf("manifest = %+v %v", manifest, err)
+	}
+
+	plain := &Root{Dir: f.Seed("market"), Name: "market", Env: f.Env()}
+	empty := oabranch.Snapshot{}
+	if err := plain.Annotate(ctx, &empty); err != nil || empty.Extra != nil || empty.Members != nil {
+		t.Fatalf("a repository without submodules is left alone: %+v %v", empty, err)
 	}
 }

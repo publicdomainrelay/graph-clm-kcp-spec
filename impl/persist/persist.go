@@ -17,6 +17,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/oagit"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/orggit"
 )
 
 const maxAttempts = 5
@@ -387,6 +388,13 @@ func read(ctx context.Context, options Options) (state, error) {
 		return state{}, fmt.Errorf("persist: repository %s has no working tree yet", options.Repository)
 	}
 	current.snapshot.Guarded = guardedRequirements(ctx, oagit.Store{Repo: current.repoPath}, repository)
+	// An org root's architecture branch also references its submodules. A
+	// failure to read them leaves the branch without the reference file rather
+	// than failing a persist that has nothing to do with them.
+	orgRoot := &orggit.Root{Dir: current.repoPath, Name: options.Repository}
+	if err := orgRoot.Annotate(ctx, &current.snapshot); err != nil {
+		current.snapshot.Extra, current.snapshot.Members = nil, nil
+	}
 
 	contexts, err := options.Cluster.List(ctx, specapi.SystemContextGVR, namespace)
 	if err != nil {

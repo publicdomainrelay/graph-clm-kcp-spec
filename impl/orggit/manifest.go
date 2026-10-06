@@ -38,6 +38,31 @@ func (r *Root) ManifestFiles(ctx context.Context) (map[string][]byte, error) {
 	return map[string][]byte{org.MembersPath: data}, nil
 }
 
+// Annotate adds the root's members to a snapshot of its architecture branch:
+// members.yaml as an extra file and the member references of the graph. A
+// repository with no submodule is left alone. The repository must be the root's
+// own checkout: use a Root made with Root{Dir: ...}, not Open, so a root that is
+// itself a submodule does not describe its superproject.
+func (r *Root) Annotate(ctx context.Context, snapshot *oabranch.Snapshot) error {
+	if !r.HasSubmodules(ctx) {
+		return nil
+	}
+	manifest, _, err := r.Manifest(ctx)
+	if err != nil {
+		return err
+	}
+	data, err := manifest.Render()
+	if err != nil {
+		return err
+	}
+	if snapshot.Extra == nil {
+		snapshot.Extra = map[string][]byte{}
+	}
+	snapshot.Extra[org.MembersPath] = data
+	snapshot.Members = org.GraphRefs(manifest.Members)
+	return nil
+}
+
 // WriteManifest commits members.yaml to the root's architecture branch with
 // plumbing: the work tree, the index and HEAD of the root are not touched, and
 // every other file of the branch is kept. It returns the commit and whether

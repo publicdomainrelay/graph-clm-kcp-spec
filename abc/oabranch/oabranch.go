@@ -139,6 +139,14 @@ type Snapshot struct {
 	// context whose spec declares them. CHANGES.md marks them, so a reader sees
 	// which requirements a policy guards.
 	Guarded map[string][]string
+
+	// Extra are derived files of the branch that the snapshot's own kinds do not
+	// produce, such as members.yaml of an org root. They are written with the
+	// rest, so the branch's writer never deletes them, and marked generated.
+	Extra map[string][]byte
+
+	// Members are the submodules of an org root, for the graph.
+	Members []graph.MemberRef
 }
 
 type Baseline struct {
@@ -559,7 +567,7 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 		return nil, fmt.Errorf("oabranch: the snapshot has no repository name")
 	}
 	files[ReadmePath] = []byte(readme(name))
-	files[GitAttributesPath] = []byte(gitAttributes())
+	files[GitAttributesPath] = []byte(gitAttributes(snapshot.Extra))
 
 	contexts := sortedContexts(snapshot.Contexts)
 	repository, err := yamlx.Marshal(repositoryDocOf(snapshot.Repository, contexts))
@@ -615,7 +623,7 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 		files[ChangePath(surviving.Name)] = data
 	}
 
-	vertices, edges := graph.Build(graph.Snapshot{Repository: portable(snapshot.Repository), Contexts: contexts, CodeRefs: refs})
+	vertices, edges := graph.Build(graph.Snapshot{Repository: portable(snapshot.Repository), Contexts: contexts, CodeRefs: refs, Members: snapshot.Members})
 	vertexLines, err := vertexJSONL(vertices)
 	if err != nil {
 		return nil, err
@@ -626,6 +634,12 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 	}
 	files[GraphVerticesPath] = vertexLines
 	files[GraphEdgesPath] = edgeLines
+	for path, data := range snapshot.Extra {
+		if _, taken := files[path]; taken {
+			return nil, fmt.Errorf("oabranch: extra file %s collides with a generated file", path)
+		}
+		files[path] = data
+	}
 	return files, nil
 }
 
@@ -644,8 +658,8 @@ func codeRefIndex(context spec.SystemContext, refs map[string]graph.CodeRef) []s
 // gitAttributes marks every derived file as generated, so a review of a
 // branch or a pull request collapses them and leaves specs/ and CHANGES.md as
 // the diff a person reads.
-func gitAttributes() string {
-	return strings.Join([]string{
+func gitAttributes(extra map[string][]byte) string {
+	lines := []string{
 		"# Written by specd from kcp; review specs/ and CHANGES.md instead.",
 		ArchPath + " linguist-generated=true",
 		RepositoryPath + " linguist-generated=true",
@@ -653,8 +667,16 @@ func gitAttributes() string {
 		ContextDir + "/* linguist-generated=true",
 		GraphDir + "/* linguist-generated=true",
 		StatusDir + "/* linguist-generated=true",
-		"",
-	}, "\n")
+	}
+	paths := make([]string, 0, len(extra))
+	for path := range extra {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		lines = append(lines, path+" linguist-generated=true")
+	}
+	return strings.Join(append(lines, ""), "\n")
 }
 
 func readme(repository string) string {

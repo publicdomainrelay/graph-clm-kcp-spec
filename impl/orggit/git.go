@@ -48,3 +48,9 @@ func exitCode(err error) (int, bool) {
 	}
 	return 0, false
 }
+
+// Git runs git in dir (the root, or a member's checkout) with the root's
+// environment and returns trimmed output.
+func (r *Root) Git(ctx context.Context, dir string, args ...string) (string, error) {
+	return r.run(ctx, dir, args...)
+}
