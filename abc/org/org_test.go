@@ -267,3 +267,39 @@ func rootRepo(name string) spec.Repository {
 	repository.Name = name
 	return repository
 }
+
+func TestAnUninitializedMemberTakesTheNameTheLibraryGivesIt(t *testing.T) {
+	// No checkout means no branches to find the repository name in: the library
+	// names the member "provider" and the submodule's url is that repository.
+	members := []Member{{Name: "hono-compute-provider", Path: "hono-compute-provider", URL: "u", CodeCommit: "c",
+		Candidates: []string{"hono-compute-provider", "provider"}}}
+	got := PolicyMembers(members, policy.Submodules{Members: true}, []policy.Member{{Name: "provider", TestGlobs: []string{"t/**"}}})
+	if len(got) != 1 || got[0].Name != "provider" || got[0].Ref != "c" || len(got[0].TestGlobs) != 1 {
+		t.Fatalf("members = %+v", got)
+	}
+	// An exact name still wins over a candidate.
+	exact := PolicyMembers(members, policy.Submodules{Members: true}, []policy.Member{{Name: "hono-compute-provider"}, {Name: "provider"}})
+	if len(exact) != 2 || exact[0].Name != "hono-compute-provider" || exact[1].Name != "provider" {
+		t.Fatalf("exact = %+v", exact)
+	}
+}
+
+func TestProblemsTreatAShallowCheckoutsPinAsUnknownNotUnpublished(t *testing.T) {
+	state := MemberState{
+		Member:      Member{Name: "m", Path: "m", CodeCommit: "abcdef0123", State: StateResolved},
+		Initialized: true, PinPresent: true, Published: false, Shallow: true,
+	}
+	problems := Problems(state)
+	if len(problems) != 1 || problems[0].Code != CodeUnverified || problems[0].Severity != SeverityInfo {
+		t.Fatalf("shallow: %+v", problems)
+	}
+	state.Shallow = false
+	problems = Problems(state)
+	if len(problems) != 1 || problems[0].Code != CodeUnpublished || problems[0].Severity != SeverityError {
+		t.Fatalf("full: %+v", problems)
+	}
+	state.Published = true
+	if got := Problems(state); len(got) != 0 {
+		t.Fatalf("published: %+v", got)
+	}
+}

@@ -41,7 +41,7 @@ func (r *Root) Bump(ctx context.Context, names []string, options BumpOptions) (s
 		if state.Head == state.CodeCommit {
 			continue
 		}
-		if !options.AllowUnpublished {
+		if !options.AllowUnpublished && !state.Shallow {
 			published, err := r.published(ctx, state)
 			if err != nil {
 				return "", nil, err

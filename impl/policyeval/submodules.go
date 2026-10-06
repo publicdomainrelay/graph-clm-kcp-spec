@@ -73,7 +73,10 @@ func MemberRollup(ctx context.Context, library policy.Library, codeDir string, e
 		if !state.Initialized || state.Policy == nil || !selectedPath(state.Path, *config) {
 			continue
 		}
-		row := policy.MemberRollup{Name: state.Name, Path: state.Path, Commit: state.CodeCommit, PolicyCommit: state.Policy.Commit}
+		row := policy.MemberRollup{Name: state.Name, Path: state.Path, Commit: state.Head, PolicyCommit: state.Policy.Commit}
+		if state.Head != state.CodeCommit {
+			row.Pinned = state.CodeCommit
+		}
 		ref, _ := root.PolicyRef(ctx, state.Member)
 		report, err := evaluate(ctx, MemberEvaluation{State: state, Dir: root.MemberDir(state.Member), PolicyRef: ref})
 		if err != nil {

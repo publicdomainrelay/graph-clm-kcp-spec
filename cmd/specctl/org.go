@@ -153,13 +153,17 @@ func checkoutSummary(state org.MemberState) string {
 		parts = append(parts, "dirty")
 	}
 	if state.PinPresent && !state.Published {
-		parts = append(parts, "unpublished")
+		if state.Shallow {
+			parts = append(parts, "shallow")
+		} else {
+			parts = append(parts, "unpublished")
+		}
 	}
 	return strings.Join(parts, ", ")
 }
 
 func specSummary(state org.MemberState) string {
-	if state.Arch == nil {
+	if state.Arch == nil || state.Arch.Commit == "" {
 		return string(state.State)
 	}
 	return fmt.Sprintf("%s @%s", state.State, org.Short(state.Arch.Commit))

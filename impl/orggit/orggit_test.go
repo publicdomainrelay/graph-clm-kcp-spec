@@ -392,3 +392,30 @@ func TestAnnotateAddsMembersToAPersistSnapshot(t *testing.T) {
 		t.Fatalf("a repository without submodules is left alone: %+v %v", empty, err)
 	}
 }
+
+func TestAPinDescribedOnlyByACodeBranchsArchitectureResolvesWhenItIndexedThePin(t *testing.T) {
+	spec := orgfixture.Default()
+	spec.Members[2].FeatureArch = "spec/iroh"
+	f := orgfixture.Build(t, spec)
+	ctx := context.Background()
+
+	root := open(t, f, f.Clone("feature", 0))
+	states, _ := root.Members(ctx, MembersOptions{})
+	relay := byName(states)["relay"]
+	if relay.State != org.StateResolved || relay.Arch == nil || relay.Arch.Branch != "open-architecture/relay--spec-iroh" ||
+		relay.Arch.IndexedCommit != relay.CodeCommit {
+		t.Fatalf("relay = %+v %+v", relay, relay.Arch)
+	}
+	if files, err := root.ReadArch(ctx, relay.Member, []string{"repository.yaml"}); err != nil || len(files["repository.yaml"]) == 0 {
+		t.Fatalf("read the feature architecture: %v", err)
+	}
+
+	// The pin moves; the code branch's architecture was not re-indexed, and a
+	// feature branch only ever matches the exact commit it indexed.
+	f.Advance("relay", map[string]string{"lib/relay-server/x.ts": "export const x = 1;\n"}, "relay: x")
+	moved := open(t, f, f.Clone("feature-moved", 0))
+	states, _ = moved.Members(ctx, MembersOptions{})
+	if got := byName(states)["relay"]; got.State != org.StateStale {
+		t.Fatalf("after the pin moved: %+v", got)
+	}
+}

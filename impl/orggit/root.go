@@ -215,6 +215,8 @@ func (r *Root) memberState(ctx context.Context, sub org.Submodule, pinned string
 	if status, err := r.run(ctx, dir, "status", "--porcelain", "--untracked-files=no"); err == nil {
 		state.Dirty = status != ""
 	}
+	shallow, _ := r.run(ctx, dir, "rev-parse", "--is-shallow-repository")
+	state.Shallow = shallow == "true"
 	state.PinPresent = r.hasCommit(ctx, dir, pinned)
 	if state.PinPresent {
 		if state.Head != "" && state.Head != pinned {
@@ -259,28 +261,47 @@ func (r *Root) branchTip(ctx context.Context, dir, branch string) (ref, commit s
 }
 
 // resolveSpec finds the member's architecture and policy branches and the
-// architecture commit that describes the pinned code.
+// architecture commit that describes the pinned code. The default branch's
+// architecture is read first: its newest commit that indexed the pin or an
+// ancestor. A member whose pin is only described on a code branch's own
+// architecture (open-architecture/<name>--<branch>) matches that one when it
+// indexed exactly the pin.
 func (r *Root) resolveSpec(ctx context.Context, state *org.MemberState, dir string) error {
+	isAncestor := func(ancestor, commit string) bool {
+		_, err := r.run(ctx, dir, "merge-base", "--is-ancestor", ancestor, commit)
+		return err == nil
+	}
 	for _, name := range state.Candidates {
 		archBranch := oabranch.Branch(name)
 		ref, tip := r.branchTip(ctx, dir, archBranch)
-		if ref == "" {
+		featured := r.featureBranches(ctx, dir, archBranch)
+		if ref == "" && len(featured) == 0 {
 			continue
 		}
 		state.Name = name
 		state.Arch = &org.BranchRef{Branch: archBranch, Commit: tip}
-		history, err := r.archHistory(ctx, dir, ref)
-		if err != nil {
-			return err
+		selected := false
+		if ref != "" {
+			history, err := r.archHistory(ctx, dir, ref)
+			if err != nil {
+				return err
+			}
+			if entry, ok := org.SelectArch(history, state.CodeCommit, isAncestor); ok {
+				state.Arch.Commit, state.Arch.IndexedCommit, selected = entry.Commit, entry.IndexedCommit, true
+			}
 		}
-		isAncestor := func(ancestor, commit string) bool {
-			_, err := r.run(ctx, dir, "merge-base", "--is-ancestor", ancestor, commit)
-			return err == nil
-		}
-		entry, selected := org.SelectArch(history, state.CodeCommit, isAncestor)
-		if selected {
-			state.Arch.Commit = entry.Commit
-			state.Arch.IndexedCommit = entry.IndexedCommit
+		for _, feature := range featured {
+			if selected {
+				break
+			}
+			history, err := r.archHistory(ctx, dir, feature.ref)
+			if err != nil {
+				return err
+			}
+			if entry, ok := org.SelectArch(history, state.CodeCommit, nil); ok {
+				state.Arch = &org.BranchRef{Branch: feature.branch, Commit: entry.Commit, IndexedCommit: entry.IndexedCommit}
+				selected = true
+			}
 		}
 		state.State = org.StateOf(true, true, selected)
 		break
@@ -296,6 +317,32 @@ func (r *Root) resolveSpec(ctx context.Context, state *org.MemberState, dir stri
 		}
 	}
 	return nil
+}
+
+type featureBranch struct {
+	branch string
+	ref    string
+}
+
+// featureBranches lists the per code branch architecture branches of a member,
+// open-architecture/<name>--<branch>, local first then remote-tracking.
+func (r *Root) featureBranches(ctx context.Context, dir, archBranch string) []featureBranch {
+	out, err := r.run(ctx, dir, "for-each-ref", "--format=%(refname)", "refs/heads/"+archBranch+oabranch.BranchSeparator+"*",
+		"refs/remotes/origin/"+archBranch+oabranch.BranchSeparator+"*")
+	if err != nil || out == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var found []featureBranch
+	for _, ref := range strings.Fields(out) {
+		branch := strings.TrimPrefix(strings.TrimPrefix(ref, "refs/heads/"), "refs/remotes/origin/")
+		if seen[branch] {
+			continue
+		}
+		seen[branch] = true
+		found = append(found, featureBranch{branch: branch, ref: ref})
+	}
+	return found
 }
 
 const maxArchHistory = 400

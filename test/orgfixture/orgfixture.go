@@ -37,6 +37,15 @@ type Member struct {
 
 	// Requirement is the text of the one requirement its architecture holds.
 	Requirement string
+
+	// FeatureArch names a code branch whose own architecture branch,
+	// open-architecture/<Name>--<FeatureArch>, indexes the initial commit. A
+	// member can have it with or without the default branch's.
+	FeatureArch string
+
+	// PolicyFiles replaces the member's policy branch with these files, path to
+	// contents. Empty means a policies.yaml that names the repository only.
+	PolicyFiles map[string][]byte
 }
 
 // Spec describes the polyrepo.
@@ -161,10 +170,17 @@ func (f *Fixture) buildMember(m Member) {
 	f.Git(seed, "remote", "add", "origin", bare)
 	head := f.Git(seed, "rev-parse", "HEAD")
 	if m.Arch {
-		f.writeArch(seed, m.Name, m.Requirement, head)
+		f.writeArch(seed, m.Name, m.Requirement, head, oabranch.Branch(m.Name))
+	}
+	if m.FeatureArch != "" {
+		f.writeArch(seed, m.Name, m.Requirement, head, oabranch.BranchFor(m.Name, m.FeatureArch, "main"))
 	}
 	if m.Policy {
-		f.writePolicy(seed, m.Name, "repository: "+m.Name+"\n")
+		files := m.PolicyFiles
+		if len(files) == 0 {
+			files = map[string][]byte{policy.PoliciesPath: []byte("repository: " + m.Name + "\n")}
+		}
+		f.commitBranch(seed, policy.Branch(m.Name), files, "policy: initial library of "+m.Name+"\n")
 	}
 	f.Git(seed, "push", "-q", "origin", "--all")
 }
@@ -185,7 +201,7 @@ func (f *Fixture) buildRoot() {
 		f.Git(seed, "commit", "-qm", "add "+member.Name+" as a submodule")
 	}
 	if spec.RootArch {
-		f.writeArch(seed, spec.Root, "The org root records which commit of each repository is current.", f.Git(seed, "rev-parse", "HEAD"))
+		f.writeArch(seed, spec.Root, "The org root records which commit of each repository is current.", f.Git(seed, "rev-parse", "HEAD"), oabranch.Branch(spec.Root))
 	}
 	if spec.RootPolicy {
 		policies := spec.RootPolicies
@@ -200,7 +216,7 @@ func (f *Fixture) buildRoot() {
 // Seed is the work repository of a repository of the fixture.
 func (f *Fixture) Seed(name string) string { return filepath.Join(f.Seeds, name) }
 
-func (f *Fixture) writeArch(seed, name, requirement, indexed string) {
+func (f *Fixture) writeArch(seed, name, requirement, indexed, branch string) {
 	f.t.Helper()
 	repository := spec.Repository{}
 	repository.Name = name
@@ -221,11 +237,11 @@ func (f *Fixture) writeArch(seed, name, requirement, indexed string) {
 	context.Status.ObservedCommit = indexed
 	context.SetDefaults()
 	repository.SetDefaults()
-	files, err := oabranch.Files(oabranch.Snapshot{Repository: repository, Contexts: []spec.SystemContext{context}, Branch: oabranch.Branch(name)})
+	files, err := oabranch.Files(oabranch.Snapshot{Repository: repository, Contexts: []spec.SystemContext{context}, Branch: branch})
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	f.commitBranch(seed, oabranch.Branch(name), files, fmt.Sprintf("spec(%s): index %s\n\nCode-Commit: %s\n", name, indexed[:7], indexed))
+	f.commitBranch(seed, branch, files, fmt.Sprintf("spec(%s): index %s\n\nCode-Commit: %s\n", name, indexed[:7], indexed))
 }
 
 func (f *Fixture) writePolicy(seed, name, policies string) {
@@ -283,7 +299,7 @@ func (f *Fixture) Advance(name string, files map[string]string, message string) 
 	f.Git(seed, "commit", "-qm", message)
 	head := f.Git(seed, "rev-parse", "HEAD")
 	if member.Arch {
-		f.writeArch(seed, name, member.Requirement, head)
+		f.writeArch(seed, name, member.Requirement, head, oabranch.Branch(name))
 	}
 	f.Git(seed, "push", "-q", "origin", "--all")
 
@@ -357,4 +373,24 @@ func repoRoot(t testing.TB) string {
 		t.Fatal("cannot locate the repository root")
 	}
 	return filepath.Dir(filepath.Dir(filepath.Dir(file)))
+}
+
+// FakeCodegraph builds test/fakecodegraph and puts it first on PATH as
+// "codegraph", so code that indexes a checkout works where the real indexer is
+// not installed. It does nothing when a real codegraph is already on PATH.
+func FakeCodegraph(t testing.TB) {
+	t.Helper()
+	if _, err := exec.LookPath("codegraph"); err == nil {
+		return
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not on PATH")
+	}
+	bin := t.TempDir()
+	build := exec.Command("go", "build", "-o", filepath.Join(bin, "codegraph"), "./test/fakecodegraph")
+	build.Dir = repoRoot(t)
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build the fake codegraph: %v\n%s", err, out)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }

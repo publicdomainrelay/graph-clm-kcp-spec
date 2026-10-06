@@ -13,6 +13,7 @@ import {
 import {
   ARCH_TOOL_PREFIX,
   ARCH_TOOLS,
+  ORG_TOOLS,
   archInvocation,
   applyArgv,
   contextSection,
@@ -214,6 +215,20 @@ async function offerArchTools($: Engine, session: Session, cwd: string): Promise
   $.ui.status("clm: arch tools on (specctl up session)");
 }
 
+// An org root is a git superproject. Its tools need only specctl and git, so
+// they are offered whether or not a kcp session is up.
+async function offerOrgTools($: Engine, session: Session, cwd: string): Promise<void> {
+  const specctl = session.archSpecctl ?? ((await $.env.get("SPECD_SPECCTL"))?.trim() || "specctl");
+  const found = await $.process.run([specctl, "org", "ls", "--repo", cwd], { cwd, timeoutMs: 10_000 }).catch(() => undefined);
+  if (!found || found.exitCode !== 0) return;
+  for (const tool of ORG_TOOLS) {
+    await $.tool.register({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema });
+  }
+  session.archSpecctl = specctl;
+  session.archCwd = session.archCwd ?? cwd;
+  $.ui.status("clm: org root tools on");
+}
+
 async function runArchTool($: Engine, session: Session, tool: string, input: Record<string, unknown>): Promise<string> {
   const invocation = archInvocation(session.archSpecctl ?? "specctl", tool, input);
   if (typeof invocation === "string") return invocation;
@@ -241,6 +256,11 @@ export const register: Register = (on) => {
     if (!session.host) {
       try {
         await offerArchTools($ as Engine, session, e.cwd);
+      } catch (error) {
+        $.ui.log(`clm: ${describe(error)}`, { to: "debug" });
+      }
+      try {
+        await offerOrgTools($ as Engine, session, e.cwd);
       } catch (error) {
         $.ui.log(`clm: ${describe(error)}`, { to: "debug" });
       }

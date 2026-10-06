@@ -1,6 +1,10 @@
 package codegraphfacts
 
 import (
+	"context"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/orgfixture"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphsqlite"
@@ -30,5 +34,38 @@ func TestWithoutSubmodulesKeepsOnlyTheRootsOwnGraph(t *testing.T) {
 	}
 	if len(gotEdges) != 2 || gotEdges[0].Target != "lookalike" || gotEdges[1].Target != "external-unresolved" {
 		t.Fatalf("edges = %+v: an edge into a dropped node must go", gotEdges)
+	}
+}
+
+func TestBuildOfAnOrgRootHoldsTheRootsOwnFilesOnly(t *testing.T) {
+	orgfixture.FakeCodegraph(t)
+	f := orgfixture.Build(t, orgfixture.Default())
+	clone := f.Clone("facts", 0)
+	// Both ways a checkout is indexed: a copy (the reader's tree is never
+	// written) and in place.
+	for name, inPlace := range map[string]bool{"copy": false, "in place": true} {
+		graph, err := Build(context.Background(), clone, Options{Repository: "socialweb-computer", IndexInPlace: inPlace})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		paths := []string{}
+		for _, file := range graph.Spec.Files {
+			paths = append(paths, file.Path)
+		}
+		if !slices.Contains(paths, "scripts/find-all-package.ts") {
+			t.Fatalf("%s: the root's own script is missing from %v", name, paths)
+		}
+		for _, path := range paths {
+			for _, member := range []string{"market/", "hono-compute-provider/", "relay/"} {
+				if strings.HasPrefix(path, member) {
+					t.Fatalf("%s: %s is a member's file in the root's graph", name, path)
+				}
+			}
+		}
+		for _, node := range graph.Spec.Nodes {
+			if strings.HasPrefix(node.File, "market/") {
+				t.Fatalf("%s: node %s is a member's", name, node.File)
+			}
+		}
 	}
 }

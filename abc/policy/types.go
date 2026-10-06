@@ -506,8 +506,13 @@ type MemberRollup struct {
 
 	Path string `json:"path"`
 
-	// Commit is the member code commit that was evaluated: the root's pin.
+	// Commit is the member code commit that was evaluated: the commit of the
+	// member's checkout.
 	Commit string `json:"commit,omitempty"`
+
+	// Pinned is the root's pin, set only when the checkout is not at it: the
+	// evaluation then describes work the root has not recorded yet.
+	Pinned string `json:"pinned,omitempty"`
 
 	// PolicyCommit is the tip of the member's policy branch that was read.
 	PolicyCommit string `json:"policyCommit,omitempty"`

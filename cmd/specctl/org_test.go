@@ -215,3 +215,129 @@ func TestOrgCloneIsRecursiveAndFetchesMemberBranches(t *testing.T) {
 		t.Fatal("unknown subcommand")
 	}
 }
+
+// memberLibrary is a policy library as a policy branch's files: the
+// market-mini example, which is a repository's own policies over its own tests.
+func memberLibrary(t *testing.T, repository string) map[string][]byte {
+	t.Helper()
+	dir := filepath.Join("..", "..", "examples", "policies", "market-mini")
+	files := map[string][]byte{}
+	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		relative, _ := filepath.Rel(dir, path)
+		data, err := os.ReadFile(path)
+		if relative == "policies.yaml" {
+			data = []byte(strings.Replace(string(data), "repository: market-mini", "repository: "+repository, 1))
+		}
+		files[filepath.ToSlash(relative)] = data
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+func TestPolicyEvalAtTheOrgRootReadsEveryMemberOnceAndRollsUpTheirOwnPolicies(t *testing.T) {
+	orgfixture.FakeCodegraph(t)
+	spec := orgfixture.Default()
+	spec.Members[0].PolicyFiles = memberLibrary(t, "market")
+	f := orgfixture.Build(t, spec)
+	orgEnv(t, f)
+	clone := f.Clone("policy", 0)
+
+	library := filepath.Join(t.TempDir(), "orgroot-fixture")
+	if err := os.CopyFS(library, os.DirFS(filepath.Join("..", "..", "examples", "policies", "orgroot-fixture"))); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"policy", "eval", "--repo", "socialweb-computer", "--worktree", clone, "--library", library, "--cache-dir", t.TempDir(), "-o", "json"}
+
+	code, out, errOut := specctl(t, args...)
+	if code != exitOK {
+		t.Fatalf("eval = %d\n%s\n%s", code, out, errOut)
+	}
+	var report struct {
+		Members []struct {
+			Name, Ref, Commit string
+		}
+		MemberPolicies []struct {
+			Name, Path, Commit, Pinned, PolicyCommit, Message string
+			Totals                                            map[string]int
+		}
+		Violations []struct{ Constraint string }
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("report: %v\n%s", err, out)
+	}
+	if len(report.Violations) != 0 {
+		t.Fatalf("the root's own policy over all three repositories must be clean: %+v", report.Violations)
+	}
+	pins := map[string]string{}
+	for _, member := range report.Members {
+		pins[member.Name] = member.Commit
+	}
+	if len(pins) != 3 || pins["market"] != strings.TrimSpace(f.Git(filepath.Join(clone, "market"), "rev-parse", "HEAD")) {
+		t.Fatalf("members = %+v: derived from the gitlinks, pinned by them", report.Members)
+	}
+	if len(report.MemberPolicies) != 2 {
+		t.Fatalf("memberPolicies = %+v", report.MemberPolicies)
+	}
+	for _, row := range report.MemberPolicies {
+		if row.Message != "" || row.Pinned != "" {
+			t.Fatalf("row = %+v", row)
+		}
+	}
+
+	// A member's own policy denies code the root's policy does not look at.
+	market := filepath.Join(clone, "market")
+	bad := "// a test that dials the guest directly\nexport function dial() { return Deno.connect({ hostname: \"10.0.0.2\", port: 22 }); }\n"
+	if err := os.MkdirAll(filepath.Join(market, "test"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(market, "test", "dial_test.ts"), []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.Git(market, "add", "-A")
+	f.Git(market, "commit", "-qm", "market: a test that dials the guest")
+	code, out, errOut = specctl(t, append(args, "--strict")...)
+	if code != exitError {
+		t.Fatalf("a member's own deny must fail --strict at the root: %d\n%s\n%s", code, out, errOut)
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatal(err)
+	}
+	denied := ""
+	for _, row := range report.MemberPolicies {
+		if row.Name == "market" && row.Totals["deny"] > 0 {
+			denied = row.Pinned
+		}
+	}
+	if denied == "" {
+		t.Fatalf("market's row must report its deny and that the checkout is off the pin: %+v", report.MemberPolicies)
+	}
+	code, text, _ := specctl(t, "policy", "eval", "--repo", "socialweb-computer", "--worktree", clone, "--library", library, "--cache-dir", t.TempDir())
+	if code != exitOK || !strings.Contains(text, "member policy: market") || !strings.Contains(text, "off the pin") {
+		t.Fatalf("text report:\n%s", text)
+	}
+}
+
+func TestTheRootsCodeGraphHoldsTheRootsOwnFilesOnly(t *testing.T) {
+	orgfixture.FakeCodegraph(t)
+	f := orgfixture.Build(t, orgfixture.Default())
+	orgEnv(t, f)
+	clone := f.Clone("graph", 0)
+	// The fake indexer walks the whole work tree, as the real one does. The
+	// root's graph must still hold the root's files and nothing of a member's.
+	code, out, errOut := specctl(t, "policy", "effects", "--worktree", clone, "--repo", "socialweb-computer", "-o", "json")
+	_ = errOut
+	if code != exitOK {
+		t.Fatalf("effects = %d\n%s", code, errOut)
+	}
+	for _, member := range []string{"market/", "hono-compute-provider/", "relay/"} {
+		if strings.Contains(out, "\""+member) || strings.Contains(out, " "+member+"lib") {
+			t.Fatalf("the root's effects name a member's file (%s):\n%s", member, out)
+		}
+	}
+}

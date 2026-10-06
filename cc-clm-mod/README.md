@@ -119,6 +119,22 @@ session (no `SPECD_CLM_CONTEXT`) finds that repository's kcp through
 The spec never sits in the project tree: the tools read and write kcp, and kcp
 persists to the orphan branch `open-architecture/<repository>`.
 
+### In an org root
+
+In a git superproject (a repository with submodules) the mod also registers four
+read-only tools, with or without a kcp session, because they only call
+`specctl org` and git:
+
+| tool | does |
+| --- | --- |
+| `mcp__cc-clm-mod__org_members` | the submodules: pinned commit, checkout state, where each one's spec and policy branches are |
+| `mcp__cc-clm-mod__org_status` | what to fix before the root can be trusted or pushed (an unpublished pin, a dirty member, a missing spec) |
+| `mcp__cc-clm-mod__org_outline` | the root's architecture, or one member's read in place at the commit the root pins |
+| `mcp__cc-clm-mod__org_history` | the root commits that moved a pointer and the member commits each brought in |
+
+Changing code stays in each member's own checkout; recording the new pointer
+is `specctl org bump`, which is deliberately not a tool: it is a commit.
+
 ## Developing
 
 ```

@@ -1556,7 +1556,11 @@ func printReportDecision(out io.Writer, report policy.Report, waived []policy.Vi
 		case row.Message != "":
 			fmt.Fprintf(out, "member policy: %s at %s: not evaluated: %s\n", row.Name, shortCommit(row.Commit), row.Message)
 		default:
-			fmt.Fprintf(out, "member policy: %s at %s: %d violation(s) (deny %d, warn %d)\n", row.Name, shortCommit(row.Commit),
+			off := ""
+			if row.Pinned != "" {
+				off = fmt.Sprintf(" (checkout is off the pin %s)", shortCommit(row.Pinned))
+			}
+			fmt.Fprintf(out, "member policy: %s at %s%s: %d violation(s) (deny %d, warn %d)\n", row.Name, shortCommit(row.Commit), off,
 				len(row.Violations), row.Totals[policy.EnforcementDeny], row.Totals[policy.EnforcementWarn])
 		}
 	}

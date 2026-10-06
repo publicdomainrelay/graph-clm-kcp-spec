@@ -112,7 +112,7 @@ func TestRollupEvaluatesEachMembersOwnPolicyAndNeverMergesThem(t *testing.T) {
 	if len(rows) != 2 || rows[0].Name != "provider" || rows[1].Name != "market" {
 		t.Fatalf("rows = %+v: relay has no policy branch and gets no row", rows)
 	}
-	if rows[1].Totals[policy.EnforcementDeny] != 1 || rows[1].PolicyCommit == "" || rows[1].Commit == "" {
+	if rows[1].Totals[policy.EnforcementDeny] != 1 || rows[1].PolicyCommit == "" || rows[1].Commit == "" || rows[1].Pinned != "" {
 		t.Fatalf("market row = %+v", rows[1])
 	}
 	if rows[0].Message == "" || rows[0].Violations != nil {
