@@ -303,3 +303,17 @@ func TestProblemsTreatAShallowCheckoutsPinAsUnknownNotUnpublished(t *testing.T) 
 		t.Fatalf("published: %+v", got)
 	}
 }
+
+func TestAHostileSubmoduleURLNeverBecomesACloneSource(t *testing.T) {
+	for _, url := range []string{"--upload-pack=touch /tmp/x", "ext::sh -c id", "EXT::sh -c id"} {
+		members := []Member{{Name: "m", Path: "m", URL: url, CodeCommit: "c"}}
+		got := PolicyMembers(members, policy.Submodules{Members: true}, nil)
+		if len(got) != 1 || got[0].URL != "" {
+			t.Fatalf("%q became %+v: the member must name no url so resolving it fails", url, got)
+		}
+	}
+	ok := PolicyMembers([]Member{{Name: "m", Path: "m", URL: "https://example.com/m.git", CodeCommit: "c"}}, policy.Submodules{Members: true}, nil)
+	if ok[0].URL != "https://example.com/m.git" {
+		t.Fatalf("an ordinary url must stay: %+v", ok)
+	}
+}

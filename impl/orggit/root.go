@@ -281,11 +281,11 @@ func (r *Root) resolveSpec(ctx context.Context, state *org.MemberState, dir stri
 		state.Arch = &org.BranchRef{Branch: archBranch, Commit: tip}
 		selected := false
 		if ref != "" {
-			history, err := r.archHistory(ctx, dir, ref)
+			entry, ok, err := r.selectArch(ctx, dir, ref, state.CodeCommit, isAncestor)
 			if err != nil {
 				return err
 			}
-			if entry, ok := org.SelectArch(history, state.CodeCommit, isAncestor); ok {
+			if ok {
 				state.Arch.Commit, state.Arch.IndexedCommit, selected = entry.Commit, entry.IndexedCommit, true
 			}
 		}
@@ -293,11 +293,11 @@ func (r *Root) resolveSpec(ctx context.Context, state *org.MemberState, dir stri
 			if selected {
 				break
 			}
-			history, err := r.archHistory(ctx, dir, feature.ref)
+			entry, ok, err := r.selectArch(ctx, dir, feature.ref, state.CodeCommit, nil)
 			if err != nil {
 				return err
 			}
-			if entry, ok := org.SelectArch(history, state.CodeCommit, nil); ok {
+			if ok {
 				state.Arch = &org.BranchRef{Branch: feature.branch, Commit: entry.Commit, IndexedCommit: entry.IndexedCommit}
 				selected = true
 			}
@@ -346,23 +346,24 @@ func (r *Root) featureBranches(ctx context.Context, dir, archBranch string) []fe
 
 const maxArchHistory = 400
 
-// archHistory lists the architecture commits of a member newest first, each
-// with the code commit its repository.yaml records.
-func (r *Root) archHistory(ctx context.Context, dir, ref string) ([]org.ArchEntry, error) {
+// selectArch walks a member's architecture branch newest first and stops at the
+// first commit whose repository.yaml records the pin, or (with isAncestor) an
+// ancestor of it. It reads one file per commit and no more than it must.
+func (r *Root) selectArch(ctx context.Context, dir, ref, pinned string, isAncestor func(ancestor, commit string) bool) (org.ArchEntry, bool, error) {
 	out, err := r.run(ctx, dir, "rev-list", "--first-parent", "--max-count="+strconv.Itoa(maxArchHistory), ref)
 	if err != nil {
-		return nil, err
+		return org.ArchEntry{}, false, err
 	}
-	var entries []org.ArchEntry
 	for _, commit := range strings.Fields(out) {
-		raw, err := r.output(ctx, dir, "show", commit+":"+oabranch.RepositoryPath)
-		if err != nil {
-			entries = append(entries, org.ArchEntry{Commit: commit})
-			continue
+		entry := org.ArchEntry{Commit: commit}
+		if raw, err := r.output(ctx, dir, "show", commit+":"+oabranch.RepositoryPath); err == nil {
+			entry.IndexedCommit = indexedCommit([]byte(raw))
 		}
-		entries = append(entries, org.ArchEntry{Commit: commit, IndexedCommit: indexedCommit([]byte(raw))})
+		if selected, ok := org.SelectArch([]org.ArchEntry{entry}, pinned, isAncestor); ok {
+			return selected, true, nil
+		}
 	}
-	return entries, nil
+	return org.ArchEntry{}, false, nil
 }
 
 func indexedCommit(data []byte) string {

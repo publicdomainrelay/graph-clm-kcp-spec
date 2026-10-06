@@ -139,7 +139,7 @@ func memberCheckout(ctx context.Context, member policy.Member, opts MemberOption
 			cleanup()
 			return "", "", func() {}, err
 		}
-		if out, err := runGit(ctx, "", "clone", "--quiet", cloneURL(member, opts), dir); err != nil {
+		if out, err := runGit(ctx, "", "clone", "--quiet", "--", cloneURL(member, opts), dir); err != nil {
 			cleanup()
 			return "", "", func() {}, fmt.Errorf("policyeval: clone member %s: %v: %s", member.Name, err, strings.TrimSpace(out))
 		}

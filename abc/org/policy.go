@@ -1,6 +1,8 @@
 package org
 
 import (
+	"strings"
+
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/glob"
 )
@@ -22,7 +24,7 @@ func PolicyMembers(members []Member, config policy.Submodules, explicit []policy
 			continue
 		}
 		name := nameIn(member, override)
-		derived := policy.Member{Name: name, URL: member.URL, Ref: member.CodeCommit}
+		derived := policy.Member{Name: name, URL: safeURL(member.URL), Ref: member.CodeCommit}
 		if explicit, ok := override[name]; ok {
 			derived = merge(derived, explicit)
 		}
@@ -79,4 +81,16 @@ func matchAny(patterns []string, path string) bool {
 		}
 	}
 	return false
+}
+
+// safeURL drops a clone url a repository's own .gitmodules could use against
+// the machine that reads it: an option (leading dash) or the ext transport.
+// The member then names no url and resolving it fails loudly, which is better
+// than cloning from it.
+func safeURL(url string) string {
+	trimmed := strings.TrimSpace(url)
+	if strings.HasPrefix(trimmed, "-") || strings.HasPrefix(strings.ToLower(trimmed), "ext::") {
+		return ""
+	}
+	return url
 }
