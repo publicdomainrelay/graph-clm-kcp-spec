@@ -64,6 +64,10 @@ type Spec struct {
 
 	// Library overrides the policies.yaml of the root's policy branch.
 	RootPolicies string
+
+	// Dir builds the polyrepo in this directory instead of a temp dir. The
+	// submodule urls name it, so it has to stay where it was built.
+	Dir string
 }
 
 // Fixture is the built polyrepo.
@@ -107,7 +111,10 @@ func Build(t testing.TB, spec Spec) *Fixture {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
-	dir := t.TempDir()
+	dir := spec.Dir
+	if dir == "" {
+		dir = t.TempDir()
+	}
 	f := &Fixture{Dir: dir, Remotes: filepath.Join(dir, "remotes"), Seeds: filepath.Join(dir, "seeds"), Spec: spec, t: t}
 	for _, d := range []string{f.Remotes, f.Seeds} {
 		if err := os.MkdirAll(d, 0o755); err != nil {

@@ -1,0 +1,12 @@
+# A change across two repositories of the fixture org root: the guest reports
+# its ticket (market) and the host reads it (provider). `specctl org run` does
+# each step in its member, then makes one root commit that bumps both pointers.
+change: guest-ticket
+body: The guest reports a ticket with its network information; the host reads it.
+steps:
+  - member: market
+    context: market-guest
+    instruction: report the ticket with the network information
+  - member: hono-compute-provider
+    context: provider-host
+    instruction: read the ticket the guest reports

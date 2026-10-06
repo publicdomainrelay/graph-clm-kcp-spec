@@ -1777,8 +1777,10 @@ specctl org run --plan plan.yaml --agent scripted:scenario.yaml   # a change in 
   temp dir (bare remotes, orphan branches, a superproject) and
   `test/fakecodegraph` stands in for the indexer, so `go test ./...` covers the
   recursive clone, history, bumps, rollback, the policy rollup and a stub agent
-  from the root. `docs/examples/org-root.md` records a run against the real
-  socialweb-computer clone.
+  from the root. `scripts/example-org-run.sh` runs the whole flow on the fixture
+  (clone, brief, a two repository change with a stub agent, history);
+  `docs/examples/org-root.md` records a run against the real socialweb-computer
+  clone.
 
 ## Multi workspace
 

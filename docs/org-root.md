@@ -212,6 +212,20 @@ do, and a "needs attention now" list. Put it in the root's `CLAUDE.md` with
 `org_members`, `org_status`, `org_outline` and `org_history`. Writing stays in
 the member and the pointer commit stays `specctl org bump`.
 
+## Try it offline
+
+`scripts/example-org-run.sh` builds the fixture polyrepo (`fixtures/orgroot`: a
+root and three members, with bare remotes, orphan architecture and policy
+branches and some history), clones the root recursively the way an agent
+dispatched there would, prints the brief, runs
+`examples/org-root/plan.yaml` with the stub agent of
+`examples/org-root/scenario.yaml`, and reads the root history, the members'
+specs and the status afterwards. No kcp, no model. `ORGFIXTURE_OUT=<dir> go test
+./test/orgfixture -run TestMaterialize` leaves the polyrepo in `<dir>`
+(`remotes/*.git`, `seeds/*`) to explore by hand.
+`scripts/example-org-root.sh` is the same reading against the real
+socialweb-computer (`docs/examples/org-root.md`).
+
 ## Limits, in the order they matter
 
 - Live realize across repositories under specd (SpecChange fan out, the policy
