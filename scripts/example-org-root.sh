@@ -7,7 +7,8 @@
 #   2  the members, what is wrong with the pointers, the manifest
 #   3  org fetch: each member's architecture and policy branches, by name
 #   4  one member's real architecture read in place at the pinned commit
-#   5  how the root's pointers moved (the root is deepened to --depth HISTORY)
+#   5  how the root's pointers moved (org fetch --depth deepens the shallow
+#      root and members first)
 #
 # Nothing is edited and nothing is pushed.
 #
@@ -26,14 +27,15 @@ URL=${URL:-https://github.com/publicdomainrelay/socialweb-computer}
 WORK=${WORK:-$(mktemp -d)}
 MEMBER=${MEMBER:-atproto-market}
 HISTORY=${HISTORY:-200}
+NAME=$(basename "${URL%.git}")
 
 cd "$ROOT"
 go build -o bin/specctl ./cmd/specctl
 SPECCTL="$ROOT/bin/specctl"
 
 echo "== 1. clone"
-GIT_LFS_SKIP_SMUDGE=1 "$SPECCTL" org clone --depth 1 "$URL" "$WORK/org-root"
-cd "$WORK/org-root"
+GIT_LFS_SKIP_SMUDGE=1 "$SPECCTL" org clone --depth 1 "$URL" "$WORK/$NAME"
+cd "$WORK/$NAME"
 
 echo "== 2. members, status, manifest"
 "$SPECCTL" org ls
@@ -48,8 +50,7 @@ echo "== 4. $MEMBER's architecture, read in place"
 "$SPECCTL" org outline --member "$MEMBER" | sed -n 1,20p
 
 echo "== 5. how the pointers moved"
-git fetch -q --depth="$HISTORY" origin
-git -C "$MEMBER" fetch -q --depth=300 origin || true
+"$SPECCTL" org fetch --depth "$HISTORY" | grep -v ': 0 branch' || true
 "$SPECCTL" org history --member "$MEMBER" -n 3
 
 echo "== the brief an agent gets at session start"

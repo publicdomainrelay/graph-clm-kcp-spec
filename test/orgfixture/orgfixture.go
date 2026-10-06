@@ -38,6 +38,10 @@ type Member struct {
 	// Requirement is the text of the one requirement its architecture holds.
 	Requirement string
 
+	// Interactions are declared on the member's one context, so a spec-only
+	// org can be checked before any code exists.
+	Interactions []spec.Interaction
+
 	// FeatureArch names a code branch whose own architecture branch,
 	// open-architecture/<Name>--<FeatureArch>, indexes the initial commit. A
 	// member can have it with or without the default branch's.
@@ -170,10 +174,10 @@ func (f *Fixture) buildMember(m Member) {
 	f.Git(seed, "remote", "add", "origin", bare)
 	head := f.Git(seed, "rev-parse", "HEAD")
 	if m.Arch {
-		f.writeArch(seed, m.Name, m.Requirement, head, oabranch.Branch(m.Name))
+		f.writeArch(seed, m.Name, m.Requirement, head, oabranch.Branch(m.Name), m.Interactions...)
 	}
 	if m.FeatureArch != "" {
-		f.writeArch(seed, m.Name, m.Requirement, head, oabranch.BranchFor(m.Name, m.FeatureArch, "main"))
+		f.writeArch(seed, m.Name, m.Requirement, head, oabranch.BranchFor(m.Name, m.FeatureArch, "main"), m.Interactions...)
 	}
 	if m.Policy {
 		files := m.PolicyFiles
@@ -216,7 +220,7 @@ func (f *Fixture) buildRoot() {
 // Seed is the work repository of a repository of the fixture.
 func (f *Fixture) Seed(name string) string { return filepath.Join(f.Seeds, name) }
 
-func (f *Fixture) writeArch(seed, name, requirement, indexed, branch string) {
+func (f *Fixture) writeArch(seed, name, requirement, indexed, branch string, interactions ...spec.Interaction) {
 	f.t.Helper()
 	repository := spec.Repository{}
 	repository.Name = name
@@ -233,6 +237,7 @@ func (f *Fixture) writeArch(seed, name, requirement, indexed, branch string) {
 		Requirements: []spec.Requirement{
 			{ID: "r1", Level: spec.LevelMust, Text: requirement},
 		},
+		Interactions: interactions,
 	}
 	context.Status.ObservedCommit = indexed
 	context.SetDefaults()
@@ -299,7 +304,7 @@ func (f *Fixture) Advance(name string, files map[string]string, message string) 
 	f.Git(seed, "commit", "-qm", message)
 	head := f.Git(seed, "rev-parse", "HEAD")
 	if member.Arch {
-		f.writeArch(seed, name, member.Requirement, head, oabranch.Branch(name))
+		f.writeArch(seed, name, member.Requirement, head, oabranch.Branch(name), member.Interactions...)
 	}
 	f.Git(seed, "push", "-q", "origin", "--all")
 

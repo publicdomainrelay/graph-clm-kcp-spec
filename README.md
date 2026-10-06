@@ -2398,7 +2398,12 @@ analysis found). Plan 0005's follow-ups are closed by plan 0007: the
 ordered by `dependsOn` and files outside the context flagged, `specctl accept
 --override`, a restore that rebuilds the `SpecChange` history, and re-anchoring
 proven on a live Go and TypeScript edit.
-There is no open plan. What the eval reports as still weak is the honest place
+Plan 0011 (the org root: specs and policies across a polyrepo) is built and
+tested offline; its remaining items are live ones that need kcp and a model:
+a realize that fans out across member repositories under specd, the per member
+policy and acceptance gates inside `specctl org run`, and a model agent run from
+the real socialweb-computer (`docs/plans/0011-org-root.md`, "Remaining").
+Otherwise there is no open plan. What the eval reports as still weak is the honest place
 to start: the measures that fall short of 100% on the live runs in
 `docs/eval/` (drift and removals are the weakest), and the graph's share of the
 context bundle when the budget is tight. Two limits are accepted on purpose:

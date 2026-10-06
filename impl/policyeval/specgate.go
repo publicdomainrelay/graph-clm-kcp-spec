@@ -79,7 +79,7 @@ func CheckSpecs(ctx context.Context, input SpecInput) (SpecResult, error) {
 		contextObjects = append(contextObjects, object)
 	}
 
-	members, err := ResolveMembers(ctx, input.Library.Manifest.Members, input.Library, MemberOptions{
+	members, err := ResolveMembers(ctx, specGateMembers(input.Library), input.Library, MemberOptions{
 		CacheDir: input.MemberCacheDir,
 		Lock:     specGateLock(input.Library),
 	})
@@ -199,4 +199,21 @@ func marshalSpecObject(value any) ([]byte, error) {
 		return nil, fmt.Errorf("policyeval: encode the %T for the spec gate: %w", value, err)
 	}
 	return encoded, nil
+}
+
+// specGateMembers are the members whose code the declared-only gate reads. In
+// an org root a member with no url only overlays roles on a submodule, and the
+// gate reads the submodules' declared contexts instead of their code.
+func specGateMembers(library policy.Library) []policy.Member {
+	config := library.Manifest.Submodules
+	if config == nil || !config.Members {
+		return library.Manifest.Members
+	}
+	members := []policy.Member{}
+	for _, member := range library.Manifest.Members {
+		if member.URL != "" {
+			members = append(members, member)
+		}
+	}
+	return members
 }

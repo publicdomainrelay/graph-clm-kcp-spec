@@ -34,8 +34,10 @@ usage:
       members.yaml of the root's architecture branch; --write commits it there
   specctl org outline [--repo .] [--member <name>] [-o text|json]
       the root's architecture, or one member's read at the recorded commit
-  specctl org fetch [--repo .]
-      fetch every member's architecture and policy branches and missing pins
+  specctl org fetch [--repo .] [--depth <n>]
+      fetch every member's architecture and policy branches and missing pins;
+      --depth deepens a shallow root and shallow members so history can list
+      the member commits each pointer move brought in
   specctl org clone <url> [<dir>] [--depth <n>]
       recursive clone, then fetch the members' architecture and policy branches
   specctl org bump [--repo .] [--change <name>] [--message <text>] [--allow-unpublished] [<member>...]
@@ -452,6 +454,7 @@ func runOrgFetch(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("specctl org fetch", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repo := fs.String("repo", ".", "any directory of the org root")
+	depth := fs.Int("depth", 0, "deepen shallow checkouts to this many commits")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -460,7 +463,7 @@ func runOrgFetch(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		return exitError
 	}
-	results, err := root.Fetch(ctx)
+	results, err := root.FetchWith(ctx, orggit.FetchOptions{Depth: *depth})
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl org fetch: %v\n", err)
 		return exitError

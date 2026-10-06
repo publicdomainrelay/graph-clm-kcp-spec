@@ -419,3 +419,56 @@ func TestAPinDescribedOnlyByACodeBranchsArchitectureResolvesWhenItIndexedThePin(
 		t.Fatalf("after the pin moved: %+v", got)
 	}
 }
+
+func TestFetchDepthDeepensAShallowCloneSoHistoryListsMemberCommits(t *testing.T) {
+	f := orgfixture.Build(t, orgfixture.Default())
+	for _, message := range []string{"market: one", "market: two", "market: three"} {
+		f.Advance("market", map[string]string{"lib/requester/" + strings.ReplaceAll(message, " ", "-") + ".ts": "export const x = 1;\n"}, message)
+	}
+	ctx := context.Background()
+	root := open(t, f, f.Clone("deepen", 1))
+
+	before, err := root.History(ctx, HistoryOptions{Member: "market"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 1 || before[0].Details[0].Total != 0 || before[0].Details[0].Message == "" {
+		t.Fatalf("a depth 1 clone has one root commit and cannot list member commits: %+v", before)
+	}
+
+	results, err := root.FetchWith(ctx, FetchOptions{Depth: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].Member != "(root)" || !strings.Contains(results[0].Message, "deepened") {
+		t.Fatalf("results = %+v", results)
+	}
+	after, err := root.History(ctx, HistoryOptions{Member: "market"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 3 advances and the addition.
+	if len(after) != 4 {
+		t.Fatalf("entries = %d", len(after))
+	}
+	move := after[0].Details[0]
+	if move.Total != 1 || len(move.Commits) != 1 || move.Commits[0].Subject != "market: three" {
+		t.Fatalf("newest move = %+v", move)
+	}
+}
+
+func TestASingleBranchCloneCannotTellWhetherAPinIsPublished(t *testing.T) {
+	f := orgfixture.Build(t, orgfixture.Default())
+	clone := f.Clone("single", 0)
+	root := open(t, f, clone)
+	ctx := context.Background()
+	states, _ := root.Members(ctx, MembersOptions{})
+	if byName(states)["market"].Shallow {
+		t.Fatal("a full clone tracks every branch")
+	}
+	f.Git(filepath.Join(clone, "market"), "config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main")
+	states, _ = root.Members(ctx, MembersOptions{})
+	if got := byName(states)["market"]; !got.Shallow {
+		t.Fatalf("a single branch clone sees a few of the remote's branches: %+v", got)
+	}
+}

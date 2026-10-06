@@ -31,9 +31,9 @@ type MemberState struct {
 	// Published means the pinned commit is on a remote branch of the member.
 	Published bool `json:"published"`
 
-	// Shallow means the member checkout is a shallow clone, whose remote-tracking
-	// branches are too few to tell whether a pin is published: it is unknown, not
-	// unpublished.
+	// Shallow means the member checkout is a shallow or single branch clone,
+	// whose remote-tracking branches are too few to tell whether a pin is
+	// published: it is unknown, not unpublished.
 	Shallow bool `json:"shallow,omitempty"`
 }
 
@@ -118,8 +118,8 @@ func Problems(state MemberState) []Problem {
 	}
 	if state.PinPresent && !state.Published && state.Shallow {
 		add(SeverityInfo, CodeUnverified,
-			fmt.Sprintf("%s is a shallow clone: whether the pin %s is published cannot be told from here", state.Path, Short(state.CodeCommit)),
-			"git -C "+state.Path+" fetch --unshallow")
+			fmt.Sprintf("%s is a shallow or single branch clone: whether the pin %s is published cannot be told from here", state.Path, Short(state.CodeCommit)),
+			"git -C "+state.Path+" fetch --unshallow --all")
 	}
 	if state.PinPresent && !state.Published && !state.Shallow {
 		add(SeverityError, CodeUnpublished,

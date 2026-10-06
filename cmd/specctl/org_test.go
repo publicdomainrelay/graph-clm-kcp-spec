@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/orgfixture"
 )
 
@@ -339,5 +340,77 @@ func TestTheRootsCodeGraphHoldsTheRootsOwnFilesOnly(t *testing.T) {
 		if strings.Contains(out, "\""+member) || strings.Contains(out, " "+member+"lib") {
 			t.Fatalf("the root's effects name a member's file (%s):\n%s", member, out)
 		}
+	}
+}
+
+func greenfieldOrg(t *testing.T, hostInitiator string) (*orgfixture.Fixture, string) {
+	t.Helper()
+	s := orgfixture.Default()
+	s.Members[0].Interactions = []spec.Interaction{{
+		ID: "i.report", Peer: "host", Initiator: spec.InitiatorSelf, Channel: "relay",
+		Carries: []string{"network-info"}, Purpose: "network-discovery", Level: spec.LevelMust,
+	}}
+	s.Members[1].Interactions = []spec.Interaction{{
+		ID: "i.provider-guest", Peer: "guest", Initiator: hostInitiator, Channel: "relay",
+		Carries: []string{"network-info"}, Purpose: "network-discovery", Level: spec.LevelMust,
+	}}
+	f := orgfixture.Build(t, s)
+	orgEnv(t, f)
+	return f, f.Clone("greenfield", 0)
+}
+
+func TestSpecsOnlyAtTheOrgRootChecksTheMembersDeclaredInteractions(t *testing.T) {
+	library := filepath.Join(t.TempDir(), "orgroot-greenfield")
+	if err := os.CopyFS(library, os.DirFS(filepath.Join("..", "..", "examples", "policies", "orgroot-greenfield"))); err != nil {
+		t.Fatal(err)
+	}
+	eval := func(clone string) (int, string) {
+		code, out, errOut := specctl(t, "policy", "eval", "--repo", "socialweb-computer", "--path", clone,
+			"--specs-only", "--library", library, "--strict")
+		if code != exitOK && code != exitError {
+			t.Fatalf("eval = %d\n%s\n%s", code, out, errOut)
+		}
+		return code, out
+	}
+
+	// The provider's spec declares that the host initiates toward the guest;
+	// the guest is declared in the market's architecture, in another repository.
+	_, clone := greenfieldOrg(t, spec.InitiatorSelf)
+	code, out := eval(clone)
+	if code != exitError || !strings.Contains(out, "rfp-host-reach-in") || !strings.Contains(out, "spec gate: denied") {
+		t.Fatalf("the declared reach-in across repositories must be denied: %d\n%s", code, out)
+	}
+
+	// The fix is declared in the provider's spec: the guest initiates.
+	_, clone = greenfieldOrg(t, spec.InitiatorPeer)
+	if code, out := eval(clone); code != exitOK || !strings.Contains(out, "spec gate: allowed") {
+		t.Fatalf("the corrected spec must pass: %d\n%s", code, out)
+	}
+}
+
+func TestOrgHistoryJSONUsesStableKeys(t *testing.T) {
+	f := orgfixture.Build(t, orgfixture.Default())
+	orgEnv(t, f)
+	f.Advance("market", map[string]string{"lib/requester/a.ts": "export const a = 1;\n"}, "market: add a")
+	clone := f.Clone("json", 0)
+	code, out, _ := specctl(t, "org", "history", "--repo", clone, "--member", "market", "-n", "1", "-o", "json")
+	var entries []struct {
+		Commit  string `json:"commit"`
+		Subject string `json:"subject"`
+		Moves   []struct {
+			Member string `json:"member"`
+			Path   string `json:"path"`
+			From   string `json:"from"`
+			To     string `json:"to"`
+			Total  int    `json:"total"`
+			Arch   string `json:"arch"`
+		} `json:"moves"`
+	}
+	if code != exitOK || json.Unmarshal([]byte(out), &entries) != nil || len(entries) != 1 {
+		t.Fatalf("history json = %d\n%s", code, out)
+	}
+	move := entries[0].Moves[0]
+	if entries[0].Commit == "" || move.Member != "market" || move.Path != "market" || move.From == "" || move.To == "" || move.Total != 1 || move.Arch == "" {
+		t.Fatalf("entry = %+v\n%s", entries[0], out)
 	}
 }

@@ -21,16 +21,46 @@ type FetchResult struct {
 	Message string `json:"message,omitempty"`
 }
 
+// FetchOptions controls FetchWith.
+type FetchOptions struct {
+	// Depth deepens a shallow root and every shallow member to this many commits
+	// below the commit that matters (the root's current branch, each member's
+	// pin), so History can list what a pointer move brought in. Zero fetches
+	// branches only. A full clone is never touched.
+	Depth int
+}
+
 // Fetch brings each initialized member's architecture and policy branches, and
 // the pinned commit when it is missing, into the member's own repository. A
 // full recursive clone has them already; a shallow one has only the default
 // branch. Branches are fetched by name, never all of them.
 func (r *Root) Fetch(ctx context.Context) ([]FetchResult, error) {
+	return r.FetchWith(ctx, FetchOptions{})
+}
+
+// FetchWith is Fetch with options.
+func (r *Root) FetchWith(ctx context.Context, options FetchOptions) ([]FetchResult, error) {
+	var results []FetchResult
+	if options.Depth > 0 {
+		if shallow, _ := r.run(ctx, r.Dir, "rev-parse", "--is-shallow-repository"); shallow == "true" {
+			result := FetchResult{Member: "(root)"}
+			if branch := r.CurrentBranch(ctx); branch != "" {
+				// The root's own fetch must not recurse: git would fetch every
+				// submodule at the commits the older root commits name.
+				if _, err := r.run(ctx, r.Dir, "fetch", "-q", "--no-tags", "--no-recurse-submodules",
+					"--depth", fmt.Sprint(options.Depth), "origin", branch); err != nil {
+					result.Message = "deepen: " + firstLine(err.Error())
+				} else {
+					result.Message = fmt.Sprintf("deepened to %d", options.Depth)
+				}
+			}
+			results = append(results, result)
+		}
+	}
 	states, err := r.Members(ctx, MembersOptions{})
 	if err != nil {
 		return nil, err
 	}
-	var results []FetchResult
 	for _, state := range states {
 		if !state.Initialized {
 			continue
@@ -50,6 +80,14 @@ func (r *Root) Fetch(ctx context.Context) ([]FetchResult, error) {
 				continue
 			}
 			result.Branches = append(result.Branches, branch)
+		}
+		if options.Depth > 0 && state.Shallow {
+			if _, err := r.run(ctx, dir, "fetch", "-q", "--no-tags", "--depth", fmt.Sprint(options.Depth), "origin", state.CodeCommit); err == nil {
+				result.PinFetched = true
+				result.Message = joinMessage(result.Message, fmt.Sprintf("deepened to %d", options.Depth))
+			} else {
+				result.Message = joinMessage(result.Message, "deepen: "+firstLine(err.Error()))
+			}
 		}
 		if !r.hasCommit(ctx, dir, state.CodeCommit) {
 			if _, err := r.run(ctx, dir, "fetch", "-q", "--no-tags", "origin", state.CodeCommit); err == nil {
@@ -83,6 +121,13 @@ func matching(lsRemote string, candidates []string) []string {
 		}
 	}
 	return out
+}
+
+func joinMessage(left, right string) string {
+	if left == "" {
+		return right
+	}
+	return left + "; " + right
 }
 
 func firstLine(text string) string {

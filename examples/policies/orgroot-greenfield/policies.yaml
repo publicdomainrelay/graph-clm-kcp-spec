@@ -1,0 +1,36 @@
+# The org root with specs and no code yet: the guest isolation pack bound by the
+# declared contexts of the member repositories. A member's contexts are read in
+# place from its open-architecture branch and named <member>/<context>, so the
+# roles are selected by those names. specctl policy eval --specs-only denies a
+# declared host-to-guest flow before any member has code.
+repository: socialweb-computer
+version: "1"
+defaultEnforcement: deny
+imports:
+  - pack: rfp-guest-isolation
+    source: embedded
+    version: v2
+submodules:
+  members: true
+roles:
+  host:
+    contexts: [provider/provider]
+  guest:
+    contexts: [market/market]
+  relay:
+    contexts: [relay/relay]
+  test:
+    globs: ["test/**"]
+testGlobs:
+  - test/**
+vocabulary:
+  channels:
+    relay: [websocat, relay-subscriber, fedproxy, dumbpipe]
+  events:
+    network-report: [vm.onNetwork, report-network]
+  payloads:
+    network-info: [nodeId, ticket, address]
+  purposes:
+    network-discovery: [onNetwork, ticket, report-network]
+  routes:
+    report: [/xrpc/vm.onNetwork]

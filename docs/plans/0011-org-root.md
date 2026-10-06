@@ -251,4 +251,128 @@ listed under "Remaining".
 
 ## Status
 
-Filled in as phases land; see the end of this file.
+All eight phases are built and tested offline. `go test ./...` has two
+environment-only failures here, both pre-existing: the live suite needs `kine`,
+and `TestCapsTruncateText` needs the real `codegraph` (the new tests use
+`test/fakecodegraph` instead).
+
+### O1. The model -- done
+
+`abc/org`: `ParseGitmodules`, `Submodule.RepositoryCandidates`, `Member`,
+`MemberState`, `Manifest` (`members.yaml`, kind `OrgMembers`), `SelectArch`,
+`StateOf`, `Problems`, the `Bump` message and trailers, `ParseHistory`,
+`PolicyMembers`. `abc/policy` gained `PolicyLibrary.Submodules`,
+`BindingWithMembers` and `MemberRollup`.
+
+### O2. Git I/O -- done
+
+`impl/orggit`: `Open` (climbs from a member to its superproject), `Members`
+(pin, initialized, dirty, ahead/behind, pin present, published, shallow, arch and
+policy branches), `History`, `Bump`, `Fetch`/`FetchWith` (`--depth` deepens),
+`Clone`, `Manifest`/`WriteManifest`/`ReadManifest`/`Annotate`, `ReadArch`,
+`ReadPolicy`, `MemberContexts`.
+
+Decisions the code made that the design did not say:
+
+- an uninitialized submodule is an empty directory inside the superproject, so
+  `git -C` on it would answer for the superproject: the test is the member's
+  own `.git` entry;
+- a pin is "published" when a remote-tracking branch contains it; a shallow
+  member cannot tell, so that is `info`, not an error, and `bump` does not
+  refuse it. Found on the real socialweb-computer clone, where a shallow member
+  made every pin look unpublished;
+- besides `open-architecture/<name>`, the architecture of a code branch,
+  `open-architecture/<name>--<branch>`, matches when it indexed exactly the pin.
+  Found on the real clone: atproto-market's only architecture branches are the
+  feature branches of plan 0005 and 0006, and one of them indexed the pin;
+- `git fetch` in the root must not recurse into submodules when deepening
+  (`--no-recurse-submodules`): git fetches each submodule at the commits the
+  older root commits name, which do not exist any more.
+
+### O3. The root's spec skips member code -- done
+
+`gitrepo.TrackedFiles` drops gitlinks, `gitrepo.Gitlinks`/`GitlinkExcludes`,
+ingest excludes `<path>/**`, and the policy side's CodeGraph (`codegraphfacts`)
+drops the files, nodes and edges under a gitlink, in place and in the copy it
+indexes. Mutation checked: with the filter off the test fails.
+
+### O4. Connected graph and `members.yaml` -- done
+
+`SpecMember` vertex, `HAS_MEMBER`, `RESOLVES_TO` (to the member's own
+`SpecRepo` id); `oabranch.Snapshot.Extra`/`Members`; `persist` annotates the
+snapshot so the branch writer never deletes `members.yaml`.
+
+### O5. Policies -- done
+
+`submodules: {members, policies, include, exclude}` in `policies.yaml`;
+`policyeval.EffectiveMembers` (derived from the gitlinks, pinned by them, local
+checkout as the source, explicit entries overlay, a url-less entry is an overlay
+only); `MemberRollup` and the `memberPolicies` report rows; `--strict` fails on
+a member's deny or on a member that could not be evaluated; the realize gate,
+`policy model`, `policy eval|findings` and the spec-time gate all derive the
+members the same way. The spec-time gate (`--specs-only`, and specd's) reads
+each member's declared contexts from its architecture branch, named
+`<member>/<context>`.
+
+Proofs, all offline: the combined model of the fixture is clean; the provider
+alone lacks the guest's report (plan 0009 proof B) and the combined model has
+it; a stub agent's edit in the provider is denied at the root with the file in
+the member named; a member's own policy denies code the root's policy ignores
+and fails `--strict` with the checkout reported off the pin; a spec-only org
+denies a declared host-to-guest flow across two repositories and passes the
+corrected spec.
+
+### O6. A change across repositories -- done
+
+`impl/orgrealize.Run`: validate every step first (checked out, clean, named
+once), then per step a `specd/<change>` branch in the member, the agent, the
+verify hook, a commit with `Spec-Change` and `Org-Root` trailers and, with
+`Push`, a push; then one root commit that bumps every touched member. A failing
+step, a failing verify or a refused root commit restores every member and
+removes the root branch. Tested: two members, one root commit with trailers,
+rollback, verify gate, pre-checks.
+
+### O7. Commands and the agent surface -- done
+
+`specctl org ls|status|history|manifest|outline|fetch|clone|bump|run|brief`;
+`cc-clm-mod` registers `org_members`, `org_status`, `org_outline`, `org_history`
+in a superproject with or without kcp (typechecks; the mod's own runner is the
+Claude Code harness and was not run here).
+
+### O8. Fixtures and proofs -- done
+
+- `fixtures/orgroot/` (root, market, provider, relay), `test/orgfixture`
+  (bare remotes, orphan branches on members and root, a superproject, `Advance`
+  to make history, `Clone` full or shallow), `test/fakecodegraph`.
+- `docs/examples/org-root.md` and `scripts/example-org-root.sh`: a run against
+  the real socialweb-computer. The real atproto-market architecture (16 contexts
+  from plan 0005/0006) is read in place and resolves to the pin `05fe296`; the
+  real root history shows 3 pointer moves with the member commits behind them.
+
+### Remaining
+
+1. **Live realize across repositories under specd.** `org run` is the offline
+   executor with a scripted or any `agent.Agent`; specd still realizes one
+   repository. The next step is a `RootChange` kind (or a `SpecChange` with
+   `spec.members`) that fans out to one `SpecChange` per member, runs each
+   member's realize gate and acceptance, and commits the root bump last. Needs
+   kcp and a model; neither is in this session.
+2. **Policy and acceptance gates per member inside `org run`.** `Verify` is a
+   hook; wiring it to the member's `Repository.spec.verify` and policy gate is
+   the step after 1.
+3. **Rollup at a pin.** The rollup evaluates the member's checkout and says so
+   (`pinned` is set when it is off the pin). Evaluating exactly the pin of every
+   member, as the combined model does, needs a worktree per member.
+4. **Persist when a member moves.** `members.yaml` is rewritten at every
+   persist; nothing triggers a persist when only a gitlink moves. Watch the
+   root's HEAD and the member branches.
+5. **Load a member's graph into the shared database on demand**
+   (`specctl org graph --member`): the edge exists and the member's
+   `graph/*.jsonl` is readable; the loader is not written.
+6. **A real model agent run from the root.** The stub agent and the brief are
+   exercised; a DeepSeek run from the real socialweb-computer (plan 0005 style)
+   is the acceptance this plan could not do without a harness.
+7. **Members of members.** Nested submodules are not walked.
+8. **`org populate`.** The brief says `specctl up --repo <member>` for an
+   unspecced member; a root-level command that runs it for every unspecced
+   member is a convenience.

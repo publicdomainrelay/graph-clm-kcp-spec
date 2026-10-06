@@ -122,6 +122,17 @@ combined model does. `examples/policies/orgroot-fixture` is the binding and
 `impl/policyeval/org_test.go` runs it against the fixture polyrepo, including a
 stub agent whose change in one repository the root's policy denies.
 
+**The spec-time gate sees every member's declared contexts.** With
+`submodules.members`, the declared model (`specctl policy eval --specs-only`,
+and specd's spec-time gate) also holds each member's contexts, read in place
+from its architecture branch at the recorded commit and named
+`<member>/<context>`. A role can then be selected by those names
+(`examples/policies/orgroot-greenfield`: `host: {contexts: [provider/provider]}`),
+so a flow declared in one repository's spec and a peer declared in another
+repository's is checked before either has code: a provider spec that says the
+host initiates toward the guest is denied, and the corrected spec passes
+(`TestSpecsOnlyAtTheOrgRootChecksTheMembersDeclaredInteractions`).
+
 **A member's own policies** (`open-policy/<m>`) are evaluated against that
 member's tree and reported as `memberPolicies` rows of the root's report: name,
 checkout commit (and the pin when the checkout is off it), policy commit,

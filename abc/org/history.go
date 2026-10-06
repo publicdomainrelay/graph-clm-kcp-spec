@@ -10,11 +10,11 @@ const GitlinkMode = "160000"
 // Move is one submodule pointer change in a root commit. An empty From is an
 // added submodule, an empty To a removed one.
 type Move struct {
-	Path string
+	Path string `json:"path"`
 
-	From string
+	From string `json:"from,omitempty"`
 
-	To string
+	To string `json:"to,omitempty"`
 }
 
 func (m Move) Added() bool { return m.From == "" }
@@ -23,15 +23,17 @@ func (m Move) Removed() bool { return m.To == "" }
 
 // RootCommit is a root commit that changed at least one pointer.
 type RootCommit struct {
-	Commit string
+	Commit string `json:"commit"`
 
-	Date string
+	Date string `json:"date,omitempty"`
 
-	Author string
+	Author string `json:"author,omitempty"`
 
-	Subject string
+	Subject string `json:"subject,omitempty"`
 
-	Moves []Move
+	// Moves are the raw pointer moves; History reports them, enriched, as
+	// HistoryEntry.Details.
+	Moves []Move `json:"-"`
 }
 
 // HistoryFormat is the `git log --format` ParseHistory reads, with --raw

@@ -215,8 +215,7 @@ func (r *Root) memberState(ctx context.Context, sub org.Submodule, pinned string
 	if status, err := r.run(ctx, dir, "status", "--porcelain", "--untracked-files=no"); err == nil {
 		state.Dirty = status != ""
 	}
-	shallow, _ := r.run(ctx, dir, "rev-parse", "--is-shallow-repository")
-	state.Shallow = shallow == "true"
+	state.Shallow = r.partial(ctx, dir)
 	state.PinPresent = r.hasCommit(ctx, dir, pinned)
 	if state.PinPresent {
 		if state.Head != "" && state.Head != pinned {
@@ -376,4 +375,23 @@ func indexedCommit(data []byte) string {
 		return ""
 	}
 	return doc.Status.IndexedCommit
+}
+
+// partial reports whether a member checkout cannot say what is on its remote:
+// a shallow clone, or a single branch clone (what --shallow-submodules makes),
+// whose remote-tracking refs are a few of the remote's branches.
+func (r *Root) partial(ctx context.Context, dir string) bool {
+	if shallow, _ := r.run(ctx, dir, "rev-parse", "--is-shallow-repository"); shallow == "true" {
+		return true
+	}
+	refspecs, err := r.run(ctx, dir, "config", "--get-all", "remote.origin.fetch")
+	if err != nil {
+		return false
+	}
+	for _, refspec := range strings.Fields(refspecs) {
+		if strings.TrimPrefix(refspec, "+") == "refs/heads/*:refs/remotes/origin/*" {
+			return false
+		}
+	}
+	return true
 }

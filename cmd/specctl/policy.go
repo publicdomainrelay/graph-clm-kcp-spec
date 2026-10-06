@@ -25,6 +25,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphfacts"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/effects"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/oagit"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/orggit"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policygit"
 	specdlib "github.com/publicdomainrelay/graph-clm-kcp-spec/policies/library"
@@ -960,6 +961,16 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 
 	if *specsOnly {
 		contexts := loadContexts(ctx, *path, *repository, *branch, *defaultBranch)
+		if config := library.Manifest.Submodules; config != nil && config.Members {
+			// An org root's declared model also holds each member's declared
+			// contexts, read in place from the member's architecture branch.
+			memberContexts, err := (&orggit.Root{Dir: *path, Name: *repository}).AllMemberContexts(ctx)
+			if err != nil {
+				fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
+				return exitError
+			}
+			contexts = append(contexts, memberContexts...)
+		}
 		result, err := policyeval.CheckSpecs(ctx, policyeval.SpecInput{
 			Repository: *repository,
 			Contexts:   contexts,
