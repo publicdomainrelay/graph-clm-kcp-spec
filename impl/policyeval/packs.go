@@ -124,7 +124,7 @@ func ResolveImport(imp policy.PackImport, opts ImportOptions) (ImportedPack, err
 }
 
 func mergePack(library *policy.Library, resolved ImportedPack, imp policy.PackImport) error {
-	missing := resolved.Manifest.Missing(library.Manifest.Binding())
+	missing := resolved.Manifest.Missing(library.Manifest.BindingWithMembers())
 	if len(missing) > 0 {
 		return fmt.Errorf("policyeval: pack %s needs %s, the binding of %s does not declare them",
 			imp.Pack, strings.Join(missing, ", "), library.Manifest.Repository)

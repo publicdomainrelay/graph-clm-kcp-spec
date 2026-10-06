@@ -1735,6 +1735,53 @@ the running change, and reports a touched file. The gated live run —
 `SPECD_REQUIRE_LIVE=1 SPECD_REQUIRE_LIVE_MODEL=1 go test ./test/e2e/ -run TestPhase8LiveModel -count=1`
 — does the same with `deepseek-claude` and the mod actually loaded.
 
+## Org roots: specs and policies across a polyrepo
+
+A project that lives in many repositories usually has one superproject that pins
+them as submodules, the org root (`publicdomainrelay/socialweb-computer` has 18).
+Each member keeps its own `open-architecture/<repo>` and `open-policy/<repo>`
+branches; the root has its own too, and **connects** to the members' instead of
+copying them (`docs/plans/0011-org-root.md`, `docs/org-root.md`).
+
+```bash
+specctl org clone --depth 1 https://github.com/publicdomainrelay/socialweb-computer && cd socialweb-computer
+specctl org ls                        # members: pin, checkout, where each one's spec is
+specctl org fetch                     # a shallow clone: fetch the members' orphan branches by name
+specctl org status                    # unpublished pins, dirty or unbumped members, missing specs
+specctl org outline --member atproto-market   # that member's real architecture, read in place at the pin
+specctl org history --member atproto-market   # how the root's pointer moved and what each move brought in
+specctl org brief                     # what an agent started here needs to know
+specctl org run --plan plan.yaml --agent scripted:scenario.yaml   # a change in several members, one root commit
+```
+
+- **Members come from the gitlinks.** `.gitmodules` plus the index are the only
+  list; the pin is the gitlink. A member's architecture is the newest commit of
+  its `open-architecture` branch that indexed the pin or an ancestor of it (or a
+  code branch's architecture that indexed exactly the pin).
+- **The root's own spec skips member code.** A submodule is a pointer, not a
+  file: tracked files, ingest and the CodeGraph read the root's own files only.
+  `members.yaml` on the root's architecture branch is a list of references (tip
+  commits, no content) and the graph gets `SpecMember -RESOLVES_TO-> SpecRepo`
+  edges into each member's own graph.
+- **Policies: the root sees all, each member sees its own.** `submodules:
+  {members: true}` in the root's `policies.yaml` turns every gitlink into a
+  member of the combined ArchitectureModel (so a pack like `rfp-guest-isolation`
+  binds once over the whole system); `policies: true` also evaluates each
+  member's own policy branch on that member and rolls the rows up in the report
+  (`specctl policy eval --strict` fails on any member's deny).
+- **Work crosses repositories in a fixed order**: commit in the member, push the
+  member, then `specctl org bump`, whose root commit carries `Member:` trailers
+  (`from..to` and the member's spec commit). `specctl org run` does a plan of
+  steps with an agent, all or nothing.
+- **Fixtures and tests are offline.** `test/orgfixture` builds a polyrepo in a
+  temp dir (bare remotes, orphan branches, a superproject) and
+  `test/fakecodegraph` stands in for the indexer, so `go test ./...` covers the
+  recursive clone, history, bumps, rollback, the policy rollup and a stub agent
+  from the root. `scripts/example-org-run.sh` runs the whole flow on the fixture
+  (clone, brief, a two repository change with a stub agent, history);
+  `docs/examples/org-root.md` records a run against the real socialweb-computer
+  clone.
+
 ## Multi workspace
 
 The API is published once and bound many times. A provider workspace
@@ -1958,6 +2005,7 @@ abc/agent            pure: the context bundle, the token budget, the strict draf
 abc/delta            pure: Diff/Apply of two specs and of two observed fact sets, and the compact summary
 abc/mirror           pure: the specs/<name>.yaml document the orphan branch carries
 abc/oabranch         pure: kcp state -> orphan branch files, the commit plan, the three way merge back
+abc/org              pure: .gitmodules, org root members, members.yaml, pointer trailers and history parse, the arch commit a pin resolves to
 abc/eval             pure: interface recall/precision, anchoring, round trip Jaccard, delta precision, the report
 impl/kcpclient       dynamic client for a kcp workspace: CRUD, status, manifests, server side apply
 impl/codegraphsqlite run codegraph, read .codegraph/codegraph.db, resolve code refs
@@ -1972,6 +2020,8 @@ impl/scriptedagent   the deterministic agent: drafts and realize steps from a sc
 impl/realize         one spec -> code unit of work: worktree, agent, verify gate, commit, land, re-ingest
 impl/oagit           git plumbing for the orphan branch: temp index, changed blobs only, CAS ref update
 impl/persist         kcp <-> open-architecture/<repository>: persist, adopt a branch edit, restore
+impl/orggit          an org root's git I/O: members, status, history, bump, fetch, clone, members.yaml
+impl/orgrealize      a change across member repositories: steps with an agent, one root commit, all-or-nothing
 impl/kcpproc         one kcp + kine per (checkout, branch) on kernel-assigned ports
 impl/session         the per-(checkout, branch) session record specctl up writes in the state dir
 impl/statedir        $SPECD_STATE_DIR, the CLM document dir
@@ -2018,6 +2068,9 @@ testdata/open-architecture/  three revisions of arch.yaml and its schema
 testdata/delta/      the golden delta JSON both Go and TypeScript are held to
 testdata/ids.json    the golden graph ids both Go and TypeScript are held to
 test/fixture         copies a fixture into a temp dir and commits it as a real git repo
+test/orgfixture      a polyrepo in a temp dir: bare remotes, orphan branches, a superproject of submodules
+test/fakecodegraph   a codegraph stand-in that indexes the work tree, for tests with no indexer installed
+fixtures/orgroot/    the sample org root and its three member codebases
 test/e2e             the live round trip, ingest + graph, arch.yaml and the two CLM directions
 ```
 
@@ -2347,7 +2400,12 @@ analysis found). Plan 0005's follow-ups are closed by plan 0007: the
 ordered by `dependsOn` and files outside the context flagged, `specctl accept
 --override`, a restore that rebuilds the `SpecChange` history, and re-anchoring
 proven on a live Go and TypeScript edit.
-There is no open plan. What the eval reports as still weak is the honest place
+Plan 0011 (the org root: specs and policies across a polyrepo) is built and
+tested offline; its remaining items are live ones that need kcp and a model:
+a realize that fans out across member repositories under specd, the per member
+policy and acceptance gates inside `specctl org run`, and a model agent run from
+the real socialweb-computer (`docs/plans/0011-org-root.md`, "Remaining").
+Otherwise there is no open plan. What the eval reports as still weak is the honest place
 to start: the measures that fall short of 100% on the live runs in
 `docs/eval/` (drift and removals are the weakest), and the graph's share of the
 context bundle when the budget is tight. Two limits are accepted on purpose:

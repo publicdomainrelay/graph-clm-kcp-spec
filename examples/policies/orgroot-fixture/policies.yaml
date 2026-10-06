@@ -1,0 +1,56 @@
+# The policy branch of the org root fixture (fixtures/orgroot): the RFP guest
+# isolation pack, bound once for the whole polyrepo. The member list comes from
+# the root's gitlinks (submodules.members); only each member's roles are
+# written here, because a role is a fact about code and the code is the
+# member's.
+repository: socialweb-computer
+version: "1"
+defaultEnforcement: deny
+imports:
+  - pack: rfp-guest-isolation
+    source: embedded
+    version: v2
+submodules:
+  members: true
+  policies: true
+roles:
+  test:
+    globs: ["test/**", "scripts/**"]
+  host:
+    declared: true
+    targets: {attrs: ["vm\\.onNetwork"]}
+  guest:
+    declared: true
+  cloud:
+    declared: true
+    targets: {hosts: [api.cloud.example]}
+members:
+  - name: market
+    roles:
+      guest:
+        globs: ["lib/cloud-init/**"]
+      requester:
+        globs: ["lib/requester/**"]
+      test:
+        globs: ["test/**"]
+  - name: provider
+    roles:
+      host:
+        globs: ["lib/compute-provider/**"]
+  - name: relay
+    roles:
+      relay:
+        globs: ["lib/relay-server/**"]
+testGlobs:
+  - test/**
+vocabulary:
+  channels:
+    relay: [websocat, relay-subscriber, fedproxy, dumbpipe]
+  events:
+    network-report: [vm.onNetwork, report-network]
+  payloads:
+    network-info: [nodeId, ticket, address]
+  purposes:
+    network-discovery: [onNetwork, ticket, report-network]
+  routes:
+    report: [/xrpc/vm.onNetwork]

@@ -25,6 +25,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphfacts"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/effects"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/oagit"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/orggit"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policygit"
 	specdlib "github.com/publicdomainrelay/graph-clm-kcp-spec/policies/library"
@@ -960,6 +961,16 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 
 	if *specsOnly {
 		contexts := loadContexts(ctx, *path, *repository, *branch, *defaultBranch)
+		if config := library.Manifest.Submodules; config != nil && config.Members {
+			// An org root's declared model also holds each member's declared
+			// contexts, read in place from the member's architecture branch.
+			memberContexts, err := (&orggit.Root{Dir: *path, Name: *repository}).AllMemberContexts(ctx)
+			if err != nil {
+				fmt.Fprintf(stderr, "specctl policy eval: %v\n", err)
+				return exitError
+			}
+			contexts = append(contexts, memberContexts...)
+		}
 		result, err := policyeval.CheckSpecs(ctx, policyeval.SpecInput{
 			Repository: *repository,
 			Contexts:   contexts,
@@ -1064,10 +1075,21 @@ func runPolicyEval(args []string, stdout, stderr io.Writer) int {
 	} else {
 		printReportDecision(stdout, report, decision.Waived)
 	}
-	if *strict && decision.Blocked {
+	if *strict && (decision.Blocked || memberPolicyFailed(report)) {
 		return exitError
 	}
 	return exitOK
+}
+
+// memberPolicyFailed reports whether a submodule's own policy branch denied, or
+// could not be evaluated: the org root must not pass over either.
+func memberPolicyFailed(report policy.Report) bool {
+	for _, row := range report.MemberPolicies {
+		if row.Message != "" || row.Totals[policy.EnforcementDeny] > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // evalReport is `policy eval -o json`: the report the branches and kcp carry,
@@ -1466,6 +1488,18 @@ func memberRefs(library policy.Library, cacheDir string) []policy.Member {
 	if cacheDir == "" {
 		return nil
 	}
+	if config := library.Manifest.Submodules; config != nil && config.Members {
+		// In an org root a member with no url only overlays roles on a
+		// submodule; the gitlink is its pin, so nothing is cloned or locked
+		// here and the member list is derived where a checkout is evaluated.
+		members := []policy.Member{}
+		for _, member := range library.Manifest.Members {
+			if member.URL != "" {
+				members = append(members, member)
+			}
+		}
+		return members
+	}
 	return library.Manifest.Members
 }
 
@@ -1527,6 +1561,19 @@ func printReportDecision(out io.Writer, report policy.Report, waived []policy.Vi
 	fmt.Fprintf(out, "templates: %d  constraints: %d\n", report.Templates, report.Constraints)
 	for _, member := range report.Members {
 		fmt.Fprintf(out, "member: %s %s at %s\n", member.Name, member.Ref, shortCommit(member.Commit))
+	}
+	for _, row := range report.MemberPolicies {
+		switch {
+		case row.Message != "":
+			fmt.Fprintf(out, "member policy: %s at %s: not evaluated: %s\n", row.Name, shortCommit(row.Commit), row.Message)
+		default:
+			off := ""
+			if row.Pinned != "" {
+				off = fmt.Sprintf(" (checkout is off the pin %s)", shortCommit(row.Pinned))
+			}
+			fmt.Fprintf(out, "member policy: %s at %s%s: %d violation(s) (deny %d, warn %d)\n", row.Name, shortCommit(row.Commit), off,
+				len(row.Violations), row.Totals[policy.EnforcementDeny], row.Totals[policy.EnforcementWarn])
+		}
 	}
 	denies, waivedCount := 0, 0
 	for _, violation := range report.Violations {

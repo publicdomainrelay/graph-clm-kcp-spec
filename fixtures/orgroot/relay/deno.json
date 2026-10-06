@@ -1,0 +1,1 @@
+{ "name": "@fixture/relay", "exports": "./lib/relay-server/mod.ts" }

@@ -96,9 +96,14 @@ func runPolicyGate(ctx context.Context, options Options, dir string) (policy.Dec
 	if err != nil {
 		return policy.Decision{}, policy.Report{}, err
 	}
-	members, err := policyeval.ResolveMembers(ctx, gate.Library.Manifest.Members, gate.Library, policyeval.MemberOptions{
+	effective, paths, err := policyeval.EffectiveMembers(ctx, gate.Library, dir, nil)
+	if err != nil {
+		return policy.Decision{}, policy.Report{}, fmt.Errorf("realize: derive the policy members: %w", err)
+	}
+	members, err := policyeval.ResolveMembers(ctx, effective, gate.Library, policyeval.MemberOptions{
 		CacheDir: gate.MemberCacheDir,
 		Lock:     policyeval.GateLock(gate.Library),
+		Paths:    paths,
 	})
 	if err != nil {
 		return policy.Decision{}, policy.Report{}, fmt.Errorf("realize: resolve the policy members: %w", err)

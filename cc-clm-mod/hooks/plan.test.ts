@@ -11,6 +11,7 @@ import {
   reportArgv,
   touchedPath,
   ARCH_TOOLS,
+  ORG_TOOLS,
   ARCH_TOOL_PREFIX,
   archInvocation,
 } from "./plan";
@@ -75,6 +76,19 @@ test("the architecture tools map to specctl, and the edit carries the document o
     stdin: "# Context: calc\n",
   });
   expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_changes`, {})).toEqual({ argv: ["specctl", "get", "specchanges"] });
+});
+
+test("the org root tools are read only and map to specctl org", () => {
+  expect(ORG_TOOLS.map((tool) => tool.name)).toEqual(["org_members", "org_status", "org_outline", "org_history"]);
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}org_members`, {})).toEqual({ argv: ["specctl", "org", "ls"] });
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}org_status`, {})).toEqual({ argv: ["specctl", "org", "status"] });
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}org_outline`, {})).toEqual({ argv: ["specctl", "org", "outline"] });
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}org_outline`, { member: " market " })).toEqual({
+    argv: ["specctl", "org", "outline", "--member", "market"],
+  });
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}org_history`, { member: "market" })).toEqual({
+    argv: ["specctl", "org", "history", "--member", "market"],
+  });
 });
 
 test("an architecture tool call without what it needs is answered, not run", () => {

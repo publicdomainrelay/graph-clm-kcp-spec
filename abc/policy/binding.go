@@ -94,6 +94,18 @@ func (l PolicyLibrary) Binding() Binding {
 	return out
 }
 
+// BindingWithMembers is the binding with the roles the library's members
+// declare merged in. A pack asks for roles, and in an org root the code that
+// plays them is in the members, so a role only a member declares is declared.
+// The model of the library's own tree still reads Binding().
+func (l PolicyLibrary) BindingWithMembers() Binding {
+	out := l.Binding()
+	for _, member := range l.Members {
+		out = out.Merge(Binding{Roles: member.Roles})
+	}
+	return out
+}
+
 func (b Binding) Merge(other Binding) Binding {
 	out := Binding{
 		Roles:      map[string]RoleBinding{},

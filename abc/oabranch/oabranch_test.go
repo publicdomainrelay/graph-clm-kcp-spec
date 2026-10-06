@@ -10,6 +10,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/clm"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/mirror"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
@@ -1034,5 +1035,32 @@ func TestFeatureBranchMarksAGuardedRequirement(t *testing.T) {
 	}
 	if strings.Contains(string(plain[ChangesDocPath]), "policy-guarded") {
 		t.Errorf("an unguarded requirement is marked:\n%s", plain[ChangesDocPath])
+	}
+}
+
+func TestExtraFilesAreWrittenMarkedGeneratedAndCannotCollide(t *testing.T) {
+	repository := spec.Repository{}
+	repository.Name = "root"
+	snapshot := Snapshot{
+		Repository: repository,
+		Extra:      map[string][]byte{"members.yaml": []byte("kind: OrgMembers\n")},
+		Members:    []graph.MemberRef{{Name: "market", Repository: "market", Path: "market", State: "resolved"}},
+	}
+	files, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(files["members.yaml"]) != "kind: OrgMembers\n" {
+		t.Fatalf("members.yaml = %q", files["members.yaml"])
+	}
+	if !strings.Contains(string(files[GitAttributesPath]), "members.yaml linguist-generated=true") {
+		t.Fatalf("attributes = %s", files[GitAttributesPath])
+	}
+	if !strings.Contains(string(files[GraphVerticesPath]), `"label":"SpecMember"`) || !strings.Contains(string(files[GraphEdgesPath]), `"type":"RESOLVES_TO"`) {
+		t.Fatalf("the member vertex is missing from %s", files[GraphVerticesPath])
+	}
+	snapshot.Extra = map[string][]byte{ArchPath: []byte("x")}
+	if _, err := Files(snapshot); err == nil {
+		t.Fatal("an extra file must not overwrite a generated one")
 	}
 }

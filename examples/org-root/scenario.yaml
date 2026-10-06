@@ -1,0 +1,18 @@
+# The stub agent of the org root example: the same scenario format the scripted
+# agent reads everywhere else. Each realize entry is the steps for one context,
+# applied in the member checkout the step names.
+contexts: {}
+realize:
+  market-guest:
+    - patch:
+        path: lib/cloud-init/mod.ts
+        find: "report-network --event vm.onNetwork"
+        replace: "report-network --event vm.onNetwork --ticket"
+  provider-host:
+    - write:
+        path: lib/compute-provider/ticket.ts
+        contents: |
+          // The host consumes the ticket the guest reports with vm.onNetwork.
+          export function ticketOf(report: { ticket: string }): string {
+            return report.ticket;
+          }

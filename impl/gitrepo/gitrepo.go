@@ -91,15 +91,84 @@ func Branch(ctx context.Context, path string) (string, error) {
 	return run(ctx, path, "rev-parse", "--abbrev-ref", "HEAD")
 }
 
-func TrackedFiles(ctx context.Context, path string) ([]string, error) {
-	output, err := run(ctx, path, "ls-files", "--cached", "--exclude-standard")
+// Gitlink is a submodule entry of a tree: its path and the commit pinned.
+type Gitlink struct {
+	Path string
+
+	Commit string
+}
+
+// Gitlinks lists the submodule entries of the index of a checkout, sorted by
+// path. A checkout with no submodules returns none.
+func Gitlinks(ctx context.Context, path string) ([]Gitlink, error) {
+	entries, err := indexEntries(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	if output == "" {
-		return nil, nil
+	out := []Gitlink{}
+	for _, entry := range entries {
+		if entry.mode == gitlinkMode {
+			out = append(out, Gitlink{Path: entry.path, Commit: entry.object})
+		}
 	}
-	files := strings.Split(output, "\n")
+	return out, nil
+}
+
+// GitlinkExcludes are the globs that cover every submodule of a checkout, for
+// code that must read the root's own files and never a member's.
+func GitlinkExcludes(ctx context.Context, path string) []string {
+	links, err := Gitlinks(ctx, path)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(links))
+	for _, link := range links {
+		out = append(out, link.Path+"/**")
+	}
+	return out
+}
+
+const gitlinkMode = "160000"
+
+type indexEntry struct {
+	mode, object, path string
+}
+
+func indexEntries(ctx context.Context, path string) ([]indexEntry, error) {
+	command := exec.CommandContext(ctx, "git", "-C", path, "ls-files", "--cached", "--exclude-standard", "--stage", "-z")
+	raw, err := command.Output()
+	if err != nil {
+		return nil, fmt.Errorf("gitrepo: git ls-files in %s: %w", path, err)
+	}
+	var out []indexEntry
+	for _, record := range strings.Split(string(raw), "\x00") {
+		if record == "" {
+			continue
+		}
+		meta, file, found := strings.Cut(record, "\t")
+		fields := strings.Fields(meta)
+		if !found || len(fields) < 3 {
+			continue
+		}
+		out = append(out, indexEntry{mode: fields[0], object: fields[1], path: file})
+	}
+	return out, nil
+}
+
+// TrackedFiles lists the files of the index, sorted. A submodule is a pointer
+// and not a file: its path is left out, and so are the files it holds.
+func TrackedFiles(ctx context.Context, path string) ([]string, error) {
+	entries, err := indexEntries(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, entry := range entries {
+		if entry.mode == gitlinkMode {
+			continue
+		}
+		files = append(files, entry.path)
+	}
 	sort.Strings(files)
 	return files, nil
 }

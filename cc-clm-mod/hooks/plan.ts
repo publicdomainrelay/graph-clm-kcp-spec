@@ -338,6 +338,43 @@ export const ARCH_TOOLS: readonly ArchTool[] = [
   },
 ];
 
+/**
+ * The org root tools: read only views of a git superproject whose submodules
+ * are the repositories of one system. They need no kcp, only `specctl org`.
+ */
+export const ORG_TOOLS: readonly ArchTool[] = [
+  {
+    name: "org_members",
+    description:
+      "In an org root (a git superproject), list its submodules: the commit each pins, whether the checkout is at the pin, dirty or unpublished, and where each member's own spec and policy branches are. Start here when the work may cross repositories; outside an org root it says so.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "org_status",
+    description:
+      "In an org root, list what must be fixed before the root can be trusted or pushed: an unpublished pin (push the member first), a dirty or unbumped member, a member with no spec. Read it before committing a pointer.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "org_outline",
+    description:
+      "In an org root, outline one member's architecture, read in place from that member's open-architecture branch at the commit the root pins. Without a member it outlines the root's own architecture and lists the members.",
+    inputSchema: {
+      type: "object",
+      properties: { member: { type: "string", description: "member repository name, as org_members lists it" } },
+    },
+  },
+  {
+    name: "org_history",
+    description:
+      "In an org root, list the root commits that moved a submodule pointer, with the member commits each one brought in and the member spec each pin resolves to. Pass a member to follow one repository.",
+    inputSchema: {
+      type: "object",
+      properties: { member: { type: "string", description: "only the moves of this member" } },
+    },
+  },
+];
+
 export interface ArchInvocation {
   argv: string[];
   stdin?: string;
@@ -360,6 +397,18 @@ export function archInvocation(specctl: string, tool: string, input: Record<stri
     }
     case "arch_changes":
       return { argv: [specctl, "get", "specchanges"] };
+    case "org_members":
+      return { argv: [specctl, "org", "ls"] };
+    case "org_status":
+      return { argv: [specctl, "org", "status"] };
+    case "org_outline": {
+      const member = typeof input.member === "string" ? input.member.trim() : "";
+      return { argv: member ? [specctl, "org", "outline", "--member", member] : [specctl, "org", "outline"] };
+    }
+    case "org_history": {
+      const member = typeof input.member === "string" ? input.member.trim() : "";
+      return { argv: member ? [specctl, "org", "history", "--member", member] : [specctl, "org", "history"] };
+    }
   }
   return `unknown architecture tool ${tool}`;
 }

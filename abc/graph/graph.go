@@ -18,9 +18,10 @@ const (
 	LabelRequirement = "SpecRequirement"
 	LabelInterface   = "SpecInterface"
 	LabelCodeRef     = "CodeRef"
+	LabelMember      = "SpecMember"
 )
 
-var ManagedLabels = []string{LabelRepo, LabelContext, LabelRequirement, LabelInterface, LabelCodeRef}
+var ManagedLabels = []string{LabelRepo, LabelContext, LabelRequirement, LabelInterface, LabelCodeRef, LabelMember}
 
 const (
 	LabelChange   = "SpecChange"
@@ -43,6 +44,8 @@ const (
 	EdgeTouched      = "TOUCHED"
 	EdgeOccurred     = "OCCURRED"
 	EdgeSpecifies    = "SPECIFIES"
+	EdgeHasMember    = "HAS_MEMBER"
+	EdgeResolvesTo   = "RESOLVES_TO"
 )
 
 var LiveEdgeSpecs = []EdgeSpec{
@@ -78,6 +81,13 @@ func RepoID(name string) int64 {
 
 func RepoIDIn(namespace, name string) int64 {
 	return Key(namespace, "repo:"+name)
+}
+
+// MemberIDIn is the id of a member vertex of an org root. The member's own
+// SpecRepo vertex is RepoIDIn(namespace, member repository): the edge between
+// the two is how the root's graph connects to a member's without copying it.
+func MemberIDIn(namespace, root, member string) int64 {
+	return Key(namespace, "member:"+root+"/"+member)
 }
 
 func ContextID(name string) int64 {
@@ -345,6 +355,22 @@ type Snapshot struct {
 	Repository spec.Repository
 	Contexts   []spec.SystemContext
 	CodeRefs   map[string]CodeRef
+
+	// Members are the submodules of an org root. They add a SpecMember vertex
+	// each and a RESOLVES_TO edge to the member's own SpecRepo vertex; no vertex
+	// of the member's graph is written.
+	Members []MemberRef
+}
+
+// MemberRef is what the root's graph records of one member.
+type MemberRef struct {
+	Name       string
+	Repository string
+	Path       string
+	URL        string
+	CodeCommit string
+	ArchCommit string
+	State      string
 }
 
 type Writer interface {
@@ -374,6 +400,8 @@ var EdgeSpecs = []EdgeSpec{
 	{Type: EdgeReferences, FromLabel: LabelRequirement, ToLabel: LabelCodeRef},
 	{Type: EdgeDependsOn, FromLabel: LabelContext, ToLabel: LabelContext},
 	{Type: EdgeIntroduces, FromLabel: LabelContext, ToLabel: LabelContext},
+	{Type: EdgeHasMember, FromLabel: LabelRepo, ToLabel: LabelMember},
+	{Type: EdgeResolvesTo, FromLabel: LabelMember, ToLabel: LabelRepo},
 }
 
 var LabelProperties = map[string][]string{
@@ -382,6 +410,7 @@ var LabelProperties = map[string][]string{
 	LabelRequirement: {"context", "reqId", "level", "text", ScopeProperty},
 	LabelInterface:   {"context", "name", "kind", "signature", ScopeProperty},
 	LabelCodeRef:     {"codegraphId", "kind", "name", "filePath", "line", "display", ScopeProperty},
+	LabelMember:      {"name", "repo", "path", "url", "codeCommit", "archCommit", "state", ScopeProperty},
 	LabelChange:      {"name", "context", "direction", "phase", ScopeProperty},
 	LabelProgress:    {"change", "turn", "tool", "note", "at", ScopeProperty},
 	LabelPiMemory:    {"title", "body", "session"},
@@ -402,6 +431,8 @@ func Build(snapshot Snapshot) ([]VertexSet, []EdgeSet) {
 	hasContextIndex, upstreamIndex, overlayIndex, orchestratorIndex := 0, 1, 2, 3
 	requiresIndex, declaresIndex, contextRefsIndex, requirementRefsIndex := 4, 5, 6, 7
 	dependsOnIndex, introducesIndex := 8, 9
+	memberIndex := 5
+	hasMemberIndex, resolvesToIndex := 10, 11
 
 	namespace := snapshot.Namespace
 	repository := snapshot.Repository
@@ -509,6 +540,26 @@ func Build(snapshot Snapshot) ([]VertexSet, []EdgeSet) {
 		}
 		for _, introduced := range context.Spec.Introduces {
 			edges[introducesIndex].Rows = appendRef(edges[introducesIndex].Rows, contextID, introduced, arch, namespace)
+		}
+	}
+	for _, member := range snapshot.Members {
+		memberID := MemberIDIn(namespace, repository.Name, member.Name)
+		vertices[memberIndex].Rows = append(vertices[memberIndex].Rows, Vertex{
+			ID: memberID,
+			Props: map[string]any{
+				"name":        member.Name,
+				"repo":        member.Repository,
+				"path":        member.Path,
+				"url":         member.URL,
+				"codeCommit":  member.CodeCommit,
+				"archCommit":  member.ArchCommit,
+				"state":       member.State,
+				ScopeProperty: namespace,
+			},
+		})
+		edges[hasMemberIndex].Rows = append(edges[hasMemberIndex].Rows, Edge{From: repoID, To: memberID})
+		if member.Repository != "" {
+			edges[resolvesToIndex].Rows = append(edges[resolvesToIndex].Rows, Edge{From: memberID, To: RepoIDIn(namespace, member.Repository)})
 		}
 	}
 	return vertices, edges

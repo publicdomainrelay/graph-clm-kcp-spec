@@ -12,6 +12,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/orggit"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
 	"github.com/publicdomainrelay/kcp-libs/common/condition"
 )
@@ -41,6 +42,18 @@ func (c *Controller) specGate(ctx context.Context, namespace string, repository 
 		ordered = append(ordered, context)
 	}
 	sort.SliceStable(ordered, func(left, right int) bool { return ordered[left].Name < ordered[right].Name })
+	if config := library.Manifest.Submodules; config != nil && config.Members {
+		// An org root: the declared model also holds each submodule's declared
+		// contexts, read in place from its architecture branch (named
+		// <member>/<context>), so a flow between two repositories is checked
+		// before either has code. A gate that cannot read them must not pass.
+		orgRoot := &orggit.Root{Dir: repository.WorkPath(), Name: repository.Name}
+		fromMembers, err := orgRoot.AllMemberContexts(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("specd: read the members' declared contexts: %w", err)
+		}
+		ordered = append(ordered, fromMembers...)
+	}
 	for _, member := range members {
 		context, ok := contexts[member.Spec.SystemContext]
 		if !ok {
