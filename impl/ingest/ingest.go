@@ -136,7 +136,7 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 	partitionOptions := specsync.PartitionOptions{
 		Mode:           options.Partition,
 		Include:        options.Include,
-		Exclude:        options.Exclude,
+		Exclude:        append(append([]string{}, options.Exclude...), gitrepo.GitlinkExcludes(ctx, repoPath)...),
 		RepositoryName: repositoryName,
 		TreeFiles:      treeFiles,
 		ModulePath:     resolver.ModulePath,

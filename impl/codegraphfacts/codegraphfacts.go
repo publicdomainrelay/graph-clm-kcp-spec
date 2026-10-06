@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphsqlite"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/gitrepo"
 )
 
 type Options struct {
@@ -89,7 +91,7 @@ func indexRoot(ctx context.Context, repoPath string, opts Options) (string, func
 		return "", nil, fmt.Errorf("codegraphfacts: make the index copy: %w", err)
 	}
 	cleanup := func() { os.RemoveAll(copyDir) }
-	if err := copyTree(root, copyDir); err != nil {
+	if err := copyTree(root, copyDir, submodulePaths(ctx, root)); err != nil {
 		cleanup()
 		return "", nil, err
 	}
@@ -179,7 +181,7 @@ func ensureIndex(ctx context.Context, root, tool string) error {
 // copyTree copies a checkout without its index or its git directory, so the
 // index over the copy describes the same code and no artefact lands in the
 // original.
-func copyTree(source, target string) error {
+func copyTree(source, target string, skip map[string]bool) error {
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -193,6 +195,9 @@ func copyTree(source, target string) error {
 		}
 		name := entry.Name()
 		if entry.IsDir() && (name == ".git" || name == codegraphsqlite.Directory || name == "node_modules") {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() && skip[filepath.ToSlash(relative)] {
 			return filepath.SkipDir
 		}
 		destination := filepath.Join(target, relative)
@@ -213,6 +218,30 @@ func copyTree(source, target string) error {
 	})
 }
 
+// submodulePaths are the directories of a checkout that hold another
+// repository. The graph of an org root is the root's own files; a member's code
+// belongs to the member's graph and joining the two is the architecture's job.
+func submodulePaths(ctx context.Context, repoPath string) map[string]bool {
+	links, err := gitrepo.Gitlinks(ctx, repoPath)
+	if err != nil || len(links) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(links))
+	for _, link := range links {
+		out[link.Path] = true
+	}
+	return out
+}
+
+func inSubmodule(skip map[string]bool, file string) bool {
+	for directory := path.Dir(file); directory != "." && directory != "/"; directory = path.Dir(directory) {
+		if skip[directory] {
+			return true
+		}
+	}
+	return false
+}
+
 func FromDB(ctx context.Context, database *codegraphsqlite.DB, repoPath string, opts Options) (policy.CodeGraph, error) {
 	files, err := database.Files(ctx)
 	if err != nil {
@@ -225,6 +254,9 @@ func FromDB(ctx context.Context, database *codegraphsqlite.DB, repoPath string, 
 	edges, err := database.Edges(ctx)
 	if err != nil {
 		return policy.CodeGraph{}, err
+	}
+	if skip := submodulePaths(ctx, repoPath); len(skip) > 0 {
+		files, nodes, edges = withoutSubmodules(skip, files, nodes, edges)
 	}
 
 	texts := map[string]string{}
@@ -391,4 +423,29 @@ func isTest(path string, globs []string) bool {
 		}
 	}
 	return false
+}
+
+func withoutSubmodules(skip map[string]bool, files []codegraphsqlite.File, nodes []codegraphsqlite.Node, edges []codegraphsqlite.Edge) ([]codegraphsqlite.File, []codegraphsqlite.Node, []codegraphsqlite.Edge) {
+	keptFiles := make([]codegraphsqlite.File, 0, len(files))
+	for _, file := range files {
+		if !inSubmodule(skip, file.Path) {
+			keptFiles = append(keptFiles, file)
+		}
+	}
+	keptNodes := make([]codegraphsqlite.Node, 0, len(nodes))
+	dropped := map[string]bool{}
+	for _, node := range nodes {
+		if inSubmodule(skip, node.FilePath) {
+			dropped[node.ID] = true
+			continue
+		}
+		keptNodes = append(keptNodes, node)
+	}
+	keptEdges := make([]codegraphsqlite.Edge, 0, len(edges))
+	for _, edge := range edges {
+		if !dropped[edge.Source] && !dropped[edge.Target] {
+			keptEdges = append(keptEdges, edge)
+		}
+	}
+	return keptFiles, keptNodes, keptEdges
 }

@@ -1,0 +1,1 @@
+{ "name": "@fixture/market", "workspace": ["lib/requester", "lib/cloud-init"] }

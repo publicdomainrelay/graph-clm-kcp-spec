@@ -1,0 +1,1 @@
+{ "name": "@fixture/cloud-init", "exports": "./mod.ts" }

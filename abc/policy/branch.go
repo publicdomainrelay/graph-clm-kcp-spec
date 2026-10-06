@@ -137,6 +137,11 @@ type PolicyLibrary struct {
 
 	Members []Member `json:"members,omitempty"`
 
+	// Submodules derives members from the gitlinks of the checkout the library
+	// is evaluated in (an org root), so the list is never a second copy of
+	// .gitmodules.
+	Submodules *Submodules `json:"submodules,omitempty"`
+
 	Classifiers []string `json:"classifiers,omitempty"`
 
 	Exceptions []Exception `json:"exceptions,omitempty"`
@@ -233,4 +238,20 @@ func (l Library) ConstraintsFor(template Template) []Constraint {
 		}
 	}
 	return out
+}
+
+// Submodules configures the members an org root derives from its gitlinks.
+type Submodules struct {
+	// Members turns every gitlink into a member of the combined model.
+	Members bool `json:"members,omitempty"`
+
+	// Policies also evaluates each member's own policy branch against that
+	// member alone and rolls the result up into the report.
+	Policies bool `json:"policies,omitempty"`
+
+	// Include and Exclude are path globs over the submodule paths; an empty
+	// Include means every submodule.
+	Include []string `json:"include,omitempty"`
+
+	Exclude []string `json:"exclude,omitempty"`
 }
