@@ -20,6 +20,6 @@ export function buildUserData(vmName: string, relayUrl: string): string {
 export async function reportNetwork(report: NetworkReport, hostUrl: string): Promise<void> {
   await fetch(`${hostUrl}/xrpc/vm.onNetwork`, {
     method: "POST",
-    body: JSON.stringify(report),
+    body: JSON.stringify({ vmName: report.vmName, nodeId: report.nodeId, ticket: report.ticket }),
   });
 }

@@ -30,9 +30,6 @@ type MemberState struct {
 
 	// Published means the pinned commit is on a remote branch of the member.
 	Published bool `json:"published"`
-
-	// Candidates are the repository names that were looked for.
-	Candidates []string `json:"-"`
 }
 
 // Severity of a problem.

@@ -22,7 +22,9 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphfacts"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/effects"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/oagit"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policygit"
 )
 
 // codeEvaluation is one offline evaluation of a checkout: the same inputs
@@ -111,7 +113,11 @@ func evaluateCode(ctx context.Context, e codeEvaluation) (policy.Report, error) 
 		inventory = append(inventory, diffObject)
 	}
 
-	members, err := policyeval.ResolveMembers(ctx, e.Library.Manifest.Members, e.Library, memberOptions(e.CacheDir, e.Members))
+	effective, paths, err := policyeval.EffectiveMembers(ctx, e.Library, e.CodeDir, e.Members)
+	if err != nil {
+		return policy.Report{}, err
+	}
+	members, err := policyeval.ResolveMembers(ctx, effective, e.Library, memberOptions(e.CacheDir, paths))
 	if err != nil {
 		return policy.Report{}, err
 	}
@@ -161,7 +167,37 @@ func evaluateCode(ctx context.Context, e codeEvaluation) (policy.Report, error) 
 		return policy.Report{}, err
 	}
 	report.Members = memberPins
+	rollup, err := policyeval.MemberRollup(ctx, e.Library, e.CodeDir, e.memberPolicy)
+	if err != nil {
+		return policy.Report{}, err
+	}
+	report.MemberPolicies = rollup
 	return report, nil
+}
+
+// memberPolicy evaluates a submodule's own policy branch against that
+// submodule's tree: the member is the repository, its library is its own.
+func (e codeEvaluation) memberPolicy(ctx context.Context, member policyeval.MemberEvaluation) (policy.Report, error) {
+	store := oagit.Store{Repo: member.Dir}
+	library, _, err := policygit.Read(ctx, store, member.PolicyRef)
+	if err != nil {
+		return policy.Report{}, err
+	}
+	library, _, err = resolveLibraryImports(library, false)
+	if err != nil {
+		return policy.Report{}, err
+	}
+	testGlobs := library.Manifest.TestGlobs
+	return evaluateCode(ctx, codeEvaluation{
+		Repository:    member.State.Name,
+		DefaultBranch: "main",
+		Path:          member.Dir,
+		CodeDir:       member.Dir,
+		Commit:        member.State.CodeCommit,
+		Library:       library,
+		TestGlobs:     testGlobs,
+		CacheDir:      e.CacheDir,
+	})
 }
 
 // Finding is one violation with the three things a decision needs: which rule,

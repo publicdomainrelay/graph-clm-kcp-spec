@@ -1,0 +1,261 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  annotations:
+    specs.publicdomainrelay.dev/calibration: 'reads the ArchitectureModel: a flow
+      the host initiates that acts on the guest and carries network information or
+      has network discovery as its purpose, and a container.exec or ssh.connect effect
+      in a host component that reaches the guest'
+    specs.publicdomainrelay.dev/level: MUST
+    specs.publicdomainrelay.dev/origin: plan 0009 G4, pack rfp-guest-isolation v1
+    specs.publicdomainrelay.dev/title: the host never reaches into the guest for network
+      discovery
+  name: rfphostreachin
+spec:
+  crd:
+    spec:
+      names:
+        kind: RfpHostReachIn
+      validation:
+        openAPIV3Schema:
+          properties:
+            guestRole:
+              type: string
+            hostRole:
+              type: string
+            networkDiscoveryClass:
+              type: string
+            networkInfoClass:
+              type: string
+            reachInKinds:
+              items:
+                type: string
+              type: array
+          type: object
+  targets:
+  - libs:
+    - "package lib.specd\n\napi_version = \"specs.publicdomainrelay.dev/v1alpha1\"\n\ndefault
+      namespace = \"default\"\n\nnamespace = ns {\n\tns := input.review.object.metadata.namespace\n\tns
+      != \"\"\n}\n\ndefault repository_name = \"\"\n\nrepository_name = name {\n\tname
+      := input.review.object.spec.repository\n\tname != \"\"\n}\n\nrepository_name
+      = name {\n\tinput.review.kind.kind == \"Repository\"\n\tname := input.review.object.metadata.name\n}\n\nrepository_name
+      = name {\n\tinput.review.kind.kind == \"SpecChange\"\n\tcontext := data.inventory.namespace[namespace][api_version][\"SystemContext\"][input.review.object.spec.systemContext]\n\tname
+      := context.spec.repository\n}\n\n# A diff a realize reviews may carry no repository:
+      it is then named after the\n# repository it belongs to, so a rule that reads
+      the diff still resolves the\n# code graph. The name is only the fallback; a
+      diff that names its repository\n# is resolved by the clause above, and two clauses
+      producing two names would be\n# a conflict rather than a lookup.\nrepository_name
+      = name {\n\tinput.review.kind.kind == \"CodeDiff\"\n\tnot review_names_a_repository\n\tname
+      := input.review.object.metadata.name\n}\n\nreview_names_a_repository {\n\tinput.review.object.spec.repository
+      != \"\"\n}\n\ndefault repository = {}\n\nrepository = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"Repository\"][repository_name]\n}\n\ndefault
+      code_graph = {\"spec\": {\"files\": [], \"nodes\": [], \"edges\": [], \"texts\":
+      {}}}\n\ncode_graph = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"CodeGraph\"][repository_name]\n}\n\ndefault
+      arch = {}\n\narch = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"Architecture\"][repository_name]\n}\n\ndefault
+      contexts = []\n\ncontexts = out {\n\tout := [obj | obj := data.inventory.namespace[namespace][api_version][\"SystemContext\"][_]]\n}\n\ncontext(name)
+      = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"SystemContext\"][name]\n}\n\nrequirement(ctx,
+      id) = req {\n\treq := context(ctx).spec.requirements[_]\n\treq.id == id\n}\n\nfiles_matching(globs)
+      = out {\n\tout := [file | file := code_graph.spec.files[_]; globs_match(globs,
+      file.path)]\n}\n\ntests_matching(globs) = out {\n\tout := [file | file := code_graph.spec.files[_];
+      file.test; globs_match(globs, file.path)]\n}\n\nnodes_in_files(paths) = out
+      {\n\tout := [node | node := code_graph.spec.nodes[_]; paths[_] == node.file]\n}\n\nnodes_in_context(name)
+      = out {\n\tout := [node | node := code_graph.spec.nodes[_]; node.context ==
+      name]\n}\n\nnodes_named(pattern) = out {\n\tout := [node | node := code_graph.spec.nodes[_];
+      re_match(pattern, node.name)]\n}\n\nnodes_qualified(pattern) = out {\n\tout
+      := [node | node := code_graph.spec.nodes[_]; re_match(pattern, node.qualifiedName)]\n}\n\ntests_matching_text(globs,
+      pattern) = out {\n\tout := [file | file := tests_matching(globs)[_]; re_match(pattern,
+      code_graph.spec.texts[file.path])]\n}\n\nnode(id) = out {\n\tout := code_graph.spec.nodes[_]\n\tout.id
+      == id\n}\n\nfile_node(path) = out {\n\tout := code_graph.spec.nodes[_]\n\tout.kind
+      == \"file\"\n\tout.file == path\n}\n\nnodes_with_id(ids) = out {\n\tout := [node
+      | node := code_graph.spec.nodes[_]; ids[node.id]]\n}\n\nnodes_matching_text(pattern)
+      = out {\n\tout := [node | node := code_graph.spec.nodes[_]; re_match(pattern,
+      node.text)]\n}\n\nidentified(node, pattern) {\n\tre_match(pattern, node.text)\n}\n\nidentified(node,
+      pattern) {\n\tre_match(pattern, node.name)\n}\n\nidentified(node, pattern) {\n\tre_match(pattern,
+      node.qualifiedName)\n}\n\nnodes_identified(pattern) = out {\n\tout := {node
+      | node := code_graph.spec.nodes[_]; identified(node, pattern)}\n}\n\nnodes_matching_globs(globs,
+      pattern) = out {\n\tout := [node |\n\t\tnode := code_graph.spec.nodes[_]\n\t\tglobs_match(globs,
+      node.file)\n\t\tre_match(pattern, node.text)\n\t]\n}\n\nnodes_reachable_from(ids,
+      kinds, pattern) = out {\n\tout := [node |\n\t\treached := reachable_from(ids,
+      kinds)\n\t\tnode := nodes_with_id(reached)[_]\n\t\tre_match(pattern, node.text)\n\t]\n}\n\nnode_match_line(node,
+      pattern) = out {\n\tnode.startLine > 0\n\tlines := split(node.text, \"\\n\")\n\tfound
+      := {line | line := node.startLine + index; re_match(pattern, lines[index])}\n\tout
+      := sort(found)[0]\n}\n\nfirst_line(path, pattern) = out {\n\tlines := split(code_graph.spec.texts[path],
+      \"\\n\")\n\tfound := {line | line := index + 1; re_match(pattern, lines[index])}\n\tout
+      := sort(found)[0]\n}\n\nmatches_globs(globs, path) {\n\tglobs_match(globs, path)\n}\n\ndefinition_node(node)
+      {\n\tnode.kind != \"file\"\n\tnode.kind != \"import\"\n}\n\nedge_kinds = [\"calls\",
+      \"imports\", \"contains\", \"references\", \"instantiates\", \"implements\",
+      \"extends\"]\n\ncalls_from(id) = out {\n\tout := [edge.target | edge := code_graph.spec.edges[_];
+      edge.source == id; edge.kind == \"calls\"]\n}\n\ncallers_of(id) = out {\n\tout
+      := [edge.source | edge := code_graph.spec.edges[_]; edge.target == id; edge.kind
+      == \"calls\"]\n}\n\nselected_edges(kinds) = out {\n\tout := [edge | edge :=
+      code_graph.spec.edges[_]; kinds[_] == edge.kind]\n}\n\nvertices(kinds) = out
+      {\n\tselected := selected_edges(kinds)\n\tout := {vertex | vertex := selected[_].source}
+      | {vertex | vertex := selected[_].target}\n}\n\nadjacency(kinds) = graph {\n\tselected
+      := selected_edges(kinds)\n\tgraph := {source: targets |\n\t\tsource := vertices(kinds)[_]\n\t\ttargets
+      := [target | other := selected[_]; other.source == source; target := other.target]\n\t}\n}\n\nreverse_adjacency(kinds)
+      = graph {\n\tselected := selected_edges(kinds)\n\tgraph := {target: sources
+      |\n\t\ttarget := vertices(kinds)[_]\n\t\tsources := [source | other := selected[_];
+      other.target == target; source := other.source]\n\t}\n}\n\nreachable_from(ids,
+      kinds) = out {\n\tout := graph.reachable(adjacency(kinds), ids)\n}\n\nreaching(ids,
+      kinds) = out {\n\tout := graph.reachable(reverse_adjacency(kinds), ids)\n}\n\nclosure_from(ids,
+      kinds) = out {\n\tout := reachable_from(ids, kinds) | {id | id := ids[_]}\n}\n\nclosure_reaching(ids,
+      kinds) = out {\n\tout := reaching(ids, kinds) | {id | id := ids[_]}\n}\n\npaths_between(ids,
+      kinds) = out {\n\tout := graph.reachable_paths(adjacency(kinds), ids)\n}\n\nlines_matching(path,
+      pattern) = out {\n\tlines := split(code_graph.spec.texts[path], \"\\n\")\n\tout
+      := [{\"line\": index + 1, \"text\": line} | line := lines[index]; re_match(pattern,
+      line)]\n}\n\nfiles_matching_text(pattern) = out {\n\tout := [file.path |\n\t\tfile
+      := code_graph.spec.files[_]\n\t\tre_match(pattern, code_graph.spec.texts[file.path])\n\t]\n}\n\nnode_text_matches(node,
+      pattern) {\n\tre_match(pattern, node.text)\n}\n\ndefault effects = []\n\neffects
+      = out {\n\tout := code_graph.spec.effects\n}\n\neffects_of(kind) = out {\n\tout
+      := [effect | effect := effects[_]; effect.kind == kind]\n}\n\neffects_of_component(component,
+      kind) = out {\n\tout := [effect | effect := effects[_]; effect.kind == kind;
+      effect.component == component]\n}\n\neffects_in(globs) = out {\n\tpaths := {path
+      | path := files_matching(globs)[_].path}\n\tout := [effect | effect := effects[_];
+      paths[effect.file]]\n}\n\neffect_targets(kind) = out {\n\tout := [target |\n\t\teffect
+      := effects_of(kind)[_]\n\t\ttarget := effect.attrs.target\n\t\ttarget != \"\"\n\t]\n}\n\ndefault
+      architecture_model = {\"spec\": {\"components\": [], \"effects\": [], \"flows\":
+      [], \"triggers\": []}}\n\narchitecture_model = obj {\n\tobj := data.inventory.namespace[namespace][api_version][\"ArchitectureModel\"][repository_name]\n}\n\ndefault
+      model_components = []\n\nmodel_components = out {\n\tout := architecture_model.spec.components\n}\n\ndefault
+      model_flows = []\n\nmodel_flows = out {\n\tout := architecture_model.spec.flows\n}\n\ndefault
+      model_triggers = []\n\nmodel_triggers = out {\n\tout := architecture_model.spec.triggers\n}\n\ncomponents_with_role(role)
+      = out {\n\tout := [component | component := model_components[_]; component.roles[_]
+      == role]\n}\n\nroles_of(component) = out {\n\tout := [role | entry := model_components[_];
+      entry.name == component; role := entry.roles[_]]\n}\n\nflows_where(filter) =
+      out {\n\tout := [flow | flow := model_flows[_]; flow_filter_matches(flow, filter)]\n}\n\nflow_filter_matches(flow,
+      filter) {\n\tnot flow_filter_key_fails(flow, filter)\n}\n\nflow_filter_key_fails(flow,
+      filter) {\n\tkey := [name | _ = filter[name]][_]\n\tnot flow_filter_key_matches(flow,
+      filter, key)\n}\n\nflow_filter_key_matches(flow, filter, \"from\") {\n\tflow.from
+      == filter.from\n}\n\nflow_filter_key_matches(flow, filter, \"to\") {\n\tflow.to
+      == filter.to\n}\n\nflow_filter_key_matches(flow, filter, \"initiator\") {\n\tflow.initiator
+      == filter.initiator\n}\n\nflow_filter_key_matches(flow, filter, \"channel\")
+      {\n\tflow.channel == filter.channel\n}\n\nflow_filter_key_matches(flow, filter,
+      \"purpose\") {\n\tflow.purpose == filter.purpose\n}\n\nflow_filter_key_matches(flow,
+      filter, \"source\") {\n\tflow.source == filter.source\n}\n\nflow_filter_key_matches(flow,
+      filter, \"carries\") {\n\tis_string(filter.carries)\n\tflow.carries[_] == filter.carries\n}\n\nflow_filter_key_matches(flow,
+      filter, \"carries\") {\n\tis_array(filter.carries)\n\twanted := filter.carries[_]\n\tflow.carries[_]
+      == wanted\n}\n\ntriggered_by(effect_id) = out {\n\tout := [trigger | trigger
+      := model_triggers[_]; trigger.to == effect_id]\n}\n\ndefault model_effects =
+      []\n\nmodel_effects = out {\n\tout := architecture_model.spec.effects\n}\n\nmodel_effect(id)
+      = out {\n\tout := model_effects[_]\n\tout.id == id\n}\n\ndefault model_vocabulary
+      = {}\n\nmodel_vocabulary = obj {\n\tobj := object.get(architecture_model.spec,
+      \"vocabulary\", {})\n}\n\ndefault model_roles = []\n\nmodel_roles = out {\n\tout
+      := object.get(architecture_model.spec, \"roles\", [])\n}\n\n# vocabulary_terms
+      names the concrete terms a binding wrote for one class of\n# one group: vocabulary_terms(\"events\",
+      \"network-report\").\nvocabulary_terms(group, class) = out {\n\tout := object.get(object.get(model_vocabulary,
+      group, {}), class, [])\n}\n\n# component_in_role is the role of a component,
+      by the roles the model gave it\n# or by its name when the model named it after
+      the role alone.\ncomponent_in_role(component, role) {\n\troles_of(component)[_]
+      == role\n}\n\ncomponent_in_role(component, role) {\n\tcomponent == role\n}\n\ninitiator_in_role(flow,
+      role) {\n\tinitiator_of(flow) == role\n}\n\ninitiator_in_role(flow, role) {\n\tentry
+      := model_components[_]\n\tentry.name == initiator_of(flow)\n\tentry.roles[_]
+      == role\n}\n\nacted_on_in_role(flow, role) {\n\tacted_on(flow) == role\n}\n\nacted_on_in_role(flow,
+      role) {\n\tentry := model_components[_]\n\tentry.name == acted_on(flow)\n\tentry.roles[_]
+      == role\n}\n\n# file_in_role says whose file a path is: a component that carries
+      the role\n# owns it when one of the globs the binding gave that role matches
+      the path. It\n# is how a rule that reads a CodeDiff tells the guest's files
+      from the rest.\nfile_in_role(path, role) {\n\tcomponent := model_components[_]\n\tcomponent.roles[_]
+      == role\n\tpattern := object.get(component, \"globs\", [])[_]\n\tglob.match(pattern,
+      [\"/\"], path)\n}\n\n# event_class is an event.emit whose emitted type is one
+      of the terms the\n# binding wrote for an event class. The comparison is case-insensitive
+      and one\n# way: the emitted type carries the vocabulary term, as a constant
+      name carries\n# the NSID it stands for.\nevent_class(effect, class) {\n\teffect.kind
+      == \"event.emit\"\n\temitted := object.get(object.get(effect, \"attrs\", {}),
+      \"type\", \"\")\n\temitted != \"\"\n\tterm := vocabulary_terms(\"events\", class)[_]\n\tterm_in(emitted,
+      term)\n}\n\n# term_in matches a vocabulary term as a whole token. The comparison
+      is\n# case-insensitive; a term that is part of a longer word is not the class.\nterm_in(text,
+      term) {\n\tterm != \"\"\n\tlowered := lower(text)\n\tneedle := lower(term)\n\tstart
+      := indexof(lowered, needle)\n\tstart >= 0\n\ttoken_before(lowered, start)\n\ttoken_after(lowered,
+      start + count(needle))\n}\n\ntoken_before(text, index) {\n\tindex == 0\n}\n\ntoken_before(text,
+      index) {\n\tindex > 0\n\tnot is_token_char(substring(text, index-1, 1))\n}\n\ntoken_after(text,
+      index) {\n\tindex == count(text)\n}\n\ntoken_after(text, index) {\n\tindex <
+      count(text)\n\tnot is_token_char(substring(text, index, 1))\n}\n\nis_token_char(char)
+      {\n\tcontains(\"abcdefghijklmnopqrstuvwxyz0123456789_\", char)\n}\n\n# route_class
+      is an http.handle on a route the binding wrote for a route class.\nroute_class(effect,
+      class) {\n\teffect.kind == \"http.handle\"\n\troute := object.get(object.get(effect,
+      \"attrs\", {}), \"path\", \"\")\n\troute != \"\"\n\tterm := vocabulary_terms(\"routes\",
+      class)[_]\n\tterm == route\n}\n\nroute_class(effect, class) {\n\teffect.kind
+      == \"http.handle\"\n\troute := object.get(object.get(effect, \"attrs\", {}),
+      \"path\", \"\")\n\troute != \"\"\n\tterm := vocabulary_terms(\"routes\", class)[_]\n\tglob.match(term,
+      [\"/\"], route)\n}\n\ndeclared(flow) {\n\tflow.source == \"declared\"\n}\n\ndeclared(flow)
+      {\n\tflow.source == \"both\"\n}\n\nobserved(flow) {\n\tflow.source == \"observed\"\n}\n\nobserved(flow)
+      {\n\tflow.source == \"both\"\n}\n\nforbidden(flow) {\n\tflow.forbidden == true\n}\n\nflow_level(flow,
+      level) {\n\tflow.level == level\n}\n\n# same_flow is the directed shape two
+      flows share when one is a declared\n# must-never and the other is a declared
+      or observed flow that violates it: the\n# initiating role, the role it acts
+      on, the channel and the purpose. A flow's\n# from is the context that declared
+      it and its to is the peer, so the role the\n# initiator acts on is the endpoint
+      that is not the initiator. The level, the\n# forbidden marker, the carried payloads,
+      the source and the evidence are not\n# part of the shape.\nsame_flow(left, right)
+      {\n\tinitiator_of(left) == initiator_of(right)\n\tacted_on(left) == acted_on(right)\n\tobject.get(left,
+      \"channel\", \"\") == object.get(right, \"channel\", \"\")\n\tobject.get(left,
+      \"purpose\", \"\") == object.get(right, \"purpose\", \"\")\n}\n\ninitiator_of(flow)
+      = initiator {\n\tinitiator := object.get(flow, \"initiator\", \"\")\n}\n\nacted_on(flow)
+      = flow.to {\n\tinitiator_of(flow) == flow.from\n}\n\nacted_on(flow) = flow.from
+      {\n\tinitiator_of(flow) == flow.to\n}\n\n# forbidden_matches names every flow
+      that violates a declared must-never: a flow\n# of the same shape that is not
+      itself the marker.\nforbidden_matches(flow) {\n\tnot forbidden(flow)\n\tmarker
+      := model_flows[_]\n\tforbidden(marker)\n\tsame_flow(flow, marker)\n}\n\nlocation(file,
+      line) = {\"file\": file, \"line\": line}\n\nviolation(msg, details) = result
+      {\n\tresult := {\"msg\": msg, \"details\": details}\n}\n\nglobs_match(globs,
+      path) {\n\tpattern := globs[_]\n\tglob.match(pattern, [\"/\"], path)\n}\n"
+    rego: "package rfphostreachin\n\nimport data.lib.specd\n\nhost_role := object.get(input.parameters,
+      \"hostRole\", \"host\")\n\nguest_role := object.get(input.parameters, \"guestRole\",
+      \"guest\")\n\nnetwork_info_class := object.get(input.parameters, \"networkInfoClass\",
+      \"network-info\")\n\nnetwork_discovery_class := object.get(input.parameters,
+      \"networkDiscoveryClass\", \"network-discovery\")\n\ndefault_reach_in_kinds
+      := [\"container.exec\", \"ssh.connect\", \"net.dial\", \"http.request\"]\n\nviolation[specd.violation(msg,
+      details)] {\n\tflow := specd.model_flows[_]\n\tspecd.initiator_in_role(flow,
+      host_role)\n\treach_in_target(flow)\n\tnetwork_flow(flow)\n\tmsg := sprintf(\"the
+      host reaches into the guest: %s -> %s (initiator %s, channel %s, purpose %s,
+      carries %v)\",\n\t\t[flow.from, flow.to, object.get(flow, \"initiator\", \"\"),
+      object.get(flow, \"channel\", \"\"), object.get(flow, \"purpose\", \"\"), object.get(flow,
+      \"carries\", [])])\n\tdetails := flow_details(flow, site_file(flow), site_line(flow))\n}\n\nviolation[specd.violation(msg,
+      details)] {\n\teffect := specd.model_effects[_]\n\treach_in_kind(effect.kind)\n\tspecd.component_in_role(effect.component,
+      host_role)\n\tflow := specd.model_flows[_]\n\tflow.evidence[_] == effect.id\n\tspecd.initiator_in_role(flow,
+      host_role)\n\treach_in_effect(flow, effect)\n\tnot reported_as_flow(flow)\n\tmsg
+      := sprintf(\"the host reaches into the guest with %s: %s:%d\",\n\t\t[effect.kind,
+      effect.file, object.get(effect, \"line\", 0)])\n\tdetails := {\"effect\": effect,
+      \"flow\": flow_details(flow, effect.file, object.get(effect, \"line\", 0)),
+      \"file\": effect.file, \"line\": object.get(effect, \"line\", 0)}\n}\n\n# reach_in_target
+      is the default: the host acting on the guest, and the host\n# acting on a target
+      the model could not resolve. The binding names the\n# exceptions -- the targets
+      a host reaches that are known not to be the guest --\n# so a new repository
+      does not have to rediscover its own reach-in verbs.\nreach_in_target(flow) {\n\tspecd.acted_on_in_role(flow,
+      guest_role)\n}\n\nreach_in_target(flow) {\n\tspecd.acted_on(flow) == \"unknown\"\n\tnot
+      reach_in_exception_flow(flow)\n}\n\nreach_in_effect(flow, effect) {\n\tspecd.acted_on_in_role(flow,
+      guest_role)\n}\n\nreach_in_effect(flow, effect) {\n\tspecd.acted_on(flow) ==
+      \"unknown\"\n\tnot reach_in_exception(effect)\n}\n\n# A flow whose evidence
+      is every effect the host reached with is excepted only\n# when each of those
+      effects names an excepted target: one exception must not\n# hide the rest of
+      a reach.\nreach_in_exception_flow(flow) {\n\tcount(flow.evidence) > 0\n\tnot
+      unexcepted_evidence(flow)\n}\n\nunexcepted_evidence(flow) {\n\teffect := specd.model_effect(flow.evidence[_])\n\tnot
+      reach_in_exception(effect)\n}\n\nreach_in_exception(effect) {\n\tpattern :=
+      reach_in_exception_patterns[_]\n\tglob.match(pattern, [\"/\"], effect.file)\n}\n\nreach_in_exception(effect)
+      {\n\tpattern := reach_in_exception_patterns[_]\n\tvalue := object.get(effect,
+      \"attrs\", {})[_]\n\tcontains(lower(value), lower(pattern))\n}\n\nreach_in_exception_patterns
+      := object.get(specd.model_vocabulary, \"reachInExceptions\", [])\n\nreach_in_kind(kind)
+      {\n\tkind == input.parameters.reachInKinds[_]\n}\n\nreach_in_kind(kind) {\n\tnot
+      configured_reach_in_kinds\n\tkind == default_reach_in_kinds[_]\n}\n\nconfigured_reach_in_kinds
+      {\n\tcount(input.parameters.reachInKinds) > 0\n}\n\nreported_as_flow(flow) {\n\tspecd.initiator_in_role(flow,
+      host_role)\n\treach_in_target(flow)\n\tnetwork_flow(flow)\n}\n\nnetwork_flow(flow)
+      {\n\tobject.get(flow, \"purpose\", \"\") == network_discovery_class\n}\n\nnetwork_flow(flow)
+      {\n\tobject.get(flow, \"carries\", [])[_] == network_info_class\n}\n\n# reach_in_evidence
+      names where the reach-in happens: the evidence effect of\n# the flow that connects
+      to the guest, so the report points at a line.\nconnecting_kind(\"container.exec\")\n\nconnecting_kind(\"ssh.connect\")\n\nreach_in_evidence(flow)
+      = out {\n\tconnecting := [effect | effect := specd.model_effect(flow.evidence[_]);
+      connecting_kind(effect.kind)]\n\tcount(connecting) > 0\n\tout := connecting[0]\n}\n\nreach_in_evidence(flow)
+      = out {\n\tconnecting := [effect | effect := specd.model_effect(flow.evidence[_]);
+      connecting_kind(effect.kind)]\n\tcount(connecting) == 0\n\tall := [effect |
+      effect := specd.model_effect(flow.evidence[_])]\n\tcount(all) > 0\n\tout :=
+      all[0]\n}\n\nsite_file(flow) = file {\n\teffect := reach_in_evidence(flow)\n\tfile
+      := effect.file\n}\n\nsite_line(flow) = line {\n\teffect := reach_in_evidence(flow)\n\tline
+      := object.get(effect, \"line\", 0)\n}\n\n# A declared flow carries no evidence
+      until the first realize. The site is\n# empty then, and the rule still has to
+      fire: a spec that plans the reach-in is\n# denied before any code exists.\nsite_file(flow)
+      = \"\" {\n\tnot reach_in_evidence(flow)\n}\n\nsite_line(flow) = 0 {\n\tnot reach_in_evidence(flow)\n}\n\nflow_details(flow,
+      file, line) = details {\n\tdetails := {\n\t\t\"file\": file,\n\t\t\"line\":
+      line,\n\t\t\"from\": flow.from,\n\t\t\"to\": flow.to,\n\t\t\"initiator\": object.get(flow,
+      \"initiator\", \"\"),\n\t\t\"channel\": object.get(flow, \"channel\", \"\"),\n\t\t\"purpose\":
+      object.get(flow, \"purpose\", \"\"),\n\t\t\"carries\": object.get(flow, \"carries\",
+      []),\n\t\t\"source\": object.get(flow, \"source\", \"\"),\n\t\t\"evidence\":
+      object.get(flow, \"evidence\", []),\n\t}\n}\n"
+    target: admission.k8s.gatekeeper.sh

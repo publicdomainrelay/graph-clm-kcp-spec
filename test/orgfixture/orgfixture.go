@@ -219,6 +219,8 @@ func (f *Fixture) writeArch(seed, name, requirement, indexed string) {
 		},
 	}
 	context.Status.ObservedCommit = indexed
+	context.SetDefaults()
+	repository.SetDefaults()
 	files, err := oabranch.Files(oabranch.Snapshot{Repository: repository, Contexts: []spec.SystemContext{context}, Branch: oabranch.Branch(name)})
 	if err != nil {
 		f.t.Fatal(err)

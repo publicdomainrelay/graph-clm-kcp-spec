@@ -38,3 +38,13 @@ func (r *Root) ReadPolicy(ctx context.Context, member org.Member, paths []string
 	}
 	return store.ReadFilesAt(ctx, member.Policy.Commit, paths)
 }
+
+// PolicyRef is the ref of a member's policy branch that resolves in its
+// checkout: the local branch, else the remote-tracking one a clone leaves.
+func (r *Root) PolicyRef(ctx context.Context, member org.Member) (string, bool) {
+	if member.Policy == nil {
+		return "", false
+	}
+	ref, _ := r.branchTip(ctx, r.MemberDir(member), member.Policy.Branch)
+	return ref, ref != ""
+}

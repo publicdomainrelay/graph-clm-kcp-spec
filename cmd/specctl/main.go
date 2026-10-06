@@ -186,6 +186,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runPolicy(rest, stdout, stderr)
 	case "kcp":
 		return runKcp(rest, stdout, stderr)
+	case "org":
+		return runOrg(rest, stdout, stderr)
 	case "keeper":
 		return runKeeper(rest, stdout, stderr)
 	case "version":
@@ -449,6 +451,10 @@ usage:
       tests and the gator suites through the built-in engine, audit a checkout
       or a commit without a controller, apply a library or restore a branch
       into kcp, list what kcp holds and print the last audit
+  specctl org ls|status|history|manifest|outline|fetch|clone|bump|run|brief
+      the org root, a git superproject: members from its gitlinks, their specs
+      and policies read from their own branches, history of the pointers, and
+      a change across repositories (specctl org help)
   specctl eval [--fixtures fixtures] [--agent claude|claude-mod|pi]
       [--scenarios <glob>] [--out docs/eval/run-<date>.md]
       one Repository manifest per fixture, then one spec edit per scenario

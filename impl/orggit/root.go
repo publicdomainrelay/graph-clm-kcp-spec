@@ -201,8 +201,8 @@ func (r *Root) memberState(ctx context.Context, sub org.Submodule, pinned string
 			URL:        sub.URL,
 			Branch:     sub.Branch,
 			CodeCommit: pinned,
+			Candidates: sub.RepositoryCandidates(),
 		},
-		Candidates: sub.RepositoryCandidates(),
 	}
 	dir := filepath.Join(r.Dir, filepath.FromSlash(sub.Path))
 	state.Initialized = r.initialized(dir)

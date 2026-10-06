@@ -113,7 +113,12 @@ func runPolicyModel(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 
-	members, err := policyeval.ResolveMembers(ctx, library.Manifest.Members, library, memberOptions(*cacheDir, memberPathFlags))
+	effective, paths, err := policyeval.EffectiveMembers(ctx, library, codeDir, memberPathFlags)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl policy model: %v\n", err)
+		return exitError
+	}
+	members, err := policyeval.ResolveMembers(ctx, effective, library, memberOptions(*cacheDir, paths))
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl policy model: %v\n", err)
 		return exitError

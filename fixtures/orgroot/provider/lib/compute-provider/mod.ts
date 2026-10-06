@@ -12,12 +12,16 @@ export async function provision(vmName: string, userData: string): Promise<Provi
   return { vmName, containerId };
 }
 
+// Provisioning is a call to the cloud API: the guest is born from the user_data
+// it is given and is never touched by hand.
 async function startContainer(vmName: string, userData: string): Promise<string> {
-  const command = new Deno.Command("container", {
-    args: ["run", "--name", vmName, "--user-data", userData],
+  const response = await fetch("https://api.cloud.example/v2/droplets", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: vmName, user_data: userData }),
   });
-  const { stdout } = await command.output();
-  return new TextDecoder().decode(stdout).trim();
+  const created = await response.json();
+  return String(created.id);
 }
 
 // Called when the guest's vm.onNetwork report arrives at the host.

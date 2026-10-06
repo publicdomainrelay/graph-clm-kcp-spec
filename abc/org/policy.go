@@ -21,11 +21,12 @@ func PolicyMembers(members []Member, config policy.Submodules, explicit []policy
 		if !selected(member.Path, config) {
 			continue
 		}
-		derived := policy.Member{Name: member.Name, URL: member.URL, Ref: member.CodeCommit}
-		if explicit, ok := override[member.Name]; ok {
+		name := nameIn(member, override)
+		derived := policy.Member{Name: name, URL: member.URL, Ref: member.CodeCommit}
+		if explicit, ok := override[name]; ok {
 			derived = merge(derived, explicit)
 		}
-		seen[member.Name] = true
+		seen[name] = true
 		out = append(out, derived)
 	}
 	for _, member := range explicit {
@@ -34,6 +35,20 @@ func PolicyMembers(members []Member, config policy.Submodules, explicit []policy
 		}
 	}
 	return out
+}
+
+// nameIn is the name a member goes by: its own when the library names it,
+// else the first candidate the library names, else its own.
+func nameIn(member Member, named map[string]policy.Member) string {
+	if _, ok := named[member.Name]; ok {
+		return member.Name
+	}
+	for _, candidate := range member.Candidates {
+		if _, ok := named[candidate]; ok {
+			return candidate
+		}
+	}
+	return member.Name
 }
 
 func merge(base, over policy.Member) policy.Member {

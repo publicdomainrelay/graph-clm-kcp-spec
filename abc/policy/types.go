@@ -403,6 +403,12 @@ type Report struct {
 
 	Members []ReportMember `json:"members,omitempty"`
 
+	// MemberPolicies are the results of each submodule's own policy branch,
+	// evaluated against that submodule alone and rolled up here by an org root.
+	// They are never merged into Violations: a member's policy means what it
+	// meant where it was written.
+	MemberPolicies []MemberRollup `json:"memberPolicies,omitempty"`
+
 	Violations []Violation `json:"violations"`
 
 	Totals map[Enforcement]int `json:"totals"`
@@ -491,4 +497,25 @@ func fnv1a(value string) string {
 		hash >>= 4
 	}
 	return string(out)
+}
+
+// MemberRollup is one submodule's own policy result inside an org root's
+// report.
+type MemberRollup struct {
+	Name string `json:"name"`
+
+	Path string `json:"path"`
+
+	// Commit is the member code commit that was evaluated: the root's pin.
+	Commit string `json:"commit,omitempty"`
+
+	// PolicyCommit is the tip of the member's policy branch that was read.
+	PolicyCommit string `json:"policyCommit,omitempty"`
+
+	Totals map[Enforcement]int `json:"totals,omitempty"`
+
+	Violations []Violation `json:"violations,omitempty"`
+
+	// Message says why there is no result: the evaluation failed.
+	Message string `json:"message,omitempty"`
 }

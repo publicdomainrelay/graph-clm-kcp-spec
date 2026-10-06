@@ -58,6 +58,11 @@ type Member struct {
 	Policy *BranchRef `json:"policy,omitempty"`
 
 	State State `json:"state"`
+
+	// Candidates are the repository names the member's branches may use, most
+	// likely first. They are how a library that names a member finds the
+	// submodule when its checkout, and so its real name, is not available.
+	Candidates []string `json:"-"`
 }
 
 // SortMembers orders members by path, the order every document of the root
