@@ -106,6 +106,14 @@ func TestRunGraphSubcommands(t *testing.T) {
 	}
 }
 
+func TestRunContextPackNeedsASeed(t *testing.T) {
+	t.Setenv(statedir.EnvStateDir, t.TempDir())
+	code, _, stderr := runWith("context", "pack")
+	if code != exitUsage || !strings.Contains(stderr, "name one of --context, --file or --query") {
+		t.Errorf("context pack alone: code %d, stderr %q", code, stderr)
+	}
+}
+
 func TestRunImportArchNeedsAPath(t *testing.T) {
 	code, _, stderr := runWith("import-arch")
 	if code != exitUsage || !strings.Contains(stderr, "arch.yaml path is required") {

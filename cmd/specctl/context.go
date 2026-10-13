@@ -36,7 +36,9 @@ func runContextPack(args []string, stdout, stderr io.Writer) int {
 	repositoryName := fs.String("repository", "", "repository the pack is for (default: the one the workspace holds)")
 	budget := fs.Int("budget", packabc.DefaultBudget, "token budget of the pack")
 	root := fs.String("search-root", "", "instance root holding search.db (default: the instance of this checkout)")
-	options := addGlobals(fs)
+	// --context names the system context here, so the global kubeconfig context
+	// flag is left out: defining both panics on a redefined flag.
+	options := addGlobalsExcept(fs, "context")
 	bolt := boltflags.Add(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
