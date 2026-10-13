@@ -11,6 +11,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/statedir"
 )
 
 func runWith(args ...string) (int, string, string) {
@@ -74,6 +75,10 @@ func TestRunIngestNeedsARepo(t *testing.T) {
 
 func TestRunGraphSubcommands(t *testing.T) {
 	t.Setenv("SPECD_BOLT_URL", "")
+	// A state directory of its own: in a checkout that has a running instance
+	// the graph commands adopt that instance's session, and this test is about
+	// what they say when no graph is named.
+	t.Setenv(statedir.EnvStateDir, t.TempDir())
 
 	code, _, stderr := runWith("graph")
 	if code != exitUsage || !strings.Contains(stderr, "neighbors, rebuild, query, load, serve or stop") {
