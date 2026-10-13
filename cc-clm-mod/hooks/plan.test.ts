@@ -5,11 +5,18 @@ import {
   bridgeArgv,
   contextSection,
   deltaSummaryLines,
+  ownerArgv,
+  ownerOf,
+  packArgv,
+  packFileArgv,
+  packsSection,
   parseReport,
   planItemsArgv,
   relativePath,
+  rememberOwner,
   renderArgv,
   reportArgv,
+  taskCard,
   touchedPath,
   ARCH_TOOLS,
   ARCH_TOOL_PREFIX,
@@ -82,6 +89,9 @@ test("the architecture tools map to specctl, and the edit carries the document o
     "arch_plan",
     "arch_findings",
     "arch_release",
+    "arch_owner",
+    "arch_neighbors",
+    "arch_search",
   ]);
   expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_outline`, {})).toEqual({ argv: ["specctl", "arch", "outline"] });
   expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_context`, { context: "calc" })).toEqual({
@@ -131,6 +141,53 @@ test("open plan items join the context section", () => {
   expect(section?.text).toContain("p.add-multiply  draft");
   expect(contextSection("# Context: calc\n", "  \n")?.text).not.toContain("## Open plan items");
   expect(contextSection("# Context: calc\n", "")?.text).not.toContain("## Open plan items");
+});
+
+test("the mod asks which context owns the file it just touched", () => {
+  const argv = ownerArgv({ specctl: "specctl", workspace: "root:tenant", namespace: "team" }, "/work/tree/calc/calc.go");
+  expect(argv.slice(0, 6)).toEqual(["specctl", "arch", "owner", "/work/tree/calc/calc.go", "-o", "json"]);
+  expect(ownerOf('{"path": "calc/calc.go", "context": "calc"}')).toBe("calc");
+  expect(ownerOf('{"path": "docs/plan.md"}')).toBeUndefined();
+  expect(ownerOf("no context owns docs/plan.md")).toBeUndefined();
+});
+
+test("the contexts in use are at most four, most recent first", () => {
+  let recent: string[] = [];
+  for (const context of ["a", "b", "c", "d", "e"]) recent = rememberOwner(recent, context);
+  expect(recent).toEqual(["e", "d", "c", "b"]);
+  expect(rememberOwner(recent, "c")).toEqual(["c", "e", "d", "b"]);
+});
+
+test("each context in use contributes its pack, and a session with no context its directory's", () => {
+  const env = { specctl: "specctl", workspace: "root:specs", namespace: "default" };
+  expect(packArgv(env, "calc").slice(0, 5)).toEqual(["specctl", "context", "pack", "--context", "calc"]);
+  expect(packFileArgv(env, "/work/tree/impl/clm").slice(0, 5)).toEqual(["specctl", "context", "pack", "--file", "/work/tree/impl/clm"]);
+  expect(packsSection(["pack one", " "])?.text).toBe("pack one");
+  expect(packsSection([" "])).toBeUndefined();
+});
+
+test("a realize session carries a task card, an ordinary one does not", () => {
+  const pack = "verify: `go build ./...`\nacceptance: `live: go test ./test/e2e`\n";
+  const card = taskCard("calc-s2c-1", "calc", pack);
+  expect(card?.text).toContain("change: calc-s2c-1");
+  expect(card?.text).toContain("verify: `go build ./...`");
+  expect(card?.text).toContain("acceptance: `live: go test ./test/e2e`");
+  expect(card?.text).toContain("Do not run the repository's whole suite.");
+  expect(taskCard("", "calc", pack)).toBeUndefined();
+});
+
+test("the owner, neighbor and search tools map to specctl", () => {
+  const owner = archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_owner`, { path: "calc/calc.go" });
+  expect(owner).toEqual({ argv: ["specctl", "arch", "owner", "calc/calc.go"] });
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_neighbors`, { context: "calc" })).toEqual({
+    argv: ["specctl", "clm", "neighbors", "calc"],
+  });
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_search`, { terms: "rate limit", limit: 4 })).toEqual({
+    argv: ["specctl", "graph", "search", "rate limit", "--limit", "4"],
+  });
+  expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_owner`, {})).toBe("string");
+  expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_neighbors`, {})).toBe("string");
+  expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_search`, { terms: "  " })).toBe("string");
 });
 
 test("the delta summary keeps only the lines the apply prints by id", () => {

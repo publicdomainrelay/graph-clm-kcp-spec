@@ -433,6 +433,9 @@ usage:
       keeps running unless --stop-others); every later specctl call in the
       repo finds the current branch's session
   specctl arch outline [--repository <name>] [-o text|json]
+  specctl arch owner <path> [--repository <name>] [-o text|json]
+      the context that owns a path: the deepest context whose observed files
+      hold it, or the fact that no context observes it
   specctl arch declared <context> [-o text|json]
   specctl arch declare <context> --unit <unit>...
   specctl arch release <context> (--unit <unit>... | --all)

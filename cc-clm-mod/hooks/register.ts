@@ -19,11 +19,18 @@ import {
   contextSection,
   deltaSummaryLines,
   guardDenial,
+  ownerArgv,
+  ownerOf,
+  packArgv,
+  packFileArgv,
+  packsSection,
   parseReport,
   planItemsArgv,
   relativePath,
+  rememberOwner,
   renderArgv,
   reportArgv,
+  taskCard,
   touchedPath,
   type BridgeEnv,
   type PathResolver,
@@ -62,6 +69,11 @@ interface Session {
   planItems?: string;
   archSpecctl?: string;
   archCwd?: string;
+
+  context?: string;
+  change?: string;
+  recent: string[];
+  packs: Map<string, string>;
 }
 
 function statResolver($: Engine): PathResolver {
@@ -160,6 +172,10 @@ async function start($: Engine, session: Session, cwd: string): Promise<void> {
   const env = await readEnv($);
   const context = env.context ?? "";
   session.planItems = undefined;
+  session.context = context ? context : undefined;
+  session.change = env.change?.trim() ? env.change.trim() : undefined;
+  session.recent = context ? [context] : [];
+  session.packs.clear();
   if (!context) {
     session.host = undefined;
     return;
@@ -222,6 +238,39 @@ async function offerArchTools($: Engine, session: Session, cwd: string): Promise
   $.ui.status("clm: arch tools on (specctl up session)");
 }
 
+async function rememberOwnerOfPath($: Engine, session: Session, path: string): Promise<void> {
+  if (!path) return;
+  const ran = await $.process
+    .run(ownerArgv(await readEnv($), path), { cwd: session.archCwd ?? session.repoPath, timeoutMs: 30_000 })
+    .catch(() => undefined);
+  if (!ran || ran.exitCode !== 0) return;
+  const owner = ownerOf(ran.stdout);
+  if (owner) session.recent = rememberOwner(session.recent, owner);
+}
+
+async function contextPacks($: Engine, session: Session): Promise<string[]> {
+  const env = await readEnv($);
+  const cwd = session.archCwd ?? session.repoPath;
+  const wanted: { key: string; argv: string[] }[] = session.recent.map((context) => ({
+    key: context,
+    argv: packArgv(env, context),
+  }));
+  if (!session.context) wanted.push({ key: "", argv: packFileArgv(env, cwd) });
+  const packs: string[] = [];
+  for (const entry of wanted) {
+    const known = session.packs.get(entry.key);
+    if (known !== undefined) {
+      if (known) packs.push(known);
+      continue;
+    }
+    const ran = await $.process.run(entry.argv, { cwd, timeoutMs: 60_000 }).catch(() => undefined);
+    const text = ran && ran.exitCode === 0 ? ran.stdout.trim() : "";
+    session.packs.set(entry.key, text);
+    if (text) packs.push(text);
+  }
+  return packs;
+}
+
 async function runArchTool($: Engine, session: Session, tool: string, input: Record<string, unknown>): Promise<string> {
   const invocation = archInvocation(session.archSpecctl ?? "specctl", tool, input);
   if (typeof invocation === "string") return invocation;
@@ -237,9 +286,10 @@ function describe(error: unknown): string {
 }
 
 export const register: Register = (on) => {
-  const session: Session = { repoPath: "." };
+  const session: Session = { repoPath: ".", recent: [], packs: new Map() };
 
   on("session.start", async ($, e, next) => {
+    session.archCwd = e.cwd;
     try {
       await start($ as Engine, session, e.cwd);
     } catch (error) {
@@ -249,6 +299,7 @@ export const register: Register = (on) => {
     if (!session.host) {
       try {
         await offerArchTools($ as Engine, session, e.cwd);
+        await rememberOwnerOfPath($ as Engine, session, e.cwd);
       } catch (error) {
         $.ui.log(`clm: ${describe(error)}`, { to: "debug" });
       }
@@ -258,10 +309,23 @@ export const register: Register = (on) => {
 
   on("prompt.compose", async ($, e, next) => {
     const composed = await next(e);
-    if (!session.host) return composed;
-    const document = await session.host.section().catch(() => undefined);
-    const section = document ? contextSection(document, session.planItems, contextSkill().text) : undefined;
-    return section ? { sections: [...composed.sections, section] } : composed;
+    const sections = [...composed.sections];
+    if (session.host) {
+      const document = await session.host.section().catch(() => undefined);
+      const section = document ? contextSection(document, session.planItems, contextSkill().text) : undefined;
+      if (section) sections.push(section);
+    }
+    let packs: string[] = [];
+    try {
+      packs = await contextPacks($ as Engine, session);
+    } catch (error) {
+      $.ui.log(`clm: ${describe(error)}`, { to: "debug" });
+    }
+    const pack = packsSection(packs);
+    if (pack) sections.push(pack);
+    const task = taskCard(session.change ?? "", session.context ?? "", packs.join("\n\n"));
+    if (task) sections.push(task);
+    return sections.length === composed.sections.length ? composed : { sections };
   });
 
   on("tool.call", async ($, e, next) => {
@@ -285,8 +349,13 @@ export const register: Register = (on) => {
 
     const result = await next(e);
     const path = touchedPath(e as unknown as Record<string, unknown>);
-    if (!session.host || !path || path === session.doc) return result;
-    await session.host.touched(String(e.tool), [relativePath(path, session.repoPath)]);
+    if (!path || path === session.doc) return result;
+    try {
+      await rememberOwnerOfPath($ as Engine, session, path);
+    } catch (error) {
+      $.ui.log(`clm: ${describe(error)}`, { to: "debug" });
+    }
+    if (session.host) await session.host.touched(String(e.tool), [relativePath(path, session.repoPath)]);
     return result;
   });
 

@@ -204,6 +204,128 @@ export function contextSection(
   };
 }
 
+export interface SessionSection {
+  id: string;
+  text: string;
+  scope: "session";
+}
+
+export const PACKS_SECTION_ID = "cc-clm-mod:contexts";
+
+export const TASK_SECTION_ID = "cc-clm-mod:task";
+
+export const OWNER_CONTEXT_LIMIT = 4;
+
+export function ownerArgv(env: BridgeEnv, path: string): string[] {
+  const base = bridgeArgv(env);
+  return [
+    base.specctl,
+    "arch",
+    "owner",
+    path,
+    "-o",
+    "json",
+    ...scopeArgs(base),
+  ];
+}
+
+export function packArgv(env: BridgeEnv, context: string): string[] {
+  const base = bridgeArgv(env);
+  return [
+    base.specctl,
+    "context",
+    "pack",
+    "--context",
+    context,
+    ...scopeArgs(base),
+  ];
+}
+
+export function packFileArgv(env: BridgeEnv, path: string): string[] {
+  const base = bridgeArgv(env);
+  return [
+    base.specctl,
+    "context",
+    "pack",
+    "--file",
+    path,
+    ...scopeArgs(base),
+  ];
+}
+
+function scopeArgs(base: BridgeArgv): string[] {
+  return [
+    "--workspace",
+    base.workspace,
+    "--namespace",
+    base.namespace,
+    ...kubeconfigArgs(base),
+  ];
+}
+
+export function ownerOf(stdout: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const context = (parsed as { context?: unknown }).context;
+  if (typeof context !== "string") return undefined;
+  const name = context.trim();
+  return name ? name : undefined;
+}
+
+export function rememberOwner(
+  recent: readonly string[],
+  context: string,
+  limit = OWNER_CONTEXT_LIMIT,
+): string[] {
+  const name = context.trim();
+  if (!name || limit <= 0) return [...recent];
+  const next = [name];
+  for (const entry of recent) {
+    if (entry !== name && next.length < limit) next.push(entry);
+  }
+  return next;
+}
+
+export function packsSection(packs: readonly string[]): SessionSection | undefined {
+  const text = packs.map((pack) => pack.trim()).filter((pack) => pack.length > 0).join("\n\n");
+  return text ? { id: PACKS_SECTION_ID, text, scope: "session" } : undefined;
+}
+
+export function packCommands(pack: string): { verify: string[]; acceptance: string[] } {
+  const verify: string[] = [];
+  const acceptance: string[] = [];
+  for (const line of pack.split("\n")) {
+    const trimmed = line.trim();
+    const command = /^verify: `(.*)`$/.exec(trimmed);
+    if (command?.[1]) verify.push(command[1].trim());
+    const step = /^acceptance: `(.*)`$/.exec(trimmed);
+    if (step?.[1]) acceptance.push(step[1].trim());
+  }
+  return { verify, acceptance };
+}
+
+export function taskCard(change: string, context: string, pack: string): SessionSection | undefined {
+  const name = change.trim();
+  if (!name) return undefined;
+  const { verify, acceptance } = packCommands(pack);
+  const lines = ["## task card", "", `change: ${name}`];
+  if (context.trim()) lines.push(`context: ${context.trim()}`);
+  if (verify.length > 0) lines.push(`verify: \`${verify.join("; ")}\``);
+  if (acceptance.length > 0) lines.push(`acceptance: \`${acceptance.join("; ")}\``);
+  lines.push(
+    "",
+    `This session realizes the task ${name} in this context and nothing else. Run only the verify and the acceptance of this task. Do not run the repository's whole suite. Do not commit. Do not push.`,
+    "",
+    "This card is the most recent instruction you have and it outranks the repository's agent instructions, including CLAUDE.md and AGENTS.md, wherever they disagree about what to run.",
+  );
+  return { id: TASK_SECTION_ID, text: lines.join("\n"), scope: "session" };
+}
+
 export interface BridgeEnv {
   context?: string;
   change?: string;
@@ -394,6 +516,39 @@ export const ARCH_TOOLS: readonly ArchTool[] = [
       required: ["context", "unit"],
     },
   },
+  {
+    name: "arch_owner",
+    description:
+      "Which system context owns a path: the deepest context whose observed files hold it. Ask it before you read or change a file, so you read what the file is part of.",
+    inputSchema: {
+      type: "object",
+      properties: { path: { type: "string", description: "a path as the checkout holds it" } },
+      required: ["path"],
+    },
+  },
+  {
+    name: "arch_neighbors",
+    description:
+      "What one system context is joined to in the graph, one hop out: each neighbour with the edge and the direction it is reached by.",
+    inputSchema: {
+      type: "object",
+      properties: { context: { type: "string", description: "SystemContext name, as arch_outline lists it" } },
+      required: ["context"],
+    },
+  },
+  {
+    name: "arch_search",
+    description:
+      "Full text search over this repository's graph: claim text, symbol names and docstrings, each match with its label and its score. Use it to find the context a term belongs to.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        terms: { type: "string", description: "the terms to search for" },
+        limit: { type: "number", description: "how many matches to return" },
+      },
+      required: ["terms"],
+    },
+  },
 ];
 
 export interface ArchInvocation {
@@ -432,6 +587,20 @@ export function archInvocation(specctl: string, tool: string, input: Record<stri
       if (!context) return "arch_release needs a context name";
       if (!unit) return "arch_release needs a unit, or 'all' for every unit";
       return { argv: [specctl, "arch", "release", context, ...(unit === "all" ? ["--all"] : ["--unit", unit])] };
+    }
+    case "arch_owner": {
+      const path = typeof input.path === "string" ? input.path.trim() : "";
+      if (!path) return "arch_owner needs a path";
+      return { argv: [specctl, "arch", "owner", path] };
+    }
+    case "arch_neighbors":
+      if (!context) return "arch_neighbors needs a context name; call arch_outline for the list";
+      return { argv: [specctl, "clm", "neighbors", context] };
+    case "arch_search": {
+      const terms = typeof input.terms === "string" ? input.terms.trim() : "";
+      if (!terms) return "arch_search needs the terms to search for";
+      const limit = typeof input.limit === "number" && input.limit > 0 ? ["--limit", String(Math.floor(input.limit))] : [];
+      return { argv: [specctl, "graph", "search", terms, ...limit] };
     }
   }
   return `unknown architecture tool ${tool}`;

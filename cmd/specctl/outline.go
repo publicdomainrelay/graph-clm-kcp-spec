@@ -36,6 +36,7 @@ type outlineEntry struct {
 }
 
 const archUsage = `usage: specctl arch outline [--repository <name>] [-o text|json]
+       specctl arch owner <path> [--repository <name>] [-o text|json]
        specctl arch declared <context> [-o text|json]
        specctl arch declare <context> --unit <unit> [--unit <unit>...]
        specctl arch release <context> (--unit <unit>... | --all)
@@ -48,6 +49,8 @@ func runArch(args []string, stdout, stderr io.Writer) int {
 	}
 	switch args[0] {
 	case "outline":
+	case "owner":
+		return runArchOwner(args[1:], stdout, stderr)
 	case "declared", "declare", "release":
 		return runArchAuthority(args[0], args[1:], stdout, stderr)
 	case "proposals":

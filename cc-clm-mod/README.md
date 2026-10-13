@@ -18,8 +18,8 @@ happens**, not guessed afterwards.
 | Hook | Behaviour |
 | --- | --- |
 | `session.start` | resolve the context (`SPECD_CLM_CONTEXT`), render it from kcp, write the context document to the state dir (`SPECD_CLM_DOC`), outside the project tree |
-| `prompt.compose` | inject that file as one more session system section, appended last so the context is the model's most recent instruction, led by the shared context-management skill (`contextSkill()` of `clm/core`, or the repository's `.specs/context-skill.md`), with the context's open plan items (`specctl plan items`) below it so a realize agent sees why its change exists |
-| `tool.call` | refuse a path outside `SPECD_CLM_ROOT`, then report the file a `Read`/`Write`/`Edit`/`MultiEdit` touched |
+| `prompt.compose` | inject that file as one more session system section, appended last so the context is the model's most recent instruction, led by the shared context-management skill (`contextSkill()` of `clm/core`, or the repository's `.specs/context-skill.md`), with the context's open plan items (`specctl plan items`) below it so a realize agent sees why its change exists; then the cards of the contexts in use, and, in a realize session, the task card |
+| `tool.call` | refuse a path outside `SPECD_CLM_ROOT`, then report the file a `Read`/`Write`/`Edit`/`MultiEdit` touched, and ask `specctl arch owner` which context owns it |
 | `turn.complete` | apply the model zone when the model changed it, then report the turn |
 | `session.end` | the same, skipped when the exit budget has less than a second left: a hanging exit is worse than a spec edit the next session re-renders from kcp |
 
@@ -68,6 +68,33 @@ implementation, and this host and the pi host agree by construction.
 Every call carries `--workspace` and `--namespace` explicitly, because the mod
 runs inside the workspace the controller chose, not specctl's default.
 
+## The work in front of the model
+
+On `tool.call` for `Read`, `Write`, `Edit`, `MultiEdit` and `NotebookEdit` the
+mod asks `specctl arch owner <path>` which context owns the path (the deepest
+context whose observed files hold it) and keeps that context in a
+most-recently-used set of at most four. On `prompt.compose` each of those
+contexts contributes the compact card of `specctl context pack --context <name>`
+(owner card plus neighbour cards), so the model reads what the file is part of,
+not only what it just opened. The set changes only when a new file is touched,
+so the injected prefix does not churn between prompts.
+
+A session with no `SPECD_CLM_CONTEXT` is not left with nothing: it injects the
+pack of the session's own directory (`specctl context pack --file <cwd>`, which
+carries the repository card) and, when `specctl arch owner` names one, the card
+of the context that owns that directory.
+
+## The realize task card
+
+`SPECD_CLM_CHANGE` marks a realize session. The mod then appends a task card
+after everything else in the composed prompt: the change, the context, the
+repository's verify command and its acceptance steps (read from the context's
+pack), and the plain instruction to run only the verify and the acceptance of
+this task, not the repository's whole suite, and not to commit or push. Because
+it is the last section, it is the model's most recent instruction, which is what
+makes it outrank the repository's own `CLAUDE.md` and `AGENTS.md`. An ordinary
+session (no change) gets no task card.
+
 ## The scope guard
 
 A realize agent is graded by hidden acceptance tests that live in the repository
@@ -114,7 +141,7 @@ Set by specd on the model it launches:
 
 In a repository where `specctl up` ran, a plain `claude --plugin-dir cc-clm-mod`
 session (no `SPECD_CLM_CONTEXT`) finds that repository's kcp through
-`specctl env` and registers eight tools the model can call:
+`specctl env` and registers eleven tools the model can call:
 
 | tool | does |
 | --- | --- |
@@ -126,6 +153,9 @@ session (no `SPECD_CLM_CONTEXT`) finds that repository's kcp through
 | `mcp__cc-clm-mod__arch_plan` | send a Plan as YAML; it lands as a draft, and only a person approves it |
 | `mcp__cc-clm-mod__arch_findings` | the findings kcp holds: where the code and the spec disagree |
 | `mcp__cc-clm-mod__arch_release` | release a context's declared interfaces, one unit or `--all` |
+| `mcp__cc-clm-mod__arch_owner` | which context owns a path: the deepest context whose observed files hold it |
+| `mcp__cc-clm-mod__arch_neighbors` | what one context is joined to in the graph, one hop out |
+| `mcp__cc-clm-mod__arch_search` | full text search over the graph: claim text, symbol names and docstrings |
 
 The spec never sits in the project tree: the tools read and write kcp, and kcp
 persists to the orphan branch `open-architecture/<repository>`.
