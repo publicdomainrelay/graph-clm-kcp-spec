@@ -233,3 +233,8 @@ a fresh clone:
 | contexts depending on the root | 0 | 0 |
 | context pairs joined by `TEST_IMPORTS` | 0 | 71 |
 | `spec.testDependsOn` entries | 0 | 71 |
+
+A5 was also verified live on the dogfood instance: it held 375 contexts from an
+older index, and narrowing `Repository.spec.populate.include` to the trees the
+plan edits pruned it to 80 contexts and 81 SystemContexts on the next pass, with
+`status.contexts.total` reporting the new scope.
