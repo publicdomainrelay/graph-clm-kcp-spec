@@ -43,6 +43,8 @@ func runPlan(args []string, stdout, stderr io.Writer) int {
 		return runPlanApprove(rest, stdout, stderr)
 	case "preview":
 		return runPlanPreview(rest, stdout, stderr)
+	case "items":
+		return runPlanItems(rest, stdout, stderr)
 	}
 	fmt.Fprintf(stderr, "specctl plan: unknown verb %q\n", verb)
 	return exitUsage
@@ -418,6 +420,167 @@ func runPlanPreview(args []string, stdout, stderr io.Writer) int {
 			}
 			fmt.Fprintf(stdout, "  %s\n", plan.Preview(systemContext.Spec, edit))
 		}
+	}
+	return exitOK
+}
+
+// planContextItem is one plan item that touches a context: the plan it belongs
+// to, the item itself, its phase and the edits of that context it carries.
+type planContextItem struct {
+	Plan    string `json:"plan"`
+	Item    string `json:"item"`
+	Phase   string `json:"phase"`
+	Summary string `json:"summary,omitempty"`
+
+	// Previews is one line per edit of the context, filled against the spec
+	// kcp holds; empty until the caller resolves the context.
+	Edits    []spec.PlanEdit `json:"-"`
+	Previews []string        `json:"previews,omitempty"`
+}
+
+// selectPlanItems picks the work an instance still owes a context: the items
+// of every plan that is neither Complete nor Failed, whose own phase is
+// neither Done nor Failed, and that carry an edit naming the context. Names
+// are resolved the way the rest of the package resolves them, plans come in
+// name order and items keep the spec order of their plan.
+func selectPlanItems(subjects []spec.Plan, contextName string) []planContextItem {
+	ordered := append([]spec.Plan{}, subjects...)
+	sort.SliceStable(ordered, func(left, right int) bool { return ordered[left].Name < ordered[right].Name })
+	out := []planContextItem{}
+	for _, subject := range ordered {
+		switch subject.Status.Phase {
+		case plan.PhaseComplete, plan.PhaseFailed:
+			continue
+		}
+		for _, item := range subject.Spec.Items {
+			status, _ := subject.ItemStatus(item.ID)
+			switch status.Phase {
+			case plan.ItemDone, plan.ItemFailed:
+				continue
+			}
+			edits := []spec.PlanEdit{}
+			for _, edit := range item.Edits {
+				if resolveContextName(edit.Context) == contextName {
+					edits = append(edits, edit)
+				}
+			}
+			if len(edits) == 0 {
+				continue
+			}
+			phase := status.Phase
+			if phase == "" {
+				phase = plan.ItemPending
+			}
+			out = append(out, planContextItem{
+				Plan:    subject.Name,
+				Item:    item.ID,
+				Phase:   phase,
+				Summary: item.Summary,
+				Edits:   edits,
+			})
+		}
+	}
+	return out
+}
+
+// renderPlanContextItems writes the items of one context: the plan and item,
+// the phase, the summary, then one indented preview line per edit.
+func renderPlanContextItems(out io.Writer, views []planContextItem, format string) error {
+	switch format {
+	case "json":
+		data, err := json.MarshalIndent(views, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(out, string(data))
+		return nil
+	case "text", "":
+	default:
+		return fmt.Errorf("unknown output format %q", format)
+	}
+	for _, view := range views {
+		line := fmt.Sprintf("- %s/%s [%s]", view.Plan, view.Item, view.Phase)
+		if view.Summary != "" {
+			line += " " + view.Summary
+		}
+		fmt.Fprintln(out, line)
+		for _, preview := range view.Previews {
+			fmt.Fprintf(out, "    %s\n", preview)
+		}
+	}
+	return nil
+}
+
+func runPlanItems(args []string, stdout, stderr io.Writer) int {
+	name := "specctl plan items"
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	contextName := fs.String("context", "", "the SystemContext whose plan items to list")
+	output := fs.String("o", "text", "text or json")
+	options := addGlobalsExcept(fs, "context")
+	positional, err := parseInterspersed(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(positional) > 0 {
+		fmt.Fprintf(stderr, "%s: unexpected argument %q\n", name, positional[0])
+		return exitUsage
+	}
+	if *contextName == "" {
+		fmt.Fprintf(stderr, "%s: --context is required\n", name)
+		return exitUsage
+	}
+
+	ctx := context.Background()
+	client, err := options.client()
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", name, err)
+		return exitError
+	}
+	listed, err := client.List(ctx, specapi.PlanGVR, options.namespace)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", name, err)
+		return exitError
+	}
+	subjects := []spec.Plan{}
+	for index := range listed.Items {
+		typed, err := kcpclient.Typed(&listed.Items[index])
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: %v\n", name, err)
+			return exitError
+		}
+		subject, ok := typed.(*spec.Plan)
+		if !ok {
+			continue
+		}
+		subjects = append(subjects, *subject)
+	}
+	resolved := resolveContextName(*contextName)
+	views := selectPlanItems(subjects, resolved)
+
+	// A context kcp does not hold yet renders every edit against the empty
+	// spec, so the caller still sees what the items would add.
+	contextSpec := spec.SystemContextSpec{}
+	object, err := client.Get(ctx, specapi.SystemContextGVR, options.namespace, resolved)
+	if err != nil {
+		if !kcpclient.IsNotFound(err) {
+			fmt.Fprintf(stderr, "%s: %v\n", name, err)
+			return exitError
+		}
+	} else if typed, err := kcpclient.Typed(object); err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", name, err)
+		return exitError
+	} else if found, ok := typed.(*spec.SystemContext); ok {
+		contextSpec = found.Spec
+	}
+	for index := range views {
+		for _, edit := range views[index].Edits {
+			views[index].Previews = append(views[index].Previews, plan.Preview(contextSpec, edit))
+		}
+	}
+	if err := renderPlanContextItems(stdout, views, *output); err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", name, err)
+		return exitUsage
 	}
 	return exitOK
 }

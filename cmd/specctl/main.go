@@ -459,12 +459,13 @@ usage:
       tests and the gator suites through the built-in engine, audit a checkout
       or a commit without a controller, apply a library or restore a branch
       into kcp, list what kcp holds and print the last audit
-  specctl plan apply|ls|show|approve|preview
+  specctl plan apply|ls|show|approve|preview|items
       apply stages one or more Plan documents (-f <file|->, - reads stdin)
       without approving them and resets the approval of a stored plan whose
       items changed, ls and show read what kcp holds, approve marks a stored
       plan approved, preview prints each item's spec delta against the
-      contexts it names and writes nothing
+      contexts it names and writes nothing, and items --context <name> lists
+      the unfinished items of every live plan that touch that context
   specctl finding add|ls|dismiss
       add records a finding a person found (--summary is required; --source
       is review, proposal, drift, policy or manual), ls prints the open and

@@ -192,6 +192,136 @@ func TestApprovalReset(t *testing.T) {
 	}
 }
 
+func TestPlanItemsSelectsTheWorkOfAContext(t *testing.T) {
+	live := fixturePlan("p0011")
+	live.Spec.Items = []spec.PlanItem{
+		{ID: "A", Summary: "adds the flag", Edits: []spec.PlanEdit{
+			{Context: "calc", Intent: "adds"},
+			{Context: "sc.deno-kcp", Intent: "elsewhere"},
+		}},
+		{ID: "B"},
+		{ID: "C", Edits: []spec.PlanEdit{{Context: "other", Intent: "other"}}},
+		{ID: "D", Edits: []spec.PlanEdit{{Context: "calc", Intent: "done"}}},
+		{ID: "E", Edits: []spec.PlanEdit{{Context: "calc", Intent: "failed"}}},
+		{ID: "F", Summary: "waits", Edits: []spec.PlanEdit{{Context: "calc", Intent: "next"}}},
+	}
+	live.Status.Phase = plan.PhaseRunning
+	live.Status.Items = []spec.PlanItemStatus{
+		{ID: "A", Phase: plan.ItemVerifying},
+		{ID: "D", Phase: plan.ItemDone},
+		{ID: "E", Phase: plan.ItemFailed},
+	}
+	complete := fixturePlan("p0002")
+	complete.Status.Phase = plan.PhaseComplete
+	complete.Spec.Items = []spec.PlanItem{{ID: "A", Edits: []spec.PlanEdit{{Context: "calc"}}}}
+	failed := fixturePlan("p0003")
+	failed.Status.Phase = plan.PhaseFailed
+	failed.Spec.Items = []spec.PlanItem{{ID: "A", Edits: []spec.PlanEdit{{Context: "calc"}}}}
+
+	views := selectPlanItems([]spec.Plan{live, complete, failed}, "calc")
+	if len(views) != 2 {
+		t.Fatalf("items: got %d views %+v, want 2", len(views), views)
+	}
+	if views[0].Plan != "p0011" || views[0].Item != "A" {
+		t.Errorf("first view: got %s/%s, want p0011/A", views[0].Plan, views[0].Item)
+	}
+	if views[0].Phase != plan.ItemVerifying {
+		t.Errorf("phase: got %q, want %q", views[0].Phase, plan.ItemVerifying)
+	}
+	if views[0].Summary != "adds the flag" {
+		t.Errorf("summary: got %q", views[0].Summary)
+	}
+	if len(views[0].Edits) != 1 || views[0].Edits[0].Context != "calc" {
+		t.Errorf("edits kept the other contexts: %+v", views[0].Edits)
+	}
+	if views[1].Item != "F" || views[1].Phase != plan.ItemPending {
+		t.Errorf("second view: got %s [%s], want F [Pending]", views[1].Item, views[1].Phase)
+	}
+	for _, view := range views {
+		if view.Item == "D" || view.Item == "E" {
+			t.Errorf("a Done or Failed item survived: %+v", views)
+		}
+	}
+}
+
+func TestPlanItemsResolvesArchContextsAndPending(t *testing.T) {
+	subject := fixturePlan("p0011")
+	subject.Status.Phase = plan.PhaseRunning
+	subject.Status.Items = nil
+	subject.Spec.Items = []spec.PlanItem{
+		{ID: "A", Edits: []spec.PlanEdit{{Context: "sc.deno-kcp", Intent: "adds"}}},
+		{ID: "B", Edits: []spec.PlanEdit{{Context: "calc"}}},
+	}
+	views := selectPlanItems([]spec.Plan{subject}, "sc-deno-kcp")
+	if len(views) != 1 || views[0].Item != "A" {
+		t.Fatalf("arch id was not resolved: %+v", views)
+	}
+	if views[0].Phase != plan.ItemPending {
+		t.Errorf("an item without status: got %q, want %q", views[0].Phase, plan.ItemPending)
+	}
+
+	if views := selectPlanItems([]spec.Plan{subject}, "absent"); len(views) != 0 {
+		t.Errorf("a context nobody touches listed %+v", views)
+	}
+}
+
+func TestPlanItemsRendersTheLines(t *testing.T) {
+	views := []planContextItem{{
+		Plan:     "p0011",
+		Item:     "A",
+		Phase:    plan.ItemPending,
+		Summary:  "adds the flag",
+		Previews: []string{"calc: adds 1 requirement"},
+	}, {
+		Plan:  "p0012",
+		Item:  "B",
+		Phase: plan.ItemRealizing,
+	}}
+	out := &bytes.Buffer{}
+	if err := renderPlanContextItems(out, views, "text"); err != nil {
+		t.Fatalf("renderPlanContextItems: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	want := []string{
+		"- p0011/A [Pending] adds the flag",
+		"    calc: adds 1 requirement",
+		"- p0012/B [Realizing]",
+	}
+	if len(lines) != len(want) {
+		t.Fatalf("lines: got %q, want %q", lines, want)
+	}
+	for index, line := range lines {
+		if line != want[index] {
+			t.Errorf("line %d: got %q, want %q", index, line, want[index])
+		}
+	}
+
+	out = &bytes.Buffer{}
+	if err := renderPlanContextItems(out, views, "json"); err != nil {
+		t.Fatalf("renderPlanContextItems json: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{`"plan": "p0011"`, `"item": "A"`, `"phase": "Pending"`, `"previews"`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("json is missing %q in %q", want, text)
+		}
+	}
+	if strings.Contains(text, "Edits") {
+		t.Errorf("json leaked the edits: %q", text)
+	}
+}
+
+func TestPlanItemsRequiresAContext(t *testing.T) {
+	code, _, stderr := runWith("plan", "items")
+	if code != exitUsage || !strings.Contains(stderr, "specctl plan items: --context is required") {
+		t.Errorf("no context: code %d, stderr %q", code, stderr)
+	}
+	code, _, stderr = runWith("plan", "items", "--context", "calc", "extra")
+	if code != exitUsage || !strings.Contains(stderr, "unexpected argument") {
+		t.Errorf("positional: code %d, stderr %q", code, stderr)
+	}
+}
+
 func TestRunPlanVerbs(t *testing.T) {
 	code, _, stderr := runWith("plan")
 	if code != exitUsage || !strings.Contains(stderr, "a verb is required") {
