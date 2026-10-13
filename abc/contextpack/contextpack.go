@@ -165,6 +165,11 @@ type Neighbor struct {
 
 const NoIntentNote = "no intent yet"
 
+// NoOwnerNote is what a pack seeded by a file says when no context observes
+// the file: a file outside every context is not an error, it is a plain fact
+// the task card states.
+const NoOwnerNote = "no context owns this file"
+
 func NeighborCard(neighbor Neighbor) Card {
 	builder := strings.Builder{}
 	intent := firstLine(neighbor.Intent)
@@ -202,6 +207,11 @@ func firstLine(text string) string {
 
 type Task struct {
 	Seed Seed
+
+	// Owner names the context a file seed belongs to, or states plainly that
+	// no context observes it. A context seed has no owner note: the seed is
+	// the context.
+	Owner string
 
 	Verify []string
 
@@ -271,6 +281,9 @@ func Sections(pack Pack) []Section {
 func renderTask(task Task) string {
 	builder := strings.Builder{}
 	fmt.Fprintf(&builder, "seed: %s\n", string(task.Seed.Kind)+":"+task.Seed.Value)
+	if owner := strings.TrimSpace(task.Owner); owner != "" {
+		fmt.Fprintf(&builder, "owner: %s\n", owner)
+	}
 	if len(task.Verify) > 0 {
 		fmt.Fprintf(&builder, "verify: `%s`\n", strings.Join(task.Verify, " "))
 	}

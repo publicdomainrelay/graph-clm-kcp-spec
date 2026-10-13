@@ -3,6 +3,7 @@ package contextpack
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -119,16 +120,22 @@ func ForContext(ctx context.Context, name string, options Options) (contextpack.
 }
 
 func ForFile(ctx context.Context, path string, options Options) (contextpack.Pack, error) {
-	owner, err := ownerOfFile(ctx, options, path)
+	relative := checkoutRelative(options.Repository, path)
+	owner, err := ownerOfFile(ctx, options, relative)
 	if err != nil {
 		return contextpack.Pack{}, err
 	}
+	seed := contextpack.Seed{Kind: contextpack.SeedFile, Value: relative}
+	if seed.Value == "" {
+		seed.Value = path
+	}
 	if owner == "" {
 		return contextpack.Pack{
-			Seed:       contextpack.Seed{Kind: contextpack.SeedFile, Value: path},
+			Seed:       seed,
 			Repository: repositoryCard(options.Repository),
 			Task: contextpack.Task{
-				Seed:       contextpack.Seed{Kind: contextpack.SeedFile, Value: path},
+				Seed:       seed,
+				Owner:      contextpack.NoOwnerNote,
 				Verify:     taskCommands(options),
 				Acceptance: acceptanceCommands(options),
 			},
@@ -140,8 +147,9 @@ func ForFile(ctx context.Context, path string, options Options) (contextpack.Pac
 	if err != nil {
 		return pack, err
 	}
-	pack.Seed = contextpack.Seed{Kind: contextpack.SeedFile, Value: path}
-	pack.Task.Seed = pack.Seed
+	pack.Seed = seed
+	pack.Task.Seed = seed
+	pack.Task.Owner = owner
 	return pack, nil
 }
 
@@ -259,9 +267,15 @@ func contextCard(ctx context.Context, options Options, name string) (contextpack
 	}
 	row := rows[0]
 	builder := strings.Builder{}
-	if intent := value(row, "intent"); intent != "" {
-		fmt.Fprintf(&builder, "intent: %s\n", firstLine(intent))
+	// A context the ingest wrote carries no intent until a person or a summary
+	// drafts one, and an owner card with an empty body is dropped from the
+	// pack whole. The card states the missing intent instead, the way a
+	// neighbour card does, so the context it names is still in the pack.
+	intent := firstLine(value(row, "intent"))
+	if intent == "" {
+		intent = contextpack.NoIntentNote
 	}
+	fmt.Fprintf(&builder, "intent: %s\n", intent)
 	return contextpack.Card{Title: value(row, "name"), Body: builder.String()}, true, nil
 }
 
@@ -400,25 +414,74 @@ func boundFacts(facts []string) []string {
 	return facts
 }
 
-func ownerOfFile(ctx context.Context, options Options, path string) (string, error) {
-	rows, err := options.Reader.Select(ctx, graph.LabelCodeRef, []string{"codegraphId", "filePath"},
-		map[string]any{"filePath": path})
-	if err != nil {
-		return "", fmt.Errorf("contextpack: read code ref %s: %w", path, err)
-	}
-	if len(rows) == 0 {
+// ownerOfFile names the context a file belongs to: the context whose observed
+// files hold the path. Several contexts can observe one file, and the smallest
+// of them owns it, because the smallest is the deepest context and the one
+// whose spec the file belongs to.
+func ownerOfFile(ctx context.Context, options Options, relative string) (string, error) {
+	if relative == "" || options.Cluster == nil {
 		return "", nil
 	}
-	id := int64Value(rows[0]["id"])
-	owners, err := options.Reader.SelectIn(ctx, graph.EdgeReferences, graph.LabelContext, graph.LabelCodeRef, id,
-		graph.LabelProperties[graph.LabelContext])
+	listed, err := options.Cluster.List(ctx, specapi.SystemContextGVR, options.namespace())
 	if err != nil {
-		return "", fmt.Errorf("contextpack: read the owner of %s: %w", path, err)
+		return "", fmt.Errorf("contextpack: read the contexts observing %s: %w", relative, err)
 	}
-	if len(owners) == 0 {
-		return "", nil
+	wanted := ""
+	if options.Repository != nil {
+		wanted = options.Repository.Name
 	}
-	return value(owners[0], "name"), nil
+	owner, size := "", 0
+	for index := range listed.Items {
+		item := &listed.Items[index]
+		if wanted != "" {
+			repository, _, err := unstructured.NestedString(item.Object, "spec", "repository")
+			if err != nil || repository != wanted {
+				continue
+			}
+		}
+		name := item.GetName()
+		files, _, err := unstructured.NestedStringSlice(item.Object, "status", "observed", "files")
+		if err != nil || !containsString(files, relative) {
+			continue
+		}
+		if owner != "" && (len(files) > size || (len(files) == size && name >= owner)) {
+			continue
+		}
+		owner, size = name, len(files)
+	}
+	return owner, nil
+}
+
+// checkoutRelative reads the path the graph holds: observed files are recorded
+// relative to the checkout root, so an absolute path inside the checkout is
+// made relative to it. A path outside the checkout names no observed file.
+func checkoutRelative(repository *spec.Repository, path string) string {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	if cleaned == "." || cleaned == string(filepath.Separator) {
+		return ""
+	}
+	if repository != nil {
+		if root := repository.WorkPath(); root != "" && filepath.IsAbs(cleaned) {
+			relative, err := filepath.Rel(root, cleaned)
+			if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				return ""
+			}
+			return filepath.ToSlash(relative)
+		}
+	}
+	if filepath.IsAbs(cleaned) {
+		return ""
+	}
+	return filepath.ToSlash(cleaned)
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func claimCards(ctx context.Context, options Options, contexts []string) ([]contextpack.Card, error) {
@@ -501,18 +564,6 @@ func value(row map[string]any, key string) string {
 
 func valueOf(row map[string]any, key string) string {
 	return value(row, key)
-}
-
-func int64Value(found any) int64 {
-	switch typed := found.(type) {
-	case int64:
-		return typed
-	case int:
-		return int64(typed)
-	case float64:
-		return int64(typed)
-	}
-	return 0
 }
 
 func firstLine(text string) string {

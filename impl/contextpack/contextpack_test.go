@@ -5,6 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	packabc "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/contextpack"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 )
@@ -130,6 +134,75 @@ func TestANeighborCardStopsAtTheFactLimit(t *testing.T) {
 	}
 	if got := strings.Count(body, "interface "); got != NeighborFactLimit {
 		t.Errorf("the card states %d interfaces, want %d of %d", got, NeighborFactLimit, sent)
+	}
+}
+
+// fakeCluster serves the contexts the owner lookup lists, the way kcp does:
+// each object carries the files its context observed.
+type fakeCluster struct {
+	contexts []map[string]any
+}
+
+func (f fakeCluster) List(ctx context.Context, gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+	list := &unstructured.UnstructuredList{}
+	for _, object := range f.contexts {
+		list.Items = append(list.Items, unstructured.Unstructured{Object: object})
+	}
+	return list, nil
+}
+
+func observedContext(name string, files []string) map[string]any {
+	observed := make([]any, 0, len(files))
+	for _, file := range files {
+		observed = append(observed, file)
+	}
+	return map[string]any{
+		"metadata": map[string]any{"name": name},
+		"status":   map[string]any{"observed": map[string]any{"files": observed}},
+	}
+}
+
+func TestTheOwnerOfAFileIsTheContextThatObservesIt(t *testing.T) {
+	cluster := fakeCluster{contexts: []map[string]any{
+		observedContext(seedContext, []string{"cmd/cmd-calc/main.go"}),
+		observedContext(neighborContext, []string{"calc/calc.go", "calc/mul.go"}),
+		observedContext("calc-test", []string{"calc/calc.go", "calc/calc_test.go", "calc/mul_test.go"}),
+	}}
+	reader := fakeReader{context: map[string]any{"name": neighborContext, "intent": "Arithmetic on two integers."}}
+	pack, err := ForFile(context.Background(), "calc/calc.go", Options{Reader: reader, Cluster: cluster})
+	if err != nil {
+		t.Fatalf("ForFile: %v", err)
+	}
+	if pack.Owner.Title != neighborContext {
+		t.Errorf("owner card = %q, want the deepest context %q", pack.Owner.Title, neighborContext)
+	}
+	if pack.Task.Owner != neighborContext {
+		t.Errorf("the task card names %q as the owner, want %q", pack.Task.Owner, neighborContext)
+	}
+	if pack.Seed.Value != "calc/calc.go" {
+		t.Errorf("the seed reads %q, want the path as the checkout holds it", pack.Seed.Value)
+	}
+	if text, _ := packabc.Render(pack, 0); !strings.Contains(text, "owner: "+neighborContext) {
+		t.Errorf("the task card does not name the owner:\n%s", text)
+	}
+}
+
+func TestAFileNoContextObservesStillRenders(t *testing.T) {
+	cluster := fakeCluster{contexts: []map[string]any{
+		observedContext(neighborContext, []string{"calc/calc.go"}),
+	}}
+	pack, err := ForFile(context.Background(), "cmd/cmd-calc/main.go", Options{Reader: fakeReader{}, Cluster: cluster})
+	if err != nil {
+		t.Fatalf("ForFile: %v", err)
+	}
+	if pack.Owner.Title != "" {
+		t.Errorf("owner card = %q, want none", pack.Owner.Title)
+	}
+	if pack.Task.Owner != packabc.NoOwnerNote {
+		t.Errorf("the task card says %q, want %q", pack.Task.Owner, packabc.NoOwnerNote)
+	}
+	if text, _ := packabc.Render(pack, 0); !strings.Contains(text, packabc.TaskTitle) {
+		t.Errorf("the pack renders no task card:\n%s", text)
 	}
 }
 
