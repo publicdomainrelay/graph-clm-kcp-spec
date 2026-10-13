@@ -38,6 +38,8 @@ const (
 
 	PlansDir = "plans"
 
+	FindingsDir = "findings"
+
 	ChangesDocPath = "CHANGES.md"
 
 	GitAttributesPath = ".gitattributes"
@@ -123,6 +125,10 @@ func PlanPath(plan string) string {
 	return PlansDir + "/" + plan + ".yaml"
 }
 
+func FindingPath(finding string) string {
+	return FindingsDir + "/" + finding + ".yaml"
+}
+
 type Snapshot struct {
 	Repository spec.Repository
 
@@ -133,6 +139,11 @@ type Snapshot struct {
 	// Plans are the plans whose repository this is, written next to the specs
 	// so an approved plan and the item phases it reached survive the cluster.
 	Plans []spec.Plan
+
+	// Findings are the findings whose repository this is, written next to the
+	// plans so the record of what the code or a person observed survives the
+	// cluster.
+	Findings []spec.Finding
 
 	ManagedBudget int
 
@@ -538,6 +549,87 @@ func sortedPlans(plans []spec.Plan) []spec.Plan {
 	return out
 }
 
+// findingDoc is what findings/<name>.yaml holds: the finding's whole spec and a
+// status summary of the state and where it was resolved, so the file moves only
+// when the state or that pointer does.
+type findingDoc struct {
+	APIVersion string `json:"apiVersion"`
+
+	Kind string `json:"kind"`
+
+	Metadata objectMeta `json:"metadata"`
+
+	Spec spec.FindingSpec `json:"spec"`
+
+	Status findingStatusDoc `json:"status"`
+}
+
+type findingStatusDoc struct {
+	State string `json:"state,omitempty"`
+
+	Plan string `json:"plan,omitempty"`
+
+	Item string `json:"item,omitempty"`
+
+	ResolvedCommit string `json:"resolvedCommit,omitempty"`
+}
+
+func findingStatusDocOf(status spec.FindingStatus) findingStatusDoc {
+	return findingStatusDoc{
+		State:          status.State,
+		Plan:           status.Plan,
+		Item:           status.Item,
+		ResolvedCommit: status.ResolvedCommit,
+	}
+}
+
+func (d findingStatusDoc) findingStatus() spec.FindingStatus {
+	return spec.FindingStatus{
+		State:          d.State,
+		Plan:           d.Plan,
+		Item:           d.Item,
+		ResolvedCommit: d.ResolvedCommit,
+	}
+}
+
+func sortedFindings(findings []spec.Finding) []spec.Finding {
+	out := append([]spec.Finding{}, findings...)
+	sort.Slice(out, func(left, right int) bool { return out[left].Name < out[right].Name })
+	return out
+}
+
+// FindingFiles parses the findings a branch tree holds, keyed by name. A file
+// outside findings/ is not a finding and is ignored.
+func FindingFiles(files map[string][]byte) (map[string]spec.Finding, error) {
+	out := map[string]spec.Finding{}
+	for path, data := range files {
+		name, ok := strings.CutPrefix(path, FindingsDir+"/")
+		if !ok || !strings.HasSuffix(name, ".yaml") || strings.Contains(name, "/") {
+			continue
+		}
+		name = strings.TrimSuffix(name, ".yaml")
+		doc := findingDoc{}
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, fmt.Errorf("oabranch: parse %s: %w", path, err)
+		}
+		if doc.Kind != specapi.FindingKind {
+			return nil, fmt.Errorf("oabranch: %s is a %q, want %s", path, doc.Kind, specapi.FindingKind)
+		}
+		finding := spec.Finding{}
+		finding.APIVersion = doc.APIVersion
+		finding.Kind = doc.Kind
+		finding.Name = doc.Metadata.Name
+		if finding.Name == "" {
+			finding.Name = name
+		}
+		finding.Namespace = doc.Metadata.Namespace
+		finding.Spec = doc.Spec
+		finding.Status = doc.Status.findingStatus()
+		out[name] = finding
+	}
+	return out, nil
+}
+
 // PlanFiles parses the plans a branch tree holds, keyed by name. A file outside
 // plans/ is not a plan and is ignored.
 func PlanFiles(files map[string][]byte) (map[string]spec.Plan, error) {
@@ -730,6 +822,23 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 		files[PlanPath(plan.Name)] = data
 	}
 
+	for _, finding := range sortedFindings(snapshot.Findings) {
+		if finding.Name == "" {
+			return nil, fmt.Errorf("oabranch: a finding has no name")
+		}
+		data, err := yamlx.Marshal(findingDoc{
+			APIVersion: specapi.Group + "/" + specapi.Version,
+			Kind:       specapi.FindingKind,
+			Metadata:   objectMeta{Name: finding.Name, Namespace: finding.Namespace},
+			Spec:       finding.Spec,
+			Status:     findingStatusDocOf(finding.Status),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("oabranch: render finding %s: %w", finding.Name, err)
+		}
+		files[FindingPath(finding.Name)] = data
+	}
+
 	vertices, edges := graph.Build(graph.Snapshot{Repository: portable(snapshot.Repository), Contexts: contexts, CodeRefs: refs})
 	vertexLines, err := vertexJSONL(vertices)
 	if err != nil {
@@ -789,6 +898,7 @@ func readme(repository string) string {
 		"| `context/<context>.md` | the context's prose and resolved code references; the spec lives in `specs/` |\n" +
 		"| `changes/<name>.yaml` | each SpecChange: direction, a delta summary (counts and ids), a progress summary, the agent's report and the verify summary |\n" +
 		"| `plans/<name>.yaml` | each Plan: its spec, and each item's phase and commit |\n" +
+		"| `findings/<name>.yaml` | each Finding: its spec, and its state and where it was resolved |\n" +
 		"| `CHANGES.md` | on a feature branch: the requirement delta against the default branch |\n" +
 		"| `graph/*.jsonl` | the context graph, one vertex or edge per line |\n"
 }

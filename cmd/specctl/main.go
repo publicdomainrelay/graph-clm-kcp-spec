@@ -188,6 +188,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runPolicy(rest, stdout, stderr)
 	case "plan":
 		return runPlan(rest, stdout, stderr)
+	case "finding":
+		return runFinding(rest, stdout, stderr)
 	case "kcp":
 		return runKcp(rest, stdout, stderr)
 	case "keeper":
@@ -463,6 +465,10 @@ usage:
       items changed, ls and show read what kcp holds, approve marks a stored
       plan approved, preview prints each item's spec delta against the
       contexts it names and writes nothing
+  specctl finding add|ls|dismiss
+      add records a finding a person found (--summary is required; --source
+      is review, proposal, drift, policy or manual), ls prints the open and
+      planned findings, dismiss marks one dismissed with an optional reason
   specctl eval [--fixtures fixtures] [--agent claude|claude-mod|pi]
       [--scenarios <glob>] [--out docs/eval/run-<date>.md]
       one Repository manifest per fixture, then one spec edit per scenario

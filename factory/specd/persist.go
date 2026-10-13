@@ -54,6 +54,8 @@ func (c *Controller) repositoryOf(ctx context.Context, item key) string {
 		return c.contextRepository(ctx, namespace, change.Spec.SystemContext)
 	case specapi.PlanKind:
 		return c.planPersistRepository(ctx, namespace, item.Name)
+	case specapi.FindingKind:
+		return c.findingPersistRepository(ctx, namespace, item.Name)
 	}
 	return ""
 }
@@ -76,6 +78,28 @@ func (c *Controller) planPersistRepository(ctx context.Context, namespace, name 
 	}
 	if plan.Spec.Repository != "" {
 		return plan.Spec.Repository
+	}
+	return c.onlyRepository(ctx, namespace)
+}
+
+// findingPersistRepository is the repository a finding's status change
+// persists: the repository its spec names, or the only Repository the namespace
+// holds when it names none.
+func (c *Controller) findingPersistRepository(ctx context.Context, namespace, name string) string {
+	object, err := c.client.Get(ctx, specapi.FindingGVR, namespace, name)
+	if err != nil {
+		return ""
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		return ""
+	}
+	finding, ok := typed.(*spec.Finding)
+	if !ok {
+		return ""
+	}
+	if finding.Spec.Repository != "" {
+		return finding.Spec.Repository
 	}
 	return c.onlyRepository(ctx, namespace)
 }

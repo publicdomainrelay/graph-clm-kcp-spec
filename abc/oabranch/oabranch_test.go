@@ -158,6 +158,65 @@ func TestPlanFilesRoundTrip(t *testing.T) {
 	}
 }
 
+func TestFindingFilesRoundTrip(t *testing.T) {
+	snapshot := calcSnapshot()
+	finding := spec.Finding{}
+	finding.Name = "calc-add-drift"
+	finding.Namespace = "default"
+	finding.Spec = spec.FindingSpec{
+		Repository: "calc",
+		Source:     "drift",
+		Ref:        "changes/calc-c2s-1",
+		Context:    "calc",
+		Unit:       "r.add",
+		Summary:    "the code adds with wraparound",
+		Severity:   "warn",
+	}
+	finding.Status = spec.FindingStatus{
+		State:          "Resolved",
+		Plan:           "calc-plan",
+		Item:           "i1",
+		ResolvedCommit: "c0ffee",
+		Message:        "a message a reader should not pay for",
+	}
+	snapshot.Findings = []spec.Finding{finding}
+
+	files, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, ok := files[FindingPath("calc-add-drift")]
+	if !ok {
+		t.Fatalf("the branch has no %s", FindingPath("calc-add-drift"))
+	}
+	for _, want := range []string{"kind: Finding", "name: calc-add-drift", "source: drift", "state: Resolved", "resolvedCommit: c0ffee"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("the finding file lacks %q:\n%s", want, data)
+		}
+	}
+	if strings.Contains(string(data), "a message a reader should not pay for") {
+		t.Errorf("the finding file carries the message:\n%s", data)
+	}
+
+	parsed, err := FindingFiles(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, ok := parsed["calc-add-drift"]
+	if !ok {
+		t.Fatalf("FindingFiles dropped the finding: %v", parsed)
+	}
+	if !reflect.DeepEqual(restored.Spec, finding.Spec) {
+		t.Errorf("spec = %+v, want %+v", restored.Spec, finding.Spec)
+	}
+	if restored.Status.State != "Resolved" || restored.Status.Plan != "calc-plan" || restored.Status.Item != "i1" || restored.Status.ResolvedCommit != "c0ffee" {
+		t.Errorf("status = %+v", restored.Status)
+	}
+	if restored.Status.Message != "" {
+		t.Errorf("the message came back: %q", restored.Status.Message)
+	}
+}
+
 func TestArchYamlDoesNotRepeatTheSpecText(t *testing.T) {
 	before, err := Files(calcSnapshot())
 	if err != nil {

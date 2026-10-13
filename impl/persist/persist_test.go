@@ -837,6 +837,81 @@ func TestPersistAndRestoreCarryThePlans(t *testing.T) {
 	}
 }
 
+func seedFinding(t *testing.T, cluster *fakeCluster, name string) {
+	t.Helper()
+	finding := spec.Finding{}
+	finding.APIVersion = specapi.Group + "/" + specapi.Version
+	finding.Kind = specapi.FindingKind
+	finding.Name = name
+	finding.Namespace = "default"
+	finding.Spec = spec.FindingSpec{
+		Repository: "calc",
+		Source:     "drift",
+		Context:    "calc",
+		Unit:       "r.add",
+		Summary:    "the code adds with wraparound",
+		Severity:   "warn",
+	}
+	finding.Status = spec.FindingStatus{
+		State:          "Planned",
+		Plan:           "calc-plan",
+		Item:           "i1",
+		ResolvedCommit: "c0ffee",
+	}
+	cluster.put(t, &finding)
+}
+
+func TestPersistAndRestoreCarryTheFindings(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	seedFinding(t, cluster, "calc-add-drift")
+	ctx := context.Background()
+
+	result, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Committed {
+		t.Fatalf("result = %+v", result)
+	}
+	document := git(t, repo, "show", oabranch.Branch("calc")+":findings/calc-add-drift.yaml")
+	for _, want := range []string{"kind: Finding", "name: calc-add-drift", "source: drift", "state: Planned", "resolvedCommit: c0ffee"} {
+		if !strings.Contains(document, want) {
+			t.Errorf("the branch finding lacks %q:\n%s", want, document)
+		}
+	}
+
+	empty := newFakeCluster()
+	restored, err := Restore(ctx, RestoreOptions{Cluster: empty, Repository: "calc", RepoPath: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(restored.Findings, ",") != "calc-add-drift" {
+		t.Fatalf("restored findings = %v", restored.Findings)
+	}
+	finding := readRestoredFinding(t, empty, "calc-add-drift")
+	if finding.Spec.Source != "drift" || finding.Spec.Unit != "r.add" || finding.Spec.Severity != "warn" {
+		t.Fatalf("restored spec = %+v", finding.Spec)
+	}
+	if finding.Status.State != "Planned" || finding.Status.Plan != "calc-plan" || finding.Status.Item != "i1" || finding.Status.ResolvedCommit != "c0ffee" {
+		t.Fatalf("restored status = %+v", finding.Status)
+	}
+}
+
+func readRestoredFinding(t *testing.T, cluster *fakeCluster, name string) spec.Finding {
+	t.Helper()
+	object, err := cluster.Get(context.Background(), specapi.FindingGVR, "default", name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return *typed.(*spec.Finding)
+}
+
 func readRestoredPlan(t *testing.T, cluster *fakeCluster, name string) spec.Plan {
 	t.Helper()
 	object, err := cluster.Get(context.Background(), specapi.PlanGVR, "default", name)

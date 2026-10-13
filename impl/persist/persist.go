@@ -472,6 +472,22 @@ func read(ctx context.Context, options Options) (state, error) {
 		}
 		current.snapshot.Plans = append(current.snapshot.Plans, *plan)
 	}
+
+	findings, err := options.Cluster.List(ctx, specapi.FindingGVR, namespace)
+	if err != nil {
+		return state{}, fmt.Errorf("persist: list findings: %w", err)
+	}
+	for index := range findings.Items {
+		typed, err := kcpclient.Typed(&findings.Items[index])
+		if err != nil {
+			return state{}, err
+		}
+		finding, ok := typed.(*spec.Finding)
+		if !ok || (finding.Spec.Repository != "" && finding.Spec.Repository != options.Repository) {
+			continue
+		}
+		current.snapshot.Findings = append(current.snapshot.Findings, *finding)
+	}
 	return current, nil
 }
 
@@ -718,6 +734,8 @@ type RestoreResult struct {
 
 	Plans []string
 
+	Findings []string
+
 	Changes []string
 }
 
@@ -831,6 +849,11 @@ func Restore(ctx context.Context, options RestoreOptions) (RestoreResult, error)
 		return result, err
 	}
 	result.Plans = restoredPlans
+	restoredFindings, err := restoreFindings(ctx, options.Cluster, namespace, files)
+	if err != nil {
+		return result, err
+	}
+	result.Findings = restoredFindings
 	adopted := Result{Branch: result.Branch, Commit: tip, Conflicts: map[string][]string{}}
 	restored, err := restoreChanges(ctx, options.Cluster, namespace, files)
 	if err != nil {
@@ -885,6 +908,69 @@ func restorePlans(ctx context.Context, cluster Cluster, namespace string, files 
 	}
 	sort.Strings(restored)
 	return restored, nil
+}
+
+// restoreFindings rebuilds the findings the branch carries next to the plans,
+// so the record of what the code or a person observed survives a cluster loss.
+// A Finding's status is dropped by the apply, so the state and where it was
+// resolved are patched back afterwards.
+func restoreFindings(ctx context.Context, cluster Cluster, namespace string, files map[string][]byte) ([]string, error) {
+	findings, err := oabranch.FindingFiles(files)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(findings))
+	for name := range findings {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	restored := make([]string, 0, len(names))
+	for _, name := range names {
+		finding := findings[name]
+		finding.APIVersion = specapi.Group + "/" + specapi.Version
+		finding.Kind = specapi.FindingKind
+		finding.Namespace = namespace
+		if finding.Name == "" {
+			finding.Name = name
+		}
+		finding.ResourceVersion = ""
+		finding.ManagedFields = nil
+		status := finding.Status
+		finding.Status = spec.FindingStatus{}
+		object, err := kcpclient.Unstructured(&finding)
+		if err != nil {
+			return nil, fmt.Errorf("persist: encode finding %s: %w", finding.Name, err)
+		}
+		unstructured.RemoveNestedField(object.Object, "status")
+		if _, err := cluster.Apply(ctx, object); err != nil {
+			return nil, fmt.Errorf("persist: apply finding %s: %w", finding.Name, err)
+		}
+		if _, err := cluster.PatchStatus(ctx, specapi.FindingGVR, namespace, finding.Name, findingStatusValue(status)); err != nil {
+			return nil, fmt.Errorf("persist: patch finding %s status: %w", finding.Name, err)
+		}
+		restored = append(restored, finding.Name)
+	}
+	sort.Strings(restored)
+	return restored, nil
+}
+
+// findingStatusValue is the status a restored finding is patched with: the
+// state the branch recorded and where it was resolved.
+func findingStatusValue(status spec.FindingStatus) map[string]any {
+	value := map[string]any{}
+	if status.State != "" {
+		value["state"] = status.State
+	}
+	if status.Plan != "" {
+		value["plan"] = status.Plan
+	}
+	if status.Item != "" {
+		value["item"] = status.Item
+	}
+	if status.ResolvedCommit != "" {
+		value["resolvedCommit"] = status.ResolvedCommit
+	}
+	return value
 }
 
 // planStatusValue is the status a restored plan is patched with: the phase the
