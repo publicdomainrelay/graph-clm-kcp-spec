@@ -240,3 +240,92 @@ per repository, with `dependsOn` across them: the merged view resolves it.
   with the reason;
 - `gofmt`, `go vet ./...`, `go test ./...` and the live suite are green;
 - this file records the dogfood run.
+
+## The dogfood run
+
+The plan was executed as a `Plan` object (`docs/plans/0011-plan.yaml`, applied
+to this repository's own instance) with specd reconciling it and `deepseek-claude`
+through `cc-clm-mod` realizing every spec edit. The lead wrote no code: it
+reviewed every realized commit, sharpened requirements the agent got wrong, and
+fixed defects in the graph and the test harness that the run reported. The run
+took about two and a half hours and produced 18 commits.
+
+Item phases at the end of the run:
+
+| item | phase |
+| --- | --- |
+| authority | Done at ad3356d |
+| plan-resource | Done at ad3356d |
+| finding | Done at ad3356d |
+| finding-cli | Done at ad3356d |
+| finding-persist | Done at ad3356d |
+| agentrun | Done at ad3356d |
+| mod-cli | Done at ad3356d |
+| mod | Done at ad3356d |
+| instances | Done at ad3356d |
+| dogfood | Done after the run was resumed (see below) |
+
+### How the run ended
+
+The executor was stopped by the user while item G was failing. The lead took the
+run over:
+
+- G's requirement (`r.plan-live-e2e`, the declared unit) gained the sentence that
+  names the fix: the approve step applies a minimal object, because a server side
+  apply of an object read back from the server fails with
+  `metadata.managedFields must be nil`;
+- the spec edit was applied with `specctl apply`, specd raised
+  `factory-specd-s2c-0cf36e8cc80e`, and the realize (second attempt, `-a2`)
+  landed `c25ce5a`, which builds the apply object from scratch;
+- the live test then passed.
+
+### Findings
+
+- **F1 - a realize re-indexed without the populate include.** The settle path
+  indexed the whole repository, creating 365 extra contexts and 12 extra
+  summaries. Fixed through specd.
+- **F2 - the realize agent obeyed the repository-wide `CLAUDE.md`**, ran the
+  whole live suite and hit its 15 minute timeout. Worked around with the realize
+  agent's system prompt on the `Repository` object, which now states the verify
+  and acceptance scope and outranks repository-wide instructions.
+- **F3 - a clean acceptance checkout had no `node_modules`**, so the mod step
+  failed; the acceptance now runs `npm ci` (later `npm install`) first.
+- **F4 - acceptance did not rerun when its steps changed**, and re-applying a
+  plan wiped finished items. Fixed through specd.
+- **F5 - a server side apply under the single field manager `human` deleted
+  earlier requirements**, and the realize agent was then asked to remove tests.
+  The run stopped, re-applied the full set, and used one field manager per edit
+  from then on. Removal checks exist only in `specctl clm apply`, so every other
+  write path is unguarded: this is the safety gap plan 0013 item B2 closes.
+- **F6 - the per-instance HydraDB graph rejected a dependency edge to a context
+  outside the populate include**, failing every realize after its commit landed.
+  Reported to the lead and fixed in `abc/graph` (`755d65c`).
+- **F7 - `specctl finding add` crashed with "flag redefined: context"**. Fixed
+  through specd, with a test of every verb's flags.
+- **F8 - after a specd restart, recovery retried an attempt the plan had already
+  replaced**. Stopped by hand. Plan 0013 item F3 gives every change one owner.
+- **F9 - verify ran the whole `test/e2e` package** when G touched it. The realize
+  verify now skips `test/e2e`, and G's acceptance runs only its own test.
+- **F10 - after a rebase, every declared requirement became a `proposal-*`
+  Finding** with a JSON blob as its summary (14 open). Plan 0013 item B4 makes
+  proposals semantic, deduped and readable.
+- **F11 - a transient graph write failed a realize.** The graph-node was in a
+  SlateDB garbage-collection moment and the bolt connection broke
+  (`ConnectivityError: write ... broken pipe`); the change failed and retried as
+  `-a2`, which succeeded. `boltgraph.Connect` retries connecting, but a write in
+  the middle of a run is not retried. Plan 0013 carries this as an item.
+- **F12 - the populate include is what keeps a 5-context instance small.** Every
+  later change to that include (or to the partition) re-scopes the instance, so
+  the scope belongs to the repository, not to one ingest call (plan 0013 item A5).
+
+### Decisions
+
+Decided by the executor, confirmed by the user:
+
+1. `plan apply` resets approval whenever the items change.
+2. A Dismissed finding becomes Resolved when its item is Done.
+3. `plan status --all-instances` copies an item's Done and Failed status into the
+   other instances.
+4. Recorded as a gap, not a decision: a restored plan item loses its applied spec
+   hashes, so a realize that fails after a restore is never marked Failed. Plan
+   0013 item F3 covers it.
