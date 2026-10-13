@@ -14,6 +14,7 @@ import (
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/watch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/agentrun"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphcli"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/summarize"
@@ -170,10 +171,20 @@ func (c *Controller) summarize(ctx context.Context, namespace string, change *sp
 		return summarize.Result{}, fmt.Errorf("specd: %s is not a Repository", systemContext.Spec.Repository)
 	}
 
-	agentFor, err := c.agents.AgentFor(repository.PopulateAgent(), repository, repository.WorkPath())
+	built, err := c.agents.AgentFor(repository.PopulateAgent(), repository, repository.WorkPath())
 	if err != nil {
 		return summarize.Result{}, err
 	}
+	agentFor := agentrun.Wrap(built, agentrun.Options{
+		Cluster:   c.client,
+		Namespace: namespace,
+		Change:    change.Name,
+		Context:   systemContext.Name,
+		Agent:     c.agents.KindFor(repository),
+		Command:   c.agentCommand(repository),
+		OnRun:     func(run string) { c.recordAgentRuns(ctx, namespace, run, change.Name) },
+		Log:       c.log,
+	})
 
 	return summarize.Run(ctx, summarize.Options{
 		Cluster:       c.client,

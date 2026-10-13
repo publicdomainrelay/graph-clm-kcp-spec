@@ -446,6 +446,12 @@ spec:
               x-kubernetes-list-type: map
             agentLog:
               type: string
+            agentRuns:
+              description: the AgentRun objects the agent calls of this change wrote
+              items:
+                type: string
+              type: array
+              x-kubernetes-list-type: set
             attempt:
               description: which attempt of the episode this change is; a manual retry
                 records the number it took

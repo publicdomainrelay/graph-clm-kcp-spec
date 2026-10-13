@@ -383,6 +383,12 @@ spec:
                   type: string
                 message:
                   type: string
+                agentRuns:
+                  type: array
+                  x-kubernetes-list-type: set
+                  description: the AgentRun objects the agent calls of this change wrote
+                  items:
+                    type: string
                 attempt:
                   type: integer
                   description: which attempt of the episode this change is; a manual retry records the number it took

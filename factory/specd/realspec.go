@@ -13,6 +13,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/agentrun"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphcli"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/coverage"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/gitrepo"
@@ -512,13 +513,27 @@ func (c *Controller) batchOptions(ctx context.Context, namespace string, reposit
 	}
 
 	leader := members[0]
+	names := make([]string, 0, len(members))
+	for _, member := range members {
+		names = append(names, member.Name)
+	}
+	agentFor := agentrun.Wrap(built, agentrun.Options{
+		Cluster:   c.client,
+		Namespace: namespace,
+		Change:    leader.Name,
+		Context:   leader.Spec.SystemContext,
+		Agent:     c.agents.KindFor(repository),
+		Command:   c.agentCommand(&scoped),
+		OnRun:     func(run string) { c.recordAgentRuns(ctx, namespace, run, names...) },
+		Log:       c.log,
+	})
 	options := realize.Options{
 		Cluster:       c.client,
 		Namespace:     namespace,
 		Context:       leader.Spec.SystemContext,
 		Change:        leader.Name,
 		Repository:    &scoped,
-		Agent:         built,
+		Agent:         agentFor,
 		WorktreeRoot:  worktreeRoot,
 		Codegraph:     codegraphcli.Runner{Tool: c.opts.Tool, Dir: repoPath},
 		Writer:        c.opts.Graph,

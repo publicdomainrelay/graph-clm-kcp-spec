@@ -460,6 +460,8 @@ type SpecChangeStatus struct {
 	AgentLog       string   `json:"agentLog,omitempty"`
 	Message        string   `json:"message,omitempty"`
 
+	AgentRuns []string `json:"agentRuns,omitempty"`
+
 	Acceptance []AcceptanceResult `json:"acceptance,omitempty"`
 
 	Progress []ProgressRecord `json:"progress,omitempty"`
