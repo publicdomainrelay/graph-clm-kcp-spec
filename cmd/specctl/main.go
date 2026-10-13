@@ -459,13 +459,23 @@ usage:
       tests and the gator suites through the built-in engine, audit a checkout
       or a commit without a controller, apply a library or restore a branch
       into kcp, list what kcp holds and print the last audit
-  specctl plan apply|ls|show|approve|preview|items
+  specctl plan apply|ls|show|approve|preview|items|status
       apply stages one or more Plan documents (-f <file|->, - reads stdin)
       without approving them and resets the approval of a stored plan whose
       items changed, ls and show read what kcp holds, approve marks a stored
       plan approved, preview prints each item's spec delta against the
       contexts it names and writes nothing, and items --context <name> lists
       the unfinished items of every live plan that touch that context
+  specctl plan apply -f <file|-> --all-instances
+      apply the plans to every instance whose kcp is ready, printing
+      <repository>@<branch>: plan <name> applied per instance; one instance
+      failing is reported and the rest still get the plans
+  specctl plan status <name> [--all-instances] [-o text|json]
+      one row per item per instance: ITEM REPOSITORY PHASE INSTANCE COMMIT
+      MESSAGE, the phase of an item coming from the instance whose repository
+      owns it and Elsewhere in the others; with --all-instances it also writes
+      every item its owner finished or failed into the status of the instances
+      that show it Elsewhere, so a dependsOn across repositories resolves
   specctl finding add|ls|dismiss
       add records a finding a person found (--summary is required; --source
       is review, proposal, drift, policy or manual), ls prints the open and

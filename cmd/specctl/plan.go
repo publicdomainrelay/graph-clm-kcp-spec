@@ -23,6 +23,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpproc"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/session"
 )
 
@@ -45,6 +46,8 @@ func runPlan(args []string, stdout, stderr io.Writer) int {
 		return runPlanPreview(rest, stdout, stderr)
 	case "items":
 		return runPlanItems(rest, stdout, stderr)
+	case "status":
+		return runPlanStatus(rest, stdout, stderr)
 	}
 	fmt.Fprintf(stderr, "specctl plan: unknown verb %q\n", verb)
 	return exitUsage
@@ -145,6 +148,7 @@ func runPlanApply(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	files := stringsFlag{}
 	fs.Var(&files, "f", "a Plan document file, - for stdin; repeatable")
+	allInstances := fs.Bool("all-instances", false, "apply the plans to every instance whose kcp is ready")
 	options := addGlobals(fs)
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -187,6 +191,10 @@ func runPlanApply(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	if *allInstances {
+		return applyPlanInstances(subjects, options, stdout, stderr)
+	}
+
 	ctx := context.Background()
 	client, err := options.client()
 	if err != nil {
@@ -220,6 +228,110 @@ func runPlanApply(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "plan %s applied (%d items)\n", subject.Name, len(subject.Spec.Items))
 	}
 	return exitOK
+}
+
+// instanceClient builds the client of an instance the caller does not stand
+// in: the record's admin kubeconfig, workspace and namespace.
+func instanceClient(record session.Record) (*kcpclient.Client, error) {
+	return kcpclient.New(kcpclient.Options{
+		Kubeconfig: record.AdminKubeconfig,
+		Workspace:  record.Workspace,
+		Namespace:  record.Namespace,
+	})
+}
+
+// readyInstances is every instance on this machine whose kcp serves requests,
+// as specctl ls checks it, in the order session.List returns them.
+func readyInstances() ([]session.Record, error) {
+	records, err := session.List()
+	if err != nil {
+		return nil, err
+	}
+	out := []session.Record{}
+	for _, record := range records {
+		if kcpproc.Ready(instanceOf(record)) {
+			out = append(out, record)
+		}
+	}
+	return out, nil
+}
+
+// instanceLabel names an instance the way a result line does:
+// <repository>@<branch>.
+func instanceLabel(record session.Record) string {
+	branch := record.Branch
+	if branch == "" {
+		if current, err := session.CurrentBranch(record.Repo); err == nil {
+			branch = current
+		}
+	}
+	return record.Repository + "@" + branch
+}
+
+// applyPlanInstances writes the plans to every instance whose kcp is ready:
+// one instance failing is reported and the rest still get the plans.
+func applyPlanInstances(subjects []spec.Plan, options *globals, stdout, stderr io.Writer) int {
+	name := "specctl plan apply"
+	ctx := context.Background()
+	records, err := readyInstances()
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", name, err)
+		return exitError
+	}
+	if len(records) == 0 {
+		fmt.Fprintf(stderr, "%s: no instance has a ready kcp\n", name)
+		return exitError
+	}
+	failed := false
+	for _, record := range records {
+		label := instanceLabel(record)
+		client, err := instanceClient(record)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: %s: %v\n", name, label, err)
+			failed = true
+			continue
+		}
+		for _, subject := range subjects {
+			if !applyPlanInstance(ctx, client, subject, options.namespace, label, stdout, stderr) {
+				failed = true
+			}
+		}
+	}
+	if failed {
+		return exitError
+	}
+	return exitOK
+}
+
+// applyPlanInstance writes one plan to one instance and reports whether it
+// landed: it resets the approval of a stored plan whose items changed, like
+// the apply that writes the instance the caller stands in.
+func applyPlanInstance(ctx context.Context, client *kcpclient.Client, subject spec.Plan, namespace, label string, stdout, stderr io.Writer) bool {
+	planName := subject.Name
+	stored, err := storedPlan(ctx, client, namespace, planName)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl plan apply: %s: plan %s: %v\n", label, planName, err)
+		return false
+	}
+	reset := approvalReset(stored, subject)
+	subject.SetDefaults()
+	if subject.Namespace == "" {
+		subject.Namespace = namespace
+	}
+	object, err := planObject(subject)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl plan apply: %s: plan %s: %v\n", label, planName, err)
+		return false
+	}
+	if _, err := client.ServerSideApply(ctx, object, "specctl-plan"); err != nil {
+		fmt.Fprintf(stderr, "specctl plan apply: %s: plan %s: %v\n", label, planName, err)
+		return false
+	}
+	if reset {
+		fmt.Fprintln(stdout, "approval reset: the items changed")
+	}
+	fmt.Fprintf(stdout, "%s: plan %s applied\n", label, planName)
+	return true
 }
 
 func runPlanLs(args []string, stdout, stderr io.Writer) int {
@@ -579,6 +691,315 @@ func runPlanItems(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if err := renderPlanContextItems(stdout, views, *output); err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", name, err)
+		return exitUsage
+	}
+	return exitOK
+}
+
+// instancePlan is one instance's view of a plan: the record the plan was read
+// from and the plan itself.
+type instancePlan struct {
+	Record session.Record
+	Plan   spec.Plan
+}
+
+// planStatusRow is one row of "plan status": an item as one instance shows
+// it, with the repository of the instance that owns it.
+type planStatusRow struct {
+	Item       string `json:"item"`
+	Repository string `json:"repository"`
+	Phase      string `json:"phase"`
+	Instance   string `json:"instance"`
+	Commit     string `json:"commit,omitempty"`
+	Message    string `json:"message,omitempty"`
+}
+
+// planStatusWrite is one status patch the merge asks for: the instance to
+// patch, the plan it holds and the status items to write there.
+type planStatusWrite struct {
+	Instance  session.Record
+	Namespace string
+	Plan      string
+	Items     []spec.PlanItemStatus
+}
+
+// planStatusKey names an instance for the map that finds its client, so two
+// instances that share a branch stay apart.
+func planStatusKey(record session.Record) string {
+	return record.Repo + "|" + record.Repository + "|" + record.Branch
+}
+
+// mergePlanStatus merges the views of a plan into one row per item per
+// instance and the status writes the merge asks for. The phase of an item is
+// the one the instance whose repository owns it recorded (item.Repository,
+// else the plan's repository), Elsewhere in the instances that do not own it,
+// and what an instance recorded when no view owns the item at all; an item
+// nothing owns and nothing recorded shows "-". Every item its owner finished
+// or failed is written into the status of the instances that show it
+// Elsewhere, so a dependsOn across repositories resolves.
+func mergePlanStatus(views []instancePlan) ([]planStatusRow, []planStatusWrite) {
+	ordered := append([]instancePlan{}, views...)
+	sort.SliceStable(ordered, func(left, right int) bool {
+		if ordered[left].Record.Repository != ordered[right].Record.Repository {
+			return ordered[left].Record.Repository < ordered[right].Record.Repository
+		}
+		return ordered[left].Record.Branch < ordered[right].Record.Branch
+	})
+
+	items := []spec.PlanItem{}
+	owner := map[string]string{}
+	for _, view := range ordered {
+		for _, item := range view.Plan.Spec.Items {
+			if _, seen := owner[item.ID]; !seen {
+				items = append(items, item)
+			}
+			if owner[item.ID] != "" {
+				continue
+			}
+			repository := item.Repository
+			if repository == "" {
+				repository = view.Plan.Spec.Repository
+			}
+			if repository == "" {
+				repository = view.Record.Repository
+			}
+			owner[item.ID] = repository
+		}
+	}
+
+	carries := func(view instancePlan, id string) bool {
+		for _, item := range view.Plan.Spec.Items {
+			if item.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	viewOf := func(repository string) int {
+		if repository == "" {
+			return -1
+		}
+		for index, view := range ordered {
+			if view.Record.Repository == repository {
+				return index
+			}
+		}
+		return -1
+	}
+
+	rows := []planStatusRow{}
+	for _, item := range items {
+		repository := owner[item.ID]
+		index := viewOf(repository)
+		shown := repository
+		if shown == "" {
+			shown = "-"
+		}
+		for at, view := range ordered {
+			if !carries(view, item.ID) {
+				continue
+			}
+			status, _ := view.Plan.ItemStatus(item.ID)
+			phase := status.Phase
+			if index >= 0 && at != index {
+				phase = plan.ItemElsewhere
+			}
+			if phase == "" {
+				phase = "-"
+			}
+			rows = append(rows, planStatusRow{
+				Item:       item.ID,
+				Repository: shown,
+				Phase:      phase,
+				Instance:   view.Record.Repository,
+				Commit:     planCommit(status.Commit),
+				Message:    status.Message,
+			})
+		}
+	}
+
+	writes := []planStatusWrite{}
+	for _, item := range items {
+		index := viewOf(owner[item.ID])
+		if index < 0 {
+			continue
+		}
+		owned, _ := ordered[index].Plan.ItemStatus(item.ID)
+		if owned.Phase != plan.ItemDone && owned.Phase != plan.ItemFailed {
+			continue
+		}
+		for at, view := range ordered {
+			if at == index || !carries(view, item.ID) {
+				continue
+			}
+			recorded, _ := view.Plan.ItemStatus(item.ID)
+			if recorded.Phase != plan.ItemElsewhere {
+				continue
+			}
+			writes = append(writes, planStatusWrite{
+				Instance:  view.Record,
+				Namespace: view.Plan.Namespace,
+				Plan:      view.Plan.Name,
+				Items: mergePlanItemStatus(view.Plan.Status.Items, spec.PlanItemStatus{
+					ID:      item.ID,
+					Phase:   owned.Phase,
+					Commit:  owned.Commit,
+					Message: owned.Phase + " in " + owner[item.ID],
+				}),
+			})
+		}
+	}
+	return rows, writes
+}
+
+// mergePlanItemStatus replaces the entry of one item in a plan status the way
+// the merge patches it: the phase, the commit and the message change, the
+// other entries and the other fields of the entry stay.
+func mergePlanItemStatus(items []spec.PlanItemStatus, set spec.PlanItemStatus) []spec.PlanItemStatus {
+	out := append([]spec.PlanItemStatus{}, items...)
+	for index := range out {
+		if out[index].ID != set.ID {
+			continue
+		}
+		out[index].Phase = set.Phase
+		out[index].Commit = set.Commit
+		out[index].Message = set.Message
+		return out
+	}
+	return append(out, set)
+}
+
+// renderPlanStatus writes the merged rows: one line per item per instance.
+func renderPlanStatus(out io.Writer, rows []planStatusRow, format string) error {
+	switch format {
+	case "json":
+		data, err := json.MarshalIndent(rows, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(out, string(data))
+		return nil
+	case "text", "":
+	default:
+		return fmt.Errorf("unknown output format %q", format)
+	}
+	table := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
+	fmt.Fprintln(table, "ITEM\tREPOSITORY\tPHASE\tINSTANCE\tCOMMIT\tMESSAGE")
+	for _, row := range rows {
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\n", row.Item, row.Repository, row.Phase, row.Instance, row.Commit, row.Message)
+	}
+	return table.Flush()
+}
+
+// instancePlans reads one plan from the instance the caller stands in, or
+// from every ready instance when all is set. Each view carries the record the
+// plan came from and its client, and an instance that does not hold the plan
+// is left out.
+func instancePlans(ctx context.Context, planName string, options *globals, all bool) ([]instancePlan, []*kcpclient.Client, error) {
+	if !all {
+		client, err := options.client()
+		if err != nil {
+			return nil, nil, err
+		}
+		subject, err := storedPlan(ctx, client, options.namespace, planName)
+		if err != nil {
+			return nil, nil, err
+		}
+		if subject == nil {
+			return nil, nil, nil
+		}
+		record := session.Record{Repository: subject.Spec.Repository}
+		if local, ok := session.ForDir("."); ok {
+			record = local
+		}
+		return []instancePlan{{Record: record, Plan: *subject}}, []*kcpclient.Client{client}, nil
+	}
+
+	records, err := readyInstances()
+	if err != nil {
+		return nil, nil, err
+	}
+	views := []instancePlan{}
+	clients := []*kcpclient.Client{}
+	for _, record := range records {
+		client, err := instanceClient(record)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", instanceLabel(record), err)
+		}
+		namespace := record.Namespace
+		if namespace == "" {
+			namespace = options.namespace
+		}
+		subject, err := storedPlan(ctx, client, namespace, planName)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", instanceLabel(record), err)
+		}
+		if subject == nil {
+			continue
+		}
+		views = append(views, instancePlan{Record: record, Plan: *subject})
+		clients = append(clients, client)
+	}
+	return views, clients, nil
+}
+
+// writePlanStatus patches the status the merge asks for, one plan per
+// instance: a Done or Failed item of its owner lands in the status of the
+// instances that show it Elsewhere.
+func writePlanStatus(ctx context.Context, views []instancePlan, clients []*kcpclient.Client, writes []planStatusWrite) error {
+	byInstance := map[string]*kcpclient.Client{}
+	for index, view := range views {
+		byInstance[planStatusKey(view.Record)] = clients[index]
+	}
+	for _, write := range writes {
+		client := byInstance[planStatusKey(write.Instance)]
+		if client == nil {
+			continue
+		}
+		status := map[string]any{"items": write.Items}
+		if _, err := client.PatchStatus(ctx, specapi.PlanGVR, write.Namespace, write.Plan, status); err != nil {
+			return fmt.Errorf("%s: plan %s: %w", instanceLabel(write.Instance), write.Plan, err)
+		}
+	}
+	return nil
+}
+
+func runPlanStatus(args []string, stdout, stderr io.Writer) int {
+	name := "specctl plan status"
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	output := fs.String("o", "text", "text or json")
+	allInstances := fs.Bool("all-instances", false, "read the plan from every instance whose kcp is ready")
+	options := addGlobals(fs)
+	positional, err := parseInterspersed(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(positional) != 1 {
+		fmt.Fprintf(stderr, "%s: one plan name is required\n", name)
+		return exitUsage
+	}
+	planName := positional[0]
+
+	ctx := context.Background()
+	views, clients, err := instancePlans(ctx, planName, options, *allInstances)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", name, err)
+		return exitError
+	}
+	if len(views) == 0 {
+		fmt.Fprintf(stderr, "%s: no plan %q\n", name, planName)
+		return exitError
+	}
+	rows, writes := mergePlanStatus(views)
+	if *allInstances {
+		if err := writePlanStatus(ctx, views, clients, writes); err != nil {
+			fmt.Fprintf(stderr, "%s: %v\n", name, err)
+			return exitError
+		}
+	}
+	if err := renderPlanStatus(stdout, rows, *output); err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", name, err)
 		return exitUsage
 	}

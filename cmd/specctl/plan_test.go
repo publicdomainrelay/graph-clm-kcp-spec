@@ -7,6 +7,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/plan"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/session"
 )
 
 const twoPlanDocuments = `
@@ -331,7 +332,7 @@ func TestRunPlanVerbs(t *testing.T) {
 	if code != exitUsage || !strings.Contains(stderr, "unknown verb") {
 		t.Errorf("unknown verb: code %d, stderr %q", code, stderr)
 	}
-	for _, verb := range []string{"show", "approve", "preview"} {
+	for _, verb := range []string{"show", "approve", "preview", "status"} {
 		code, _, stderr = runWith("plan", verb)
 		if code != exitUsage || !strings.Contains(stderr, "specctl plan "+verb+": one plan name is required") {
 			t.Errorf("%s without a name: code %d, stderr %q", verb, code, stderr)
@@ -340,5 +341,159 @@ func TestRunPlanVerbs(t *testing.T) {
 	code, _, stderr = runWith("plan", "apply")
 	if code != exitUsage || !strings.Contains(stderr, "specctl plan apply: -f is required") {
 		t.Errorf("apply without a file: code %d, stderr %q", code, stderr)
+	}
+}
+
+// planStatusView is one instance's view of a plan, the way plan status reads
+// it: the record of the instance and the plan itself.
+func planStatusView(repository, branch string, subject spec.Plan) instancePlan {
+	return instancePlan{
+		Record: session.Record{Repository: repository, Branch: branch},
+		Plan:   subject,
+	}
+}
+
+// planStatusPlan builds the plan an instance holds: one repository, the items
+// and the status entries the test names.
+func planStatusPlan(repository string, items []spec.PlanItem, statuses []spec.PlanItemStatus) spec.Plan {
+	subject := spec.Plan{
+		Spec:   spec.PlanSpec{Repository: repository, Items: items},
+		Status: spec.PlanStatus{Items: statuses},
+	}
+	subject.Name = "p0011"
+	subject.Namespace = "team"
+	return subject
+}
+
+// planStatusRowsOf picks the rows one instance shows.
+func planStatusRowsOf(rows []planStatusRow, instance string) []planStatusRow {
+	out := []planStatusRow{}
+	for _, row := range rows {
+		if row.Instance == instance {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+// TestPlanStatusMergeOwnerPhase: an item owned by repository b shows b's
+// phase, and the instances that do not own it show Elsewhere.
+func TestPlanStatusMergeOwnerPhase(t *testing.T) {
+	items := []spec.PlanItem{{ID: "A", Repository: "b", Summary: "act on b"}}
+	views := []instancePlan{
+		planStatusView("a", "main", planStatusPlan("a", items, []spec.PlanItemStatus{
+			{ID: "A", Phase: plan.ItemElsewhere, Message: "the instance of b acts on this item"},
+		})),
+		planStatusView("b", "main", planStatusPlan("a", items, []spec.PlanItemStatus{
+			{ID: "A", Phase: plan.ItemDone, Commit: "abcdef0123456789"},
+		})),
+	}
+
+	rows, _ := mergePlanStatus(views)
+	if len(rows) != 2 {
+		t.Fatalf("rows: got %d, want one per item per instance", len(rows))
+	}
+	owner := planStatusRowsOf(rows, "b")
+	if len(owner) != 1 {
+		t.Fatalf("b rows: got %d, want 1", len(owner))
+	}
+	if owner[0].Phase != plan.ItemDone || owner[0].Repository != "b" || owner[0].Item != "A" {
+		t.Errorf("owner row: %+v, want item A of b in phase Done", owner[0])
+	}
+	if owner[0].Commit != "abcdef012345" {
+		t.Errorf("owner commit: got %q, want the first 12 characters", owner[0].Commit)
+	}
+	other := planStatusRowsOf(rows, "a")
+	if len(other) != 1 {
+		t.Fatalf("a rows: got %d, want 1", len(other))
+	}
+	if other[0].Phase != plan.ItemElsewhere || other[0].Repository != "b" {
+		t.Errorf("non-owner row: %+v, want Elsewhere with repository b", other[0])
+	}
+}
+
+// TestPlanStatusMergeWritesDoneIntoElsewhere: a Done item of b lands in the
+// status of a, which shows it Elsewhere, with the message that names where it
+// finished.
+func TestPlanStatusMergeWritesDoneIntoElsewhere(t *testing.T) {
+	items := []spec.PlanItem{{ID: "A", Repository: "b"}}
+	views := []instancePlan{
+		planStatusView("a", "main", planStatusPlan("a", items, []spec.PlanItemStatus{
+			{ID: "A", Phase: plan.ItemElsewhere},
+			{ID: "B", Phase: plan.ItemPending},
+		})),
+		planStatusView("b", "main", planStatusPlan("a", items, []spec.PlanItemStatus{
+			{ID: "A", Phase: plan.ItemDone, Commit: "abcdef0123456789"},
+		})),
+	}
+
+	_, writes := mergePlanStatus(views)
+	if len(writes) != 1 {
+		t.Fatalf("writes: got %d, want one for the instance that shows Elsewhere", len(writes))
+	}
+	write := writes[0]
+	if write.Instance.Repository != "a" || write.Plan != "p0011" || write.Namespace != "team" {
+		t.Errorf("write target: %+v, want plan p0011 of a", write)
+	}
+	if len(write.Items) != 2 {
+		t.Fatalf("items: got %d, want the two a holds", len(write.Items))
+	}
+	if write.Items[0].ID != "A" || write.Items[0].Phase != plan.ItemDone || write.Items[0].Commit != "abcdef0123456789" {
+		t.Errorf("written item: %+v, want Done with b's commit", write.Items[0])
+	}
+	if write.Items[0].Message != "Done in b" {
+		t.Errorf("message: got %q, want %q", write.Items[0].Message, "Done in b")
+	}
+	if write.Items[1].Phase != plan.ItemPending {
+		t.Errorf("the other entry changed: %+v", write.Items[1])
+	}
+}
+
+// TestPlanStatusMergeNoOwner: an item no instance owns shows "-", and nothing
+// is written for it.
+func TestPlanStatusMergeNoOwner(t *testing.T) {
+	items := []spec.PlanItem{{ID: "A", Summary: "nobody acts"}}
+	views := []instancePlan{
+		planStatusView("a", "main", planStatusPlan("c", items, nil)),
+		planStatusView("b", "main", planStatusPlan("c", items, nil)),
+	}
+
+	rows, writes := mergePlanStatus(views)
+	if len(rows) != 2 {
+		t.Fatalf("rows: got %d, want one per instance", len(rows))
+	}
+	for _, row := range rows {
+		if row.Phase != "-" {
+			t.Errorf("row %+v: phase %q, want -", row, row.Phase)
+		}
+		if row.Repository != "c" {
+			t.Errorf("row %+v: repository %q, want c", row, row.Repository)
+		}
+	}
+	if len(writes) != 0 {
+		t.Errorf("writes: got %d, want none for an item nothing owns", len(writes))
+	}
+}
+
+// TestPlanStatusMergeKeepsAFinishedItem: an item the instance holds itself is
+// not written where the instance already recorded its own phase.
+func TestPlanStatusMergeKeepsAFinishedItem(t *testing.T) {
+	items := []spec.PlanItem{{ID: "A"}}
+	views := []instancePlan{
+		planStatusView("a", "main", planStatusPlan("a", items, []spec.PlanItemStatus{
+			{ID: "A", Phase: plan.ItemPending},
+		})),
+		planStatusView("b", "main", planStatusPlan("a", items, []spec.PlanItemStatus{
+			{ID: "A", Phase: plan.ItemDone, Commit: "abcdef0123456789"},
+		})),
+	}
+
+	rows, writes := mergePlanStatus(views)
+	if len(writes) != 0 {
+		t.Errorf("writes: got %d, want none where a does not show Elsewhere", len(writes))
+	}
+	owner := planStatusRowsOf(rows, "a")
+	if len(owner) != 1 || owner[0].Phase != plan.ItemPending {
+		t.Errorf("owner rows: %+v, want a Pending row of a", owner)
 	}
 }
