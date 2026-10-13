@@ -20,7 +20,7 @@ import (
 
 const removalRepository = "removal-calc"
 
-// TestRemovalGuardHoldsAServerSideApplyRemoval is plan 0013 item B2: a server
+// TestRemovalGuardHoldsAServerSideApplyRemoval is: a server
 // side apply that drops a requirement the spec holds is not realized. The
 // change stays Pending with the held message and a Proposal naming the unit, so
 // no agent is asked to delete the code that implemented it.

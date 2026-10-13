@@ -58,7 +58,7 @@ func fixtureObjects(t *testing.T, dir, repository string, library policy.Library
 
 // TestViolatingVariantsDeny runs the adversarial variants of review 0003, one
 // realistic violation each, against the library the compliant fixture is clean
-// under. Every one of them must deny (plan 0010 R9).
+// under. Every one of them must deny.
 func TestViolatingVariantsDeny(t *testing.T) {
 	if _, err := exec.LookPath("codegraph"); err != nil {
 		t.Skip("codegraph is not on PATH")

@@ -75,7 +75,7 @@ func applicationPartitions(t *testing.T, repoPath string, facts specsync.Facts) 
 	return partitions, orchestrators
 }
 
-// TestACommandPartitionIsAnOrchestrator pins plan 0013 A3: one partition per Go
+// TestACommandPartitionIsAnOrchestrator pins: one partition per Go
 // command and per TypeScript entry, each dependsOn the partitions its
 // production imports resolve to, and the partitions a command imports carry it
 // as their orchestrator.

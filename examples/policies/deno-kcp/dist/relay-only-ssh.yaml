@@ -10,7 +10,7 @@ metadata:
       driverIdentifiers names the example runner the tests drive.'
     specs.publicdomainrelay.dev/level: MUST
     specs.publicdomainrelay.dev/origin: hydradb examples/policies/atproto-market relay-only-ssh
-      (plan 0008 phase B, P-relay)
+      (P-relay)
     specs.publicdomainrelay.dev/severity: error
     specs.publicdomainrelay.dev/title: integration tests ssh to a guest only over
       the relay

@@ -213,7 +213,7 @@ func TestDefaultSlugIsKebabAndBounded(t *testing.T) {
 	}
 }
 
-// TestProposeInteractionsDropsAnUnknownPeer pins plan 0010 D4: a flow whose
+// TestProposeInteractionsDropsAnUnknownPeer pins: a flow whose
 // target role is unknown names no context, so the proposal must drop it rather
 // than emit `peer: unknown`.
 func TestProposeInteractionsDropsAnUnknownPeer(t *testing.T) {
@@ -268,7 +268,7 @@ func TestRepositoryForWorktreeUsesTheWorktreeNotTheWorkingDirectory(t *testing.T
 	}
 }
 
-// TestPolicyTestWithGatorRefusesAnEmptySuiteSet pins plan 0010 D4: a --gator
+// TestPolicyTestWithGatorRefusesAnEmptySuiteSet pins: a --gator
 // run with no suites must say so, not pass silently.
 func TestPolicyTestWithGatorRefusesAnEmptySuiteSet(t *testing.T) {
 	source := filepath.Join("..", "..", "examples", "policies", "market-mini")

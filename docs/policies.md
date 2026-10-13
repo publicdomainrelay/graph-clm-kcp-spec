@@ -134,7 +134,7 @@ Metadata lives in the ConstraintTemplate annotations, not in the rule body:
 A `Repository` may cap enforcement during a migration, and a single gate
 decision can be waived with `specctl accept --override policy:<constraint>`.
 That decision lives in `abc/policy` (`policy.Decide`) and the kcp gate applies
-it (plan 0008 phase C): the audit records the violations,
+it: the audit records the violations,
 `Repository.status.policy` totals them, and a `deny` in a realize fails the
 change with reason `PolicyDenied`.
 
@@ -179,7 +179,7 @@ spec:
 ```
 
 - `effects` is computed from the nodes, the file texts and the classifier
-  packs (`impl/effects`; see plan 0009 G1), not read from the index. Every
+  packs (`impl/effects`), not read from the index. Every
   path that evaluates policies adds it to the same graph: `specctl policy
   eval`, the specd audit and the realize gate. The packs a worktree adds under
   its own `classifiers/` directory are loaded beside the embedded ones.
@@ -1055,7 +1055,7 @@ the three real `--validate=false` lines asserts 0 violations.
 
 The two `SpecChange` templates are exercised by their gator suites here
 (`specctl policy test --dir policies/library --gator`), and run against a live
-`SpecChange` where the gate reviews one — plan 0008 phase C.
+`SpecChange` where the gate reviews one.
 
 ## lib.specd reference
 
@@ -1450,7 +1450,7 @@ config file or environment variable to index bodies (`init`, `index` and `sync`
 take only `--force`, `--quiet`, `--verbose`, `--yes`), and its kind list has no
 closure or expression kind. The workaround a pack has is to move the transport
 into a named declaration the test calls, so the effect gets a real node (see
-plan 0009 G4 gap (a)). The same granularity caveat appears under "The
+The same granularity caveat appears under "The
 CodeGraph" above: a callback is part of its enclosing node's text.
 
 ### Effect recall is measured against hand labels
@@ -1473,7 +1473,7 @@ classified at all here. A policy that must catch every exec of a transport
 cannot rest on the classifier alone; the calibration commands and the label
 file are `scripts/effects-recall.py` and
 `testdata/effects-recall/atproto-market-master.yaml`, and the reading is
-recorded in plan 0009 G2.
+recorded with the pack.
 
 The same script measures the alias cases on their own labels
 (`testdata/effects-recall/effects-aliases.yaml`, over
@@ -1512,7 +1512,7 @@ treats that as a violation of its require rather than as a separate warning.
 ### A direct dial the proxy command hides
 
 `rfp-relay-only-guest-ssh` denies an ssh outside the guest role whose own
-arguments reach the guest and carry no relay (plan 0010 U2, review 0006 N1 and
+arguments reach the guest and carry no relay (and
 N4). A relay is anything that is not a direct connection, so any proxy the rule
 cannot read as a dial to the guest passes: the org relay, `fedproxy`,
 `websocat`, `iroh`, `dumbpipe`, `cloudflared`, an injected transport object, an
@@ -1709,6 +1709,6 @@ that difference in the rule, or be waived constraint-wide knowing the scope.
 `examples/policies/deno-kcp` is the second bound library: the seven library
 templates plus `relay-only-ssh` re-bound to deno-kcp's roles and vocabulary
 (host = the DenoPod provider, guest = the DenoPod workload manifests, requester
-and relay = target roles, test = the integration harness). It is plan 0008
+and relay = target roles, test = the integration harness).
 phase H's baseline library; `docs/examples/deno-kcp-pr.md` records pull request
 #1's evaluation against it.

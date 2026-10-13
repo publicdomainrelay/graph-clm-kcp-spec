@@ -130,7 +130,7 @@ func TestIsPolicyPath(t *testing.T) {
 	}
 }
 
-// TestReadRawReadsABranchWhoseImportsDoNotResolve pins plan 0010 D1: a branch
+// TestReadRawReadsABranchWhoseImportsDoNotResolve pins: a branch
 // that holds the pack import and not yet the roles the pack requires is
 // readable raw, which is the branch a binding generation starts from.
 func TestReadRawReadsABranchWhoseImportsDoNotResolve(t *testing.T) {

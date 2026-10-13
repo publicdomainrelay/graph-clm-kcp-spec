@@ -16,7 +16,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 )
 
-// The realize gate is change-scoped (plan 0010 S6): a violation the base commit
+// The realize gate is change-scoped: a violation the base commit
 // already carried is reported as inherited and does not block the change. The
 // fixture is the violating market-mini, whose bidder already emits vm.onNetwork
 // from the provisioning lifecycle and already reaches into the guest for the

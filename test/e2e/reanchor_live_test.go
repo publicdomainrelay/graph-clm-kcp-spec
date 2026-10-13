@@ -17,7 +17,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 )
 
-// Plan 0007 item 6 (plan 0005 A, plan 0004 E2): CodeGraph ids are
+// CodeGraph ids are
 // line-sensitive, so a realize that inserts lines above a symbol moves the id
 // of every symbol below it. The re-anchoring ingest runs must keep an untouched
 // requirement's code ref resolving, and the context CodeSynced, in a Go package

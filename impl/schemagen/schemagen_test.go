@@ -153,7 +153,7 @@ func TestName(t *testing.T) {
 	}
 }
 
-// TestDerivedCRDsAreStructural pins plan 0010 D6: ArchitectureModel, CodeGraph
+// TestDerivedCRDsAreStructural pins: ArchitectureModel, CodeGraph
 // and CodeDiff have CRDs a cluster and gator can hold, even though specd, not
 // an in-cluster Gatekeeper, evaluates them.
 func TestDerivedCRDsAreStructural(t *testing.T) {

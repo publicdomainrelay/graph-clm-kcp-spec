@@ -17,7 +17,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 )
 
-// The fix path of plan 0010 U4: `policy fix` turns a violation into a
+// The fix path: `policy fix` turns a violation into a
 // SpecChange request whose prompt is what a realize hands to its agent. This
 // drives the whole path -- the request, the scripted agent that acts on it,
 // and the gate again -- and proves the violation is gone.

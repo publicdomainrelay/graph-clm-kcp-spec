@@ -7,7 +7,7 @@ metadata:
       every event.emit of the network-report class in a host component must be triggered
       by the http.handle of the report route'
     specs.publicdomainrelay.dev/level: MUST
-    specs.publicdomainrelay.dev/origin: plan 0009 G4, pack rfp-guest-isolation v1
+    specs.publicdomainrelay.dev/origin: pack rfp-guest-isolation v1
     specs.publicdomainrelay.dev/title: the guest reports its network information and
       that report drives the host's emission
   name: rfpguestreportsnetwork

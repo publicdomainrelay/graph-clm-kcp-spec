@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# The "find existing violations and decide" workflow of plan 0010 U4, end to
+# The "find existing violations and decide" workflow, end to
 # end. Two decisions are shown:
 #
 #   1. on fixtures/market-mini/violating -- list the findings, turn the

@@ -335,7 +335,7 @@ spec:
 	}
 }
 
-// TestCheckGeneratedRefusesARuleThatReadsAHint pins plan 0010 D2: a portable
+// TestCheckGeneratedRefusesARuleThatReadsAHint pins: a portable
 // rule may not depend on a repository-specific target hint -- the getNodeId
 // verb, or a repository's own classifier pack -- because a second repository
 // has neither.
