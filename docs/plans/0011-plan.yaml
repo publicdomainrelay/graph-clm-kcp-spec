@@ -369,7 +369,17 @@ spec:
                 test applies, and whose acceptance is [go, test, ./...]. It
                 waits for and asserts, in order: plan phase Draft with a
                 preview line starting "calc: " and the calc spec unchanged;
-                after spec.approved=true is applied, item Realizing with
+                then it approves the plan the way "specctl plan approve" does:
+                client.ServerSideApply(object, "specctl-approve") of a minimal
+                *unstructured.Unstructured built in the test that holds only
+                apiVersion, kind Plan, metadata {name, namespace} and spec
+                {approved: true, approvedBy: "e2e"}; it never applies an
+                object read back from the server (kcp rejects one that carries
+                metadata.managedFields). The controller is built like
+                startPlan2bController (Workspace clusterWorkspace(t), Log
+                testLog(t)); a command the test starts (git show) runs with
+                Env testEnviron(t, nil), whose graph namespace is
+                graphNamespaceFor(t). After the approval: item Realizing with
                 appliedSpecHashes.calc set and a SpecToCode change of calc
                 whose spec.toSpecHash equals it; the change Succeeded; the item
                 Done with commit equal to the fixture checkout HEAD and every
