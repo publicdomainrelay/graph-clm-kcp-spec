@@ -49,16 +49,6 @@ type Options struct {
 	Adopt bool
 
 	CodeBranch string
-
-	// Checkout is the name of the checkout that persists. Empty, or the
-	// repository's own name, is a checkout that owns the repository's shared
-	// architecture branch; another name is a worktree or a clone kept under
-	// another name, which owns a branch of its own.
-	Checkout string
-
-	// RestoreBranch names the shared branch this checkout adopts on purpose,
-	// which is how one checkout restores the architecture another one built.
-	RestoreBranch string
 }
 
 type Result struct {
@@ -120,7 +110,7 @@ func Persist(ctx context.Context, options Options) (Result, error) {
 	if codeBranch == "" {
 		codeBranch = current.snapshot.Repository.Spec.Branch
 	}
-	result.Branch = architectureBranch(options, codeBranch, defaultBranch)
+	result.Branch = oabranch.BranchFor(options.Repository, codeBranch, defaultBranch)
 	ref := "refs/heads/" + result.Branch
 	if err := ensureBaseArchitecture(ctx, store, options.Repository, current, codeBranch, defaultBranch); err != nil {
 		return result, err
@@ -228,18 +218,6 @@ func Persist(ctx context.Context, options Options) (Result, error) {
 		return result, err
 	}
 	return result, nil
-}
-
-// architectureBranch is the branch a persist writes to. A branch an operator
-// named wins, then the branch the checkout owns: the repository's shared
-// branch when the checkout is the repository, and the shared branch plus the
-// checkout slug in a worktree or in a clone kept under another name, so two
-// checkouts of one repository never share one architecture branch by accident.
-func architectureBranch(options Options, codeBranch, defaultBranch string) string {
-	if options.RestoreBranch != "" {
-		return options.RestoreBranch
-	}
-	return oabranch.BranchForCheckout(options.Repository, codeBranch, defaultBranch, options.Checkout)
 }
 
 func adopt(ctx context.Context, options Options, store oagit.Store, current state, recorded, tip string, result *Result) error {
@@ -741,16 +719,6 @@ type RestoreOptions struct {
 	Remote string
 
 	CodeBranch string
-
-	// Checkout is the name of the checkout that restores; empty or the
-	// repository's own name looks for the shared branch, another name for the
-	// branch that checkout owns.
-	Checkout string
-
-	// RestoreBranch names one shared branch to restore, whatever this checkout
-	// would own by default. It is how an operator asks for the architecture
-	// another checkout built.
-	RestoreBranch string
 }
 
 type RestoreResult struct {
@@ -785,16 +753,9 @@ func Restore(ctx context.Context, options RestoreOptions) (RestoreResult, error)
 	if codeBranch == "" {
 		codeBranch = store.CurrentBranch(ctx)
 	}
-	candidates := []string{}
-	if options.RestoreBranch != "" {
-		candidates = append(candidates, options.RestoreBranch)
-	} else {
-		candidates = append(candidates, oabranch.BranchForCheckout(options.Repository, codeBranch, defaultBranch, options.Checkout))
-		checkout := oabranch.Slug(options.Checkout)
-		shared := oabranch.Branch(options.Repository)
-		if (checkout == "" || checkout == oabranch.Slug(options.Repository)) && shared != candidates[0] {
-			candidates = append(candidates, shared)
-		}
+	candidates := []string{oabranch.BranchFor(options.Repository, codeBranch, defaultBranch)}
+	if fallback := oabranch.Branch(options.Repository); fallback != candidates[0] {
+		candidates = append(candidates, fallback)
 	}
 	result := RestoreResult{}
 	tip := ""

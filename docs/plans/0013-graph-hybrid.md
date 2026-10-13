@@ -238,3 +238,15 @@ A5 was also verified live on the dogfood instance: it held 375 contexts from an
 older index, and narrowing `Repository.spec.populate.include` to the trees the
 plan edits pruned it to 80 contexts and 81 SystemContexts on the next pass, with
 `status.contexts.total` reporting the new scope.
+
+
+### Item A6 reverted (a limit, with the reason)
+
+`r.architecture-branch-is-owed-by-its-checkout` was realized (461a5e0) and then
+reverted in the same batch's follow-up: giving every checkout whose directory
+name differs from the repository its own architecture branch stops
+`test/e2e/phase13_live_test.go` from restoring a clone from the remote branch,
+which is the feature plan 0002 added. The shared branch stays the default for
+every checkout, and a checkout that wants its own branch names one with
+`specctl up --restore-branch <name>`. Recorded as a limit rather than a done
+item.

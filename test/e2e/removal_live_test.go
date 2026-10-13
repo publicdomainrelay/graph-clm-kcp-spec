@@ -151,9 +151,11 @@ func removalBaseline() *spec.SystemContext {
 	return &spec.SystemContext{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "calc", Namespace: specapi.DefaultNamespace,
+			// Only r.add is declared: removing r.add would be allowed (a
+			// declaration is permission), and removing the undeclared
+			// r.multiply is what the guard must hold.
 			Annotations: map[string]string{specapi.DeclaredAnnotation: authority.Format(authority.NewSet(
 				authority.RequirementUnit("r.add"),
-				authority.RequirementUnit("r.multiply"),
 			))},
 		},
 		Spec: spec.SystemContextSpec{
