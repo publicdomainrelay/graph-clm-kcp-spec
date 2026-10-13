@@ -190,6 +190,8 @@ spec:
                           type: string
                       commit:
                         type: string
+                      acceptanceHash:
+                        type: string
                       acceptance:
                         type: array
                         items:

@@ -353,12 +353,16 @@ func TestFinish(t *testing.T) {
 		{Name: "test", Passed: true},
 		{Name: "lint", Passed: true},
 	}
-	status := Finish(spec.PlanItemStatus{ID: "a", Phase: ItemVerifying}, "head1", passed)
+	hash := AcceptanceHash([]spec.AcceptanceStep{{Name: "test", Command: []string{"go", "test"}}})
+	status := Finish(spec.PlanItemStatus{ID: "a", Phase: ItemVerifying}, "head1", passed, hash)
 	if status.Phase != ItemDone {
 		t.Fatalf("Finish phase = %q, want %q", status.Phase, ItemDone)
 	}
 	if status.Commit != "head1" {
 		t.Fatalf("Finish commit = %q, want %q", status.Commit, "head1")
+	}
+	if status.AcceptanceHash != hash {
+		t.Fatalf("Finish acceptance hash = %q, want %q", status.AcceptanceHash, hash)
 	}
 	if !reflect.DeepEqual(status.Acceptance, passed) {
 		t.Fatalf("Finish acceptance = %+v, want %+v", status.Acceptance, passed)
@@ -369,7 +373,7 @@ func TestFinish(t *testing.T) {
 		{Name: "lint", Passed: false},
 		{Name: "policy", Passed: false},
 	}
-	status = Finish(spec.PlanItemStatus{ID: "a", Phase: ItemVerifying}, "head2", failed)
+	status = Finish(spec.PlanItemStatus{ID: "a", Phase: ItemVerifying}, "head2", failed, hash)
 	if status.Phase != ItemVerifying {
 		t.Fatalf("Finish phase = %q, want the incoming %q", status.Phase, ItemVerifying)
 	}
@@ -622,7 +626,7 @@ func TestEvaluateVerifying(t *testing.T) {
 	t.Run("acceptance does not rerun at the same commit", func(t *testing.T) {
 		settled := plan
 		settled.Status.Items = []spec.PlanItemStatus{
-			{ID: "a", Phase: ItemVerifying, Commit: "head1"},
+			{ID: "a", Phase: ItemVerifying, Commit: "head1", AcceptanceHash: AcceptanceHash(acceptance)},
 			{ID: "b", Phase: ItemVerifying},
 		}
 		got := Evaluate(Input{
@@ -707,5 +711,95 @@ func TestEvaluatePlansAndResolvesFindings(t *testing.T) {
 	}
 	if _, ok := got.Resolved["f2"]; ok {
 		t.Fatalf("resolved = %+v, want no entry for a finding whose item is not done", got.Resolved)
+	}
+}
+
+func TestEvaluateRerun(t *testing.T) {
+	acceptance := []spec.AcceptanceStep{{Name: "test", Command: []string{"go", "test"}}}
+	other := []spec.AcceptanceStep{{Name: "lint", Command: []string{"go", "vet"}}}
+
+	acceptanceActions := func(got Evaluation) []Action {
+		out := []Action{}
+		for _, action := range got.Actions {
+			if action.Kind == ActionAcceptance {
+				out = append(out, action)
+			}
+		}
+		return out
+	}
+
+	t.Run("a verifying item at head runs again when its steps changed", func(t *testing.T) {
+		plan := fixturePlan(true,
+			spec.PlanItem{ID: "a", Acceptance: acceptance},
+			spec.PlanItem{ID: "b", Acceptance: acceptance},
+		)
+		plan.Status.Items = []spec.PlanItemStatus{
+			{ID: "a", Phase: ItemVerifying, Commit: "head1", AcceptanceHash: AcceptanceHash(other)},
+			{ID: "b", Phase: ItemVerifying, Commit: "head1", AcceptanceHash: AcceptanceHash(acceptance)},
+		}
+		got := Evaluate(Input{Plan: plan, Repository: "hydradb", Head: "head1"})
+
+		actions := acceptanceActions(got)
+		if len(actions) != 1 {
+			t.Fatalf("acceptance actions = %+v, want one for the item whose steps changed", got.Actions)
+		}
+		if actions[0].Item != "a" || !reflect.DeepEqual(actions[0].Acceptance, acceptance) {
+			t.Fatalf("acceptance action = %+v, want item a with its current steps", actions[0])
+		}
+		if status := itemStatus(t, got, "b"); status.Phase != ItemVerifying {
+			t.Fatalf("item b phase = %q, want %q at the head and steps acceptance already ran on", status.Phase, ItemVerifying)
+		}
+	})
+
+	t.Run("a done item whose steps changed verifies again", func(t *testing.T) {
+		plan := fixturePlan(true, spec.PlanItem{ID: "a", Acceptance: acceptance})
+		plan.Status.Items = []spec.PlanItemStatus{{
+			ID: "a", Phase: ItemDone, Commit: "head1", AcceptanceHash: AcceptanceHash(other),
+		}}
+		got := Evaluate(Input{Plan: plan, Repository: "hydradb", Head: "head1"})
+
+		status := itemStatus(t, got, "a")
+		if status.Phase != ItemVerifying {
+			t.Fatalf("item phase = %q, want %q for a done item whose steps changed", status.Phase, ItemVerifying)
+		}
+		actions := acceptanceActions(got)
+		if len(actions) != 1 {
+			t.Fatalf("acceptance actions = %+v, want one", got.Actions)
+		}
+		if actions[0].Item != "a" {
+			t.Fatalf("acceptance action = %+v, want item a", actions[0])
+		}
+	})
+}
+
+func TestEvaluateDraftKeeps(t *testing.T) {
+	plan := fixturePlan(false,
+		spec.PlanItem{ID: "a", Edits: []spec.PlanEdit{addReq("x", "r1")}},
+		spec.PlanItem{ID: "b", Edits: []spec.PlanEdit{addReq("x", "r2")}},
+	)
+	plan.Status.Items = []spec.PlanItemStatus{{ID: "a", Phase: ItemDone, Commit: "commit1"}}
+	got := Evaluate(Input{
+		Plan:       plan,
+		Repository: "hydradb",
+		Contexts:   fixtureContexts("x", spec.SystemContextSpec{}),
+		Head:       "head1",
+	})
+
+	if got.Phase != PhaseDraft {
+		t.Fatalf("plan phase = %q, want %q", got.Phase, PhaseDraft)
+	}
+	done := itemStatus(t, got, "a")
+	if done.Phase != ItemDone || done.Commit != "commit1" {
+		t.Fatalf("item a = %+v, want it kept Done at commit1", done)
+	}
+	if len(done.Preview) != 1 {
+		t.Fatalf("item a preview = %+v, want the preview of its edit", done.Preview)
+	}
+	pending := itemStatus(t, got, "b")
+	if pending.Phase != ItemPending || len(pending.Preview) != 1 {
+		t.Fatalf("item b = %+v, want Pending with its preview", pending)
+	}
+	if len(got.Actions) != 0 {
+		t.Fatalf("actions = %+v, want none before approval", got.Actions)
 	}
 }

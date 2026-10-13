@@ -219,6 +219,8 @@ spec:
                           type: boolean
                       type: object
                     type: array
+                  acceptanceHash:
+                    type: string
                   appliedSpecHashes:
                     additionalProperties:
                       type: string

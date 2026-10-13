@@ -384,7 +384,7 @@ func (c *Controller) runPlanAcceptance(
 	if err := gitrepo.WorktreeRemove(ctx, repoPath, worktree); err != nil {
 		c.log.Warn("could not remove the acceptance worktree", "worktree", worktree, "err", err)
 	}
-	return plan.Finish(status, head, results), nil
+	return plan.Finish(status, head, results, plan.AcceptanceHash(action.Acceptance)), nil
 }
 
 // moveFindings records what the plan decided about the findings its items name:

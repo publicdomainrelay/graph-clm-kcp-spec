@@ -74,6 +74,10 @@ type PlanItemStatus struct {
 
 	Commit string `json:"commit,omitempty"`
 
+	// AcceptanceHash is the hash of the acceptance steps the recorded results
+	// came from: an item whose steps change runs its acceptance again.
+	AcceptanceHash string `json:"acceptanceHash,omitempty"`
+
 	Acceptance []AcceptanceResult `json:"acceptance,omitempty"`
 
 	Message string `json:"message,omitempty"`

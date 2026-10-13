@@ -4,6 +4,9 @@
 package plan
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -261,12 +264,14 @@ func Evaluate(input Input) Evaluation {
 
 	for _, item := range plan.Spec.Items {
 		previous, _ := plan.ItemStatus(item.ID)
+		acceptanceHash := AcceptanceHash(item.Acceptance)
 		status := spec.PlanItemStatus{
 			ID:                item.ID,
 			Phase:             previous.Phase,
 			AppliedSpecHashes: previous.AppliedSpecHashes,
 			Changes:           previous.Changes,
 			Commit:            previous.Commit,
+			AcceptanceHash:    previous.AcceptanceHash,
 			Acceptance:        previous.Acceptance,
 			Message:           previous.Message,
 		}
@@ -282,6 +287,14 @@ func Evaluate(input Input) Evaluation {
 		}
 
 		if !plan.Spec.Approved {
+			if status.Phase == ItemDone || status.Phase == ItemFailed {
+				// A re-applied plan keeps what it already finished: it
+				// continues where it stopped once it is approved again.
+				status.Preview = previews(item, input.Contexts)
+				phases[item.ID] = status.Phase
+				out.Items = append(out.Items, status)
+				continue
+			}
 			status = spec.PlanItemStatus{ID: item.ID, Phase: ItemPending, Preview: previews(item, input.Contexts)}
 			status.Message = "waits for the plan to be approved"
 			phases[item.ID] = status.Phase
@@ -290,6 +303,11 @@ func Evaluate(input Input) Evaluation {
 		}
 		for _, finding := range item.Findings {
 			out.Planned[finding] = item.ID
+		}
+		if status.Phase == ItemDone && status.AcceptanceHash != acceptanceHash {
+			// The steps changed under a done item: its acceptance runs again.
+			status.Phase = ItemVerifying
+			status.Message = "the acceptance steps changed"
 		}
 
 		switch status.Phase {
@@ -326,7 +344,7 @@ func Evaluate(input Input) Evaluation {
 				status.Phase = ItemDone
 				status.Commit = input.Head
 				status.Message = "realized; the item names no acceptance"
-			case status.Commit != input.Head:
+			case status.Commit != input.Head || status.AcceptanceHash != acceptanceHash:
 				out.Actions = append(out.Actions, Action{Kind: ActionAcceptance, Item: item.ID, Acceptance: item.Acceptance})
 				status.Message = "acceptance runs at " + short(input.Head)
 			}
@@ -548,6 +566,21 @@ func valueOr(value, fallback string) string {
 	return value
 }
 
+// AcceptanceHash is the stable hash of an item's acceptance steps: the sha256
+// of their JSON, hex, first 16 characters. An item status records it with the
+// results, so changed steps are seen as a different acceptance.
+func AcceptanceHash(steps []spec.AcceptanceStep) string {
+	if len(steps) == 0 {
+		return ""
+	}
+	encoded, err := json.Marshal(steps)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])[:16]
+}
+
 // AcceptancePassed reports whether every step passed: an item's acceptance is
 // its done criteria, so every step gates.
 func AcceptancePassed(results []spec.AcceptanceResult) bool {
@@ -562,9 +595,12 @@ func AcceptancePassed(results []spec.AcceptanceResult) bool {
 	return true
 }
 
-// Finish records an acceptance run on an item status.
-func Finish(status spec.PlanItemStatus, head string, results []spec.AcceptanceResult) spec.PlanItemStatus {
+// Finish records an acceptance run on an item status: the head it ran at, the
+// results, and the hash of the steps they came from, so a later evaluation
+// sees whether the steps have changed since.
+func Finish(status spec.PlanItemStatus, head string, results []spec.AcceptanceResult, acceptanceHash string) spec.PlanItemStatus {
 	status.Commit = head
+	status.AcceptanceHash = acceptanceHash
 	status.Acceptance = results
 	if AcceptancePassed(results) {
 		status.Phase = ItemDone
@@ -577,6 +613,6 @@ func Finish(status spec.PlanItemStatus, head string, results []spec.AcceptanceRe
 			failed = append(failed, result.Name)
 		}
 	}
-	status.Message = "acceptance failed at " + short(head) + ": " + strings.Join(failed, ", ") + "; it runs again when HEAD moves"
+	status.Message = "acceptance failed at " + short(head) + ": " + strings.Join(failed, ", ") + "; it runs again when HEAD moves or the steps change"
 	return status
 }
