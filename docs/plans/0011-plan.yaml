@@ -351,12 +351,16 @@ spec:
                 test/e2e/plan_live_test.go (package e2e; do not edit
                 test/e2e/main_test.go) has TestPlanLiveDraftApproveRealizeVerify,
                 built like TestPhase6SpecToCodeWithTheScriptedAgent in
-                test/e2e/phase6_live_test.go: requireLive, startCluster,
-                fixture.CopyAs(t, "calc", "plan-calc"), forgetObjects for the
-                repository, the contexts, the plan and the finding, a
-                Repository with Verify [go, test, ./...] and agent
-                scripted:examples/phase6/scenario.yaml (via phase6Scenario),
-                and an in-process specd.New with Resync 500ms, Persist true.
+                test/e2e/phase6_live_test.go and following the parallel suite
+                pattern of test/e2e/parallel_test.go: t.Parallel() as its first
+                line, requireLive, startCluster, liveClient, no global
+                workspace and no t.Setenv; fixture.CopyAs(t, "calc",
+                "plan-calc"), forgetObjects for the repository, the contexts,
+                the plan and the finding, a Repository with Verify [go, test,
+                ./...] and agent scripted:examples/phase6/scenario.yaml (via
+                phase6Scenario), and an in-process specd.New with Workspace
+                clusterWorkspace(t), Log testLog(t), Resync 500ms, Persist
+                true.
                 After the first ingest it creates a Finding
                 "plan-calc-subtract" (source manual) and a Plan "plan-calc"
                 (spec.repository plan-calc) with one item "subtract" whose
