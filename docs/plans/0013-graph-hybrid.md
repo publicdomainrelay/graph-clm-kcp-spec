@@ -313,3 +313,19 @@ the owner card were both silently absent (the pure part's unit tests passed),
 and each gap is now covered by a live test in `test/e2e`
 (`TestContextPackReadsTheLiveGraph`, and the neighbour requirement's unit test
 in `abc/contextpack`). The full live suite is green with them.
+
+### Item D: CLM working memory
+
+Realized as a1f1531 (`impl/clm/memory.go`, `specctl clm remember|recall|neighbors`,
+`clm/core/skill.ts` with a version, the pi host's namespace bug fixed in the
+shared core, and `test/e2e/clm_memory_live_test.go`). Verified live: a note
+written with `specctl clm remember` becomes a Memory vertex, `specctl clm recall`
+finds it, and a `specctl graph query 'MATCH (m:Memory) RETURN count(*)'` sees it.
+
+Finding: the memory write named code and claim units whose vertices it never
+wrote, so HydraDB refused the REFERENCES edge and the command failed ("MATCH
+endpoint vertex ... with label CodeRef does not exist"). `clm.MemoryTable` now
+writes the endpoint vertices with the edges, so a note links to code the graph
+already holds and plants the vertex when it does not. This is the third time
+the same class appeared (rebuild edges, the per-instance graph, the memory
+write): an edge whose endpoint is absent must never be written.

@@ -141,11 +141,30 @@ func MemoryTable(namespace string, note MemoryNote, codegraphIDs, units []string
 		{Type: graph.EdgeReferences, FromLabel: graph.LabelMemory, ToLabel: graph.LabelCodeRef},
 		{Type: graph.EdgeSpecifies, FromLabel: graph.LabelMemory, ToLabel: graph.LabelRequirement},
 	}
+	// A note names code and claim units, and a graph that refuses an edge whose
+	// endpoint is missing (HydraDB) needs those endpoints to exist: the vertex
+	// is written with the edge, and merges onto the one an ingest wrote.
+	codeRefs := graph.VertexSet{Label: graph.LabelCodeRef}
 	for _, codegraphID := range unique(codegraphIDs) {
+		codeRefs.Rows = append(codeRefs.Rows, graph.Vertex{
+			ID:    CodeRefID(namespace, codegraphID),
+			Props: map[string]any{"codegraphId": codegraphID, graph.ScopeProperty: namespace},
+		})
 		edges[1].Rows = append(edges[1].Rows, graph.Edge{From: memoryID, To: CodeRefID(namespace, codegraphID)})
 	}
+	if len(codeRefs.Rows) > 0 {
+		vertices = append(vertices, codeRefs)
+	}
+	requirements := graph.VertexSet{Label: graph.LabelRequirement}
 	for _, unit := range unique(units) {
+		requirements.Rows = append(requirements.Rows, graph.Vertex{
+			ID:    RequirementID(namespace, note.Context, unit),
+			Props: map[string]any{"context": note.Context, "reqId": unit, graph.ScopeProperty: namespace},
+		})
 		edges[2].Rows = append(edges[2].Rows, graph.Edge{From: memoryID, To: RequirementID(namespace, note.Context, unit)})
+	}
+	if len(requirements.Rows) > 0 {
+		vertices = append(vertices, requirements)
 	}
 	return vertices, edges
 }

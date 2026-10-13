@@ -3,11 +3,14 @@ package e2e
 import (
 	"bytes"
 	"context"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 )
@@ -20,13 +23,22 @@ func TestClmRememberThenRecall(t *testing.T) {
 	root := repoRoot(t)
 	startCluster(t, root)
 	specctl := buildSpecctl(t, root)
+	client := liveClient(t, root)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	// The note belongs to a context, so the test holds one: remember resolves
+	// the context in the instance's workspace and names it on the vertex.
+	contextName := "calc"
+	applyTyped(t, ctx, client, &spec.SystemContext{
+		ObjectMeta: metav1.ObjectMeta{Name: contextName, Namespace: specapi.DefaultNamespace},
+		Spec:       spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf, Intent: "arithmetic"},
+	})
 
 	title := "the removal guard of " + graphNamespaceFor(t)
 	note := "it holds `file:calc/calc.go` and `r.add`"
 	runSpecctl(t, ctx, specctl, root, nil, "clm", "remember",
-		"--context", "calc", "--title", title, "--body", note, "--turn", "2")
+		"--context", contextName, "--title", title, "--body", note, "--turn", "2")
 
 	recalled := runSpecctl(t, ctx, specctl, root, nil, "clm", "recall", "removal", "guard")
 	if !strings.Contains(recalled, title) {
