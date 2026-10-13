@@ -306,3 +306,10 @@ Findings:
   throughout. The fix is required to carry a live test
   (`r.pack-reads-the-live-graph` in `cmd-specctl`) so the wiring is measured
   against a real graph, not a fake.
+
+
+Item C is complete once the pack reads a live graph: the neighbour section and
+the owner card were both silently absent (the pure part's unit tests passed),
+and each gap is now covered by a live test in `test/e2e`
+(`TestContextPackReadsTheLiveGraph`, and the neighbour requirement's unit test
+in `abc/contextpack`). The full live suite is green with them.
