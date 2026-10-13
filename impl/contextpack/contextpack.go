@@ -21,6 +21,13 @@ import (
 
 const DefaultLimit = 8
 
+// NeighborFactLimit bounds the MUST requirements and the interfaces one
+// neighbour card carries. A neighbour is a card, not a copy of its context
+// doc: an unbounded card makes the whole neighbour section wider than the
+// pack budget, and Render then drops that section, so the pack loses the
+// neighbours it exists for.
+const NeighborFactLimit = 5
+
 // Reader is the graph as this package reads it: HydraDB answers a vertex
 // select and a single hop, and refuses anything longer, so a neighborhood is
 // one hop out of the seed and nothing more.
@@ -70,6 +77,13 @@ func (o Options) namespace() string {
 		return o.Namespace
 	}
 	return specapi.DefaultNamespace
+}
+
+func (o Options) limit() int {
+	if o.Limit > 0 {
+		return o.Limit
+	}
+	return DefaultLimit
 }
 
 func ForContext(ctx context.Context, name string, options Options) (contextpack.Pack, error) {
@@ -147,10 +161,7 @@ func ForQuery(ctx context.Context, terms string, options Options) (contextpack.P
 	if options.Index == nil {
 		return pack, nil
 	}
-	limit := options.Limit
-	if limit <= 0 {
-		limit = DefaultLimit
-	}
+	limit := options.limit()
 	hits, err := options.Index.Search(ctx, terms, limit)
 	if err != nil {
 		return pack, err
@@ -298,6 +309,12 @@ func neighborCards(ctx context.Context, options Options, name string) ([]context
 	for _, title := range rest {
 		ordered = append(ordered, cards[title])
 	}
+	// The pack promises the ranked neighbours, in ranked order, inside its
+	// token budget: a section wider than the budget is dropped whole, so the
+	// list stops at the limit and the best ranked cards are the ones kept.
+	if limit := options.limit(); len(ordered) > limit {
+		ordered = ordered[:limit]
+	}
 	return ordered, nil
 }
 
@@ -368,7 +385,19 @@ func contextFacts(ctx context.Context, options Options, name string) ([]string, 
 			interfaces = append(interfaces, value(row, "name")+" ("+value(row, "kind")+") "+value(row, "signature"))
 		}
 	}
+	requirements = boundFacts(requirements)
+	interfaces = boundFacts(interfaces)
 	return requirements, interfaces
+}
+
+// boundFacts keeps a neighbour card a card: past NeighborFactLimit facts the
+// card is as wide as the neighbour's own context doc, which pushes the whole
+// neighbour section past the pack budget.
+func boundFacts(facts []string) []string {
+	if len(facts) > NeighborFactLimit {
+		return facts[:NeighborFactLimit]
+	}
+	return facts
 }
 
 func ownerOfFile(ctx context.Context, options Options, path string) (string, error) {

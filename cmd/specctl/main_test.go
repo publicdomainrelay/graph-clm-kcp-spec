@@ -114,6 +114,21 @@ func TestRunContextPackNeedsASeed(t *testing.T) {
 	}
 }
 
+func TestRunContextPackNeedsAGraph(t *testing.T) {
+	// The pack comes from the live graph: with no graph named and no session
+	// to adopt, the command says so instead of printing a pack without the
+	// owner card and the neighbours.
+	t.Setenv("SPECD_BOLT_URL", "")
+	t.Setenv(statedir.EnvStateDir, t.TempDir())
+	code, stdout, stderr := runWith("context", "pack", "--context", "calc")
+	if code != exitUsage || !strings.Contains(stderr, "no graph") {
+		t.Errorf("context pack without a graph: code %d, stderr %q", code, stderr)
+	}
+	if strings.Contains(stdout, "token budget") {
+		t.Errorf("a pack without a graph was printed: %q", stdout)
+	}
+}
+
 func TestRunImportArchNeedsAPath(t *testing.T) {
 	code, _, stderr := runWith("import-arch")
 	if code != exitUsage || !strings.Contains(stderr, "arch.yaml path is required") {

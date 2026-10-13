@@ -11,6 +11,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 	packimpl "github.com/publicdomainrelay/graph-clm-kcp-spec/impl/contextpack"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 )
 
@@ -57,6 +58,14 @@ func runContextPack(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "specctl context pack: name one of --context, --file or --query")
 		return exitUsage
 	}
+	// The pack is built from the live graph: the owner card, the neighbours
+	// and their facts all come from it. The graph is resolved the way
+	// specctl graph query resolves it, and a pack that cannot read it is
+	// refused rather than printed without the graph sections.
+	if !bolt.Enabled() {
+		fmt.Fprintln(stderr, "specctl context pack: no graph: run it in a checkout specctl up started, export the lines specctl graph serve prints, or pass --bolt-url")
+		return exitUsage
+	}
 
 	ctx := context.Background()
 	cluster, err := options.client()
@@ -69,21 +78,20 @@ func runContextPack(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl context pack: %v\n", err)
 		return exitError
 	}
+	reader, err := bolt.Connect(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl context pack: %v\n", err)
+		return exitError
+	}
+	defer reader.Close(ctx)
 
 	build := packimpl.Options{
-		Cluster:    cluster,
-		Namespace:  options.namespace,
-		Repository: repository,
-		Budget:     *budget,
-	}
-	if bolt.URL != "" {
-		reader, err := bolt.Connect(ctx)
-		if err != nil {
-			fmt.Fprintf(stderr, "specctl context pack: %v\n", err)
-			return exitError
-		}
-		defer reader.Close(ctx)
-		build.Reader = reader
+		Reader:         reader,
+		Cluster:        cluster,
+		Namespace:      options.namespace,
+		GraphNamespace: graphns.FromEnv(),
+		Repository:     repository,
+		Budget:         *budget,
 	}
 	if directory, ok := searchRoot(*root); ok {
 		if index, ok := searchIndexFor(directory); ok {
@@ -95,7 +103,7 @@ func runContextPack(args []string, stdout, stderr io.Writer) int {
 	var pack packabc.Pack
 	switch {
 	case *contextName != "":
-		pack, err = packimpl.ForContext(ctx, *contextName, build)
+		pack, err = packimpl.ForContext(ctx, resolveContextName(*contextName), build)
 	case *file != "":
 		pack, err = packimpl.ForFile(ctx, *file, build)
 	default:
