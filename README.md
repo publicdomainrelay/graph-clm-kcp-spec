@@ -48,14 +48,14 @@ flowchart TB
   subgraph instance["one instance: checkout + branch"]
     kcp["kcp: the specs as custom resources"]
     kine["kine: the store behind kcp"]
-    graph["graph-node: HydraDB over Bolt, port 0"]
+    gdb["graph-node: HydraDB over Bolt, port 0"]
     specd["specd: the controller"]
   end
   specctl["specctl: the CLI"]
   specd --> kcp
-  specd --> graph
+  specd --> gdb
   specctl --> kcp
-  specctl --> graph
+  specctl --> gdb
   specd -->|"index, summarize, realize, verify, persist"| repo["the checkout"]
   repo -->|"orphan branch open-architecture/R -- B"| git["git"]
   subgraph agents["models, DeepSeek only"]
