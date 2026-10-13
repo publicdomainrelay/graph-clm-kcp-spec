@@ -283,3 +283,26 @@ Three findings from running them:
 - **The ingest could replace a spec that moved while a pass ran.** `Apply`
   re-reads only the resource version, so a stale pass wrote back what it had
   read; the pass now re-reads and merges again when the object moved (604b8be).
+
+### Item C: hybrid retrieval and the context pack
+
+Realized as dfcf290 (new packages `abc/search`, `impl/searchindex`,
+`abc/contextpack`, `impl/contextpack`, plus the pack used by the summarize and
+realize prompts and `specctl context pack`). A real pack reads well: repository
+card, task card with the context's verify command, owner card with the summary's
+intent paragraph, its open findings and proposals, a token-budget line and the
+dropped list.
+
+Findings:
+
+- **The pack command panicked at startup** (`flag redefined: context`): the new
+  verb defined `--context` beside the global kubeconfig `--context`. It uses
+  `addGlobalsExcept(fs, "context")` now, and `TestRunContextPackNeedsASeed`
+  covers the crash (5d5cd3c).
+- **A unit test with a fake reader hid an I/O gap.** `specctl graph neighbors
+  impl-ingest` lists seven DEPENDS_ON neighbours while
+  `specctl context pack --context impl-ingest` printed no neighbour section at
+  all, and `--file` printed no owner card. The pure part's tests passed
+  throughout. The fix is required to carry a live test
+  (`r.pack-reads-the-live-graph` in `cmd-specctl`) so the wiring is measured
+  against a real graph, not a fake.
