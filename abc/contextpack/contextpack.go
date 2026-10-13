@@ -205,6 +205,58 @@ func firstLine(text string) string {
 	return trimmed
 }
 
+// BlackboardEntry is one thing another agent run already did, decided or
+// proposed for a context of this pack: a change it is Running, with the context
+// and the phase, a memory note another agent context wrote, or an open proposal
+// or finding. At is the recency key the section orders by, newest first. Own
+// marks the entry the agent run reading the pack wrote itself, so the model is
+// not told its own work as news.
+type BlackboardEntry struct {
+	Kind string
+
+	Name string
+
+	Context string
+
+	Phase string
+
+	Text string
+
+	Own bool
+
+	At string
+}
+
+// ScoreboardItem is one plan item that touches a context of this pack, with the
+// phase it reached. At is the recency key the section orders by, newest first.
+type ScoreboardItem struct {
+	Plan string
+
+	Item string
+
+	Context string
+
+	Phase string
+
+	Summary string
+
+	At string
+}
+
+// OwnMark labels the entry an agent run wrote itself: the run that reads the
+// pack sees its own change stated as its own, not as another run's news.
+const OwnMark = "(own)"
+
+// EmptyBlackboardNote and EmptyScoreboardNote are what the two swarm sections
+// say when they hold nothing: an empty section still renders, because "the
+// swarm has done nothing here" is a fact the model has to read, not a gap it
+// cannot tell from a pack that was trimmed.
+const (
+	EmptyBlackboardNote = "nothing on the blackboard yet"
+
+	EmptyScoreboardNote = "nothing on the scoreboard yet"
+)
+
 type Task struct {
 	Seed Seed
 
@@ -229,6 +281,13 @@ type Pack struct {
 
 	Neighbors []Card
 
+	// Blackboard and Scoreboard are what the swarm already knows about the
+	// pack's contexts: the entries sit between the neighbor cards and the
+	// claims, and Sections renders them in that order.
+	Blackboard []BlackboardEntry
+
+	Scoreboard []ScoreboardItem
+
 	Claims []Card
 
 	ModelZone string
@@ -244,6 +303,10 @@ const (
 	OwnerTitle = "owner context card"
 
 	NeighborsTitle = "ranked neighbor cards"
+
+	BlackboardTitle = "blackboard"
+
+	ScoreboardTitle = "scoreboard"
 
 	ClaimsTitle = "findings, proposals and plan items"
 
@@ -266,6 +329,8 @@ func Sections(pack Pack) []Section {
 		{Title: TaskTitle, Body: renderTask(pack.Task), Priority: 0},
 		{Title: OwnerTitle, Body: renderCard(pack.Owner), Priority: 0},
 		{Title: NeighborsTitle, Body: renderCards(pack.Neighbors), Priority: 3},
+		{Title: BlackboardTitle, Body: renderBlackboard(pack.Blackboard), Priority: 3},
+		{Title: ScoreboardTitle, Body: renderScoreboard(pack.Scoreboard), Priority: 3},
 		{Title: ClaimsTitle, Body: renderCards(pack.Claims), Priority: 4},
 	}
 	out := make([]Section, 0, len(sections))
@@ -311,6 +376,75 @@ func renderCards(cards []Card) string {
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+// renderBlackboard prints what other agent runs touched, decided or proposed
+// for the pack's contexts, newest first, with the run's own work marked as its
+// own. It never returns an empty body: a blackboard with nothing on it says so.
+func renderBlackboard(entries []BlackboardEntry) string {
+	if len(entries) == 0 {
+		return EmptyBlackboardNote + "\n"
+	}
+	ordered := append([]BlackboardEntry{}, entries...)
+	sort.SliceStable(ordered, func(left, right int) bool {
+		return ordered[left].At > ordered[right].At
+	})
+	builder := strings.Builder{}
+	for _, entry := range ordered {
+		if entry.Kind == "" && entry.Name == "" {
+			continue
+		}
+		mark := ""
+		if entry.Own {
+			mark = OwnMark
+		}
+		line := joinFields(entry.Kind, entry.Name, mark, entry.Context, entry.Phase, firstLine(entry.Text))
+		if line == "" {
+			continue
+		}
+		fmt.Fprintf(&builder, "%s\n", line)
+	}
+	if builder.Len() == 0 {
+		return EmptyBlackboardNote + "\n"
+	}
+	return builder.String()
+}
+
+// renderScoreboard prints the plan items that touch the pack's contexts, newest
+// first, and says so when no plan item touches them.
+func renderScoreboard(items []ScoreboardItem) string {
+	if len(items) == 0 {
+		return EmptyScoreboardNote + "\n"
+	}
+	ordered := append([]ScoreboardItem{}, items...)
+	sort.SliceStable(ordered, func(left, right int) bool {
+		return ordered[left].At > ordered[right].At
+	})
+	builder := strings.Builder{}
+	for _, item := range ordered {
+		if item.Plan == "" && item.Item == "" {
+			continue
+		}
+		line := joinFields(item.Plan, item.Item, item.Context, item.Phase, firstLine(item.Summary))
+		if line == "" {
+			continue
+		}
+		fmt.Fprintf(&builder, "%s\n", line)
+	}
+	if builder.Len() == 0 {
+		return EmptyScoreboardNote + "\n"
+	}
+	return builder.String()
+}
+
+func joinFields(fields ...string) string {
+	kept := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if trimmed := strings.TrimSpace(field); trimmed != "" {
+			kept = append(kept, trimmed)
+		}
+	}
+	return strings.Join(kept, " ")
 }
 
 func EstimateTokens(text string) int {

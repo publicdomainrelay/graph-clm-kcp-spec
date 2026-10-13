@@ -158,6 +158,29 @@ func TestRunningChangeOwnedByALiveProcessIsLeftAlone(t *testing.T) {
 func TestRecoveringCountsTheAttemptAndKeepsTheEpisodeName(t *testing.T) {
 	deadProcesses(t)
 	cluster := newFakeCluster()
+	apply(t, cluster, &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc-s2c-aaaa", Namespace: specapi.DefaultNamespace},
+		Spec: spec.SpecChangeSpec{
+			SystemContext: "calc", Direction: specapi.DirectionSpecToCode, ToSpecHash: "aaaa",
+		},
+		Status: spec.SpecChangeStatus{Phase: specapi.PhaseFailed},
+	})
+	orphan := runningChange("calc-s2c-aaaa-a2", "calc", "aaaa")
+	apply(t, cluster, orphan)
+	controller := testController(cluster)
+
+	if _, err := controller.reconcileSpecChange(context.Background(), specapi.DefaultNamespace, "calc-s2c-aaaa-a2"); err != nil {
+		t.Fatal(err)
+	}
+	next := readChange(t, cluster, "calc-s2c-aaaa-a3")
+	if next.Status.Phase != specapi.PhasePending || next.Status.Attempt != 3 {
+		t.Fatalf("next attempt = %+v, want a3 Pending at attempt 3", next.Status)
+	}
+}
+
+func TestRecoveringAnOlderAttemptIsFailedWithoutANewOne(t *testing.T) {
+	deadProcesses(t)
+	cluster := newFakeCluster()
 	apply(t, cluster, runningChange("calc-s2c-aaaa", "calc", "aaaa"))
 	apply(t, cluster, &spec.SpecChange{
 		ObjectMeta: metav1.ObjectMeta{Name: "calc-s2c-aaaa-a2", Namespace: specapi.DefaultNamespace},
@@ -171,9 +194,36 @@ func TestRecoveringCountsTheAttemptAndKeepsTheEpisodeName(t *testing.T) {
 	if _, err := controller.reconcileSpecChange(context.Background(), specapi.DefaultNamespace, "calc-s2c-aaaa"); err != nil {
 		t.Fatal(err)
 	}
-	next := readChange(t, cluster, "calc-s2c-aaaa-a3")
-	if next.Status.Phase != specapi.PhasePending || next.Status.Attempt != 3 {
-		t.Fatalf("next attempt = %+v, want a3 Pending at attempt 3", next.Status)
+	orphan := readChange(t, cluster, "calc-s2c-aaaa")
+	if orphan.Status.Phase != specapi.PhaseFailed || !strings.Contains(orphan.Status.Message, RecoveredReason) {
+		t.Fatalf("the orphan = %+v, want Failed with the recovery reason", orphan.Status)
+	}
+	got := phases(t, cluster)
+	if len(got) != 2 {
+		t.Fatalf("phases = %v, want only the replaced attempt failed: a later attempt owns the work", got)
+	}
+	if got["calc-s2c-aaaa-a2"] != specapi.PhaseFailed {
+		t.Fatalf("phases = %v, want the later attempt untouched", got)
+	}
+	if controller.QueueDepth() != 0 {
+		t.Error("the replaced attempt was raised again and enqueued")
+	}
+}
+
+func TestRecoveringKeepsThePlanItemOfTheChange(t *testing.T) {
+	deadProcesses(t)
+	cluster := newFakeCluster()
+	change := runningChange("calc-s2c-aaaa", "calc", "aaaa")
+	change.Annotations = map[string]string{specapi.PlanItemAnnotation: "plan-1/item-1"}
+	apply(t, cluster, change)
+	controller := testController(cluster)
+
+	if _, err := controller.reconcileSpecChange(context.Background(), specapi.DefaultNamespace, "calc-s2c-aaaa"); err != nil {
+		t.Fatal(err)
+	}
+	next := readChange(t, cluster, "calc-s2c-aaaa-a2")
+	if got := next.Annotations[specapi.PlanItemAnnotation]; got != "plan-1/item-1" {
+		t.Fatalf("the recovered change carries plan item %q, want plan-1/item-1", got)
 	}
 }
 

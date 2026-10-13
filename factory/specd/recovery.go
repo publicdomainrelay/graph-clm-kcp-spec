@@ -3,6 +3,8 @@ package specd
 import (
 	"context"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -55,10 +57,11 @@ func (c *Controller) orphaned(owner string, pid int) bool {
 }
 
 // recoverRunningChange moves a Running change whose driver is gone out of the
-// way: the stale realize worktree and branch are cleaned up, the change is
-// failed with the reason, and the next attempt is created Pending so the
-// repository's queue moves again. The attempt is counted, because the new
-// change grows the episode and the attempt cap still applies to it.
+// way: the stale realize worktree and branch are cleaned up and the change is
+// failed with the reason. Only the newest attempt of an episode is raised
+// again, and then Pending so the repository's queue moves; the attempt is
+// counted, because the new change grows the episode and the attempt cap still
+// applies to it.
 func (c *Controller) recoverRunningChange(ctx context.Context, namespace string, change *spec.SpecChange) error {
 	c.cleanupRealizeWorktree(ctx, namespace, change)
 
@@ -81,17 +84,33 @@ func (c *Controller) recoverRunningChange(ctx context.Context, namespace string,
 		names = append(names, changes[index].Name)
 	}
 	base := spec.EpisodeBase(*change)
+	// The work has one owner. A newer attempt of the episode -- the plan
+	// replaced it, an operator retried it, another specd already recovered it --
+	// holds the work, so the orphan is failed and nothing is raised: raising it
+	// again would put two changes on one episode.
+	if newer := laterAttempt(changes, *change, base); newer != "" {
+		c.log.Info("a later attempt of the recovered episode already owns the work",
+			"change", change.Name, "later", newer, "episode", base)
+		return nil
+	}
 	if spec.EpisodeOpen(changes, base) {
 		c.log.Info("an attempt of the recovered episode is already queued", "change", change.Name, "episode", base)
 		return nil
 	}
+	metadata := metav1.ObjectMeta{
+		Name:      spec.NextChangeName(names, base),
+		Namespace: namespace,
+	}
+	// The plan item that staged the change owns the work it stages, so the
+	// recovered attempt carries it: the plan's item status and the change that
+	// realizes it then agree on who owns the item.
+	if item := change.Annotations[specapi.PlanItemAnnotation]; item != "" {
+		metadata.Annotations = map[string]string{specapi.PlanItemAnnotation: item}
+	}
 	next := &spec.SpecChange{
-		TypeMeta: metav1.TypeMeta{APIVersion: specapi.APIVersion, Kind: specapi.SpecChangeKind},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      spec.NextChangeName(names, base),
-			Namespace: namespace,
-		},
-		Spec: change.Spec,
+		TypeMeta:   metav1.TypeMeta{APIVersion: specapi.APIVersion, Kind: specapi.SpecChangeKind},
+		ObjectMeta: metadata,
+		Spec:       change.Spec,
 	}
 	object, err := kcpclient.Unstructured(next)
 	if err != nil {
@@ -112,6 +131,37 @@ func (c *Controller) recoverRunningChange(ctx context.Context, namespace string,
 		"change", change.Name, "requeued", next.Name, "attempt", attempt)
 	c.enqueueChange(ctx, namespace, next.Name)
 	return nil
+}
+
+const attemptSuffix = "-a"
+
+// laterAttempt names an attempt of the episode that is newer than the change
+// being recovered, or "" when the change is the newest attempt of its episode.
+// Only the newest attempt may be raised again: an older one was replaced.
+func laterAttempt(changes []spec.SpecChange, change spec.SpecChange, base string) string {
+	mine := attemptNumber(change.Name, base)
+	for _, other := range changes {
+		if other.Name == change.Name || !spec.ChangeNameMatches(other.Name, base) {
+			continue
+		}
+		if attemptNumber(other.Name, base) > mine {
+			return other.Name
+		}
+	}
+	return ""
+}
+
+// attemptNumber is the place of a change in its episode: the base name is
+// attempt 1, "base-a2" is attempt 2, and so on.
+func attemptNumber(name, base string) int {
+	if name == base {
+		return 1
+	}
+	number, err := strconv.Atoi(strings.TrimPrefix(name, base+attemptSuffix))
+	if err != nil || number < 2 {
+		return 1
+	}
+	return number
 }
 
 // cleanupRealizeWorktree removes what a killed realize left in the repository:

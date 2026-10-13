@@ -42,7 +42,7 @@ func TestTheSectionOrderIsFixed(t *testing.T) {
 	if len(dropped) != 0 {
 		t.Fatalf("dropped = %v, want none", dropped)
 	}
-	order := []string{RepositoryTitle, TaskTitle, OwnerTitle, NeighborsTitle, ClaimsTitle, BudgetTitle, ModelZoneTitle}
+	order := []string{RepositoryTitle, TaskTitle, OwnerTitle, NeighborsTitle, BlackboardTitle, ScoreboardTitle, ClaimsTitle, BudgetTitle, ModelZoneTitle}
 	previous := -1
 	for _, title := range order {
 		at := position(t, text, title)
@@ -142,6 +142,71 @@ func TestThePackCarriesNeighborCards(t *testing.T) {
 	}
 	if strings.Contains(text, "and nothing else") {
 		t.Errorf("a neighbor card carried more than the first line of the intent:\n%s", text)
+	}
+}
+
+func TestThePackCarriesTheBlackboardAndTheScoreboard(t *testing.T) {
+	pack := pack()
+	pack.Blackboard = []BlackboardEntry{
+		{Kind: "change", Name: "calc-s2c-bbbb", Context: "calc", Phase: "Running", At: "2026-10-01T00:00:00Z"},
+		{Kind: "memory", Name: "a note", Context: "calc", Text: "the seed\nis parsed", At: "2026-09-30T00:00:00Z"},
+		{Kind: "change", Name: "abc-contextpack-s2c-cccc", Context: "abc-contextpack", Phase: "Running", Own: true, At: "2026-10-02T00:00:00Z"},
+	}
+	pack.Scoreboard = []ScoreboardItem{
+		{Plan: "0013", Item: "E", Context: "abc-contextpack", Phase: "InProgress", At: "2026-10-02T00:00:00Z"},
+		{Plan: "0013", Item: "F", Context: "impl-bundle", Phase: "Done", At: "2026-10-03T00:00:00Z"},
+	}
+	text, dropped := Render(pack, 8000)
+	if len(dropped) != 0 {
+		t.Fatalf("dropped = %v, want none", dropped)
+	}
+
+	neighbors := position(t, text, NeighborsTitle)
+	blackboard := position(t, text, BlackboardTitle)
+	scoreboard := position(t, text, ScoreboardTitle)
+	claims := position(t, text, ClaimsTitle)
+	if blackboard < neighbors || blackboard > claims || scoreboard < blackboard || scoreboard > claims {
+		t.Fatalf("the blackboard and the scoreboard are not between the neighbors and the claims:\n%s", text)
+	}
+
+	for _, want := range []string{
+		"change abc-contextpack-s2c-cccc " + OwnMark + " abc-contextpack Running",
+		"change calc-s2c-bbbb calc Running",
+		"memory a note calc the seed",
+		"0013 F impl-bundle Done",
+		"0013 E abc-contextpack InProgress",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the swarm sections lost %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "the seed\nis parsed") {
+		t.Errorf("a blackboard entry carried more than the first line of its text:\n%s", text)
+	}
+	if strings.Count(text, OwnMark) != 1 {
+		t.Errorf("exactly one entry is the agent run's own:\n%s", text)
+	}
+	if strings.Index(text, "change abc-contextpack-s2c-cccc") > strings.Index(text, "change calc-s2c-bbbb") {
+		t.Errorf("the blackboard is not ordered by recency, newest first:\n%s", text)
+	}
+	if strings.Index(text, "0013 F impl-bundle") > strings.Index(text, "0013 E abc-contextpack") {
+		t.Errorf("the scoreboard is not ordered by recency, newest first:\n%s", text)
+	}
+}
+
+func TestAnEmptyBlackboardRendersItsNote(t *testing.T) {
+	empty, _ := Render(pack(), 8000)
+	if !strings.Contains(empty, EmptyBlackboardNote) {
+		t.Errorf("an empty blackboard rendered no note:\n%s", empty)
+	}
+	if !strings.Contains(empty, EmptyScoreboardNote) {
+		t.Errorf("an empty scoreboard rendered no note:\n%s", empty)
+	}
+	if body := renderBlackboard([]BlackboardEntry{{Own: true}}); !strings.Contains(body, EmptyBlackboardNote) {
+		t.Errorf("a blackboard of blank entries rendered no note: %q", body)
+	}
+	if body := renderScoreboard(nil); !strings.Contains(body, EmptyScoreboardNote) {
+		t.Errorf("an empty scoreboard body = %q, want the note", body)
 	}
 }
 
