@@ -28,6 +28,7 @@ import (
 type fakeCluster struct {
 	objects  map[string]*unstructured.Unstructured
 	statuses int
+	onApply  func(*unstructured.Unstructured)
 }
 
 func newFakeCluster() *fakeCluster {
@@ -57,7 +58,11 @@ func (c *fakeCluster) List(_ context.Context, gvr schema.GroupVersionResource, n
 }
 
 func (c *fakeCluster) Apply(_ context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
-	key := objectKey(gvrFor(object), object.GetNamespace(), object.GetName())
+	if c.onApply != nil {
+		c.onApply(object)
+	}
+	gvr := gvrFor(object)
+	key := objectKey(gvr, object.GetNamespace(), object.GetName())
 	stored, exists := c.objects[key]
 	if !exists {
 		created := object.DeepCopy()
@@ -65,6 +70,11 @@ func (c *fakeCluster) Apply(_ context.Context, object *unstructured.Unstructured
 		created.SetResourceVersion("1")
 		c.objects[key] = created
 		return created.DeepCopy(), nil
+	}
+	if version := object.GetResourceVersion(); version != "" && version != stored.GetResourceVersion() {
+		return nil, apierrors.NewConflict(
+			schema.GroupResource{Group: gvr.Group, Resource: gvr.Resource},
+			object.GetName(), errors.New("the object has changed since it was read"))
 	}
 	updated := object.DeepCopy()
 	updated.SetResourceVersion(stored.GetResourceVersion())
@@ -105,6 +115,32 @@ func (c *fakeCluster) PatchStatus(_ context.Context, gvr schema.GroupVersionReso
 	c.objects[key] = updated
 	c.statuses++
 	return updated.DeepCopy(), nil
+}
+
+func (c *fakeCluster) edit(t *testing.T, name string, mutate func(*spec.SystemContext)) {
+	t.Helper()
+	key := objectKey(specapi.SystemContextGVR, specapi.DefaultNamespace, name)
+	stored, ok := c.objects[key]
+	if !ok {
+		t.Fatalf("no %s to edit", name)
+	}
+	typed, err := kcpclient.Typed(stored.DeepCopy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, ok := typed.(*spec.SystemContext)
+	if !ok {
+		t.Fatalf("stored a %T", typed)
+	}
+	mutate(current)
+	edited, err := kcpclient.Unstructured(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, _ := strconv.Atoi(stored.GetResourceVersion())
+	edited.SetResourceVersion(strconv.Itoa(version + 1))
+	edited.SetGeneration(stored.GetGeneration() + 1)
+	c.objects[key] = edited
 }
 
 func normalize(value any) any {
@@ -531,6 +567,146 @@ func TestRunReanchorsCodeRefsWhenAnEditShiftsLines(t *testing.T) {
 	if synced := conditionOf(after.Status.Conditions, specapi.ConditionCodeSynced); synced == nil || synced.Status != metav1.ConditionTrue {
 		t.Errorf("CodeSynced = %+v, want True", synced)
 	}
+}
+
+// seedObservedRequirements gives "calc" two requirements a person wrote, each
+// anchored to the symbol it names, and lets the ingest run once over them so a
+// later pass has a previous write to compare the live object against.
+func seedObservedRequirements(t *testing.T, cluster *fakeCluster, repoPath string) *spec.SystemContext {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := Run(ctx, cluster, Options{RepoPath: repoPath, Commit: "cafebabe"}); err != nil {
+		t.Fatal(err)
+	}
+	seeded := storedContext(t, cluster, "calc")
+	seeded.Spec.Requirements = []spec.Requirement{
+		{ID: "r.add", Level: spec.LevelMust, Text: "Add returns the sum.", CodeRefs: []string{observedRef(t, seeded, "Add")}},
+		{ID: "r.multiply", Level: spec.LevelMust, Text: "Multiply returns the product.", CodeRefs: []string{observedRef(t, seeded, "Multiply")}},
+	}
+	object, err := kcpclient.Unstructured(seeded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cluster.Apply(ctx, object); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(ctx, cluster, Options{RepoPath: repoPath, Commit: "cafecafe"}); err != nil {
+		t.Fatal(err)
+	}
+	return storedContext(t, cluster, "calc")
+}
+
+func shiftCalcLines(t *testing.T, repoPath string) {
+	t.Helper()
+	source := filepath.Join(repoPath, "calc", "calc.go")
+	code, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, append([]byte("// a realized edit above every symbol\n// shifts every id below it\n"), code...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func requirementOf(t *testing.T, context *spec.SystemContext, id string) spec.Requirement {
+	t.Helper()
+	for _, requirement := range context.Spec.Requirements {
+		if requirement.ID == id {
+			return requirement
+		}
+	}
+	t.Fatalf("%s is not declared: %+v", id, context.Spec.Requirements)
+	return spec.Requirement{}
+}
+
+func TestIngestNeverClobbersASpecEditItDidNotMake(t *testing.T) {
+	fixture.Require(t, "codegraph", "git")
+	ctx := context.Background()
+
+	t.Run("a requirement a person edited stays edited", func(t *testing.T) {
+		repoPath := fixture.Copy(t, "calc")
+		cluster := newFakeCluster()
+		seeded := seedObservedRequirements(t, cluster, repoPath)
+		anchor := requirementOf(t, seeded, "r.add").CodeRefs[0]
+
+		cluster.edit(t, "calc", func(current *spec.SystemContext) {
+			for index := range current.Spec.Requirements {
+				if current.Spec.Requirements[index].ID == "r.add" {
+					current.Spec.Requirements[index].Text = "the person wrote this"
+				}
+			}
+		})
+		shiftCalcLines(t, repoPath)
+		if _, err := Run(ctx, cluster, Options{RepoPath: repoPath, Commit: "deadbeef"}); err != nil {
+			t.Fatal(err)
+		}
+
+		after := storedContext(t, cluster, "calc")
+		add := requirementOf(t, after, "r.add")
+		if add.Text != "the person wrote this" {
+			t.Errorf("requirement text = %q, want the person's edit", add.Text)
+		}
+		if add.CodeRefs[0] == anchor {
+			t.Fatalf("the ingest wrote nothing, so the test proves nothing: %v", add.CodeRefs)
+		}
+	})
+
+	t.Run("an edit that lands while the pass runs is merged", func(t *testing.T) {
+		repoPath := fixture.Copy(t, "calc")
+		cluster := newFakeCluster()
+		seedObservedRequirements(t, cluster, repoPath)
+
+		landed := false
+		cluster.onApply = func(object *unstructured.Unstructured) {
+			if landed || object.GetKind() != "SystemContext" || object.GetName() != "calc" {
+				return
+			}
+			landed = true
+			cluster.edit(t, "calc", func(current *spec.SystemContext) {
+				for index := range current.Spec.Requirements {
+					if current.Spec.Requirements[index].ID == "r.add" {
+						current.Spec.Requirements[index].Text = "the person wrote this"
+					}
+				}
+			})
+		}
+		shiftCalcLines(t, repoPath)
+		if _, err := Run(ctx, cluster, Options{RepoPath: repoPath, Commit: "deadbeef"}); err != nil {
+			t.Fatal(err)
+		}
+		if !landed {
+			t.Fatal("the edit did not land while the pass ran")
+		}
+
+		after := storedContext(t, cluster, "calc")
+		if text := requirementOf(t, after, "r.add").Text; text != "the person wrote this" {
+			t.Errorf("requirement text = %q, want the edit the pass raced", text)
+		}
+	})
+
+	t.Run("a requirement the ingest derived is refreshed", func(t *testing.T) {
+		repoPath := fixture.Copy(t, "calc")
+		cluster := newFakeCluster()
+		seeded := seedObservedRequirements(t, cluster, repoPath)
+		before := requirementOf(t, seeded, "r.multiply")
+
+		shiftCalcLines(t, repoPath)
+		if _, err := Run(ctx, cluster, Options{RepoPath: repoPath, Commit: "deadbeef"}); err != nil {
+			t.Fatal(err)
+		}
+
+		after := storedContext(t, cluster, "calc")
+		moved := requirementOf(t, after, "r.multiply")
+		if moved.CodeRefs[0] != observedRef(t, after, "Multiply") {
+			t.Errorf("requirement refs = %v, want the symbol's new anchor", moved.CodeRefs)
+		}
+		if moved.CodeRefs[0] == before.CodeRefs[0] {
+			t.Errorf("the ingest left the anchor stale: %v", moved.CodeRefs)
+		}
+		if moved.Text != before.Text {
+			t.Errorf("requirement text = %q, want the ingest to keep it", moved.Text)
+		}
+	})
 }
 
 func observedRef(t *testing.T, context *spec.SystemContext, name string) string {

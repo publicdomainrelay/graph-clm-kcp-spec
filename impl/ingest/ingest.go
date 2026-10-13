@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 
@@ -15,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/authority"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
@@ -290,6 +290,93 @@ func upsertRepository(ctx context.Context, cluster Cluster, repository *spec.Rep
 	return err
 }
 
+const writeAttempts = 5
+
+// loadContext reads the SystemContext a partition is written to. A missing
+// object is a new one, which the first write creates, and it carries no live
+// value to keep.
+func loadContext(ctx context.Context, cluster Cluster, namespace, name string) (*spec.SystemContext, bool, error) {
+	found, err := cluster.Get(ctx, specapi.SystemContextGVR, namespace, name)
+	switch {
+	case err == nil:
+		typed, err := kcpclient.Typed(found)
+		if err != nil {
+			return nil, false, err
+		}
+		current, ok := typed.(*spec.SystemContext)
+		if !ok {
+			return nil, false, fmt.Errorf("ingest: %s is not a SystemContext", name)
+		}
+		return current, false, nil
+	case kcpclient.IsNotFound(err):
+		return &spec.SystemContext{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}, true, nil
+	default:
+		return nil, false, err
+	}
+}
+
+// declaredUnits names the units of the live context the ingest does not own:
+// the units recorded as declared, plus every unit whose value differs from the
+// one the ingest wrote last. A unit the ingest wrote and the live object still
+// holds unchanged stays the ingest's to derive again.
+func declaredUnits(current *spec.SystemContext) (authority.Set, error) {
+	recorded, err := authority.Parse(current.Annotations[specapi.DeclaredAnnotation])
+	if err != nil {
+		return authority.Set{}, fmt.Errorf("ingest: %s: %w", current.Name, err)
+	}
+	return authority.Declared(recorded, current.Spec, current.Status.RealizedSpec), nil
+}
+
+// observedSpec is the spec the ingest derives from the code for one partition:
+// the live spec with the values the ingest owns filled in. A value the live
+// object already holds stays, so a person's edit is never overwritten by a
+// value the ingest did not observe.
+func observedSpec(
+	previous spec.SystemContextSpec,
+	partition specsync.Partition,
+	repositoryName string,
+	orchestrators map[string]string,
+) spec.SystemContextSpec {
+	drafted := previous
+	if drafted.Repository == "" {
+		drafted.Repository = repositoryName
+	}
+	if drafted.Upstream == "" {
+		drafted.Upstream = spec.RefSelf
+	}
+	if len(drafted.DependsOn) == 0 {
+		drafted.DependsOn = specsync.DependencyRefs(partition.DependsOn)
+	}
+	if len(drafted.TestDependsOn) == 0 {
+		drafted.TestDependsOn = specsync.DependencyRefs(partition.TestDependsOn)
+	}
+	if drafted.Orchestrator == "" {
+		drafted.Orchestrator = orchestrators[partition.Name]
+	}
+	return drafted
+}
+
+// anchoredSpec points every anchor of a spec at the code as it is now. The
+// anchors are the ingest's: a code ref is re-derived from the index whatever
+// the live object says, so a requirement a person edited keeps its text and
+// still follows the symbol it names.
+func anchoredSpec(
+	declared spec.SystemContextSpec,
+	previousObserved, previousSyncedObserved spec.ObservedFacts,
+	observed spec.ObservedFacts,
+) spec.SystemContextSpec {
+	out := declared
+	out.CodeRefs = mergeCodeRefs(out.CodeRefs, observed.Files)
+	out = specsync.ReanchorRefs(out, previousSyncedObserved, observed)
+	out = specsync.ReanchorRefs(out, previousObserved, observed)
+	return specsync.MigrateDeclared(out, observed)
+}
+
+// ingestPartition writes one context against the spec as it is when the write
+// happens, not as it was when the pass started: the update carries the resource
+// version it read, and a conflict re-reads and merges again, so an edit that
+// lands while the pass runs is a declared unit that survives instead of a value
+// the ingest overwrites.
 func ingestPartition(
 	ctx context.Context,
 	cluster Cluster,
@@ -305,88 +392,74 @@ func ingestPartition(
 	observed := specsync.Observed(partition)
 	result := ContextResult{Name: partition.Name, Fingerprint: observed.Fingerprint, Observed: observed}
 
-	var existingContext *spec.SystemContext
-	found, err := cluster.Get(ctx, specapi.SystemContextGVR, namespace, partition.Name)
-	switch {
-	case err == nil:
-		typed, err := kcpclient.Typed(found)
-		if err != nil {
-			return result, err
-		}
-		current, ok := typed.(*spec.SystemContext)
-		if !ok {
-			return result, fmt.Errorf("ingest: %s is not a SystemContext", partition.Name)
-		}
-		existingContext = current
-	case kcpclient.IsNotFound(err):
-		existingContext = &spec.SystemContext{ObjectMeta: metav1.ObjectMeta{Name: partition.Name, Namespace: namespace}}
-		result.Created = true
-	default:
+	current, created, err := loadContext(ctx, cluster, namespace, partition.Name)
+	if err != nil {
 		return result, err
 	}
+	result.Created = created
 
-	if owner := existingContext.Spec.Repository; owner != "" && owner != repositoryName {
+	if owner := current.Spec.Repository; owner != "" && owner != repositoryName {
 		result.Skipped = true
 		result.Reason = "the context belongs to repository " + owner
 		return result, nil
 	}
 
-	previousSpec := existingContext.Spec
-	previousHash, previousErr := spec.HashSystemContextSpec(previousSpec)
-	adopted := adopt != nil && spec.SameDeclaredState(previousSpec, *adopt)
+	generation := current.GetGeneration()
+	var (
+		merged            = current.Spec
+		realizedSpec      *spec.SystemContextSpec
+		realizedSpecHash  string
+		syncedFingerprint string
+		syncedCommit      string
+		syncedObserved    spec.ObservedFacts
+	)
+	for attempt := 1; ; attempt++ {
+		previousSpec := current.Spec
+		previousHash, previousErr := spec.HashSystemContextSpec(previousSpec)
+		adopted := adopt != nil && spec.SameDeclaredState(previousSpec, *adopt)
 
-	syncedFingerprint := existingContext.Status.SyncedFingerprint
-	syncedCommit := existingContext.Status.SyncedCommit
-	syncedObserved := existingContext.Status.SyncedObserved
-	if syncedFingerprint == "" || adopted {
-		syncedFingerprint = observed.Fingerprint
-		syncedCommit = commit
-		syncedObserved = observed
-	}
+		syncedFingerprint = current.Status.SyncedFingerprint
+		syncedCommit = current.Status.SyncedCommit
+		syncedObserved = current.Status.SyncedObserved
+		if syncedFingerprint == "" || adopted {
+			syncedFingerprint = observed.Fingerprint
+			syncedCommit = commit
+			syncedObserved = observed
+		}
 
-	merged := previousSpec
-	if merged.Repository == "" {
-		merged.Repository = repositoryName
-	}
-	if merged.Upstream == "" {
-		merged.Upstream = spec.RefSelf
-	}
-	if len(merged.DependsOn) == 0 {
-		merged.DependsOn = specsync.DependencyRefs(partition.DependsOn)
-	}
-	if len(merged.TestDependsOn) == 0 {
-		merged.TestDependsOn = specsync.DependencyRefs(partition.TestDependsOn)
-	}
-	if merged.Orchestrator == "" {
-		merged.Orchestrator = orchestrators[partition.Name]
-	}
-	merged.CodeRefs = mergeCodeRefs(merged.CodeRefs, observed.Files)
-	merged = specsync.ReanchorRefs(merged, existingContext.Status.SyncedObserved, observed)
-	merged = specsync.ReanchorRefs(merged, existingContext.Status.Observed, observed)
-	merged = specsync.MigrateDeclared(merged, observed)
+		realizedSpecHash = current.Status.RealizedSpecHash
+		realizedSpec = current.Status.RealizedSpec
 
-	specChanged := !reflect.DeepEqual(merged, previousSpec)
-	generation := existingContext.GetGeneration()
+		drafted := observedSpec(previousSpec, partition, repositoryName, orchestrators)
+		declared, err := declaredUnits(current)
+		if err != nil {
+			return result, err
+		}
+		// Every declared unit keeps the value the live object holds; the values
+		// the ingest derives from the code fill the rest.
+		merged = authority.Substitute(drafted, previousSpec, declared)
+		merged = anchoredSpec(merged, current.Status.Observed, syncedObserved, observed)
 
-	realizedSpecHash := existingContext.Status.RealizedSpecHash
-	mergedHash, mergedErr := spec.HashSystemContextSpec(merged)
-	absorbed := previousErr == nil && mergedErr == nil && (realizedSpecHash == "" || realizedSpecHash == previousHash)
-	if adopted {
-		absorbed = mergedErr == nil
-	}
-	realizedSpec := existingContext.Status.RealizedSpec
-	if absorbed {
-		realizedSpecHash = mergedHash
-		snapshot := merged
-		realizedSpec = &snapshot
-	}
+		mergedHash, mergedErr := spec.HashSystemContextSpec(merged)
+		absorbed := previousErr == nil && mergedErr == nil && (realizedSpecHash == "" || realizedSpecHash == previousHash)
+		if adopted {
+			absorbed = mergedErr == nil
+		}
+		if absorbed {
+			realizedSpecHash = mergedHash
+			snapshot := merged
+			realizedSpec = &snapshot
+		}
 
-	var applied *unstructured.Unstructured
-	if specChanged {
+		if previousErr == nil && mergedErr == nil && previousHash == mergedHash {
+			generation = current.GetGeneration()
+			break
+		}
+
 		updated := &spec.SystemContext{
-			ObjectMeta: *existingContext.ObjectMeta.DeepCopy(),
+			ObjectMeta: *current.ObjectMeta.DeepCopy(),
 			Spec:       merged,
-			Status:     existingContext.Status,
+			Status:     current.Status,
 		}
 		if updated.Annotations == nil {
 			updated.Annotations = map[string]string{}
@@ -394,21 +467,28 @@ func ingestPartition(
 		updated.Annotations[specapi.OriginAnnotation] = specapi.OriginIngest
 		delete(updated.Annotations, specapi.OriginHashAnnotation)
 		if absorbed {
-			if mergedHash, err := spec.HashSystemContextSpec(merged); err == nil {
-				updated.Annotations[specapi.OriginHashAnnotation] = mergedHash
-			}
+			updated.Annotations[specapi.OriginHashAnnotation] = mergedHash
 		}
 		updated.SetDefaults()
 		object, err := kcpclient.Unstructured(updated)
 		if err != nil {
 			return result, err
 		}
-		applied, err = cluster.Apply(ctx, object)
-		if err != nil {
+		applied, err := cluster.Apply(ctx, object)
+		if err == nil {
+			result.SpecChanged = true
+			generation = applied.GetGeneration()
+			break
+		}
+		if !kcpclient.IsConflict(err) || attempt >= writeAttempts {
 			return result, err
 		}
-		generation = applied.GetGeneration()
-		result.SpecChanged = true
+		fresh, _, err := loadContext(ctx, cluster, namespace, partition.Name)
+		if err != nil {
+			return result, fmt.Errorf("ingest: re-read systemcontext %s: %w", partition.Name, err)
+		}
+		current = fresh
+		result.Created = false
 	}
 
 	_, conditions := specsync.Conditions(specsync.Input{
@@ -417,7 +497,7 @@ func ingestPartition(
 		Spec:              merged,
 		Observed:          observed,
 		SyncedFingerprint: syncedFingerprint,
-	}, existingContext.Status.Conditions)
+	}, current.Status.Conditions)
 	result.Conditions = conditions
 
 	status := map[string]any{
@@ -434,7 +514,7 @@ func ingestPartition(
 		status["realizedSpec"] = realizedSpec
 	}
 
-	if specapi.StatusMatches(existingContext.Status, status) {
+	if specapi.StatusMatches(current.Status, status) {
 		return result, nil
 	}
 	if _, err := cluster.PatchStatus(ctx, specapi.SystemContextGVR, namespace, partition.Name, status); err != nil {
