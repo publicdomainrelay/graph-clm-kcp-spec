@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
@@ -106,11 +108,43 @@ func (c *Client) runOnce(ctx context.Context, query string, params map[string]an
 }
 
 func transient(err error) bool {
-	var neo4jError *neo4j.Neo4jError
-	if !errors.As(err, &neo4jError) {
+	if err == nil {
 		return false
 	}
-	return neo4jError.IsRetriableTransient()
+	var neo4jError *neo4j.Neo4jError
+	if errors.As(err, &neo4jError) {
+		return neo4jError.IsRetriableTransient()
+	}
+	return connectionLost(err)
+}
+
+// connectionLost reports whether the connection died under the query rather
+// than the query being refused. A graph-node drops idle connections and pauses
+// during its own compaction, so a write can fail with a broken pipe or a reset
+// while the node is healthy a moment later; every write this client sends is an
+// idempotent MERGE or DELETE, so retrying is safe. The check is textual because
+// the driver reports a transport failure as a connectivity error whose cause is
+// a net error from whichever platform it runs on.
+func connectionLost(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	text := err.Error()
+	for _, marker := range []string{
+		"broken pipe",
+		"connection reset",
+		"connection refused",
+		"connection timed out",
+		"i/o timeout",
+		"ConnectivityError",
+		"unexpected EOF",
+		"EOF",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 const writeBatch = 64
