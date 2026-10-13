@@ -1,6 +1,12 @@
 # PLAN 0013 - the graph hybrid (structure + claims + search + CLM working memory + swarm)
 
-Status: active. Owner: coordination agent. Executor: a Claude Code agent driving specd, which drives deepseek-claude (the 0011 dogfood pattern).
+Status: done. Every item is done or recorded below as a limit with its reason.
+Owner: coordination agent. Executor: the coordinating Claude Code session driving
+specd, which drove deepseek-claude (the 0011 dogfood pattern): every change in
+items A to G was authored as a requirement and realized by specd plus deepseek,
+and the lead fixed only the defects in the graph, the ingest and the test
+harness that the run reported (`boltgraph` retry, the dangling-edge class, the
+ingest re-read, the memory vertices, the CLI flag clash).
 
 Runs before the socialweb plan (0012) because 0012 depends on it: specd must
 build a context worth reading before it drives a 300-package monorepo.
@@ -471,3 +477,28 @@ Two findings produced the change. The index was created but never filled
 pack named nothing; and the history eval's subjects are terse ("realize
 cmd-specctl: +1"), so a query with no meaningful term still scores zero. The
 harness is the measurement the plan wanted: it is honest about both numbers.
+
+
+### Limits, with the reason
+
+- **A6, a branch per checkout.** Realized, then reverted: it stops a clone
+  restoring the architecture from the remote branch (phase13). The shared branch
+  stays the default; `--restore-branch` was removed with it.
+- **G2, tokens per successful realize.** No model-usage accounting exists
+  anywhere in the repository: the agent CLI's usage is not captured, and the
+  token figure the pack and the evals print is the context pack's own estimate.
+  Measuring it needs the realize command to run with a usage-reporting output
+  format and specd to record that usage on the AgentRun; that is a follow-up,
+  not a measurement this plan could take.
+- **G3, the skill-evolution loop.** The skill text and its version exist (item
+  D3) and every host injects it, but evolving it needs candidate generation plus
+  a development and a held-out split, and G1's recall (0.13 over terse commit
+  subjects) is too coarse a signal to optimise against today. Improve G1's gold
+  set first.
+
+### What the plan did not do, and why
+
+The plan's own "done means" is met: every item is done or recorded as a limit
+with its reason, `gofmt`, `go vet ./...`, `go test ./...` and `make test-live`
+are green at the merge commit, and the run above records the dogfood run, its
+findings and its measurements.
