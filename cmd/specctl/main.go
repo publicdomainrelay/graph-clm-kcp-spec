@@ -503,7 +503,7 @@ global flags:
 populate flags (specctl ingest):
   --partition <mode>      directory (default) or package
   --include <glob>        keep paths matching the glob; repeatable
-  --exclude <glob>        drop paths matching the glob; repeatable
+  --exclude <glob>        drop paths matching the glob; repeatable (replaces the default scope)
   --summarize             send the agent over every context whose intent is empty
   --agent <kind>          scripted:<file> or claude
   --agent-command <cmd>   model command (default deepseek-claude)

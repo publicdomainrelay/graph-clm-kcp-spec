@@ -148,7 +148,7 @@ func PartitionFactsWith(facts Facts, options PartitionOptions) []Partition {
 	}
 	options.Roots = roots
 	partitions := partitionsByKey(files, facts.Symbols, options)
-	return attachTreeFiles(partitions, options.TreeFiles, options)
+	return attachTreeFiles(partitions, filterTreeFiles(options.TreeFiles, options.Exclude), options)
 }
 
 func rootDirs(options PartitionOptions) []string {
@@ -338,6 +338,21 @@ func filterFiles(files []SourceFile, include, exclude []string) []SourceFile {
 			continue
 		}
 		if matchAny(excludes, file.Path) {
+			continue
+		}
+		out = append(out, file)
+	}
+	return out
+}
+
+func filterTreeFiles(treeFiles []string, exclude []string) []string {
+	excludes := compileGlobs(exclude)
+	if len(excludes) == 0 {
+		return treeFiles
+	}
+	out := make([]string, 0, len(treeFiles))
+	for _, file := range treeFiles {
+		if file == "" || matchAny(excludes, file) {
 			continue
 		}
 		out = append(out, file)

@@ -547,6 +547,36 @@ func TestIncludeAndExcludeGlobsFilterTheTree(t *testing.T) {
 	}
 }
 
+func TestExcludeGlobsDropTreeFilesToo(t *testing.T) {
+	partitions := PartitionFactsWith(Facts{
+		Commit:  "abc123",
+		Files:   []SourceFile{{Path: "svc/svc.go", Language: "go"}},
+		Symbols: []Symbol{{ID: "function:serve", Name: "Serve", Kind: "function", File: "svc/svc.go", Exported: true}},
+	}, PartitionOptions{
+		RepositoryName: "unseen",
+		Exclude:        []string{"svc/testdata/**"},
+		TreeFiles:      []string{"svc/svc.go", "svc/testdata/golden.yaml", "svc/README.md"},
+	})
+	if len(partitions) != 1 || partitions[0].Name != "svc" {
+		t.Fatalf("partitions = %+v, want the svc context", partitions)
+	}
+	inScope, outOfScope := false, false
+	for _, file := range partitions[0].TreeFiles {
+		switch file {
+		case "svc/README.md":
+			inScope = true
+		case "svc/testdata/golden.yaml":
+			outOfScope = true
+		}
+	}
+	if !inScope {
+		t.Errorf("TreeFiles = %v, want the in-scope file", partitions[0].TreeFiles)
+	}
+	if outOfScope {
+		t.Errorf("TreeFiles = %v, want the out-of-scope file left out of the context", partitions[0].TreeFiles)
+	}
+}
+
 func TestMatchGlob(t *testing.T) {
 	cases := []struct {
 		pattern string

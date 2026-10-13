@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -17,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
+	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
@@ -723,4 +726,177 @@ func contains(values []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func TestDefaultExcludesAreTheSampleTrees(t *testing.T) {
+	want := []string{
+		"**/fixtures/**",
+		"**/testdata/**",
+		"**/node_modules/**",
+		"**/vendor/**",
+		"**/.git/**",
+		"**/generated/**",
+		"**/*.min.js",
+	}
+	if !reflect.DeepEqual(DefaultExcludes, want) {
+		t.Fatalf("DefaultExcludes = %v, want %v", DefaultExcludes, want)
+	}
+	dropped := []string{
+		"fixtures/calc/calc.go",
+		"impl/fixtures/golden.yaml",
+		"fixtures/market-mini/compliant/src.ts",
+		"testdata/input.json",
+		"a/testdata/b/c.go",
+		"node_modules/left-pad/index.js",
+		"vendor/example.com/x/x.go",
+		"lib/vendor/y.go",
+		".git/config",
+		"impl/generated/deepcopy.go",
+		"web/assets/app.min.js",
+	}
+	for _, file := range dropped {
+		if !excludedByDefault(file) {
+			t.Errorf("%s is not in the default scope", file)
+		}
+	}
+	kept := []string{
+		"examples/policies/lib.go",
+		"impl/ingest/ingest.go",
+		"cmd/specctl/main.go",
+		"fixture.go",
+		"web/app.js",
+	}
+	for _, file := range kept {
+		if excludedByDefault(file) {
+			t.Errorf("%s must stay in the default scope", file)
+		}
+	}
+}
+
+func excludedByDefault(file string) bool {
+	for _, pattern := range DefaultExcludes {
+		if specsync.MatchGlob(pattern, file) {
+			return true
+		}
+	}
+	return false
+}
+
+func contextNames(result Result) []string {
+	names := []string{}
+	for _, context := range result.Contexts {
+		names = append(names, context.Name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func sampleRepository(t *testing.T, sources map[string]string) string {
+	t.Helper()
+	directory := t.TempDir()
+	for name, content := range sources {
+		file := filepath.Join(directory, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command := exec.Command("git", "init", "-q", "-b", "main")
+	command.Dir = directory
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	fixture.Commit(t, directory, "sample")
+	return directory
+}
+
+const sampleGoMod = "module example.com/sample\n\ngo 1.23\n"
+
+const sampleAlpha = "package alpha\n\nfunc Add(a, b int) int { return a + b }\n"
+
+const sampleBeta = "export function greet(name: string): string {\n  return \"hello \" + name;\n}\n"
+
+func TestRunAppliesTheDefaultExcludesAndReplacesThemWhenNamed(t *testing.T) {
+	fixture.Require(t, "codegraph", "git")
+	repoPath := sampleRepository(t, map[string]string{
+		"go.mod":                   sampleGoMod,
+		"fixtures/alpha/alpha.go":  sampleAlpha,
+		"fixtures/alpha/README.md": "# alpha\n",
+		"examples/beta/beta.ts":    sampleBeta,
+		"cmd/sample/main.go":       "package main\n\nfunc main() {}\n",
+	})
+
+	result, err := Run(context.Background(), newFakeCluster(), Options{RepoPath: repoPath, Commit: "cafebabe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := contextNames(result)
+	if contains(names, "fixtures-alpha") {
+		t.Errorf("the default scope made a context for the sample tree: %v", names)
+	}
+	if !contains(names, "examples-beta") || !contains(names, "cmd-sample") {
+		t.Errorf("contexts = %v, want examples-beta and cmd-sample", names)
+	}
+	for _, context := range result.Contexts {
+		for _, file := range context.Observed.Files {
+			if strings.HasPrefix(file, "fixtures/") {
+				t.Errorf("%s observed the out-of-scope file %s", context.Name, file)
+			}
+		}
+	}
+
+	replaced, err := Run(context.Background(), newFakeCluster(), Options{
+		RepoPath: repoPath,
+		Commit:   "cafebabe",
+		Exclude:  []string{"examples/**"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacedNames := contextNames(replaced)
+	if contains(replacedNames, "examples-beta") {
+		t.Errorf("the named exclude kept the example tree: %v", replacedNames)
+	}
+	if !contains(replacedNames, "fixtures-alpha") {
+		t.Errorf("a named exclude must replace the default list, not extend it: %v", replacedNames)
+	}
+}
+
+func TestRunMakesNoContextForASampleOnlyRepository(t *testing.T) {
+	fixture.Require(t, "codegraph", "git")
+	repoPath := sampleRepository(t, map[string]string{
+		"go.mod":                  sampleGoMod,
+		"fixtures/alpha/alpha.go": sampleAlpha,
+		"examples/beta/beta.ts":   sampleBeta,
+	})
+
+	result, err := Run(context.Background(), newFakeCluster(), Options{RepoPath: repoPath, Commit: "cafebabe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := contextNames(result); !reflect.DeepEqual(names, []string{"examples-beta"}) {
+		t.Fatalf("contexts = %v, want only examples-beta: fixtures/ is in the default scope and examples/ is not", names)
+	}
+
+	scoped := newFakeCluster()
+	scopedResult, err := Run(context.Background(), scoped, Options{
+		RepoPath: repoPath,
+		Commit:   "cafebabe",
+		Exclude:  []string{"fixtures/**", "examples/**"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scopedResult.Contexts) != 0 {
+		t.Fatalf("contexts = %v, want none: both source trees are out of scope", contextNames(scopedResult))
+	}
+	listed, err := scoped.List(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Items) != 0 {
+		t.Errorf("the cluster holds %d contexts, want none", len(listed.Items))
+	}
 }

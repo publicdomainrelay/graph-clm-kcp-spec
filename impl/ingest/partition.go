@@ -127,6 +127,21 @@ func stripJSONComments(data []byte) []byte {
 	return out
 }
 
+// DefaultExcludes is the populate scope an ingest applies when
+// Repository.spec.populate.exclude is empty: the sample trees, the vendored
+// and dependency trees, the generated trees and the bundled scripts a
+// repository does not own. A repository that names its own exclude list
+// replaces this list, it does not extend it.
+var DefaultExcludes = []string{
+	"**/fixtures/**",
+	"**/testdata/**",
+	"**/node_modules/**",
+	"**/vendor/**",
+	"**/.git/**",
+	"**/generated/**",
+	"**/*.min.js",
+}
+
 var generatedMarkers = []string{"THIS FILE WAS GENERATED", "DO NOT EDIT", "@generated"}
 
 // GeneratedDirectories lists the tree directories that hold only generated

@@ -133,10 +133,18 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 		treeFiles = nil
 	}
 	resolver := specsync.ModuleResolver{ModulePath: GoModulePath(repoPath), ImportMap: DenoImportMap(repoPath)}
+	// An empty populate exclude is the default scope, not every path: a
+	// repository that names no exclude still leaves the sample, vendored and
+	// generated trees it does not own out of the partition. A named list
+	// replaces the default one.
+	exclude := options.Exclude
+	if len(exclude) == 0 {
+		exclude = DefaultExcludes
+	}
 	partitionOptions := specsync.PartitionOptions{
 		Mode:           options.Partition,
 		Include:        options.Include,
-		Exclude:        options.Exclude,
+		Exclude:        exclude,
 		RepositoryName: repositoryName,
 		TreeFiles:      treeFiles,
 		ModulePath:     resolver.ModulePath,

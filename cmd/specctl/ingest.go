@@ -34,7 +34,7 @@ func runIngest(args []string, stdout, stderr io.Writer) int {
 	var include stringsFlag
 	fs.Var(&include, "include", "glob of repository-relative paths to keep; repeatable")
 	var exclude stringsFlag
-	fs.Var(&exclude, "exclude", "glob of repository-relative paths to drop; repeatable")
+	fs.Var(&exclude, "exclude", "glob of repository-relative paths to drop; repeatable (default: the sample, vendored and generated trees)")
 	_ = fs.String("codegraph", "", "codegraph command to run (the controller's --codegraph)")
 	_ = fs.Bool("no-graph", false, "do not write the graph (the controller's --bolt-url)")
 	_ = fs.Int("bundle-budget", 0, "token budget of the context bundle (the controller's --bundle-budget)")
