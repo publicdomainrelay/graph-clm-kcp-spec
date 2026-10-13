@@ -1,7 +1,8 @@
 # PLAN 0011 - plans, findings and agent runs as objects; spec authority
 
-Status: active. Owner: coordination agent. Executor: the coordination agent
-itself (Claude Code), with DeepSeek only where a live model test runs.
+Status: done. Every item is Done in the p0011 object (see "The dogfood run"
+below), main carries it (e6a9429), and the gates are green. Owner: coordination
+agent. Executor: a Claude Code agent driving specd, which drove deepseek-claude.
 
 This plan is the first one tracked by the mechanism it builds. Its items live
 in kcp as a `Plan` object ([`0011-plan.yaml`](0011-plan.yaml)), each item
