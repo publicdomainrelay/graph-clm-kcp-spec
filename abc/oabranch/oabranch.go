@@ -88,20 +88,6 @@ func RefFor(repository, codeBranch, defaultBranch string) string {
 	return "refs/heads/" + BranchFor(repository, codeBranch, defaultBranch)
 }
 
-// BranchForCheckout is the architecture branch an instance owns: the shared
-// branch of the repository, plus the checkout slug when the checkout is not
-// the repository (a worktree, or a clone kept under another name). Two
-// checkouts of one repository therefore never share one architecture branch by
-// accident; a shared branch is only restored when it is named.
-func BranchForCheckout(repository, codeBranch, defaultBranch, checkout string) string {
-	shared := BranchFor(repository, codeBranch, defaultBranch)
-	slug := Slug(checkout)
-	if slug == "" || slug == Slug(repository) {
-		return shared
-	}
-	return shared + BranchSeparator + slug
-}
-
 func branchSuffix(codeBranch string) string {
 	return Slug(codeBranch)
 }

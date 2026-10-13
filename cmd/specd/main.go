@@ -259,7 +259,6 @@ func (c config) options(writer graph.Writer, bolt *boltflags.Options, log *slog.
 		Persist:                c.persist,
 		PersistDelay:           c.persistDelay,
 		PersistRemote:          c.persistRemote,
-		Checkout:               c.checkout,
 		MaxAttempts:            c.maxAttempts,
 		RetryBackoff:           c.retryBackoff,
 		BatchWindow:            c.batchWindow,

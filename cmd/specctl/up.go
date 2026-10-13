@@ -38,7 +38,6 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 	summarize := fs.Bool("summarize", true, "summarize every context into a spec with the model after indexing")
 	agent := fs.String("agent", os.Getenv("SPECD_AGENT"), "agent kind specd runs (claude, claude-mod, pi, scripted:<file>); empty is specd's default")
 	remote := fs.String("remote", "origin", "git remote an existing open-architecture branch is fetched from; empty fetches nothing")
-	restoreBranch := fs.String("restore-branch", "", "architecture branch to adopt on purpose, such as open-architecture/hydradb; empty keeps the branch this checkout owns")
 	push := fs.Bool("push", false, "push the open-architecture branch to --remote after every commit")
 	specdPath := fs.String("specd", defaultSibling("SPECD_BIN", "specd"), "specd binary")
 	clmMod := fs.String("clm-mod", defaultClmMod(), "cc-clm-mod plugin folder the model runs with")
@@ -118,7 +117,7 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 	case kcpclient.IsNotFound(getErr):
 		restored, err := persist.Restore(ctx, persist.RestoreOptions{
 			Cluster: client, Namespace: record.Namespace, Repository: name, RepoPath: top,
-			Remote: *remote, CodeBranch: branch, Checkout: filepath.Base(top), RestoreBranch: *restoreBranch,
+			Remote: *remote, CodeBranch: branch,
 		})
 		switch {
 		case err == nil:
@@ -127,15 +126,12 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 				from = "the branch on " + *remote
 			}
 			fmt.Fprintf(stdout, "restored %d context(s) from %s (%s at %s); specd re-indexes the code\n", len(restored.Contexts), from, restored.Branch, short(restored.Commit))
-			reportCheckoutBranch(stdout, name, branch, top, restored.Branch)
 		case errors.Is(err, persist.ErrNoBranch):
 			if err := applyRepository(ctx, client, record, *summarize); err != nil {
 				fmt.Fprintf(stderr, "specctl up: %v\n", err)
 				return exitError
 			}
 			fmt.Fprintf(stdout, "no open-architecture/%s branch yet: applied Repository %s; specd indexes %s and builds the specs\n", name, name, top)
-			started := oabranch.BranchForCheckout(name, branch, session.DefaultBranch(top), filepath.Base(top))
-			fmt.Fprintf(stdout, "this checkout builds %s; specctl up --restore-branch %s adopts the repository's shared one\n", started, oabranch.Branch(name))
 		default:
 			fmt.Fprintf(stderr, "specctl up: restore: %v\n", err)
 			return exitError
@@ -179,17 +175,6 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 	printNextSteps(stdout, record)
 	succeeded = true
 	return exitOK
-}
-
-// reportCheckoutBranch says so when a checkout whose directory is not the
-// repository keeps an architecture branch of its own, so nobody reads the
-// branch it restored as the repository's.
-func reportCheckoutBranch(stdout io.Writer, repository, codeBranch, repo, branch string) {
-	if branch == "" || branch == oabranch.BranchFor(repository, codeBranch, session.DefaultBranch(repo)) {
-		return
-	}
-	fmt.Fprintf(stdout, "checkout %s keeps its own architecture branch %s; specctl up --restore-branch %s adopts the repository's shared one\n",
-		filepath.Base(repo), branch, oabranch.Branch(repository))
 }
 
 func startKcp(ctx context.Context, record *session.Record, previous session.Record, hadPrevious bool, stdout io.Writer) (bool, error) {
