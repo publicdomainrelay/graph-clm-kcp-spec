@@ -462,11 +462,7 @@ func (db *DB) Resolve(ctx context.Context, reference string) ([]Node, error) {
 		}
 	}
 	if strings.ContainsAny(reference, "/\\") {
-		if nodes, err := db.nodesByFilePath(ctx, reference); err != nil {
-			return nil, err
-		} else if len(nodes) > 0 {
-			return nodes, nil
-		}
+		return db.nodesByFilePath(ctx, reference)
 	}
 	if nodes, err := db.query(ctx, `SELECT `+nodeColumns+` FROM nodes WHERE name = ? LIMIT 2`, reference); err != nil {
 		return nil, err

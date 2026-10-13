@@ -297,6 +297,17 @@ func TestResolveNeverComputesAnID(t *testing.T) {
 	}
 }
 
+func TestAPathNeverResolvesByName(t *testing.T) {
+	database, _ := openFixture(t)
+	nodes, err := database.Resolve(context.Background(), "docs/notes.Add")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 0 {
+		t.Fatalf("Resolve(docs/notes.Add) = %+v: a path codegraph did not index was anchored to the symbol named after its extension", nodes)
+	}
+}
+
 func TestEdgesReadback(t *testing.T) {
 	database, _ := openFixture(t)
 	edges, err := database.Edges(context.Background())
