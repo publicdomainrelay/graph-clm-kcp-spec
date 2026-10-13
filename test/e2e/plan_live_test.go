@@ -314,20 +314,18 @@ func planLivePlanObject() *spec.Plan {
 }
 
 // approvePlanLive applies spec.approved=true to the plan the way the approve
-// verb does: the plan as it is, with the status dropped.
+// verb does: a minimal object holding only the name, the namespace and the
+// approval fields. The plan as the server holds it carries metadata the apply
+// must not send: a server side apply of an object that still carries
+// metadata.managedFields fails with "metadata.managedFields must be nil".
 func approvePlanLive(t *testing.T, ctx context.Context, client *kcpclient.Client) {
 	t.Helper()
-	planObject, ok := readPlanLive(t, ctx, client)
-	if !ok {
-		t.Fatalf("the plan %s is not readable", planLivePlan)
-	}
-	planObject.Spec.Approved = true
-	planObject.Spec.ApprovedBy = "the plan live test"
-	object, err := kcpclient.Unstructured(planObject)
-	if err != nil {
-		t.Fatal(err)
-	}
-	unstructured.RemoveNestedField(object.Object, "status")
+	object := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": specapi.APIVersion,
+		"kind":       specapi.PlanKind,
+		"metadata":   map[string]any{"name": planLivePlan, "namespace": specapi.DefaultNamespace},
+		"spec":       map[string]any{"approved": true, "approvedBy": "the plan live test"},
+	}}
 	if _, err := client.ServerSideApply(ctx, object, "specctl-approve"); err != nil {
 		t.Fatalf("approve the plan: %v", err)
 	}
