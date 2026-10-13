@@ -250,3 +250,36 @@ which is the feature plan 0002 added. The shared branch stays the default for
 every checkout, and a checkout that wants its own branch names one with
 `specctl up --restore-branch <name>`. Recorded as a limit rather than a done
 item.
+
+### Item B: claims, provenance and safe write-back
+
+Authored in `factory-specd`, `impl-clm`, `abc-authority` and `impl-ingest` and
+realized as 461a5e0 plus two fixes the gate found:
+
+- **B2 removal guard** (`factory/specd/removal.go`): a SpecToCode change that
+  removes an undeclared requirement, interface or interaction stays Pending with
+  `held: undeclared removal of <unit>` and records proposals, whatever field
+  manager wrote the spec. The live test
+  `test/e2e/removal_live_test.go` drives a server side apply.
+- **B3 injection scan** (`impl/clm`): a model zone that carries an instruction
+  addressed to an agent is refused and opened as a Finding.
+- **B1 ingest authority** (`impl/ingest`): the ingest merges with
+  `abc/authority`, keeps the live value of every declared unit, and re-merges
+  against the live object when it moved during the pass.
+- **B4 proposals** (`abc/authority`): a proposal is recorded only for a real
+  semantic difference, one per unit, rendered rather than encoded.
+
+Three findings from running them:
+
+- **The declaration race.** Recording an edit's declared units replaced the
+  annotation with that edit's units, so a unit declared a moment earlier (by an
+  operator, or by the previous edit) was lost and the guard then held a
+  removal that had in fact been declared. `recordDeclared` re-reads and unions
+  before it writes, and writes only that key (ef9e97d).
+- **A server side apply removes a list entry only for the manager that owns it.**
+  The removal test's baseline and its edit had to be applied by one field
+  manager, or the removal never took effect. `specctl clm apply` and the mod
+  use one manager, so the operator path is unaffected.
+- **The ingest could replace a spec that moved while a pass ran.** `Apply`
+  re-reads only the resource version, so a stale pass wrote back what it had
+  read; the pass now re-reads and merges again when the object moved (604b8be).

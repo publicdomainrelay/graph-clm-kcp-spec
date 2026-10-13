@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/authority"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
@@ -167,10 +169,24 @@ func TestPlan2bTwoEditsApartAreRealizedOneAfterTheOther(t *testing.T) {
 	}
 
 	applyTyped(t, ctx, client, plan2bRepositoryFor(t, repoPath, "divide.yaml"))
+	// The divide edit replaces the spec the subtract edit wrote, so it removes
+	// requirement/r.subtract and interface/Subtract. The removal guard holds an
+	// undeclared removal, so the operator declares them first, which is the
+	// path specctl arch declare writes.
 	applySpecEdit(t, ctx, client, plan2bDivideEdit())
-	waitFor(t, ctx, "the second edit to land", func() bool {
+	waitForState(t, ctx, "the second edit to land", func() bool {
 		found := changesFor(liveSpecChanges(t, ctx, client), "calc", specapi.DirectionSpecToCode)
 		return len(found) == 2 && found[0].Status.Phase == specapi.PhaseSucceeded && found[1].Status.Phase == specapi.PhaseSucceeded
+	}, func() string {
+		object, err := client.Get(ctx, specapi.SystemContextGVR, specapi.DefaultNamespace, "calc")
+		if err != nil {
+			return "the context cannot be read: " + err.Error()
+		}
+		lines := []string{"declared=" + object.GetAnnotations()[specapi.DeclaredAnnotation]}
+		for _, change := range changesFor(liveSpecChanges(t, ctx, client), "calc", specapi.DirectionSpecToCode) {
+			lines = append(lines, fmt.Sprintf("change %s %s %q", change.Name, change.Status.Phase, change.Status.Message))
+		}
+		return strings.Join(lines, "; ")
 	})
 
 	found := changesFor(liveSpecChanges(t, ctx, client), "calc", specapi.DirectionSpecToCode)
@@ -458,4 +474,22 @@ func plan2bDivideEdit() *unstructured.Unstructured {
 			}},
 		},
 	}}
+}
+
+// declareRemoval marks units as declared on a context, the way specctl arch
+// declare does, so the removal guard lets an intended removal run.
+func declareRemoval(t *testing.T, ctx context.Context, client *kcpclient.Client, context string, units ...string) {
+	t.Helper()
+	object := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": specapi.APIVersion,
+		"kind":       specapi.SystemContextKind,
+		"metadata": map[string]any{
+			"name":        context,
+			"namespace":   specapi.DefaultNamespace,
+			"annotations": map[string]any{specapi.DeclaredAnnotation: authority.Format(authority.NewSet(units...))},
+		},
+	}}
+	if _, err := client.ServerSideApply(ctx, object, "human"); err != nil {
+		t.Fatalf("declare %v on %s: %v", units, context, err)
+	}
 }

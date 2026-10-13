@@ -1,0 +1,60 @@
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: Plan
+metadata:
+  name: p0013
+  namespace: default
+spec:
+  repository: hydradb-0013
+  title: the graph hybrid
+  objective: >-
+    Structure, claims, memory, search and runs in one graph; a task gets a
+    ranked context pack; context quality is measured. Items A1 to A5, the
+    safety batch and the ingest fix are tracked here by their acceptance; the
+    remaining items of docs/plans/0013-graph-hybrid.md are added as they land.
+  approved: false
+  items:
+    - id: ingest-scope
+      summary: A1 default excludes for sample, vendored and generated trees
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./impl/ingest/"]
+    - id: ingest-partitions
+      summary: A2 a partition is made from source code only
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./impl/ingest/"]
+    - id: app-contexts
+      summary: A3 a command is an orchestrator context
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./impl/ingest/"]
+    - id: dependencies
+      summary: A4 and A4b dependsOn is production only, test imports are TEST_IMPORTS
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./abc/sync/", "./abc/graph/"]
+    - id: scope-prune
+      summary: A5 the populate scope is persistent and out-of-scope contexts are pruned
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./impl/populate/"]
+    - id: ingest-authority
+      summary: B1 the ingest never clobbers an edit it did not make
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./impl/ingest/"]
+    - id: removal-guard
+      summary: B2 specd holds an undeclared removal from any writer
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./factory/specd/"]
+    - id: injection-guard
+      summary: B3 an agent directive in a model zone is quarantined
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./impl/clm/"]
+    - id: proposals
+      summary: B4 proposals are semantic and deduplicated
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./abc/authority/"]

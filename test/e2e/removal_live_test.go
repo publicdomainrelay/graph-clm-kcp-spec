@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
 )
 
@@ -49,7 +51,18 @@ func TestRemovalGuardHoldsAServerSideApplyRemoval(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: removalRepository, Namespace: specapi.DefaultNamespace},
 		Spec:       spec.RepositorySpec{Path: repoPath, Branch: "main", Verify: []string{"go", "test", "./..."}},
 	})
-	applyTyped(t, ctx, client, removalBaseline())
+	// The baseline and the edit are applied by the same field manager: a
+	// server side apply drops a list entry only when the manager applying it
+	// owns that entry, which is what makes the removal below real.
+	baselineObject := removalBaseline()
+	spec.SetDefaults(baselineObject)
+	baseline, err := kcpclient.Unstructured(baselineObject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ServerSideApply(ctx, baseline, "human"); err != nil {
+		t.Fatalf("apply the baseline: %v", err)
+	}
 
 	startRemovalController(t, ctx)
 
@@ -62,9 +75,21 @@ func TestRemovalGuardHoldsAServerSideApplyRemoval(t *testing.T) {
 		t.Fatalf("the person's edit: %v", err)
 	}
 
-	waitFor(t, ctx, "the removal to be held", func() bool {
+	waitForState(t, ctx, "the removal to be held", func() bool {
 		changes := changesFor(liveSpecChanges(t, ctx, client), "calc", specapi.DirectionSpecToCode)
 		return len(changes) > 0 && heldRemovalChange(changes)
+	}, func() string {
+		object, err := client.Get(ctx, specapi.SystemContextGVR, specapi.DefaultNamespace, "calc")
+		if err != nil {
+			return "the context cannot be read: " + err.Error()
+		}
+		annotations := object.GetAnnotations()
+		changes := changesFor(liveSpecChanges(t, ctx, client), "calc", specapi.DirectionSpecToCode)
+		lines := []string{"declared=" + annotations[specapi.DeclaredAnnotation], "origin=" + annotations[specapi.OriginAnnotation], fmt.Sprintf("requirements=%d", len(nestedNamesSafe(object, "spec", "requirements")))}
+		for _, change := range changes {
+			lines = append(lines, fmt.Sprintf("change %s %s %q", change.Name, change.Status.Phase, change.Status.Message))
+		}
+		return strings.Join(lines, "; ")
 	})
 
 	changes := changesFor(liveSpecChanges(t, ctx, client), "calc", specapi.DirectionSpecToCode)
@@ -183,7 +208,9 @@ func removalEdit() *unstructured.Unstructured {
 		"kind":       specapi.SystemContextKind,
 		"metadata":   map[string]any{"name": "calc", "namespace": specapi.DefaultNamespace},
 		"spec": map[string]any{
-			"intent": "Arithmetic on two integers.",
+			"repository": removalRepository,
+			"upstream":   spec.RefSelf,
+			"intent":     "Arithmetic on two integers.",
 			"requirements": []any{map[string]any{
 				"id": "r.add", "level": "MUST", "text": "Add returns the sum of two integers.",
 				"codeRefs": []any{"function:Add", "file:calc/calc.go"},
@@ -195,4 +222,12 @@ func removalEdit() *unstructured.Unstructured {
 			"codeRefs": []any{"file:calc/calc.go"},
 		},
 	}}
+}
+
+func nestedNamesSafe(object *unstructured.Unstructured, fields ...string) []any {
+	entries, found, err := unstructured.NestedSlice(object.Object, fields...)
+	if err != nil || !found {
+		return nil
+	}
+	return entries
 }
