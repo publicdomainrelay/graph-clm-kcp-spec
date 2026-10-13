@@ -183,6 +183,19 @@ func tallyContexts(contexts []spec.SystemContext, changes []spec.SpecChange, max
 	return out
 }
 
+// episodeSucceeded reports whether a change of the episode already succeeded.
+// The contexts and the changes are two lists read one after the other: a
+// context read before its summary wrote the intent and a change read after it
+// succeeded must not raise the episode again.
+func episodeSucceeded(succeeded map[string]bool, base string) bool {
+	for name := range succeeded {
+		if spec.ChangeNameMatches(name, base) {
+			return true
+		}
+	}
+	return false
+}
+
 func episode(changes []spec.SpecChange, base string) (int, *spec.SpecChange) {
 	attempts := 0
 	var newest *spec.SpecChange
@@ -215,11 +228,18 @@ func raise(
 	}
 	taken := make([]string, 0, len(changes))
 	unfinished := map[string]bool{}
+	succeeded := map[string]bool{}
 	for index := range changes {
 		change := &changes[index]
 		taken = append(taken, change.Name)
-		if change.Spec.Direction == specapi.DirectionCodeToSpec &&
-			change.Status.Phase != specapi.PhaseFailed && change.Status.Phase != specapi.PhaseSucceeded {
+		if change.Spec.Direction != specapi.DirectionCodeToSpec {
+			continue
+		}
+		switch change.Status.Phase {
+		case specapi.PhaseSucceeded:
+			succeeded[change.Name] = true
+		case specapi.PhaseFailed:
+		default:
 			unfinished[change.Spec.SystemContext] = true
 		}
 	}
@@ -236,6 +256,9 @@ func raise(
 			break
 		}
 		base := spec.ChangeNameCodeToSpec(context.Name, context.Status.SyncedCommit, context.Status.ObservedCommit)
+		if episodeSucceeded(succeeded, base) {
+			continue
+		}
 		attempts := spec.AttemptCount(taken, base)
 		if options.MaxAttempts > 0 && attempts >= options.MaxAttempts {
 			continue

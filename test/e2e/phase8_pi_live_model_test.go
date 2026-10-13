@@ -16,6 +16,7 @@ import (
 )
 
 func TestPhase8PiHostSummarizesCalc(t *testing.T) {
+	t.Parallel()
 	requireLiveModel(t, "npx", "codegraph")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)

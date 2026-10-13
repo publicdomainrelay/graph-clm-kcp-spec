@@ -24,6 +24,7 @@ const f4Repository = "f4-calc"
 // F4.1: an apply that drops a requirement is refused unless the document names
 // the removal, and the delta is printed by id before it lands.
 func TestF4AnImplicitRequirementRemovalIsRefused(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "go")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -84,6 +85,7 @@ func TestF4AnImplicitRequirementRemovalIsRefused(t *testing.T) {
 // F4.2: two quick applies to one context make two changes and land together,
 // each with its own trailer, and neither delta is lost.
 func TestF4TwoQuickAppliesMakeTwoChanges(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "go")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -297,11 +299,12 @@ func runSpecctlRaw(t *testing.T, ctx context.Context, binary, root string, stdin
 	t.Helper()
 	full := append(append([]string{}, args...),
 		"--kubeconfig", e2eKubeconfig,
-		"--workspace", e2eWorkspace,
+		"--workspace", clusterWorkspace(t),
 		"--namespace", specapi.DefaultNamespace,
 	)
 	command := exec.CommandContext(ctx, binary, full...)
 	command.Dir = root
+	command.Env = testEnviron(t, nil)
 	if stdin != nil {
 		command.Stdin = bytes.NewReader(stdin)
 	}

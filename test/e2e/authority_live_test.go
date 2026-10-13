@@ -22,6 +22,7 @@ import (
 const authorityRepository = "authority-calc"
 
 func TestAuthorityASummaryKeepsWhatAPersonWrote(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)

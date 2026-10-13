@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,15 +18,14 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
-	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
 const phase8Repository = "phase8-calc"
 
 func TestPhase8TheModPathReportsIntoKcp(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "go")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -61,14 +59,14 @@ func TestPhase8TheModPathReportsIntoKcp(t *testing.T) {
 
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   e2eKubeconfig,
-		Workspace:    e2eWorkspace,
+		Workspace:    clusterWorkspace(t),
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,
 		Resync:       500 * time.Millisecond,
 		MaxAttempts:  3,
 		RetryBackoff: time.Second,
-		Log:          logging.Discard(),
+		Log:          testLog(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +218,7 @@ func phase8AssertTouched(t *testing.T, root, change string) {
 	defer writer.Close(ctx)
 
 	rows, err := writer.SelectOut(ctx, graph.EdgeTouched, graph.LabelChange, graph.LabelCodeRef,
-		graph.ChangeIDIn(graphns.FromEnv(), change), graph.LabelProperties[graph.LabelCodeRef])
+		graph.ChangeIDIn(graphNamespaceFor(t), change), graph.LabelProperties[graph.LabelCodeRef])
 	if err != nil {
 		t.Fatalf("read the TOUCHED edges: %v", err)
 	}
@@ -237,7 +235,7 @@ func phase8AssertTouched(t *testing.T, root, change string) {
 		t.Errorf("TOUCHED edges = %+v, want file:calc/calc.go on the shared CodeRef id", rows)
 	}
 	occurred, err := writer.SelectOut(ctx, graph.EdgeOccurred, graph.LabelChange, graph.LabelProgress,
-		graph.ChangeIDIn(graphns.FromEnv(), change), graph.LabelProperties[graph.LabelProgress])
+		graph.ChangeIDIn(graphNamespaceFor(t), change), graph.LabelProperties[graph.LabelProgress])
 	if err != nil {
 		t.Fatalf("read the OCCURRED edges: %v", err)
 	}
@@ -248,24 +246,20 @@ func phase8AssertTouched(t *testing.T, root, change string) {
 
 func buildSpecctl(t *testing.T, root string) string {
 	t.Helper()
-	binary := filepath.Join(t.TempDir(), "specctl")
-	command := exec.Command("go", "build", "-o", binary, "./cmd/specctl")
-	command.Dir = root
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("build specctl: %v\n%s", err, output)
-	}
-	return binary
+	specctl, _ := sharedBinaries(t)
+	return specctl
 }
 
 func runSpecctl(t *testing.T, ctx context.Context, binary, root string, stdin []byte, args ...string) string {
 	t.Helper()
 	full := append(append([]string{}, args...),
 		"--kubeconfig", e2eKubeconfig,
-		"--workspace", e2eWorkspace,
+		"--workspace", clusterWorkspace(t),
 		"--namespace", specapi.DefaultNamespace,
 	)
 	command := exec.CommandContext(ctx, binary, full...)
 	command.Dir = root
+	command.Env = testEnviron(t, nil)
 	if stdin != nil {
 		command.Stdin = bytes.NewReader(stdin)
 	}

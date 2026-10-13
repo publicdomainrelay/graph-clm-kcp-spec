@@ -2039,7 +2039,7 @@ and the two hosts (`pi-hydradb-clm`, `cc-clm-mod`) sit on top of both.
 make check      # gofmt and go vet
 make test       # unit tests; live tests skip (-short)
 make test-live  # SPECD_REQUIRE_LIVE=1, -p 2 -timeout 45m; each package starts its own kcp and graph-node, needs codegraph
-                # SPECD_MAX_INSTANCES caps kcp instances host-wide (default max(2, CPUs/4)); a start waits for a slot
+                # SPECD_MAX_INSTANCES caps kcp instances host-wide (default max(2, CPUs/2)); a start waits for a slot
 SPECD_TEST_ARCADE_URL=bolt://host:port make test-live   # also checks an external ArcadeDB
 
 # the multi workspace end to end: two tenants, one export mode controller

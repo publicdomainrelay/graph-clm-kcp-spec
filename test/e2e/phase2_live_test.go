@@ -17,7 +17,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/ids"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltgraph"
-	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
@@ -192,6 +191,7 @@ func keyPropertyFor(edgeSpec graph.EdgeSpec, out bool) string {
 }
 
 func TestPhase2IngestAndGraph(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -216,7 +216,7 @@ func TestPhase2IngestAndGraph(t *testing.T) {
 
 	hydra := connectBackend(t, ctx, backends(t)[0])
 
-	first, err := ingest.Run(ctx, client, ingest.Options{RepoPath: repoPath, Writer: hydra})
+	first, err := ingest.Run(ctx, client, ingest.Options{RepoPath: repoPath, Writer: hydra, GraphNamespace: graphNamespaceFor(t)})
 	if err != nil {
 		t.Fatalf("first ingest: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestPhase2IngestAndGraph(t *testing.T) {
 		t.Fatalf("status fingerprint = %q, ingest reported %q", fingerprint, library.Observed.Fingerprint)
 	}
 
-	second, err := ingest.Run(ctx, client, ingest.Options{RepoPath: repoPath, Writer: hydra})
+	second, err := ingest.Run(ctx, client, ingest.Options{RepoPath: repoPath, Writer: hydra, GraphNamespace: graphNamespaceFor(t)})
 	if err != nil {
 		t.Fatalf("second ingest: %v", err)
 	}
@@ -257,11 +257,11 @@ func TestPhase2IngestAndGraph(t *testing.T) {
 		t.Error("the second ingest reported a spec change")
 	}
 
-	contextID := graph.ContextIDIn(graphns.FromEnv(), "calc")
+	contextID := graph.ContextIDIn(graphNamespaceFor(t), "calc")
 	for _, backend := range backends(t) {
 		t.Run(backend.name, func(t *testing.T) {
 			writer := connectBackend(t, ctx, backend)
-			if err := ingest.RebuildGraph(ctx, client, writer, ingest.Options{}); err != nil {
+			if err := ingest.RebuildGraph(ctx, client, writer, ingest.Options{GraphNamespace: graphNamespaceFor(t)}); err != nil {
 				t.Fatalf("rebuild on %s: %v", backend.name, err)
 			}
 			declares := oneHopKeys(t, ctx, writer, graph.LabelContext, contextID, graph.EdgeDeclares, true)
@@ -289,7 +289,7 @@ func TestPhase2IngestAndGraph(t *testing.T) {
 			if len(contexts) != 1 || contexts[0]["name"] != "calc" {
 				t.Errorf("context vertex = %+v", contexts)
 			}
-			namespace := graphns.FromEnv()
+			namespace := graphNamespaceFor(t)
 			if got := graph.Key(namespace, "context:calc"); got != contextID {
 				t.Errorf("context id = %d, want %d", contextID, got)
 			}

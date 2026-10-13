@@ -17,7 +17,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
-	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
 const (
@@ -35,6 +34,7 @@ const (
 )
 
 func TestPhase9TwoTenantsOneExportController(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -85,7 +85,7 @@ func TestPhase9TwoTenantsOneExportController(t *testing.T) {
 
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:        e2eKubeconfig,
-		Workspace:         e2eWorkspace,
+		Workspace:         clusterWorkspace(t),
 		Namespace:         specapi.DefaultNamespace,
 		Mode:              specd.ModeExport,
 		ProviderWorkspace: phase9Provider,
@@ -95,7 +95,7 @@ func TestPhase9TwoTenantsOneExportController(t *testing.T) {
 		Resync:            500 * time.Millisecond,
 		MaxAttempts:       3,
 		RetryBackoff:      time.Second,
-		Log:               logging.Discard(),
+		Log:               testLog(t),
 	})
 	if err != nil {
 		t.Fatal(err)

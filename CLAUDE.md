@@ -23,7 +23,7 @@
   The live suite is `make test-live` (`-p 2 -timeout 45m`): `test/e2e` runs
   longer than go test's default 10 minutes, and a timeout panic skips its
   cleanup. kcpproc caps instances host-wide at `SPECD_MAX_INSTANCES` (default
-  max(2, CPUs/4)); a start waits for a free slot. Never leave an instance
+  max(2, CPUs/2)); a start waits for a free slot. Never leave an instance
   running: `specctl down` stops its kcp, kine and graph-node.
 - Never edit outside this repo.
 - `fixtures/` are sample codebases standing in for other people's code. Keep

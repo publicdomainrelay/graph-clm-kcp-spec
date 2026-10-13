@@ -11,6 +11,7 @@ import (
 )
 
 func TestPhase12ScopeGuardRefusesAFileOutsideTheRoot(t *testing.T) {
+	t.Parallel()
 	requireLiveModel(t, "deepseek-claude")
 	root := repoRoot(t)
 	mod := filepath.Join(root, "cc-clm-mod")

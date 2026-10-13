@@ -20,7 +20,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
-	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
 const phase4Repository = "phase4-calc"
@@ -109,6 +108,7 @@ func forgetObjects(t *testing.T, ctx context.Context, client *kcpclient.Client, 
 }
 
 func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -139,12 +139,12 @@ func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
 
 	controller, err := specd.New(specd.Options{
 		Kubeconfig: e2eKubeconfig,
-		Workspace:  e2eWorkspace,
+		Workspace:  clusterWorkspace(t),
 		Namespace:  specapi.DefaultNamespace,
 		QPS:        50,
 		Burst:      100,
 		Resync:     500 * time.Millisecond,
-		Log:        logging.Discard(),
+		Log:        testLog(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -274,6 +274,7 @@ func TestPhase4ControllerDriftAndSpecChanges(t *testing.T) {
 }
 
 func TestPhase4PollWatchReconciles(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -302,14 +303,14 @@ func TestPhase4PollWatchReconciles(t *testing.T) {
 
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   e2eKubeconfig,
-		Workspace:    e2eWorkspace,
+		Workspace:    clusterWorkspace(t),
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,
 		Watch:        specd.WatchPoll,
 		PollInterval: 500 * time.Millisecond,
 		Resync:       500 * time.Millisecond,
-		Log:          logging.Discard(),
+		Log:          testLog(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -345,6 +346,7 @@ func TestPhase4PollWatchReconciles(t *testing.T) {
 }
 
 func TestPhase4TypeScriptIngest(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "deno")
 	root := repoRoot(t)
 	startCluster(t, root)

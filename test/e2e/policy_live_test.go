@@ -170,7 +170,7 @@ func startPolicyController(t *testing.T, ctx context.Context, agentKind string, 
 	t.Helper()
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   e2eKubeconfig,
-		Workspace:    e2eWorkspace,
+		Workspace:    clusterWorkspace(t),
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,
@@ -411,6 +411,7 @@ func conditionStatus(t *testing.T, ctx context.Context, client *kcpclient.Client
 // status and the PolicyCompliant condition of the context that owns the
 // violating file.
 func TestPolicyRestoreAndAudit(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -563,6 +564,7 @@ func numberOf(value any) int {
 // writes code a policy denies, the change fails with the deny messages, the
 // next attempt complies and lands.
 func TestPolicyGateDenyMakesTheAgentComply(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -663,6 +665,7 @@ func mentionsDeny(messages []string, fragment string) bool {
 // an agent that writes the same violating probe every time ends Failed with
 // reason PolicyDenied.
 func TestPolicyGateNeverComplyingEndsPolicyDenied(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -787,6 +790,7 @@ func readFileAt(t *testing.T, commit, repoPath, file string) string {
 // violating change lands, the warn is in the change status, and the persisted
 // change record on the open-architecture branch carries it too.
 func TestPolicyWarnRecordsWithoutBlocking(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -850,6 +854,7 @@ func TestPolicyWarnRecordsWithoutBlocking(t *testing.T) {
 // TestPolicyOverrideWaivesADeny covers specctl accept --override policy:<c>:
 // a repository override lets the denied change land once and is consumed.
 func TestPolicyOverrideWaivesADeny(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -919,6 +924,7 @@ func TestPolicyOverrideWaivesADeny(t *testing.T) {
 // TestPolicyCliDrivesKcp covers the kcp side of the CLI: apply a library,
 // list what kcp holds, and restore the policy branch.
 func TestPolicyCliDrivesKcp(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -987,6 +993,7 @@ func TestPolicyCliDrivesKcp(t *testing.T) {
 // every constraint is applied: a template kcp refuses must fail here with the
 // reason, not leave a half-applied library behind.
 func TestPolicyLibrariesApplyWholeIntoKcp(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)

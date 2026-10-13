@@ -16,7 +16,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
-	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
 const gateRepository = "greenfield-market"
@@ -26,6 +25,7 @@ const gateRepository = "greenfield-market"
 // into the guest is denied against the declared must-never before any code is
 // written, and the fixed spec passes the gate and realizes.
 func TestPolicyGateDeniesASpecBeforeRealize(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -98,7 +98,7 @@ func TestPolicyGateDeniesASpecBeforeRealize(t *testing.T) {
 
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:    e2eKubeconfig,
-		Workspace:     e2eWorkspace,
+		Workspace:     clusterWorkspace(t),
 		Namespace:     specapi.DefaultNamespace,
 		QPS:           50,
 		Burst:         100,
@@ -106,7 +106,7 @@ func TestPolicyGateDeniesASpecBeforeRealize(t *testing.T) {
 		MaxAttempts:   1,
 		RetryBackoff:  time.Second,
 		PolicyLibrary: filepath.Join(root, "policies", "packs", "conformance"),
-		Log:           logging.Discard(),
+		Log:           testLog(t),
 	})
 	if err != nil {
 		t.Fatal(err)

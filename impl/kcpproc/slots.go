@@ -30,13 +30,13 @@ const (
 	slotPoll = time.Second
 )
 
-// MaxInstances is the cap: SPECD_MAX_INSTANCES, else a quarter of the CPUs
+// MaxInstances is the cap: SPECD_MAX_INSTANCES, else half of the CPUs
 // and never fewer than two. Zero or less means no cap.
 func MaxInstances() int {
 	if value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(MaxInstancesEnv))); err == nil {
 		return value
 	}
-	return max(2, runtime.NumCPU()/4)
+	return max(2, runtime.NumCPU()/2)
 }
 
 func instanceWait() time.Duration {

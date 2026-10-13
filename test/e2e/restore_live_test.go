@@ -19,6 +19,7 @@ const restoreRepository = "restore-calc"
 // Plan 0007 item 5: a branch's change history is written by persist and comes
 // back when a fresh kcp is restored from it.
 func TestRestoreRebuildsTheChangeHistoryLive(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "git")
 	root := repoRoot(t)
 	startCluster(t, root)

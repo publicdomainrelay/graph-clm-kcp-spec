@@ -44,6 +44,7 @@ func plan2cCalcBaseline(repository string) *spec.SystemContext {
 }
 
 func TestPlan2cGatingAcceptanceKeepsTheChangeFromLanding(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "go")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -127,6 +128,7 @@ func TestPlan2cGatingAcceptanceKeepsTheChangeFromLanding(t *testing.T) {
 }
 
 func TestPlan2cAcceptanceResultsLandWithTheCommit(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "go")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -195,6 +197,7 @@ func TestPlan2cAcceptanceResultsLandWithTheCommit(t *testing.T) {
 }
 
 func TestPlan2cSpecctlAcceptRunsAgainstTheTree(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "git", "go")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -263,7 +266,7 @@ func runSpecctlAccept(t *testing.T, specctl, dir string, extra ...string) (strin
 	args := append([]string{
 		"accept", "--repo", dir,
 		"--kubeconfig", e2eKubeconfig,
-		"--workspace", e2eWorkspace,
+		"--workspace", clusterWorkspace(t),
 	}, extra...)
 	command := exec.Command(specctl, args...)
 	command.Env = append(os.Environ(), "SPECD_STATE_DIR="+filepath.Join(t.TempDir(), "state"))

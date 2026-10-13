@@ -44,16 +44,7 @@ func branchSession(t *testing.T, path string) branchRecord {
 
 func buildSpecctlAndSpecd(t *testing.T) (string, string) {
 	t.Helper()
-	root := repoRoot(t)
-	bin := t.TempDir()
-	for _, name := range []string{"specctl", "specd"} {
-		build := exec.Command("go", "build", "-o", filepath.Join(bin, name), "./cmd/"+name)
-		build.Dir = root
-		if out, err := build.CombinedOutput(); err != nil {
-			t.Fatalf("build %s: %v\n%s", name, err, out)
-		}
-	}
-	return filepath.Join(bin, "specctl"), filepath.Join(bin, "specd")
+	return sharedBinaries(t)
 }
 
 func cloneCalcFixture(t *testing.T, dir string) {
@@ -102,6 +93,7 @@ func downEveryBranch(t *testing.T, specctl, repo, state string, branches []strin
 }
 
 func TestPhase14OneInstancePerBranch(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "git", "kubectl", "kcp", "kine")
 	specctl, specd := buildSpecctlAndSpecd(t)
 	work := t.TempDir()
@@ -210,6 +202,7 @@ func TestPhase14OneInstancePerBranch(t *testing.T) {
 }
 
 func TestPhase14TwoWorktreesRunAtTheSameTime(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "git", "kcp", "kine")
 	specctl, specd := buildSpecctlAndSpecd(t)
 	work := t.TempDir()
@@ -266,6 +259,7 @@ func TestPhase14TwoWorktreesRunAtTheSameTime(t *testing.T) {
 }
 
 func TestPhase14DownThenUpResumesOnTheSameRoot(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "git", "kcp", "kine")
 	specctl, specd := buildSpecctlAndSpecd(t)
 	work := t.TempDir()

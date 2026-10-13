@@ -26,6 +26,7 @@ const recoveryRepository = "recovery-calc"
 // the change stays Running with no live driver, and a restarted specd has to
 // re-drive it and let the repository's queue move again.
 func TestSpecdRestartMidRealizeRequeuesTheRunningChangeLive(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "git", "go", "codegraph")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -237,7 +238,7 @@ func startRecoverySpecd(t *testing.T, binary, stateDir, work string) *recoverySp
 	}
 	command := exec.Command(binary,
 		"--kubeconfig", e2eKubeconfig,
-		"--workspace", e2eWorkspace,
+		"--workspace", clusterWorkspace(t),
 		"--namespace", specapi.DefaultNamespace,
 		"--resync", "500ms",
 		"--batch-window", "2s",
@@ -246,10 +247,10 @@ func startRecoverySpecd(t *testing.T, binary, stateDir, work string) *recoverySp
 		"--persist-delay", "200ms",
 		"--log-level", "debug",
 	)
-	command.Env = specdEnv(map[string]string{
+	command.Env = testEnviron(t, map[string]string{
 		"SPECD_KUBECONFIG":  e2eKubeconfig,
 		"KUBECONFIG":        e2eKubeconfig,
-		"SPECD_WORKSPACE":   e2eWorkspace,
+		"SPECD_WORKSPACE":   clusterWorkspace(t),
 		"SPECD_NAMESPACE":   specapi.DefaultNamespace,
 		"SPECD_STATE_DIR":   stateDir,
 		"SPECD_CLM_DOC_DIR": filepath.Join(stateDir, "clm"),

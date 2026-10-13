@@ -16,7 +16,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
-	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
 const plan2bRepository = "plan2b-calc"
@@ -24,6 +23,7 @@ const plan2bRepository = "plan2b-calc"
 const plan2bBatchWindow = 8 * time.Second
 
 func TestPlan2bOneSpecEditToTwoContextsLandsAsOneCommit(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "go")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -120,6 +120,7 @@ func TestPlan2bOneSpecEditToTwoContextsLandsAsOneCommit(t *testing.T) {
 }
 
 func TestPlan2bTwoEditsApartAreRealizedOneAfterTheOther(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "go")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -205,6 +206,7 @@ func TestPlan2bTwoEditsApartAreRealizedOneAfterTheOther(t *testing.T) {
 }
 
 func TestPlan2bAVerifyFailureOnAMovedBranchRetriesOnce(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "go")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -339,7 +341,7 @@ func startPlan2bController(t *testing.T, ctx context.Context, maxAttempts int, w
 	t.Helper()
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   e2eKubeconfig,
-		Workspace:    e2eWorkspace,
+		Workspace:    clusterWorkspace(t),
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,
@@ -349,7 +351,7 @@ func startPlan2bController(t *testing.T, ctx context.Context, maxAttempts int, w
 		BatchWindow:  window,
 		Persist:      true,
 		PersistDelay: 200 * time.Millisecond,
-		Log:          logging.Discard(),
+		Log:          testLog(t),
 	})
 	if err != nil {
 		t.Fatal(err)

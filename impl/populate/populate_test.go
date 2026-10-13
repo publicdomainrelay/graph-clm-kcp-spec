@@ -333,3 +333,23 @@ func conditionOf(conditions []metav1.Condition, conditionType string) *metav1.Co
 	}
 	return nil
 }
+
+func TestRunDoesNotRaiseAnEpisodeThatAlreadySucceeded(t *testing.T) {
+	cluster, repository := setup(t, true, 4)
+	run(t, cluster, repository, 4, 3)
+	listed, err := cluster.List(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range listed.Items {
+		item := listed.Items[index].DeepCopy()
+		if err := unstructured.SetNestedField(item.Object, specapi.PhaseSucceeded, "status", "phase"); err != nil {
+			t.Fatal(err)
+		}
+		cluster.objects[keyOf(item)] = item
+	}
+	result, _ := run(t, cluster, repository, 4, 3)
+	if result.Raised != 0 {
+		t.Errorf("raised = %d: a context read before its summary wrote the intent, with its change already Succeeded, was raised again", result.Raised)
+	}
+}

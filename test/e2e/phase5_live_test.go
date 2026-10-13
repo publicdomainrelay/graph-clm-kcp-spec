@@ -20,7 +20,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/scriptedagent"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/summarize"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
-	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
 const phase5Repository = "phase5-calc"
@@ -115,6 +114,7 @@ func phase5Scenario(t *testing.T) string {
 }
 
 func TestPhase5CodeToSpecWithTheScriptedAgent(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -144,7 +144,7 @@ func TestPhase5CodeToSpecWithTheScriptedAgent(t *testing.T) {
 
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   e2eKubeconfig,
-		Workspace:    e2eWorkspace,
+		Workspace:    clusterWorkspace(t),
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,
@@ -152,7 +152,7 @@ func TestPhase5CodeToSpecWithTheScriptedAgent(t *testing.T) {
 		Agent:        "scripted:" + phase5Scenario(t),
 		MaxAttempts:  3,
 		RetryBackoff: time.Second,
-		Log:          logging.Discard(),
+		Log:          testLog(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -262,6 +262,7 @@ func TestPhase5CodeToSpecWithTheScriptedAgent(t *testing.T) {
 }
 
 func TestPhase5IngestSummarizeFillsEmptySpecs(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)

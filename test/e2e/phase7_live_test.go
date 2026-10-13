@@ -20,7 +20,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
-	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
 const phase7Repository = "phase7-unseen"
@@ -50,7 +49,7 @@ func phase7Status(t *testing.T, ctx context.Context) string {
 	t.Helper()
 	client, err := kcpclient.New(kcpclient.Options{
 		Kubeconfig: e2eKubeconfig,
-		Workspace:  e2eWorkspace,
+		Workspace:  clusterWorkspace(t),
 		QPS:        50,
 		Burst:      100,
 	})
@@ -139,7 +138,7 @@ func phase7Run(
 
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:             e2eKubeconfig,
-		Workspace:              e2eWorkspace,
+		Workspace:              clusterWorkspace(t),
 		Namespace:              specapi.DefaultNamespace,
 		QPS:                    50,
 		Burst:                  100,
@@ -149,7 +148,7 @@ func phase7Run(
 		MaxAttempts:            maxAttempts,
 		RetryBackoff:           time.Second,
 		AgentTimeout:           agentTimeout,
-		Log:                    logging.Discard(),
+		Log:                    testLog(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -171,6 +170,7 @@ func phase7Run(
 }
 
 func TestPhase7OneManifestPopulatesAnUnknownCodebase(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -256,6 +256,7 @@ func TestPhase7OneManifestPopulatesAnUnknownCodebase(t *testing.T) {
 }
 
 func TestPhase7LiveModelPopulatesAnUnknownCodebase(t *testing.T) {
+	t.Parallel()
 	requireLiveModel(t, "deepseek-claude", "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -318,6 +319,7 @@ func phase7Phase(t *testing.T, ctx context.Context, client *kcpclient.Client) st
 }
 
 func TestPhase7PackagePartitionAndGlobs(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -352,7 +354,7 @@ func TestPhase7PackagePartitionAndGlobs(t *testing.T) {
 
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   e2eKubeconfig,
-		Workspace:    e2eWorkspace,
+		Workspace:    clusterWorkspace(t),
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,
@@ -360,7 +362,7 @@ func TestPhase7PackagePartitionAndGlobs(t *testing.T) {
 		CacheDir:     filepath.Join(t.TempDir(), "cache"),
 		MaxAttempts:  2,
 		RetryBackoff: time.Second,
-		Log:          logging.Discard(),
+		Log:          testLog(t),
 	})
 	if err != nil {
 		t.Fatal(err)

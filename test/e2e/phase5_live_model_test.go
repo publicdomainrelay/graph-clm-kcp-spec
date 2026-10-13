@@ -34,6 +34,7 @@ func requireLiveModel(t *testing.T, tools ...string) {
 }
 
 func TestPhase5LiveModelSummarizesCalc(t *testing.T) {
+	t.Parallel()
 	requireLiveModel(t, "deepseek-claude", "codegraph")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)

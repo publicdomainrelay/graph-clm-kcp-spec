@@ -86,6 +86,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	os.Setenv(kcpproc.LedgerEnv, filepath.Join(ledger, "ledger"))
+	setParallel()
 	if os.Getenv(kcpproc.DieWithEnv) == "" {
 		os.Setenv(kcpproc.DieWithEnv, strconv.Itoa(os.Getpid()))
 	}
@@ -111,6 +112,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	mark(os.Getenv("SPECD_LIVE_LOCK_MARK"), "end")
 	stopClusterForTests(lock)
+	removeSharedBinaries()
 	leaks := kcpproc.Leaks()
 	for _, leak := range leaks {
 		fmt.Fprintf(os.Stderr, "e2e: leaked kcp %d, kine %d, specd %d and graph %d on the root %s\n", leak.KcpPid, leak.KinePid, leak.SpecdPid, leak.GraphPid, leak.Root)
@@ -156,7 +158,7 @@ func startClusterForTests() (*runlock.Lock, error) {
 				return nil, err
 			}
 		}
-		if err := installSpecs(e2eStateRoot, absolute, e2eWorkspace); err != nil {
+		if e2eWorkspaceKubeconfig, err = installSpecs(e2eStateRoot, absolute, e2eWorkspace); err != nil {
 			if lock != nil {
 				lock.Release()
 			}
@@ -179,7 +181,7 @@ func startClusterForTests() (*runlock.Lock, error) {
 	e2eStateRoot = stateRoot
 	e2eKubeconfig = instance.AdminKubeconfig
 	e2eWorkspace = envOr("SPECD_E2E_WORKSPACE", defaultWorkspace)
-	if err := installSpecs(e2eStateRoot, e2eKubeconfig, e2eWorkspace); err != nil {
+	if e2eWorkspaceKubeconfig, err = installSpecs(e2eStateRoot, e2eKubeconfig, e2eWorkspace); err != nil {
 		kcpproc.Stop(instance)
 		os.RemoveAll(stateRoot)
 		return nil, err
@@ -253,10 +255,10 @@ func stopClusterForTests(lock *runlock.Lock) {
 	}
 }
 
-func installSpecs(stateRoot, kubeconfig, workspace string) error {
+func installSpecs(stateRoot, kubeconfig, workspace string) (string, error) {
 	deployDir, err := session.ExtractDeploy()
 	if err != nil {
-		return err
+		return "", err
 	}
 	name := strings.TrimPrefix(workspace, "root:")
 	workspaceKubeconfig := filepath.Join(stateRoot, name+".kubeconfig")
@@ -269,10 +271,9 @@ func installSpecs(stateRoot, kubeconfig, workspace string) error {
 		"WORKSPACE_KUBECONFIG="+workspaceKubeconfig,
 	)
 	if output, err := command.CombinedOutput(); err != nil {
-		return fmt.Errorf("install-specs.sh: %w\n%s", err, strings.TrimSpace(string(output)))
+		return "", fmt.Errorf("install-specs.sh: %w\n%s", err, strings.TrimSpace(string(output)))
 	}
-	e2eWorkspaceKubeconfig = workspaceKubeconfig
-	return nil
+	return workspaceKubeconfig, nil
 }
 
 func missingTools() []string {
@@ -351,6 +352,7 @@ func ensureCluster(t *testing.T) {
 }
 
 func TestPhase14LiveClusterIsPrivate(t *testing.T) {
+	t.Parallel()
 	ensureCluster(t)
 	if e2eWorkspace != defaultWorkspace && os.Getenv(envKubeconfig) == "" {
 		t.Fatalf("workspace = %q, want %s", e2eWorkspace, defaultWorkspace)
@@ -364,6 +366,7 @@ func TestPhase14LiveClusterIsPrivate(t *testing.T) {
 }
 
 func TestPhase12LiveLockMarker(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("SPECD_LIVE_LOCK_MARK") == "" {
 		t.Skip("not a lock proof run")
 	}

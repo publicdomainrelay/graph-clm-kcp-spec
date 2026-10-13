@@ -23,6 +23,7 @@ import (
 // requirement's code ref resolving, and the context CodeSynced, in a Go package
 // and in a Deno / TypeScript package.
 func TestReanchorKeepsUntouchedRequirementsCodeSyncedLive(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "deno")
 	root := repoRoot(t)
 	startCluster(t, root)

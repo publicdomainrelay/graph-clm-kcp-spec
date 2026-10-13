@@ -59,7 +59,7 @@ func liveClient(t *testing.T, root string) *kcpclient.Client {
 	ensureCluster(t)
 	client, err := kcpclient.New(kcpclient.Options{
 		Kubeconfig: e2eKubeconfig,
-		Workspace:  e2eWorkspace,
+		Workspace:  clusterWorkspace(t),
 		Namespace:  e2eNamespace,
 		QPS:        50,
 		Burst:      100,
@@ -74,10 +74,6 @@ func clusterKubeconfig(t *testing.T) string {
 	t.Helper()
 	ensureCluster(t)
 	return e2eKubeconfig
-}
-
-func clusterWorkspace() string {
-	return e2eWorkspace
 }
 
 func nestedStatusString(t *testing.T, object *unstructured.Unstructured, field string) string {
@@ -133,6 +129,7 @@ func liveContext() *spec.SystemContext {
 }
 
 func TestPhase1SystemContextRoundTrip(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -144,7 +141,7 @@ func TestPhase1SystemContextRoundTrip(t *testing.T) {
 	if err := client.Ping(ctx); err != nil {
 		t.Fatalf("kcp is not serving the specs API: %v", err)
 	}
-	if _, err := os.Stat(e2eWorkspaceKubeconfig); err != nil {
+	if _, err := os.Stat(workspaceKubeconfig(t)); err != nil {
 		t.Fatalf("the workspace kubeconfig was not written: %v", err)
 	}
 

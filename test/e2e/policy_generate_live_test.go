@@ -128,6 +128,7 @@ func policyChangeState(t *testing.T, ctx context.Context, client *kcpclient.Clie
 // attempt, the feedback reaches the second attempt, and the accepted policy
 // lands on the policy branch and in kcp.
 func TestPolicyGenerateLive(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -299,6 +300,7 @@ func TestPolicyGenerateLive(t *testing.T) {
 // roles and vocabulary of policies.yaml, the checks accept it and the applied
 // binding keeps the pack import.
 func TestPolicyBindLive(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)

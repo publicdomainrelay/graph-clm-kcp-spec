@@ -15,12 +15,12 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
-	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
 const phase8ModelRepository = "phase8-model-calc"
 
 func TestPhase8LiveModelRealizesWithTheMod(t *testing.T) {
+	t.Parallel()
 	requireLiveModel(t, "deepseek-claude", "claude", "kcp", "kine", "kubectl", "go")
 	requireLive(t, "kcp", "kine", "kubectl")
 	root := repoRoot(t)
@@ -76,7 +76,7 @@ func TestPhase8LiveModelRealizesWithTheMod(t *testing.T) {
 	specctl := buildSpecctl(t, root)
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   e2eKubeconfig,
-		Workspace:    e2eWorkspace,
+		Workspace:    clusterWorkspace(t),
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,
@@ -90,7 +90,7 @@ func TestPhase8LiveModelRealizesWithTheMod(t *testing.T) {
 			"SPECD_SPECCTL": specctl,
 			"KUBECONFIG":    e2eKubeconfig,
 		},
-		Log: logging.Discard(),
+		Log: testLog(t),
 	})
 	if err != nil {
 		t.Fatal(err)

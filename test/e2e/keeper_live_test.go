@@ -26,6 +26,7 @@ const (
 )
 
 func TestSpecctlUpHelper(t *testing.T) {
+	t.Parallel()
 	if os.Getenv(helperEnv) != "1" {
 		t.Skip("not the specctl-up helper")
 	}
@@ -70,6 +71,7 @@ func mustRead(t *testing.T, path string) []byte {
 }
 
 func TestSpecctlUpDiesWithItsStarter(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "git", "kcp", "kine")
 	specctl, specd := buildSpecctlAndSpecd(t)
 	work := t.TempDir()

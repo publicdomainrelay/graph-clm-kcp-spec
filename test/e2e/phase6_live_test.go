@@ -18,12 +18,12 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
-	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
 const phase6Repository = "phase6-calc"
 
 func TestPhase6KeyedListsAreDeltaAble(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -132,6 +132,7 @@ func TestPhase6KeyedListsAreDeltaAble(t *testing.T) {
 }
 
 func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "go")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -167,7 +168,7 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   e2eKubeconfig,
-		Workspace:    e2eWorkspace,
+		Workspace:    clusterWorkspace(t),
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,
@@ -176,7 +177,7 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 		RetryBackoff: time.Second,
 		Persist:      true,
 		PersistDelay: 200 * time.Millisecond,
-		Log:          logging.Discard(),
+		Log:          testLog(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -341,6 +342,7 @@ func TestPhase6SpecToCodeWithTheScriptedAgent(t *testing.T) {
 }
 
 func TestPhase6FailingVerifyKeepsTheBranch(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git", "go")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -375,14 +377,14 @@ func TestPhase6FailingVerifyKeepsTheBranch(t *testing.T) {
 
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   e2eKubeconfig,
-		Workspace:    e2eWorkspace,
+		Workspace:    clusterWorkspace(t),
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,
 		Resync:       500 * time.Millisecond,
 		MaxAttempts:  1,
 		RetryBackoff: time.Second,
-		Log:          logging.Discard(),
+		Log:          testLog(t),
 	})
 	if err != nil {
 		t.Fatal(err)

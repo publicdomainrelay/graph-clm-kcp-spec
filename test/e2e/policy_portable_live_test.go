@@ -19,7 +19,6 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policyeval"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/policygit"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/test/fixture"
-	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
 
 const portableRepository = "greenfield-market"
@@ -30,6 +29,7 @@ const portableRepository = "greenfield-market"
 // fixed spec realizes with the scripted agent, and the code the agent writes
 // is clean under the same pack when the audit reads the observed model.
 func TestPortablePackGatesGreenfieldSpecs(t *testing.T) {
+	t.Parallel()
 	requireLive(t, "kcp", "kine", "kubectl", "bash", "codegraph", "git")
 	root := repoRoot(t)
 	startCluster(t, root)
@@ -101,14 +101,14 @@ func TestPortablePackGatesGreenfieldSpecs(t *testing.T) {
 
 	controller, err := specd.New(specd.Options{
 		Kubeconfig:   e2eKubeconfig,
-		Workspace:    e2eWorkspace,
+		Workspace:    clusterWorkspace(t),
 		Namespace:    specapi.DefaultNamespace,
 		QPS:          50,
 		Burst:        100,
 		Resync:       500 * time.Millisecond,
 		MaxAttempts:  1,
 		RetryBackoff: time.Second,
-		Log:          logging.Discard(),
+		Log:          testLog(t),
 	})
 	if err != nil {
 		t.Fatal(err)

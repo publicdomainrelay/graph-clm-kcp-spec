@@ -76,20 +76,10 @@ func phase13Wait(t *testing.T, what string, condition func() bool) {
 }
 
 func TestPhase13CloneUpPersistsAndASecondCloneRestores(t *testing.T) {
+	t.Parallel()
 	requireLive(t)
-	root, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	bin := t.TempDir()
-	for _, name := range []string{"specctl", "specd"} {
-		build := exec.Command("go", "build", "-o", filepath.Join(bin, name), "./cmd/"+name)
-		build.Dir = root
-		if out, err := build.CombinedOutput(); err != nil {
-			t.Fatalf("build %s: %v\n%s", name, err, out)
-		}
-	}
-	specctl := filepath.Join(bin, "specctl")
+	specctl, _ := sharedBinaries(t)
+	bin := filepath.Dir(specctl)
 
 	work := t.TempDir()
 	upstream := filepath.Join(work, "upstream")
