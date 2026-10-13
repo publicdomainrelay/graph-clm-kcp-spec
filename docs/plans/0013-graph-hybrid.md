@@ -189,6 +189,16 @@ summaries):
 | `dependsOn` edges | 695 | 401 | 401 |
 | contexts depending on the root | 374 of 375 | 208 of 209 | 80 of 81 |
 
+Item A4 (`r.depends-on-production-imports` in `abc-sync`, realized as 49c2cd2)
+and the reading after it:
+
+| reading | after A2 | after A4 |
+| --- | --- | --- |
+| contexts | 81 | 81 |
+| `dependsOn` edges | 401 | 250 |
+| contexts depending on the root | 80 | 0 |
+| `TEST_IMPORTS` edges | - | 0 (a test-only import is dropped, not classified; carried into the next batch) |
+
 Both changes were authored as requirements (`r.default-excludes`,
 `r.source-only-partitions` in `impl-ingest`) and realized by specd driving
 deepseek: c5c37d1 and 5930768. The measurements come from a fresh clone with no
