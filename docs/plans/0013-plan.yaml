@@ -85,7 +85,7 @@ spec:
       summary: E the mod injects the owner card and the task card
       acceptance:
         - name: mod
-          command: ["bash", "-c", "cd cc-clm-mod && npm test"]
+          command: ["bash", "-c", "cd cc-clm-mod && npm ci --no-audit --no-fund && npm test"]
     - id: swarm
       summary: F the pack carries the blackboard and the scoreboard
       acceptance:
