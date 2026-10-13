@@ -585,6 +585,7 @@ func Rebuild(ctx context.Context, writer Writer, namespace string, snapshots []S
 		}
 	}
 	vertices, edges := BuildAll(snapshots)
+	edges = WithEndpoints(vertices, edges)
 	for _, set := range vertices {
 		if err := writer.WriteVertices(ctx, set); err != nil {
 			return fmt.Errorf("graph: write %s: %w", set.Label, err)
@@ -596,6 +597,37 @@ func Rebuild(ctx context.Context, writer Writer, namespace string, snapshots []S
 		}
 	}
 	return nil
+}
+
+// WithEndpoints keeps the edges whose two ends are vertices of the set. A
+// context's dependsOn can name a context kcp does not hold (a Repository that
+// populates only some directories); HydraDB refuses an edge MATCH whose
+// endpoint does not exist where ArcadeDB matched nothing, so such an edge is
+// left out instead of failing the whole rebuild.
+func WithEndpoints(vertices []VertexSet, edges []EdgeSet) []EdgeSet {
+	present := map[string]map[int64]bool{}
+	for _, set := range vertices {
+		ids := present[set.Label]
+		if ids == nil {
+			ids = map[int64]bool{}
+			present[set.Label] = ids
+		}
+		for _, vertex := range set.Rows {
+			ids[vertex.ID] = true
+		}
+	}
+	out := make([]EdgeSet, 0, len(edges))
+	for _, set := range edges {
+		kept := set
+		kept.Rows = nil
+		for _, edge := range set.Rows {
+			if present[set.FromLabel][edge.From] && present[set.ToLabel][edge.To] {
+				kept.Rows = append(kept.Rows, edge)
+			}
+		}
+		out = append(out, kept)
+	}
+	return out
 }
 
 func rebuiltIDs(ctx context.Context, writer Writer, label, namespace string) ([]int64, error) {

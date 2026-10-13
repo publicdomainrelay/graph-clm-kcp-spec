@@ -370,3 +370,15 @@ func TestRowShapesGroupRowsByTheirProperties(t *testing.T) {
 		t.Errorf("upsert = %s, names a property its rows lack", upsert)
 	}
 }
+
+func TestWithEndpointsDropsAnEdgeToAVertexTheSetLacks(t *testing.T) {
+	vertices := []VertexSet{{Label: LabelContext, Rows: []Vertex{{ID: 1}, {ID: 2}}}}
+	edges := []EdgeSet{{Type: EdgeDependsOn, FromLabel: LabelContext, ToLabel: LabelContext, Rows: []Edge{
+		{From: 1, To: 2},
+		{From: 1, To: 99},
+	}}}
+	kept := WithEndpoints(vertices, edges)
+	if len(kept) != 1 || len(kept[0].Rows) != 1 || kept[0].Rows[0].To != 2 {
+		t.Errorf("kept = %+v, want only the edge whose ends both exist", kept)
+	}
+}

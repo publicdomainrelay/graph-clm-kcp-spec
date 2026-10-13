@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/ids"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphproc"
 )
@@ -209,4 +210,38 @@ func countOf(values []int64, want int64) int {
 		}
 	}
 	return count
+}
+
+func TestRebuildSkipsADependsOnToAContextTheGraphLacks(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	client := connect(t, ctx)
+
+	namespace := fmt.Sprintf("dangling-%d", time.Now().UnixNano())
+	held := spec.SystemContext{}
+	held.Name = "factory-specd"
+	held.Spec = spec.SystemContextSpec{Repository: "partial", Upstream: spec.RefSelf, DependsOn: []string{"sc.abc-spec", "sc.abc-agent"}}
+	other := spec.SystemContext{}
+	other.Name = "abc-spec"
+	other.Spec = spec.SystemContextSpec{Repository: "partial", Upstream: spec.RefSelf}
+	repository := spec.Repository{}
+	repository.Name = "partial"
+	snapshot := graph.Snapshot{Repository: repository, Contexts: []spec.SystemContext{held, other}}
+
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+		_ = graph.Rebuild(cleanupCtx, client, namespace, nil)
+	})
+	if err := graph.Rebuild(ctx, client, namespace, []graph.Snapshot{snapshot}); err != nil {
+		t.Fatalf("a dependsOn to a context kcp does not hold failed the rebuild: %v", err)
+	}
+	rows, err := client.Run(ctx, "MATCH (a:"+graph.LabelContext+" {id: $id})-[:"+graph.EdgeDependsOn+"]->(b) RETURN b.name AS name",
+		map[string]any{"id": graph.ContextIDIn(namespace, "factory-specd")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0]["name"] != "abc-spec" {
+		t.Errorf("DEPENDS_ON targets = %v, want only the held abc-spec", rows)
+	}
 }
