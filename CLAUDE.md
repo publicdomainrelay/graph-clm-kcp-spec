@@ -14,8 +14,17 @@
   Never stop or touch kcp/kine instances you did not start: other roots, other
   ports (6443/23791 belong to deno-kcp, 6447/23797 to an older instance of this
   repo) and their state directories are off limits.
-- HydraDB runs on bolt://127.0.0.1:7687, token in `/tmp/hdb/token`. ArcadeDB on 7688.
+- The graph is per instance, like kcp: `specctl up`, a standalone `specd` and
+  every live test start their own HydraDB `graph-node` (`bin/graph-node`, lib in
+  `bin/lib`, `make build` fetches both) on port 0 and record the bound address
+  (`<kcp root>/graph/graph.json`, the session, `Repository.status.graph`). Never
+  assume a fixed graph port; an external graph is named with `--bolt-url`.
 - Every change: `gofmt`, `go vet ./...`, `go test ./...` green, then commit and push.
+  The live suite is `make test-live` (`-p 2 -timeout 45m`): `test/e2e` runs
+  longer than go test's default 10 minutes, and a timeout panic skips its
+  cleanup. kcpproc caps instances host-wide at `SPECD_MAX_INSTANCES` (default
+  max(2, CPUs/4)); a start waits for a free slot. Never leave an instance
+  running: `specctl down` stops its kcp, kine and graph-node.
 - Never edit outside this repo.
 - `fixtures/` are sample codebases standing in for other people's code. Keep
   them realistic: their comments, docstrings and style are input to the code ->

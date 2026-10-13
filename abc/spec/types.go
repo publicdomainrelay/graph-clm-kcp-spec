@@ -175,7 +175,16 @@ type RepositoryStatus struct {
 	PopulateRequest    string                  `json:"populateRequest,omitempty"`
 	OpenArchitecture   *OpenArchitectureStatus `json:"openArchitecture,omitempty"`
 	Policy             *PolicyStatus           `json:"policy,omitempty"`
+	Graph              *GraphStatus            `json:"graph,omitempty"`
 	Conditions         []metav1.Condition      `json:"conditions,omitempty"`
+}
+
+// GraphStatus is the graph the controller of this repository writes to: the
+// address its graph-node bound, reported the way a port 0 listener reports.
+type GraphStatus struct {
+	Backend string `json:"backend,omitempty"`
+
+	URL string `json:"url,omitempty"`
 }
 
 type OpenArchitectureStatus struct {

@@ -346,3 +346,27 @@ func contains(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestRowShapesGroupRowsByTheirProperties(t *testing.T) {
+	set := VertexSet{Label: LabelContext, Rows: []Vertex{
+		{ID: 1, Props: map[string]any{"name": "a", "repo": "r"}},
+		{ID: 2, Props: map[string]any{"name": "b", "repo": "r", ScopeProperty: "ns"}},
+		{ID: 3, Props: map[string]any{"name": "c", "repo": "r"}},
+	}}
+	shapes := RowShapes(set)
+	if len(shapes) != 2 {
+		t.Fatalf("shapes = %+v, want two", shapes)
+	}
+	if len(shapes[0].Rows) != 2 || len(shapes[1].Rows) != 1 {
+		t.Errorf("rows per shape = %d, %d", len(shapes[0].Rows), len(shapes[1].Rows))
+	}
+	for _, property := range shapes[0].Properties {
+		if property == ScopeProperty {
+			t.Errorf("the shape without scope sets scope: %v", shapes[0].Properties)
+		}
+	}
+	upsert := VertexUpsert(LabelContext, shapes[0].Properties)
+	if strings.Contains(upsert, "row."+ScopeProperty) {
+		t.Errorf("upsert = %s, names a property its rows lack", upsert)
+	}
+}

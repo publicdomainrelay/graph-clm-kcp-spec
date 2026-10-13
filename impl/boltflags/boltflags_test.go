@@ -39,46 +39,28 @@ func resolve(t *testing.T, args ...string) *Options {
 	return options
 }
 
-func TestArcadeDBIsTheDefaultBackend(t *testing.T) {
+func TestHydraDBIsTheDefaultAndNoGraphIsNamed(t *testing.T) {
 	unset(t)
 	options := resolve(t)
-	if options.Backend != ArcadeDB {
-		t.Errorf("backend = %q, want %q", options.Backend, ArcadeDB)
+	if options.Backend != HydraDB || options.User != "neo4j" {
+		t.Errorf("defaults = %+v", options)
 	}
-	if options.URL != "bolt://127.0.0.1:7688" {
-		t.Errorf("url = %q, want the ArcadeDB default", options.URL)
+	if options.URL != "" || options.Enabled() {
+		t.Errorf("url = %q: no fixed port is assumed; an instance starts its own graph", options.URL)
+	}
+	if options.PasswordFile != "" {
+		t.Errorf("password file = %q, want none", options.PasswordFile)
+	}
+}
+
+func TestArcadeDBIsAnExternalOptionWithItsOwnDefaults(t *testing.T) {
+	unset(t)
+	options := resolve(t, "--bolt-backend", "arcadedb", "--bolt-url", "bolt://127.0.0.1:7688")
+	if options.Backend != ArcadeDB || options.URL != "bolt://127.0.0.1:7688" {
+		t.Errorf("arcadedb = %+v", options)
 	}
 	if options.User != "root" || options.Password != "clm-arcadedb-root" || options.Database != "clm" {
 		t.Errorf("arcadedb defaults = %+v", options)
-	}
-	if options.PasswordFile != "" {
-		t.Errorf("password file = %q, want none for ArcadeDB", options.PasswordFile)
-	}
-	if !options.Enabled() {
-		t.Error("the graph is off by default")
-	}
-}
-
-func TestHydraDBIsAnOptionThatBringsItsOwnDefaults(t *testing.T) {
-	unset(t)
-	options := resolve(t, "--bolt-backend", "hydradb")
-	if options.URL != "bolt://127.0.0.1:7687" || options.User != "neo4j" {
-		t.Errorf("hydradb defaults = %+v", options)
-	}
-	if options.PasswordFile != "/tmp/hdb/token" {
-		t.Errorf("password file = %q, want the HydraDB token file", options.PasswordFile)
-	}
-	if options.Database != "" {
-		t.Errorf("database = %q, want none for HydraDB", options.Database)
-	}
-}
-
-func TestBackendEnvironmentSelectsTheDefaults(t *testing.T) {
-	unset(t)
-	t.Setenv("SPECD_BOLT_BACKEND", "hydradb")
-	options := resolve(t)
-	if options.Backend != HydraDB || options.URL != "bolt://127.0.0.1:7687" {
-		t.Errorf("backend from the environment = %+v", options)
 	}
 }
 
@@ -86,8 +68,29 @@ func TestTheBackendFlagBeatsTheEnvironment(t *testing.T) {
 	unset(t)
 	t.Setenv("SPECD_BOLT_BACKEND", "hydradb")
 	options := resolve(t, "--bolt-backend", "arcadedb")
-	if options.Backend != ArcadeDB || options.URL != "bolt://127.0.0.1:7688" || options.User != "root" {
+	if options.Backend != ArcadeDB || options.User != "root" {
 		t.Errorf("the flag did not beat the environment: %+v", options)
+	}
+}
+
+func TestTheSessionGraphFillsWhatNothingNamed(t *testing.T) {
+	unset(t)
+	SessionGraph = func() (Instance, bool) {
+		return Instance{Backend: HydraDB, URL: "bolt://127.0.0.1:40001", User: "neo4j", PasswordFile: "/state/graph/token"}, true
+	}
+	t.Cleanup(func() { SessionGraph = nil })
+	options := resolve(t)
+	if options.URL != "bolt://127.0.0.1:40001" || options.PasswordFile != "/state/graph/token" || options.Backend != HydraDB {
+		t.Errorf("session graph not taken: %+v", options)
+	}
+	flagged := resolve(t, "--bolt-url", "bolt://flag:1")
+	if flagged.URL != "bolt://flag:1" || flagged.PasswordFile != "" {
+		t.Errorf("a flag must beat the session graph: %+v", flagged)
+	}
+	t.Setenv("SPECD_BOLT_URL", "bolt://env:2")
+	fromEnv := resolve(t)
+	if fromEnv.URL != "bolt://env:2" {
+		t.Errorf("the environment must beat the session graph: %+v", fromEnv)
 	}
 }
 
@@ -114,15 +117,12 @@ func TestAnOptionFlagBeatsTheEnvironment(t *testing.T) {
 	}
 }
 
-func TestAnEmptyURLEnvironmentTurnsTheGraphOff(t *testing.T) {
+func TestAnEmptyURLEnvironmentNamesNoGraph(t *testing.T) {
 	unset(t)
 	t.Setenv("SPECD_BOLT_URL", "")
 	options := resolve(t)
 	if options.URL != "" || options.Enabled() {
-		t.Errorf("url = %q, want the graph off", options.URL)
-	}
-	if options.User != "root" {
-		t.Errorf("user = %q, want the ArcadeDB default still applied", options.User)
+		t.Errorf("url = %q, want no graph named", options.URL)
 	}
 }
 
@@ -141,14 +141,8 @@ func TestAnUnknownBackendIsAnError(t *testing.T) {
 func TestHydraDBDefaultsCanBeOverriddenOneByOne(t *testing.T) {
 	unset(t)
 	t.Setenv("SPECD_BOLT_PASSWORD_FILE", "")
-	options := resolve(t, "--bolt-backend", "hydradb", "--bolt-password", "secret")
-	if options.Password != "secret" {
-		t.Errorf("password = %q", options.Password)
-	}
-	if options.PasswordFile != "" {
-		t.Errorf("password file = %q, want the explicit empty environment honoured", options.PasswordFile)
-	}
-	if options.URL != "bolt://127.0.0.1:7687" {
-		t.Errorf("url = %q, want the HydraDB default", options.URL)
+	options := resolve(t, "--bolt-backend", "hydradb", "--bolt-password", "secret", "--bolt-url", "bolt://127.0.0.1:1")
+	if options.Password != "secret" || options.PasswordFile != "" || options.URL != "bolt://127.0.0.1:1" {
+		t.Errorf("options = %+v", options)
 	}
 }

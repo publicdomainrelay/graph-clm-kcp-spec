@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphproc"
 )
 
 const (
@@ -69,6 +71,8 @@ type LedgerEntry struct {
 	KinePid int `json:"kinePid,omitempty"`
 
 	SpecdPid int `json:"specdPid,omitempty"`
+
+	GraphPid int `json:"graphPid,omitempty"`
 }
 
 type Instance struct {
@@ -151,6 +155,9 @@ func Start(ctx context.Context, options Options) (Instance, error) {
 	}
 	if serving, ok := Probe(options.Root); ok {
 		return serving, fmt.Errorf("kcpproc: a kcp is already serving %s at %s; reuse it or stop it before starting another", options.Root, serving.KcpURL)
+	}
+	if err := acquireSlot(ctx, filepath.Clean(options.Root), os.Stderr); err != nil {
+		return Instance{}, err
 	}
 	instance := Instance{Root: options.Root, AdminKubeconfig: filepath.Join(options.Root, "admin.kubeconfig")}
 	resuming := hasKineStore(options.Root)
@@ -323,7 +330,7 @@ func scanProcesses(root string) []int {
 			pids = append(pids, process.pid)
 		}
 	}
-	return pids
+	return append(pids, graphproc.Under(cleaned)...)
 }
 
 func Running(root string) []int {
@@ -334,7 +341,7 @@ func Running(root string) []int {
 			pids = append(pids, pid)
 		}
 	}
-	return pids
+	return append(pids, graphproc.Under(filepath.Clean(root))...)
 }
 
 func flagValue(fields []string, name string) (string, bool) {
@@ -402,8 +409,12 @@ func Stop(instance Instance) {
 			kinePid = scannedKine
 		}
 	}
+	for _, pid := range graphproc.Under(instance.Root) {
+		graphproc.Terminate(pid, instance.Root)
+	}
 	terminate(kcpPid, instance.Root)
 	terminate(kinePid, instance.Root)
+	ReleaseSlot(filepath.Clean(instance.Root))
 }
 
 func Terminate(pid int, root string) {
@@ -525,6 +536,13 @@ func RecordSpecd(root string, pid int) {
 	appendLedger(LedgerEntry{Root: root, SpecdPid: pid})
 }
 
+func RecordGraph(root string, pid int) {
+	if pid <= 0 {
+		return
+	}
+	appendLedger(LedgerEntry{Root: root, GraphPid: pid})
+}
+
 func appendLedger(entry LedgerEntry) {
 	path := os.Getenv(LedgerEnv)
 	if path == "" {
@@ -595,7 +613,7 @@ func Ledger() []LedgerEntry {
 func Leaks() []LedgerEntry {
 	leaks := []LedgerEntry{}
 	for _, entry := range Ledger() {
-		if owns(entry.KcpPid, entry.Root) || owns(entry.KinePid, entry.Root) || owns(entry.SpecdPid, entry.Root) {
+		if owns(entry.KcpPid, entry.Root) || owns(entry.KinePid, entry.Root) || owns(entry.SpecdPid, entry.Root) || owns(entry.GraphPid, entry.Root) {
 			leaks = append(leaks, entry)
 		}
 	}

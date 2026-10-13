@@ -14,6 +14,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 	eval "github.com/publicdomainrelay/graph-clm-kcp-spec/impl/eval"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphproc"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/runlock"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/session"
 )
@@ -133,6 +134,22 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl eval: %v\n", err)
 		return exitError
+	}
+	if !bolt.Enabled() {
+		graphRoot, err := os.MkdirTemp("", "specctl-eval-graph-")
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl eval: %v\n", err)
+			return exitError
+		}
+		defer os.RemoveAll(graphRoot)
+		started, err := graphproc.Start(ctx, graphproc.Options{Root: graphRoot, DieWithStarter: true})
+		if err != nil {
+			fmt.Fprintf(stderr, "specctl eval: start the graph: %v\n", err)
+			return exitError
+		}
+		defer graphproc.Stop(started)
+		bolt.Use(boltflags.Instance{Backend: started.Backend, URL: started.BoltURL, User: started.User, PasswordFile: started.TokenFile})
+		fmt.Fprintf(stderr, "specctl eval: graph %s\n", started.BoltURL)
 	}
 	var writer graph.Writer
 	if bolt.URL != "" {

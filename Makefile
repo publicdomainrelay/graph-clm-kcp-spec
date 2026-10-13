@@ -14,11 +14,11 @@ BUILD_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 BUILD_DIRTY := $(if $(shell git status --porcelain 2>/dev/null),dirty,)
 LDFLAGS := -X main.buildCommit=$(BUILD_COMMIT) -X main.buildDirty=$(BUILD_DIRTY)
 
-# The graph backend every target defaults to. ArcadeDB is the default; the Go
-# flag and environment defaults follow this variable, so
-# `make test-live SPECD_BOLT_BACKEND=hydradb` switches every command to HydraDB
-# on bolt://127.0.0.1:7687 with the token in /tmp/hdb/token.
-export SPECD_BOLT_BACKEND ?= arcadedb
+# Every instance starts its own graph: specctl up, a standalone specd and the
+# live tests each run a HydraDB graph-node on port 0 and report the address it
+# bound. ArcadeDB is an external option: name it with SPECD_BOLT_BACKEND=arcadedb
+# and SPECD_BOLT_URL.
+export SPECD_GRAPH_NODE ?= $(CURDIR)/bin/graph-node
 
 GO_DIRS := $(shell go list -f '{{.Dir}}' ./... 2>/dev/null)
 
@@ -29,7 +29,11 @@ FORCE:
 ARCH_YAML ?= $(CURDIR)/testdata/open-architecture/arch.yaml
 ARCH_REPOSITORY ?= deno-kcp
 
-build: $(SPECCTL) $(SPECD) $(BIN)/hydradb-bins
+build: $(SPECCTL) $(SPECD) $(BIN)/hydradb-bins $(BIN)/graph-node
+
+# The graph-node every instance starts, with its libgraphblas in bin/lib.
+$(BIN)/graph-node:
+	bash scripts/container-extract-and-install.sh
 
 # A commit change has to rebuild the stamped binaries even when no source file
 # moved, so the example script's stale-build check never points at a no-op
@@ -71,8 +75,15 @@ vet:
 test:
 	go test -short ./...
 
+# Live packages each start their own kcp, kine and graph-node; LIVE_PARALLEL
+# packages run at once, and kcpproc caps instances host-wide at
+# SPECD_MAX_INSTANCES. The e2e package alone runs longer than go test's default
+# ten minutes, and a timeout panic skips its cleanup.
+LIVE_PARALLEL ?= 2
+LIVE_TIMEOUT ?= 45m
+
 test-live:
-	SPECD_REQUIRE_LIVE=1 go test ./... -count=1
+	SPECD_REQUIRE_LIVE=1 go test ./... -count=1 -p $(LIVE_PARALLEL) -timeout $(LIVE_TIMEOUT)
 
 LIVE_MODEL_LOG ?= .kcp-specd/live-model-tests.log
 

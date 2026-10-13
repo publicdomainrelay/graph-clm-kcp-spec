@@ -10,6 +10,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/ids"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphproc"
 )
 
 func requireBolt(t *testing.T) Options {
@@ -19,43 +20,58 @@ func requireBolt(t *testing.T) Options {
 	}
 	backend := os.Getenv("SPECD_TEST_BACKEND")
 	if backend == "" {
-		backend = "arcadedb"
+		backend = "hydradb"
 	}
-	options := Options{}
 	switch backend {
 	case "hydradb":
-		url := os.Getenv("SPECD_TEST_HYDRA_URL")
-		if url == "" {
-			url = "bolt://127.0.0.1:7687"
-		}
-		password := os.Getenv("SPECD_TEST_HYDRA_PASSWORD")
-		if password == "" {
-			if path := envOr("SPECD_TEST_HYDRA_PASSWORD_FILE", "/tmp/hdb/token"); path != "" {
-				if contents, err := os.ReadFile(path); err == nil {
+		if url := os.Getenv("SPECD_TEST_HYDRA_URL"); url != "" {
+			password := os.Getenv("SPECD_TEST_HYDRA_PASSWORD")
+			if password == "" {
+				if contents, err := os.ReadFile(os.Getenv("SPECD_TEST_HYDRA_PASSWORD_FILE")); err == nil {
 					password = strings.TrimSpace(string(contents))
 				}
 			}
+			return Options{URL: url, User: envOr("SPECD_TEST_HYDRA_USER", "neo4j"), Password: password}
 		}
-		options = Options{
-			URL:      url,
-			User:     envOr("SPECD_TEST_HYDRA_USER", "neo4j"),
-			Password: password,
-			Database: os.Getenv("SPECD_TEST_HYDRA_DATABASE"),
-		}
-		if os.Getenv("SPECD_REQUIRE_LIVE") == "1" && password == "" {
-			t.Fatalf("SPECD_REQUIRE_LIVE=1 but no bolt password for %s", url)
-		}
+		return ownGraph(t)
 	case "arcadedb":
-		options = Options{
-			URL:      envOr("SPECD_TEST_ARCADE_URL", "bolt://127.0.0.1:7688"),
+		url := os.Getenv("SPECD_TEST_ARCADE_URL")
+		if url == "" {
+			t.Skip("ArcadeDB is an external graph: set SPECD_TEST_ARCADE_URL to test it")
+		}
+		return Options{
+			URL:      url,
 			User:     envOr("SPECD_TEST_ARCADE_USER", "root"),
 			Password: envOr("SPECD_TEST_ARCADE_PASSWORD", "clm-arcadedb-root"),
 			Database: envOr("SPECD_TEST_ARCADE_DATABASE", "clm"),
 		}
-	default:
-		t.Fatalf("SPECD_TEST_BACKEND = %q, want arcadedb or hydradb", backend)
 	}
-	return options
+	t.Fatalf("SPECD_TEST_BACKEND = %q, want arcadedb or hydradb", backend)
+	return Options{}
+}
+
+// ownGraph starts a graph-node for the test on port 0, the way an instance
+// starts its own.
+func ownGraph(t *testing.T) Options {
+	t.Helper()
+	if _, err := graphproc.NodeBin(); err != nil {
+		if os.Getenv("SPECD_REQUIRE_LIVE") == "1" {
+			t.Fatal(err)
+		}
+		t.Skip(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	instance, err := graphproc.Start(ctx, graphproc.Options{Root: t.TempDir(), DieWithStarter: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { graphproc.Stop(instance) })
+	password, err := instance.Password()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Options{URL: instance.BoltURL, User: instance.User, Password: password}
 }
 
 func envOr(name, fallback string) string {

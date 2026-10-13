@@ -19,6 +19,8 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/oabranch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphproc"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/oagit"
@@ -84,10 +86,18 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 	}
 
 	fmt.Fprintf(stdout, "repository %s at %s on branch %s\n", name, top, branch)
-	if err := startKcp(ctx, &record, previous, hadPrevious, stdout); err != nil {
+	started, err := startKcp(ctx, &record, previous, hadPrevious, stdout)
+	if err != nil {
 		fmt.Fprintf(stderr, "specctl up: %v\n", err)
 		return exitError
 	}
+	succeeded := false
+	defer func() {
+		if started && !succeeded {
+			kcpproc.Stop(instanceOf(record))
+			fmt.Fprintf(stderr, "specctl up: stopped the kcp, kine and graph this run started at %s\n", record.KcpRoot)
+		}
+	}()
 	client, err := kcpclient.New(kcpclient.Options{
 		Kubeconfig: record.AdminKubeconfig,
 		Workspace:  record.Workspace,
@@ -128,6 +138,11 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 
+	if err := startGraph(ctx, &record, stdout); err != nil {
+		fmt.Fprintf(stderr, "specctl up: %v\n", err)
+		return exitError
+	}
+
 	stopOtherBranchSpecds(record, *stopOthers, stdout)
 
 	if !*noSpecd && !session.Alive(record.SpecdPid, "specd") {
@@ -155,10 +170,11 @@ func runUp(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	printNextSteps(stdout, record)
+	succeeded = true
 	return exitOK
 }
 
-func startKcp(ctx context.Context, record *session.Record, previous session.Record, hadPrevious bool, stdout io.Writer) error {
+func startKcp(ctx context.Context, record *session.Record, previous session.Record, hadPrevious bool, stdout io.Writer) (bool, error) {
 	instance := kcpproc.Instance{}
 	if hadPrevious {
 		instance = instanceOf(previous)
@@ -173,12 +189,13 @@ func startKcp(ctx context.Context, record *session.Record, previous session.Reco
 	if !reused {
 		started, err := kcpproc.Start(ctx, kcpproc.Options{Root: record.KcpRoot})
 		if err != nil {
-			return err
+			return false, err
 		}
 		instance = started
 		keeperPid, err := startKeeper(instance.Root)
 		if err != nil {
-			return fmt.Errorf("start the keeper: %w", err)
+			kcpproc.Stop(started)
+			return false, fmt.Errorf("start the keeper: %w", err)
 		}
 		if keeperPid > 0 {
 			fmt.Fprintf(stdout, "keeper %d watches pid %d; the kcp, kine and specd of %s die with it\n", keeperPid, kcpproc.DieWithPid(), instance.Root)
@@ -192,7 +209,7 @@ func startKcp(ctx context.Context, record *session.Record, previous session.Reco
 
 	deployDir, err := session.ExtractDeploy()
 	if err != nil {
-		return err
+		return !reused, err
 	}
 	command := exec.CommandContext(ctx, "bash", filepath.Join(deployDir, "install-specs.sh"))
 	command.Env = append(os.Environ(),
@@ -203,14 +220,64 @@ func startKcp(ctx context.Context, record *session.Record, previous session.Reco
 		"WORKSPACE_KUBECONFIG="+record.WorkspaceKubeconfig,
 	)
 	if output, err := command.CombinedOutput(); err != nil {
-		return fmt.Errorf("install-specs.sh: %w\n%s", err, strings.TrimSpace(string(output)))
+		return !reused, fmt.Errorf("install-specs.sh: %w\n%s", err, strings.TrimSpace(string(output)))
 	}
 	state := "started"
 	if reused {
 		state = "already running"
 	}
 	fmt.Fprintf(stdout, "kcp %s at %s (kernel-assigned port %d, kine port %d, state %s), workspace %s\n", state, record.KcpURL, record.KcpPort, record.KinePort, record.KcpRoot, record.Workspace)
+	return !reused, nil
+}
+
+// startGraph starts the instance's graph-node, or adopts the one serving its
+// root. It binds port 0 and the session records the address it reports.
+func startGraph(ctx context.Context, record *session.Record, stdout io.Writer) error {
+	root := filepath.Join(record.KcpRoot, "graph")
+	instance, reused := graphproc.Probe(root)
+	if !reused {
+		started, err := graphproc.Start(ctx, graphproc.Options{Root: root})
+		if err != nil {
+			return err
+		}
+		instance = started
+		kcpproc.RecordGraph(record.KcpRoot, instance.Pid)
+	}
+	record.GraphRoot = instance.Root
+	record.GraphBackend = instance.Backend
+	record.GraphURL = instance.BoltURL
+	record.GraphUser = instance.User
+	record.GraphTokenFile = instance.TokenFile
+	record.GraphPid = instance.Pid
+	state := "started"
+	if reused {
+		state = "already running"
+	}
+	fmt.Fprintf(stdout, "graph %s at %s (%s, kernel-assigned port, pid %d)\n", state, instance.BoltURL, instance.Backend, instance.Pid)
 	return nil
+}
+
+func graphArgs(record session.Record) []string {
+	if record.GraphURL == "" {
+		return nil
+	}
+	return []string{
+		"--bolt-backend", record.GraphBackend,
+		"--bolt-url", record.GraphURL,
+		"--bolt-user", record.GraphUser,
+		"--bolt-password-file", record.GraphTokenFile,
+	}
+}
+
+func sessionGraph() (boltflags.Instance, bool) {
+	record, ok := session.ForDir(".")
+	if !ok || record.GraphURL == "" {
+		return boltflags.Instance{}, false
+	}
+	if !graphproc.Ready(graphproc.Instance{Root: record.GraphRoot}) {
+		return boltflags.Instance{}, false
+	}
+	return boltflags.Instance{Backend: record.GraphBackend, URL: record.GraphURL, User: record.GraphUser, PasswordFile: record.GraphTokenFile}, true
 }
 
 func instanceOf(record session.Record) kcpproc.Instance {
@@ -312,6 +379,7 @@ func startSpecd(record session.Record, specdPath, agent, pushRemote string) (int
 		"--cache-dir", filepath.Join(statedir.Dir(), "cache"),
 		"--log-dir", logDir,
 	}
+	args = append(args, graphArgs(record)...)
 	if agent != "" {
 		args = append(args, "--agent", agent)
 	}
@@ -435,7 +503,7 @@ func runDown(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "specctl down: kcp %s still has process(es) %v alive under %s; the session is kept\n", record.KcpURL, live, record.KcpRoot)
 			return exitError
 		}
-		fmt.Fprintf(stdout, "kcp %s and kine stopped\n", record.KcpURL)
+		fmt.Fprintf(stdout, "kcp %s, kine and graph %s stopped\n", record.KcpURL, record.GraphURL)
 	}
 	if err := session.Remove(record.Repo, record.Branch); err != nil {
 		fmt.Fprintf(stderr, "specctl down: %v\n", err)
@@ -469,7 +537,11 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	if kcpproc.Ready(instanceOf(record)) {
 		kcpState = "ready"
 	}
-	fmt.Fprintf(stdout, "repository  %s at %s on branch %s\nkcp         %s %s (kine %s), workspace %s\nspecd       %s\n", record.Repository, record.Repo, record.Branch, record.KcpURL, kcpState, record.KineURL, record.Workspace, specdState)
+	graphState := "stopped"
+	if graphproc.Ready(graphproc.Instance{Root: record.GraphRoot}) {
+		graphState = "ready"
+	}
+	fmt.Fprintf(stdout, "repository  %s at %s on branch %s\nkcp         %s %s (kine %s), workspace %s\ngraph       %s %s (%s)\nspecd       %s\n", record.Repository, record.Repo, record.Branch, record.KcpURL, kcpState, record.KineURL, record.Workspace, record.GraphURL, graphState, valueOr(record.GraphBackend, "none"), specdState)
 	object, err := client.Get(ctx, specapi.RepositoryGVR, record.Namespace, record.Repository)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl status: %v\n", err)
@@ -545,6 +617,10 @@ func runEnv(args []string, stdout, stderr io.Writer) int {
 			{"SPECD_CLM_REPO", record.Repo},
 			{"SPECD_CLM_REPOSITORY", record.Repository},
 			{"SPECD_CLM_DOC_DIR", record.ClmDocDir},
+			{"SPECD_BOLT_BACKEND", record.GraphBackend},
+			{"SPECD_BOLT_URL", record.GraphURL},
+			{"SPECD_BOLT_USER", record.GraphUser},
+			{"SPECD_BOLT_PASSWORD_FILE", record.GraphTokenFile},
 		} {
 			fmt.Fprintf(stdout, "export %s=%q\n", pair[0], pair[1])
 		}

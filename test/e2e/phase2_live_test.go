@@ -31,25 +31,26 @@ type backend struct {
 
 func backends(t *testing.T) []backend {
 	t.Helper()
-	out := []backend{
-		{
+	out := []backend{}
+	if os.Getenv("SPECD_TEST_ARCADE_URL") != "" {
+		out = append(out, backend{
 			name: "arcadedb",
 			options: boltgraph.Options{
-				URL:      envOr("SPECD_TEST_ARCADE_URL", "bolt://127.0.0.1:7688"),
+				URL:      os.Getenv("SPECD_TEST_ARCADE_URL"),
 				User:     envOr("SPECD_TEST_ARCADE_USER", "root"),
 				Database: envOr("SPECD_TEST_ARCADE_DATABASE", "clm"),
 			},
 			password: envOr("SPECD_TEST_ARCADE_PASSWORD", "clm-arcadedb-root"),
-		},
-		{
-			name: "hydradb",
-			options: boltgraph.Options{
-				URL:  envOr("SPECD_TEST_HYDRA_URL", "bolt://127.0.0.1:7687"),
-				User: envOr("SPECD_TEST_HYDRA_USER", "neo4j"),
-			},
-			password: envOr("SPECD_TEST_HYDRA_PASSWORD", passwordFromFile(envOr("SPECD_TEST_HYDRA_PASSWORD_FILE", "/tmp/hdb/token"))),
-		},
+		})
 	}
+	out = append(out, backend{
+		name: "hydradb",
+		options: boltgraph.Options{
+			URL:  os.Getenv("SPECD_TEST_HYDRA_URL"),
+			User: envOr("SPECD_TEST_HYDRA_USER", "neo4j"),
+		},
+		password: envOr("SPECD_TEST_HYDRA_PASSWORD", passwordFromFile(os.Getenv("SPECD_TEST_HYDRA_PASSWORD_FILE"))),
+	})
 	for index := range out {
 		out[index].options.Password = out[index].password
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/policy"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 )
 
@@ -136,6 +137,7 @@ func (g *globals) client() (*kcpclient.Client, error) {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	boltflags.SessionGraph = sessionGraph
 	if len(args) == 0 {
 		usage(stderr)
 		return exitUsage
@@ -499,8 +501,8 @@ eval flags (specctl eval):
   --timeout <dur>         how long one scenario may take (default 5m)
 
 graph flags:
-  --bolt-backend <name>      arcadedb (default) or hydradb; it fills the unset options
-  --bolt-url <url>           bolt endpoint (default $SPECD_BOLT_URL or the backend's, empty skips the graph)
+  --bolt-backend <name>      hydradb (default) or arcadedb; it fills the unset options
+  --bolt-url <url>           bolt endpoint (default $SPECD_BOLT_URL, else the graph specctl up started for this checkout)
   --bolt-user <user>         bolt user (default $SPECD_BOLT_USER or the backend's)
   --bolt-password <password> bolt password (default $SPECD_BOLT_PASSWORD or the backend's)
   --bolt-password-file <path> read the bolt password from a file (default $SPECD_BOLT_PASSWORD_FILE or the backend's)

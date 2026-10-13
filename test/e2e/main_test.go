@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphproc"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpproc"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/runlock"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/session"
@@ -48,6 +49,10 @@ var (
 	e2ePrivate = false
 
 	e2eTools = "kcp kine kubectl bash"
+
+	e2eGraph = graphproc.Instance{}
+
+	e2eGraphRoot = ""
 )
 
 func TestMain(m *testing.M) {
@@ -81,6 +86,9 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	os.Setenv(kcpproc.LedgerEnv, filepath.Join(ledger, "ledger"))
+	if os.Getenv(kcpproc.DieWithEnv) == "" {
+		os.Setenv(kcpproc.DieWithEnv, strconv.Itoa(os.Getpid()))
+	}
 
 	lock, err := startClusterForTests()
 	if err != nil {
@@ -90,6 +98,11 @@ func TestMain(m *testing.M) {
 	if e2eKubeconfig != "" {
 		os.Setenv("SPECD_KUBECONFIG", e2eKubeconfig)
 		os.Setenv("SPECD_WORKSPACE", e2eWorkspace)
+		if err := startGraphForTests(); err != nil {
+			fmt.Fprintf(os.Stderr, "e2e: %v\n", err)
+			stopClusterForTests(lock)
+			os.Exit(1)
+		}
 	}
 	mark(os.Getenv("SPECD_LIVE_LOCK_MARK"), "begin")
 	if want, err := strconv.Atoi(os.Getenv("SPECD_LIVE_LOCK_BARRIER")); err == nil && want > 1 {
@@ -100,10 +113,11 @@ func TestMain(m *testing.M) {
 	stopClusterForTests(lock)
 	leaks := kcpproc.Leaks()
 	for _, leak := range leaks {
-		fmt.Fprintf(os.Stderr, "e2e: leaked kcp %d, kine %d and specd %d on the root %s\n", leak.KcpPid, leak.KinePid, leak.SpecdPid, leak.Root)
+		fmt.Fprintf(os.Stderr, "e2e: leaked kcp %d, kine %d, specd %d and graph %d on the root %s\n", leak.KcpPid, leak.KinePid, leak.SpecdPid, leak.GraphPid, leak.Root)
 		kcpproc.Terminate(leak.KcpPid, leak.Root)
 		kcpproc.Terminate(leak.KinePid, leak.Root)
 		kcpproc.Terminate(leak.SpecdPid, leak.Root)
+		graphproc.Terminate(leak.GraphPid, leak.Root)
 	}
 	if len(leaks) > 0 {
 		code = 1
@@ -174,7 +188,60 @@ func startClusterForTests() (*runlock.Lock, error) {
 	return nil, nil
 }
 
+// startGraphForTests gives the run its own graph-node on port 0, the way it
+// gets its own kcp, unless SPECD_BOLT_URL names an external graph. Every
+// specd and specctl the tests start inherits it through the environment.
+func startGraphForTests() error {
+	if os.Getenv(graphproc.NodeBinEnv) == "" {
+		if local := filepath.Join(e2eRoot, "bin", "graph-node"); fileExists(local) {
+			os.Setenv(graphproc.NodeBinEnv, local)
+		}
+	}
+	if os.Getenv("SPECD_BOLT_URL") != "" {
+		return nil
+	}
+	if _, err := graphproc.NodeBin(); err != nil {
+		fmt.Fprintf(os.Stderr, "e2e: no graph-node, the graph tests fail: %v\n", err)
+		return nil
+	}
+	if e2eGraphRoot == "" {
+		root, err := os.MkdirTemp("", "specd-e2e-graph-")
+		if err != nil {
+			return err
+		}
+		e2eGraphRoot = root
+	}
+	instance, err := graphproc.Start(context.Background(), graphproc.Options{Root: e2eGraphRoot, DieWithStarter: true})
+	if err != nil {
+		return err
+	}
+	kcpproc.RecordGraph(e2eGraphRoot, instance.Pid)
+	e2eGraph = instance
+	for name, value := range map[string]string{
+		"SPECD_BOLT_BACKEND":             instance.Backend,
+		"SPECD_BOLT_URL":                 instance.BoltURL,
+		"SPECD_BOLT_USER":                instance.User,
+		"SPECD_BOLT_PASSWORD_FILE":       instance.TokenFile,
+		"SPECD_TEST_HYDRA_URL":           instance.BoltURL,
+		"SPECD_TEST_HYDRA_USER":          instance.User,
+		"SPECD_TEST_HYDRA_PASSWORD_FILE": instance.TokenFile,
+	} {
+		os.Setenv(name, value)
+	}
+	fmt.Fprintf(os.Stderr, "e2e: private graph on a kernel port at %s, state %s\n", instance.BoltURL, e2eGraphRoot)
+	return nil
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
 func stopClusterForTests(lock *runlock.Lock) {
+	if e2eGraph.Pid > 0 {
+		graphproc.Stop(e2eGraph)
+		os.RemoveAll(e2eGraphRoot)
+	}
 	if lock != nil {
 		if err := lock.Release(); err != nil {
 			fmt.Fprintf(os.Stderr, "e2e: release the live lock: %v\n", err)

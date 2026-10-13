@@ -67,9 +67,12 @@ stays the only source of truth, and the graph can be rebuilt from kcp and
 CodeGraph at any time.
 
 The engine is not the point: CLM + graph DB is. Any Bolt/openCypher engine
-that runs the portable Cypher subset works. ArcadeDB is the default because it
-is the more Cypher compliant of the two tested engines (38 of 40 probe cases
-against HydraDB's 26 of 40, `pi-hydradb-clm/docs/cypher-conformance.md`).
+that runs the portable Cypher subset works. Every instance starts its own graph:
+a HydraDB `graph-node` whose listeners bind port 0 and whose bound address is
+recorded in the session and in `Repository.status.graph`, the same way kcp and
+kine report theirs. ArcadeDB is the more Cypher compliant of the two tested
+engines (38 of 40 probe cases against HydraDB's 26 of 40,
+`pi-hydradb-clm/docs/cypher-conformance.md`) and stays an external option.
 
 **Why a context language model (CLM).** The model edits its own context
 document, which becomes its working memory. The `pi-hydradb-clm` extension
@@ -85,7 +88,7 @@ flowchart TB
     cli["specctl clm<br/>render / apply / report<br/>the one state bridge"]
     kcp[("kcp<br/>SystemContext / SpecChange<br/>source of truth")]
     specd["specd controller"]
-    gdb[("graph DB over Bolt<br/>ArcadeDB default, HydraDB option<br/>derived index")]
+    gdb[("graph DB over Bolt<br/>HydraDB per instance, port 0<br/>derived index")]
     cg[("CodeGraph index<br/>code facts")]
     repo["git repo: code only"]
     oa[("orphan branch<br/>open-architecture/&lt;repository&gt;<br/>durable spec + graph")]
@@ -973,12 +976,14 @@ denying a declared host-to-guest flow before any code exists); the live half is
 ## Requirements
 
 `go` (1.26 or newer), `kcp` v0.33, `kine`, `kubectl`, `codegraph` on `PATH` for
-ingest, and `git` for a `Repository` and for `specd`. The graph needs a Bolt
-endpoint and defaults to ArcadeDB on `bolt://127.0.0.1:7688` (user `root`,
-password `clm-arcadedb-root`, database `clm`); HydraDB on
-`bolt://127.0.0.1:7687` (password in `/tmp/hdb/token`) is an option, selected
-with `--bolt-backend hydradb` or `SPECD_BOLT_BACKEND=hydradb`. The graph
-commands need one;
+ingest, and `git` for a `Repository` and for `specd`. The graph is HydraDB's
+`graph-node`: `make build` fetches it into `bin/` with its `libgraphblas` in
+`bin/lib` (no root), and `SPECD_GRAPH_NODE` names another one. `specctl up`
+starts one per (checkout, branch) beside kcp; a `specd` started without
+`--bolt-url` starts its own (`--no-graph` runs without one); both bind port 0
+and report the address. An external graph is named with `--bolt-url` or
+`SPECD_BOLT_URL` (ArcadeDB: `--bolt-backend arcadedb`, user `root`, password
+`clm-arcadedb-root`, database `clm`). The graph commands need one;
 `apply`, `get`, `delete`, `import-arch` and `export` work without one (pass
 `--no-graph` to `ingest` and `import-arch`).
 
@@ -1077,8 +1082,7 @@ make kcp-down        # stop the cluster this repo started
 objects through `kubectl`, and one `SystemContext` as YAML.
 `make example-phase2` applies the same example, indexes `fixtures/calc` with
 CodeGraph, ingests it, prints the observed facts and the conditions, and shows
-one hop of the graph around `calc` in ArcadeDB, the default backend, and in
-HydraDB, the option.
+one hop of the graph around `calc` in the graph the example names.
 `make example-phase3` imports the archived open architecture document, prints
 one hop of the graph around `sc.deno-kcp` (by arch id), exports the document
 back out of kcp, and runs the live round trip test. All three targets are
@@ -1126,9 +1130,9 @@ The same steps by hand:
 make build
 make kcp-up
 
-# the graph endpoint defaults to ArcadeDB on bolt://127.0.0.1:7688 (root /
-# clm-arcadedb-root, database clm); for HydraDB instead:
-#   export SPECD_BOLT_BACKEND=hydradb   # 7687, neo4j, token in /tmp/hdb/token
+# specd starts its own graph-node on port 0 when no --bolt-url names a graph;
+# for an external graph instead:
+#   export SPECD_BOLT_BACKEND=arcadedb SPECD_BOLT_URL=bolt://host:port
 
 # specctl ingest applies a Repository and waits for Populated, so the controller
 # has to be watching the workspace; start it in its own terminal
@@ -1978,7 +1982,8 @@ impl/statedir        $SPECD_STATE_DIR, the CLM document dir
 impl/schemagen       CustomResourceDefinition -> APIResourceSchema, the drift test and the generator
 impl/archkcp         arch.yaml <-> SystemContext objects on a kcp workspace
 impl/gitrepo         the managed tree: head, branch, worktrees, the specd commit, the --ff-only land
-impl/boltgraph       Bolt client; ArcadeDB is the default backend, HydraDB an option
+impl/boltgraph       Bolt client for HydraDB (per instance) or an external Bolt graph
+impl/graphproc       starts an instance's HydraDB graph-node on port 0 and reads back the bound address
 abc/watch            the watch contract: resources in, Added/Updated/Deleted out
 impl/watchinformer   dynamic informer watches against the workspace
 impl/exportwatch     the APIExport virtual workspace: every bound workspace on one watch
@@ -2033,8 +2038,9 @@ and the two hosts (`pi-hydradb-clm`, `cc-clm-mod`) sit on top of both.
 ```bash
 make check      # gofmt and go vet
 make test       # unit tests; live tests skip (-short)
-make test-live  # SPECD_REQUIRE_LIVE=1; each package starts its own kcp, needs codegraph and a Bolt backend
-make test-live SPECD_BOLT_BACKEND=hydradb   # the same, graph checks on HydraDB 7687
+make test-live  # SPECD_REQUIRE_LIVE=1, -p 2 -timeout 45m; each package starts its own kcp and graph-node, needs codegraph
+                # SPECD_MAX_INSTANCES caps kcp instances host-wide (default max(2, CPUs/4)); a start waits for a slot
+SPECD_TEST_ARCADE_URL=bolt://host:port make test-live   # also checks an external ArcadeDB
 
 # the multi workspace end to end: two tenants, one export mode controller
 SPECD_REQUIRE_LIVE=1 go test ./test/e2e/ -run TestPhase9TwoTenantsOneExportController -count=1 -v
@@ -2177,7 +2183,7 @@ There are three kinds of state. Each kind has one owner and one lifetime.
 | --- | --- | --- | --- |
 | kcp + kine (API objects) | one root per (checkout, branch); `kine.db` sqlite inside it | `specctl up` / `specctl kcp start` / a test | until `specctl down`, or until the test that started it dies |
 | specs (durable record) | orphan git branches `open-architecture/<repo>[--<branch>]`, `open-policy/<repo>[--<branch>]` | specd commits, you push | forever (git) |
-| graph (derived index) | ArcadeDB `bolt://127.0.0.1:7688` (default) or HydraDB `bolt://127.0.0.1:7687` | started outside this repository | can be rebuilt from git and code at any time |
+| graph (derived index) | HydraDB graph-node in `<kcp root>/graph/` (port 0, `graph.json`), or an external Bolt graph | `specctl up` / `specd` / a test, like kcp | can be rebuilt from git and code at any time |
 
 The state directory comes from `$SPECD_STATE_DIR`, else
 `$XDG_STATE_HOME/specd`, else `~/.local/state/specd`.
@@ -2241,15 +2247,17 @@ flowchart TB
   subgraph per-instance ["per (checkout, branch): kernel-assigned, 127.0.0.1 only"]
     KCP["kcp secure port"] --- KINE["kine port"]
   end
-  subgraph shared ["shared, started outside this repository"]
-    AR["ArcadeDB bolt 7688<br/>root / clm-arcadedb-root, db clm"]
-    HY["HydraDB bolt 7687, http 7474, admin 9090<br/>token /tmp/hdb/token"]
+  subgraph graph ["per instance: graph-node, kernel-assigned"]
+    HY["HydraDB bolt, http, admin on port 0<br/>token in its root, address in graph.json"]
+  end
+  subgraph external ["optional, named with --bolt-url"]
+    AR["ArcadeDB or any Bolt graph"]
   end
   subgraph reserved ["reserved: never touch"]
     DK["6443 / 23791 deno-kcp"]
     OLD["6447 / 23797 older hydradb instance"]
   end
-  RUN["each test or eval run"] -->|"SPECD_GRAPH_NAMESPACE = random prefix"| AR
+  RUN["each test or eval run"] -->|"its own graph-node"| HY
   RUN --> KCP
 ```
 
@@ -2318,10 +2326,9 @@ plus a kubeconfig per tenant in `.kcp-specd/<workspace>.kubeconfig`. They live
 in the same state directory, so `make kcp-down` followed by `rm -rf .kcp-specd`
 removes them. `deploy/stop-kcp.sh` only ever signals processes whose command
 line names that root directory, so it cannot disturb another kcp on the
-machine. The graph defaults to ArcadeDB on `bolt://127.0.0.1:7688` (HydraDB on
-`bolt://127.0.0.1:7687` is the option); neither is started by this repository,
-and because the backend is shared every test and eval writes under its own
-namespace (`$SPECD_GRAPH_NAMESPACE`, set per run by `specctl eval` and by
+machine. Every instance starts its own graph-node, so nothing is shared by
+default; when an external graph is named, every test and eval writes under its
+own namespace (`$SPECD_GRAPH_NAMESPACE`, set per run by `specctl eval` and by
 `go test ./test/e2e`), so two runs cannot read or delete each other's
 vertices.
 

@@ -119,13 +119,12 @@ func (c *Client) WriteVertices(ctx context.Context, set graph.VertexSet) error {
 	if len(set.Rows) == 0 {
 		return nil
 	}
-	properties := graph.LabelProperties[set.Label]
-	query := graph.VertexUpsert(set.Label, properties)
-	rows := make([]map[string]any, 0, len(set.Rows))
-	for _, vertex := range set.Rows {
-		rows = append(rows, vertex.Row())
+	for _, shape := range graph.RowShapes(set) {
+		if err := c.writeBatched(ctx, graph.VertexUpsert(set.Label, shape.Properties), shape.Rows); err != nil {
+			return err
+		}
 	}
-	return c.writeBatched(ctx, query, rows)
+	return nil
 }
 
 func (c *Client) WriteEdges(ctx context.Context, set graph.EdgeSet) error {

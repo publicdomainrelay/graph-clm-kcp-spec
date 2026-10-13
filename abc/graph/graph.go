@@ -605,6 +605,43 @@ func rebuiltIDs(ctx context.Context, writer Writer, label, namespace string) ([]
 	return writer.SelectIDsWhere(ctx, label, map[string]any{ScopeProperty: namespace})
 }
 
+// RowShape is the rows of a vertex set that carry the same properties. A
+// graph that refuses null parameters (HydraDB) cannot take a row that leaves
+// out a property the upsert sets, so each shape gets its own upsert.
+type RowShape struct {
+	Properties []string
+
+	Rows []map[string]any
+}
+
+func RowShapes(set VertexSet) []RowShape {
+	known := LabelProperties[set.Label]
+	order := []string{}
+	byKey := map[string]*RowShape{}
+	for _, vertex := range set.Rows {
+		row := vertex.Row()
+		present := []string{}
+		for _, property := range known {
+			if _, ok := row[property]; ok {
+				present = append(present, property)
+			}
+		}
+		key := strings.Join(present, ",")
+		shape, ok := byKey[key]
+		if !ok {
+			shape = &RowShape{Properties: present}
+			byKey[key] = shape
+			order = append(order, key)
+		}
+		shape.Rows = append(shape.Rows, row)
+	}
+	out := make([]RowShape, 0, len(order))
+	for _, key := range order {
+		out = append(out, *byKey[key])
+	}
+	return out
+}
+
 func VertexUpsert(label string, properties []string) string {
 	assignments := make([]string, 0, len(properties)+1)
 	assignments = append(assignments, "n:"+label)

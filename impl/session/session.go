@@ -54,6 +54,18 @@ type Record struct {
 	ClmMod string `json:"clmMod,omitempty"`
 
 	ClmDocDir string `json:"clmDocDir"`
+
+	GraphRoot string `json:"graphRoot,omitempty"`
+
+	GraphBackend string `json:"graphBackend,omitempty"`
+
+	GraphURL string `json:"graphURL,omitempty"`
+
+	GraphUser string `json:"graphUser,omitempty"`
+
+	GraphTokenFile string `json:"graphTokenFile,omitempty"`
+
+	GraphPid int `json:"graphPid,omitempty"`
 }
 
 func Dir() string {

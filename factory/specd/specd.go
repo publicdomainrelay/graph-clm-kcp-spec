@@ -14,6 +14,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/watch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/agentfactory"
@@ -88,6 +89,9 @@ type Options struct {
 	MaxConcurrentSummaries int
 
 	Graph graph.Writer
+
+	// GraphStatus is what the controller reports as each repository's graph.
+	GraphStatus *spec.GraphStatus
 
 	Agent string
 

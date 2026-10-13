@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,10 +17,12 @@ import (
 	"time"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/exportwatch"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphproc"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/statedir"
 	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
@@ -105,6 +109,10 @@ type config struct {
 	policyLibrary string
 
 	noBaseline bool
+
+	noGraph bool
+
+	graphRoot string
 }
 
 func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, error) {
@@ -151,6 +159,8 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	fs.DurationVar(&config.batchWindow, "batch-window", specd.DefaultBatchWindow, "how long the oldest pending spec to code change of a repository waits for siblings before its batch starts")
 	fs.StringVar(&config.policyLibrary, "policy-library", os.Getenv("SPECD_POLICY_LIBRARY"), "directory of the policy tree the spec-time gate reads; empty reads the repository policy branch, the same source the realize gate and the audit read")
 	fs.BoolVar(&config.noBaseline, "no-baseline", os.Getenv("SPECD_NO_BASELINE") == "1", "gate the whole repository: every policy violation blocks, not only the ones the change introduced")
+	fs.BoolVar(&config.noGraph, "no-graph", os.Getenv("SPECD_NO_GRAPH") == "1", "run without a graph instead of starting one when no --bolt-url names one")
+	fs.StringVar(&config.graphRoot, "graph-root", os.Getenv("SPECD_GRAPH_ROOT"), "where the graph-node specd starts keeps its data; default is one per workspace under the state dir")
 	bolt := boltflags.Add(fs)
 	if err := fs.Parse(args); err != nil {
 		return config, bolt, err
@@ -274,6 +284,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if !bolt.Enabled() && !config.noGraph {
+		started, err := graphproc.Start(ctx, graphproc.Options{Root: config.defaultGraphRoot(), DieWithStarter: true})
+		if err != nil {
+			fmt.Fprintf(stderr, "specd: start the graph: %v\n", err)
+			return exitError
+		}
+		defer graphproc.Stop(started)
+		bolt.Use(boltflags.Instance{Backend: started.Backend, URL: started.BoltURL, User: started.User, PasswordFile: started.TokenFile})
+		logger.Info("started the graph", "url", started.BoltURL, "root", started.Root, "pid", started.Pid)
+	}
+
 	var writer graph.Writer
 	if bolt.URL != "" {
 		client, err := bolt.Connect(ctx)
@@ -290,6 +311,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "specd: %v\n", err)
 		return exitUsage
+	}
+	if bolt.URL != "" {
+		options.GraphStatus = &spec.GraphStatus{Backend: bolt.Backend, URL: bolt.URL}
 	}
 	if options.Agent != "" {
 		logger.Info("CodeToSpec changes are worked off by an agent", "agent", options.Agent, "maxAttempts", options.MaxAttempts)
@@ -311,6 +335,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 	logger.Info("stopped")
 	fmt.Fprintln(stdout, "specd stopped")
 	return exitOK
+}
+
+func (c config) defaultGraphRoot() string {
+	if c.graphRoot != "" {
+		return c.graphRoot
+	}
+	kubeconfig, err := filepath.Abs(c.kubeconfig)
+	if err != nil {
+		kubeconfig = c.kubeconfig
+	}
+	sum := sha256.Sum256([]byte(kubeconfig + "\x00" + c.workspace))
+	return filepath.Join(statedir.Dir(), "graphs", hex.EncodeToString(sum[:8]))
 }
 
 func defaultKubeconfig() string {

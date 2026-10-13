@@ -205,6 +205,14 @@ spec:
                 populateRequest:
                   type: string
                   description: The specs.publicdomainrelay.dev/populate-request annotation value this status answers.
+                graph:
+                  type: object
+                  description: The graph the controller writes to; its graph-node binds port 0 and this is the address it reported.
+                  properties:
+                    backend:
+                      type: string
+                    url:
+                      type: string
                 openArchitecture:
                   type: object
                   description: The orphan open-architecture branch this repository persists to, the last commit specd wrote or adopted, the last commit pushed, and the contexts a branch edit could not merge.

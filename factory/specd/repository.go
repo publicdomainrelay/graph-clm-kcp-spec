@@ -39,6 +39,10 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 		return 0, nil
 	}
 
+	if err := c.reportGraph(ctx, namespace, repository); err != nil {
+		return 0, err
+	}
+
 	if result := spec.ValidateRepository(repository); !result.OK() {
 		return c.opts.Resync, c.setRepositoryCondition(ctx, repository, namespace,
 			metav1.ConditionFalse, specapi.ReasonSourceInvalid, result.Err().Error())
@@ -235,5 +239,26 @@ func (c *Controller) setRepositoryPhase(ctx context.Context, repository *spec.Re
 	}
 	_, err := c.client.PatchStatus(ctx, specapi.RepositoryGVR, namespace, repository.Name,
 		map[string]any{"phase": phase})
+	return err
+}
+
+func (c *Controller) reportGraph(ctx context.Context, namespace string, repository *spec.Repository) error {
+	want := c.opts.GraphStatus
+	if want == nil {
+		want = &spec.GraphStatus{}
+	}
+	have := repository.Status.Graph
+	if have == nil {
+		have = &spec.GraphStatus{}
+	}
+	if *have == *want {
+		return nil
+	}
+	_, err := c.client.PatchStatus(ctx, specapi.RepositoryGVR, namespace, repository.Name, map[string]any{
+		"graph": map[string]any{"backend": want.Backend, "url": want.URL},
+	})
+	if err == nil {
+		repository.Status.Graph = want
+	}
 	return err
 }
