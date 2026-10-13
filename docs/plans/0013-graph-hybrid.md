@@ -329,3 +329,18 @@ writes the endpoint vertices with the edges, so a note links to code the graph
 already holds and plants the vertex when it does not. This is the third time
 the same class appeared (rebuild edges, the per-instance graph, the memory
 write): an edge whose endpoint is absent must never be written.
+
+### Item E: the mod
+
+Realized as ff5ef8c: `specctl arch owner <path>` (the context that owns a file,
+deepest match), the mod's most-recently-used set of at most four contexts whose
+compact cards are injected at `prompt.compose`, the repository card for an
+interactive session, three new tools (`arch_search`, `arch_neighbors`,
+`arch_owner`), and a task card for a realize session that names the change, the
+verify and the acceptance and outranks the repository's own instructions (the
+fix for findings F2 and F9). Live check: `specctl arch owner impl/ingest/ingest.go`
+prints `impl-ingest` and `abc/clm/memory.go` prints `abc-clm`.
+
+Note for a fresh worktree: `cc-clm-mod/node_modules` is not in git, so `npm ci`
+in that directory before `npm test` (or the vendor test fails with
+`Cannot find package 'esbuild'`).
