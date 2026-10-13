@@ -224,6 +224,128 @@ sequenceDiagram
     S->>G: orphan commit, Code-Commit trailer
 ```
 
+## Hands-on: run specd on a repository, then read its graph
+
+Every command below is copy-pastable. `HYDRADB` is this checkout; `REPO` is the
+repository you want specs for (any git checkout, this one included). Nothing is
+written into `REPO` except git refs: kcp, kine, the graph-node and the logs
+live under `$SPECD_STATE_DIR` (default `~/.local/state/specd`).
+
+### 1. Build once
+
+```bash
+export HYDRADB=$HOME/src/publicdomainrelay-kcp/hydradb
+cd "$HYDRADB" && make build       # bin/specctl, bin/specd, bin/graph-node (+ bin/lib), no root needed
+export PATH="$HYDRADB/bin:$PATH"
+```
+
+### 2. Start an instance on a repository
+
+`specctl up` starts this checkout's own kcp, kine and HydraDB graph-node (each
+on a port the kernel picks), registers the repository, indexes it with
+CodeGraph and starts specd. Use a worktree or a fresh clone if you do not want
+the open-architecture refs in your everyday checkout.
+
+```bash
+export REPO=$HOME/.tmp/myrepo-specs
+git -C "$HYDRADB" worktree add --detach "$REPO" origin/main   # or: git clone <url> "$REPO"
+cd "$REPO" && git switch -c specs/try
+
+# structure only, no model calls: one context per directory or package
+specctl up --summarize=false --remote ""
+
+# or with model summaries and the realize agent (DeepSeek through deepseek-claude)
+# specctl up --agent claude-mod --remote ""
+
+specctl status        # kcp, graph and specd state; populate progress
+specctl env           # export lines: kubeconfig, workspace, SPECD_BOLT_* for the graph
+```
+
+`specctl status` repeats until `phase Populated`. A repository of a few
+hundred directories takes one to two minutes.
+
+### 3. Read and change the architecture
+
+```bash
+specctl arch outline | head -40                    # every context: upstream, requirements, conditions
+specctl arch outline -o json > ~/.tmp/outline.json
+specctl clm render --context impl-graphproc        # the context document an agent sees
+specctl get systemcontexts                         # the raw kcp objects (also: specchanges, repositories, plans)
+
+# change a spec: edit the document, apply it as a delta; specd opens a SpecToCode change
+specctl clm render --context impl-graphproc > ~/.tmp/ctx.md
+$EDITOR ~/.tmp/ctx.md
+specctl clm apply --context impl-graphproc < ~/.tmp/ctx.md
+specctl get specchanges                            # follow it: Pending, Running, Succeeded
+
+specctl arch declared impl-graphproc               # units a person or a model wrote; summaries keep them
+specctl arch proposals                             # what a summary would have changed in a declared unit
+```
+
+With `--agent claude-mod` the realize agent edits the code in a worktree, the
+repository's verify gates the commit, and the spec persists to the orphan
+branch: `git log --oneline 'open-architecture/*'`.
+
+Inside an instance, `claude --plugin-dir "$HYDRADB/cc-clm-mod"` gives Claude Code
+the `arch_outline`, `arch_context`, `arch_edit` and `arch_changes` tools.
+
+### 4. Query the live graph
+
+The graph is a derived index of kcp (contexts, requirements, interfaces, code
+refs and the edges between them). In a checkout `specctl up` started, the graph
+commands find the instance's graph on their own.
+
+```bash
+specctl graph query 'MATCH (c:SpecContext) RETURN count(*) AS contexts'
+specctl graph query 'MATCH (c:SpecContext) RETURN c.name AS name ORDER BY name LIMIT 20'
+specctl graph query 'MATCH (a:SpecContext {name: "factory-specd"})-[:DEPENDS_ON]->(b:SpecContext) RETURN b.name AS dependsOn'
+specctl graph query -o json 'MATCH (c:SpecContext)-[:REFERENCES]->(r:CodeRef) RETURN c.name AS context, r.display AS code LIMIT 20'
+specctl graph neighbors factory-specd                # one hop around a context, every edge type
+specctl graph rebuild                                # rewrite the graph from kcp and CodeGraph
+```
+
+HydraDB runs the portable Cypher subset (`MATCH ... RETURN`, `UNWIND`, one hop
+patterns, `count`, `ORDER BY`, `LIMIT`); `pi-hydradb-clm/docs/cypher-conformance.md`
+lists what it refuses.
+
+### 5. Load a saved graph and inspect it without an instance
+
+Every persisted change writes the graph to the orphan branch as
+`graph/vertices.jsonl` and `graph/edges.jsonl`. `specctl graph serve` starts a
+graph-node of its own (port 0, data in `--root`), and `specctl graph load` reads
+the saved graph from a branch, a commit or a directory into it.
+
+```bash
+cd "$REPO"
+git branch --list 'open-architecture/*'                     # pick a branch
+specctl graph serve --root ~/.tmp/graph-inspect > ~/.tmp/graph-inspect.env
+. ~/.tmp/graph-inspect.env                                  # SPECD_BOLT_URL and friends for this shell
+specctl graph load --ref open-architecture/myrepo-specs--specs-try
+specctl graph query 'MATCH (c:SpecContext) RETURN count(*) AS contexts'
+specctl graph query 'MATCH (c:SpecContext)-[:REQUIRES]->(r:SpecRequirement) RETURN c.name AS context, r.text AS requirement LIMIT 20'
+
+# a commit or an extracted tree works too
+specctl graph load --ref 733857e
+mkdir -p ~/.tmp/saved && git archive open-architecture/myrepo-specs--specs-try graph | tar -x -C ~/.tmp/saved
+specctl graph load --dir ~/.tmp/saved
+
+specctl graph stop --root ~/.tmp/graph-inspect               # data stays in --root; serve again to reopen it
+```
+
+Any Bolt client can connect to the same address: user `neo4j`, the password is
+the content of `$SPECD_BOLT_PASSWORD_FILE`, no TLS.
+
+### 6. Stop
+
+```bash
+cd "$REPO" && specctl down        # stops specd, kcp, kine and the graph-node of this checkout
+specctl ls                        # every instance still running on this machine
+```
+
+A later `specctl up` in the same checkout resumes the same kcp state and graph
+data. A fresh clone whose remote carries the `open-architecture/<repository>`
+branch restores the specs from it instead of indexing from scratch.
+
 ## Worked examples: one sentence to a pull request
 
 ### deno-kcp: a bidder and a PDS for bob

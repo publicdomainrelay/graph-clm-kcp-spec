@@ -26,7 +26,7 @@ type neighbor struct {
 
 func runGraph(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "specctl graph: neighbors or rebuild is required")
+		fmt.Fprintln(stderr, "specctl graph: neighbors, rebuild, query, load, serve or stop is required")
 		return exitUsage
 	}
 	switch args[0] {
@@ -34,6 +34,14 @@ func runGraph(args []string, stdout, stderr io.Writer) int {
 		return runGraphNeighbors(args[1:], stdout, stderr)
 	case "rebuild":
 		return runGraphRebuild(args[1:], stdout, stderr)
+	case "query":
+		return runGraphQuery(args[1:], stdout, stderr)
+	case "load":
+		return runGraphLoad(args[1:], stdout, stderr)
+	case "serve":
+		return runGraphServe(args[1:], stdout, stderr)
+	case "stop":
+		return runGraphStop(args[1:], stdout, stderr)
 	}
 	fmt.Fprintf(stderr, "specctl graph: unknown subcommand %q\n", args[0])
 	return exitUsage
