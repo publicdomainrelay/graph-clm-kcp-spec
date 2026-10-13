@@ -389,22 +389,50 @@ func Settle(ctx context.Context, options Options) error {
 }
 
 func settle(ctx context.Context, options Options, namespace string, adopted map[string]*spec.SystemContextSpec) error {
-	repoPath := options.Repository.WorkPath()
-	head, err := gitrepo.Head(ctx, repoPath)
+	head, err := gitrepo.Head(ctx, options.Repository.WorkPath())
 	if err != nil {
 		return err
 	}
-	_, err = ingest.Run(ctx, options.Cluster, ingest.Options{
+	_, err = ingest.Run(ctx, options.Cluster, settleOptions(options, namespace, head, adopted))
+	return err
+}
+
+// settleOptions builds the ingest options settle re-reads the tree with. The
+// re-ingest must see the same partition of the tree populate first indexed, so
+// a Repository whose populate names an include, an exclude or another partition
+// does not get a SystemContext for every directory after its first realize.
+func settleOptions(options Options, namespace, head string, adopted map[string]*spec.SystemContextSpec) ingest.Options {
+	repository := options.Repository
+	repoPath := repository.WorkPath()
+	return ingest.Options{
 		RepoPath:       repoPath,
-		RepositoryName: options.Repository.Name,
+		RepositoryName: repository.Name,
 		Namespace:      namespace,
 		SpecPath:       repoPath,
 		Tool:           options.Tool,
 		Commit:         head,
+		Partition:      repository.Partition(),
+		Include:        populateInclude(repository),
+		Exclude:        populateExclude(repository),
+		RootContext:    repository.RootContext(),
+		ArchPath:       repository.ArchPath(),
 		AdoptAll:       adopted,
 		Writer:         options.Writer,
-	})
-	return err
+	}
+}
+
+func populateInclude(repository *spec.Repository) []string {
+	if repository.Spec.Populate == nil {
+		return nil
+	}
+	return repository.Spec.Populate.Include
+}
+
+func populateExclude(repository *spec.Repository) []string {
+	if repository.Spec.Populate == nil {
+		return nil
+	}
+	return repository.Spec.Populate.Exclude
 }
 
 func readContext(ctx context.Context, cluster Cluster, namespace, name string) (*spec.SystemContext, error) {

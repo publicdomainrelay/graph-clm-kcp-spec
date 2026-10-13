@@ -341,3 +341,64 @@ func TestRunGatesLandsPastARedGateAnOverrideNames(t *testing.T) {
 		t.Errorf("message = %q", message)
 	}
 }
+
+func TestSettleOptionsKeepThePartitionAndThePopulateFilters(t *testing.T) {
+	repository := &spec.Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo"},
+		Spec: spec.RepositorySpec{
+			Path: "demo",
+			Populate: &spec.RepositoryPopulate{
+				Partition: spec.PartitionPackage,
+				Include:   []string{"a/**"},
+				Exclude:   []string{"a/vendor/**"},
+				Root:      true,
+				Arch:      "docs/arch",
+			},
+		},
+	}
+	adopted := map[string]*spec.SystemContextSpec{"a": {}}
+	options := settleOptions(Options{Repository: repository, Tool: "pi"}, "specs", "abc123", adopted)
+
+	if options.Partition != spec.PartitionPackage {
+		t.Errorf("partition = %q, want %q", options.Partition, spec.PartitionPackage)
+	}
+	if len(options.Include) != 1 || options.Include[0] != "a/**" {
+		t.Errorf("include = %v, want [a/**]", options.Include)
+	}
+	if len(options.Exclude) != 1 || options.Exclude[0] != "a/vendor/**" {
+		t.Errorf("exclude = %v, want [a/vendor/**]", options.Exclude)
+	}
+	if !options.RootContext {
+		t.Error("root context is off, want the populate root")
+	}
+	if options.ArchPath != "docs/arch" {
+		t.Errorf("arch path = %q, want docs/arch", options.ArchPath)
+	}
+	if options.RepoPath != "demo" || options.SpecPath != "demo" {
+		t.Errorf("paths = %q, %q, want the repository work path", options.RepoPath, options.SpecPath)
+	}
+	if options.RepositoryName != "demo" || options.Namespace != "specs" || options.Commit != "abc123" || options.Tool != "pi" {
+		t.Errorf("options = %+v", options)
+	}
+	if len(options.AdoptAll) != 1 || options.AdoptAll["a"] == nil {
+		t.Errorf("adopt all = %v, want the adopted specs", options.AdoptAll)
+	}
+}
+
+func TestSettleOptionsAreEmptyWithoutAPopulateSpec(t *testing.T) {
+	repository := &spec.Repository{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo"},
+		Spec:       spec.RepositorySpec{Path: "demo"},
+	}
+	options := settleOptions(Options{Repository: repository}, "specs", "abc123", nil)
+
+	if options.Include != nil || options.Exclude != nil {
+		t.Errorf("include = %v, exclude = %v, want nil for a repository that populates everything", options.Include, options.Exclude)
+	}
+	if options.Partition != spec.PartitionDirectory {
+		t.Errorf("partition = %q, want the default %q", options.Partition, spec.PartitionDirectory)
+	}
+	if options.RootContext || options.ArchPath != "" {
+		t.Errorf("root = %v, arch = %q, want the populate defaults", options.RootContext, options.ArchPath)
+	}
+}
