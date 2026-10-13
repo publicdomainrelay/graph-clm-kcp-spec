@@ -60,6 +60,8 @@ type Options struct {
 	DocDir string
 
 	GraphNamespace string
+
+	Pack string
 }
 
 func (o Options) docDir() string {
@@ -114,6 +116,7 @@ func Build(ctx context.Context, options Options) (agent.ContextBundle, error) {
 		Repository: repositoryName,
 		Spec:       systemContext.Spec,
 		Observed:   systemContext.Status.Observed,
+		Pack:       options.Pack,
 		Budget:     budget,
 	}
 
@@ -177,7 +180,8 @@ func NeighborsIn(ctx context.Context, writer graph.Writer, namespace, contextNam
 				return nil, fmt.Errorf("bundle: read %s out of %s: %w", edgeSpec.Type, contextName, err)
 			}
 			for _, row := range rows {
-				out = append(out, neighborOf(edgeSpec.Type, agent.DirectionOut, edgeSpec.ToLabel, row))
+				neighbor := neighborOf(edgeSpec.Type, agent.DirectionOut, edgeSpec.ToLabel, row)
+				out = append(out, neighborCard(ctx, writer, namespace, edgeSpec.ToLabel, neighbor))
 			}
 		}
 		if edgeSpec.ToLabel == graph.LabelContext {
@@ -187,11 +191,56 @@ func NeighborsIn(ctx context.Context, writer graph.Writer, namespace, contextNam
 				return nil, fmt.Errorf("bundle: read %s into %s: %w", edgeSpec.Type, contextName, err)
 			}
 			for _, row := range rows {
-				out = append(out, neighborOf(edgeSpec.Type, agent.DirectionIn, edgeSpec.FromLabel, row))
+				neighbor := neighborOf(edgeSpec.Type, agent.DirectionIn, edgeSpec.FromLabel, row)
+				out = append(out, neighborCard(ctx, writer, namespace, edgeSpec.FromLabel, neighbor))
 			}
 		}
 	}
 	return out, nil
+}
+
+// neighborCard fills a neighbor of a context with what makes it worth reading:
+// its intent, its MUST requirements and its interfaces with signatures. The
+// three reads are one hop from the neighbor, which is all HydraDB answers.
+func neighborCard(ctx context.Context, writer graph.Writer, namespace, label string, neighbor agent.Neighbor) agent.Neighbor {
+	if label != graph.LabelContext || neighbor.Name == "" {
+		return neighbor
+	}
+	neighbor.Intent = firstLineOf(neighbor.Props["intent"])
+	id := graph.ContextIDIn(namespace, neighbor.Name)
+	if rows, err := writer.SelectOut(ctx, graph.EdgeRequires, graph.LabelContext, graph.LabelRequirement, id,
+		graph.LabelProperties[graph.LabelRequirement]); err == nil {
+		for _, row := range rows {
+			if !strings.EqualFold(fmt.Sprint(row["level"]), string(spec.LevelMust)) {
+				continue
+			}
+			neighbor.Requirements = append(neighbor.Requirements,
+				fmt.Sprint(row["reqId"])+": "+fmt.Sprint(row["text"]))
+		}
+	}
+	if rows, err := writer.SelectOut(ctx, graph.EdgeDeclares, graph.LabelContext, graph.LabelInterface, id,
+		graph.LabelProperties[graph.LabelInterface]); err == nil {
+		for _, row := range rows {
+			neighbor.Interfaces = append(neighbor.Interfaces, interfaceCard(row))
+		}
+	}
+	return neighbor
+}
+
+func interfaceCard(row map[string]any) string {
+	signature := fmt.Sprint(row["signature"])
+	if signature == "" || signature == "<nil>" {
+		return fmt.Sprintf("%s (%s)", fmt.Sprint(row["name"]), fmt.Sprint(row["kind"]))
+	}
+	return fmt.Sprintf("%s (%s) %s", fmt.Sprint(row["name"]), fmt.Sprint(row["kind"]), signature)
+}
+
+func firstLineOf(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if index := strings.Index(trimmed, "\n"); index >= 0 {
+		trimmed = trimmed[:index]
+	}
+	return trimmed
 }
 
 func neighborOf(edge, direction, label string, row map[string]any) agent.Neighbor {

@@ -198,6 +198,7 @@ func (c *Controller) summarize(ctx context.Context, namespace string, change *sp
 		Budget:        c.opts.Budget,
 		NodeLimit:     c.opts.NodeLimit,
 		ManagedBudget: c.opts.ManagedBudget,
+		Pack:          c.contextPack(ctx, namespace, repository, systemContext.Name),
 	})
 }
 

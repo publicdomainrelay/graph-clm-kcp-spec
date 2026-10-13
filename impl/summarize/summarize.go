@@ -52,6 +52,8 @@ type Options struct {
 	ManagedBudget int
 
 	DocDir string
+
+	Pack string
 }
 
 type Result struct {
@@ -104,6 +106,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		Budget:        options.Budget,
 		NodeLimit:     options.NodeLimit,
 		ManagedBudget: options.ManagedBudget,
+		Pack:          options.Pack,
 	})
 	if err != nil {
 		return result, err

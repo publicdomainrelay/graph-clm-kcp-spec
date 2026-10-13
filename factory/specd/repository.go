@@ -15,8 +15,23 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/gitrepo"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/populate"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/searchindex"
 	"github.com/publicdomainrelay/kcp-libs/common/condition"
 )
+
+// searchIndex opens the instance's full text index, the one the graph rebuild
+// refills, so a pass that indexed the code indexes what it just wrote.
+func (c *Controller) searchIndex() *searchindex.Index {
+	if c.opts.SearchRoot == "" || c.opts.GraphReader == nil {
+		return nil
+	}
+	index, err := searchindex.Open(c.opts.SearchRoot)
+	if err != nil {
+		c.log.Warn("the search index is not open", "root", c.opts.SearchRoot, "err", err)
+		return nil
+	}
+	return index
+}
 
 func (c *Controller) reconcileRepository(ctx context.Context, namespace, name string) (time.Duration, error) {
 	object, err := c.client.Get(ctx, specapi.RepositoryGVR, namespace, name)
@@ -76,6 +91,10 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 	}
 
 	request := repository.Annotations[specapi.PopulateRequestAnnotation]
+	search := c.searchIndex()
+	if search != nil {
+		defer search.Close()
+	}
 	result, err := populate.Run(ctx, populate.Options{
 		Cluster:       c.client,
 		Namespace:     namespace,
@@ -85,6 +104,8 @@ func (c *Controller) reconcileRepository(ctx context.Context, namespace, name st
 		Commit:        commit,
 		Tool:          c.opts.Tool,
 		Writer:        c.opts.Graph,
+		Search:        search,
+		SearchReader:  c.opts.GraphReader,
 		MaxConcurrent: c.opts.MaxConcurrentSummaries,
 		MaxAttempts:   c.opts.MaxAttempts,
 	})

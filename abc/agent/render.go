@@ -239,14 +239,17 @@ func Sections(bundle ContextBundle) []Section {
 		{Title: "spec", Body: renderSpec(bundle.Spec), Priority: 1},
 		{Title: "observed code facts", Body: renderObserved(bundle.Observed), Priority: 2},
 	}
+	if strings.TrimSpace(bundle.Pack) != "" {
+		sections = append(sections, Section{Title: "context pack", Body: bundle.Pack, Priority: 3})
+	}
 	if strings.TrimSpace(bundle.ContextDoc) != "" {
-		sections = append(sections, Section{Title: "context document", Body: bundle.ContextDoc, Priority: 3})
+		sections = append(sections, Section{Title: "context document", Body: bundle.ContextDoc, Priority: 4})
 	}
 	for _, excerpt := range bundle.CodeExcerpts {
-		sections = append(sections, Section{Title: excerpt.Source, Body: excerpt.Text, Priority: 4})
+		sections = append(sections, Section{Title: excerpt.Source, Body: excerpt.Text, Priority: 5})
 	}
 	if len(bundle.Neighbors) > 0 {
-		sections = append(sections, Section{Title: "graph neighbors", Body: renderNeighbors(bundle.Neighbors), Priority: 5})
+		sections = append(sections, Section{Title: "graph neighbors", Body: renderNeighbors(bundle.Neighbors), Priority: 6})
 	}
 	return sections
 }
@@ -318,6 +321,15 @@ func renderNeighbors(neighbors []Neighbor) string {
 	builder := strings.Builder{}
 	for _, neighbor := range ordered {
 		fmt.Fprintf(&builder, "- %s %s %s %s\n", neighbor.Direction, neighbor.Edge, neighbor.Label, neighbor.Name)
+		if neighbor.Intent != "" {
+			fmt.Fprintf(&builder, "  intent: %s\n", neighbor.Intent)
+		}
+		for _, requirement := range neighbor.Requirements {
+			fmt.Fprintf(&builder, "  MUST %s\n", requirement)
+		}
+		for _, declared := range neighbor.Interfaces {
+			fmt.Fprintf(&builder, "  interface %s\n", declared)
+		}
 	}
 	return builder.String()
 }

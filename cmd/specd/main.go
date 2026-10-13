@@ -21,8 +21,10 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/factory/specd"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
+	packimpl "github.com/publicdomainrelay/graph-clm-kcp-spec/impl/contextpack"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/exportwatch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphproc"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/searchindex"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/statedir"
 	"github.com/publicdomainrelay/kcp-libs/common/logging"
 )
@@ -219,7 +221,7 @@ func (c config) agentEnv(bolt *boltflags.Options) map[string]string {
 	return env
 }
 
-func (c config) options(writer graph.Writer, bolt *boltflags.Options, log *slog.Logger) (specd.Options, error) {
+func (c config) options(writer graph.Writer, reader packimpl.Reader, bolt *boltflags.Options, log *slog.Logger) (specd.Options, error) {
 	level, err := parseLevel(c.logLevel)
 	if err != nil {
 		return specd.Options{}, err
@@ -246,6 +248,8 @@ func (c config) options(writer graph.Writer, bolt *boltflags.Options, log *slog.
 		LogDir:                 c.logDir,
 		MaxConcurrentSummaries: c.maxConcurrentSummaries,
 		Graph:                  writer,
+		GraphReader:            reader,
+		SearchRoot:             searchindex.InstanceRoot(c.kubeconfig),
 		Agent:                  c.agent,
 		AgentCommand:           c.agentCommand,
 		AgentArgs:              strings.Fields(c.agentArgs),
@@ -299,6 +303,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	var writer graph.Writer
+	var reader packimpl.Reader
 	if bolt.URL != "" {
 		client, err := bolt.Connect(ctx)
 		if err != nil {
@@ -307,10 +312,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		defer client.Close(context.Background())
 		writer = client
+		reader = client
 		logger.Info("the graph is rewritten after every ingest", "url", bolt.URL)
 	}
 
-	options, err := config.options(writer, bolt, logger)
+	options, err := config.options(writer, reader, bolt, logger)
 	if err != nil {
 		fmt.Fprintf(stderr, "specd: %v\n", err)
 		return exitUsage

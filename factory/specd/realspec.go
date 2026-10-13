@@ -561,6 +561,7 @@ func (c *Controller) batchOptions(ctx context.Context, namespace string, reposit
 		Attempt:       c.attemptsTaken(ctx, namespace, leader),
 		Tool:          c.opts.Tool,
 		Coverage:      c.coverageJudge(repository, repoPath),
+		Pack:          c.contextPack(ctx, namespace, &scoped, leader.Spec.SystemContext),
 	}
 	for _, member := range members {
 		changeDelta, err := c.deltaForChange(ctx, namespace, member)

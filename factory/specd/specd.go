@@ -20,6 +20,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/agentfactory"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/bundle"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/claudecli"
+	packimpl "github.com/publicdomainrelay/graph-clm-kcp-spec/impl/contextpack"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/exportwatch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/procowner"
@@ -89,6 +90,10 @@ type Options struct {
 	MaxConcurrentSummaries int
 
 	Graph graph.Writer
+
+	GraphReader packimpl.Reader
+
+	SearchRoot string
 
 	// GraphStatus is what the controller reports as each repository's graph.
 	GraphStatus *spec.GraphStatus

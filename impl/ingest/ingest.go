@@ -16,6 +16,7 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/authority"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/search"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
@@ -23,6 +24,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphsqlite"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/gitrepo"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/searchindex"
 	"github.com/publicdomainrelay/kcp-libs/common/condition"
 )
 
@@ -63,6 +65,10 @@ type Options struct {
 	Writer graph.Writer
 
 	GraphNamespace string
+
+	Search search.Index
+
+	SearchReader searchindex.Reader
 }
 
 type ContextResult struct {

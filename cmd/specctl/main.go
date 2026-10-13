@@ -154,6 +154,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runIngest(rest, stdout, stderr)
 	case "graph":
 		return runGraph(rest, stdout, stderr)
+	case "context":
+		return runContext(rest, stdout, stderr)
 	case "clm":
 		return runCLM(rest, stdout, stderr)
 	case "import-arch":
@@ -403,7 +405,15 @@ usage:
   specctl ingest --repo <path> --summarize --agent scripted:<file>|claude
       applies a Repository and waits for Populated; a specd must be running
   specctl graph neighbors <context> [--bolt-url <url>]
-  specctl graph rebuild [--bolt-url <url>]
+  specctl graph rebuild [--bolt-url <url>] [--search-root <dir>]
+  specctl graph search <terms> [--limit <n>] [--search-root <dir>]
+      the full text index the graph rebuild refills: claim text, symbol names
+      and docstrings, each match with its label and its score
+  specctl context pack --context <name>|--file <path>|--query <terms>
+      [--repository <name>] [--budget <tokens>] [--bolt-url <url>] [--search-root <dir>]
+      one pack: the repository card, the task card, the owner context, the
+      ranked neighbors, the open findings, proposals and plan items, a
+      token-budget line and the model zone, in that order
   specctl clm render --context <name> [--context-doc-budget <n>]
   specctl clm apply --context <name> [--file <path>| -] < model-zone
   specctl clm report --change <name> [--event <json>|--turn <n> --tool <t> --file <f> --note <s>]

@@ -10,11 +10,14 @@ import (
 	"text/tabwriter"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/search"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltgraph"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/boltflags"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/searchindex"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/session"
 )
 
 type neighbor struct {
@@ -32,6 +35,8 @@ func runGraph(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "neighbors":
 		return runGraphNeighbors(args[1:], stdout, stderr)
+	case "search":
+		return runGraphSearch(args[1:], stdout, stderr)
 	case "rebuild":
 		return runGraphRebuild(args[1:], stdout, stderr)
 	case "query":
@@ -93,6 +98,72 @@ func runGraphNeighbors(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	printNeighbors(stdout, name, neighbors)
+	return exitOK
+}
+
+func searchRoot(named string) (string, bool) {
+	if named != "" {
+		return named, true
+	}
+	record, ok := session.ForDir(".")
+	if !ok || record.KcpRoot == "" {
+		return "", false
+	}
+	return record.KcpRoot, true
+}
+
+func searchIndexFor(root string) (*searchindex.Index, bool) {
+	if root == "" {
+		return nil, false
+	}
+	index, err := searchindex.Open(root)
+	if err != nil {
+		return nil, false
+	}
+	return index, true
+}
+
+func runGraphSearch(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("specctl graph search", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	limit := fs.Int("limit", search.DefaultLimit, "how many matches to print")
+	root := fs.String("search-root", "", "instance root holding search.db (default: the instance of this checkout)")
+	positional, err := parseInterspersed(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(positional) == 0 {
+		fmt.Fprintln(stderr, "specctl graph search: one or more terms are required")
+		return exitUsage
+	}
+	directory, ok := searchRoot(*root)
+	if !ok {
+		fmt.Fprintln(stderr, "specctl graph search: no instance root; name one with --search-root")
+		return exitUsage
+	}
+	index, err := searchindex.Open(directory)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl graph search: %v\n", err)
+		return exitError
+	}
+	defer index.Close()
+
+	terms := strings.Join(positional, " ")
+	hits, err := index.Search(context.Background(), terms, *limit)
+	if err != nil {
+		fmt.Fprintf(stderr, "specctl graph search: %v\n", err)
+		return exitError
+	}
+	if len(hits) == 0 {
+		fmt.Fprintf(stdout, "no match for %q in %s\n", terms, searchindex.Path(directory))
+		return exitOK
+	}
+	table := tabwriter.NewWriter(stdout, 0, 0, 3, ' ', 0)
+	fmt.Fprintln(table, "LABEL\tCONTEXT\tSCORE\tTEXT")
+	for _, hit := range hits {
+		fmt.Fprintf(table, "%s\t%s\t%.3f\t%s\n", hit.Label, hit.Context, hit.Score, oneLine(hit.Text, maxDisplayKeyChars))
+	}
+	table.Flush()
 	return exitOK
 }
 
@@ -196,6 +267,7 @@ func runGraphRebuild(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	options := addGlobals(fs)
 	bolt := boltflags.Add(fs)
+	searchRootFlag := fs.String("search-root", "", "instance root holding search.db (default: the instance of this checkout)")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -220,7 +292,15 @@ func runGraphRebuild(args []string, stdout, stderr io.Writer) int {
 	}
 	defer writer.Close(ctx)
 
-	if err := ingest.RebuildGraph(ctx, cluster, writer, ingest.Options{Namespace: options.namespace}); err != nil {
+	rebuild := ingest.Options{Namespace: options.namespace}
+	if root, ok := searchRoot(*searchRootFlag); ok {
+		if index, ok := searchIndexFor(root); ok {
+			defer index.Close()
+			rebuild.Search = index
+			rebuild.SearchReader = writer
+		}
+	}
+	if err := ingest.RebuildGraph(ctx, cluster, writer, rebuild); err != nil {
 		fmt.Fprintf(stderr, "specctl graph rebuild: %v\n", err)
 		return exitError
 	}

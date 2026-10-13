@@ -14,6 +14,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/codegraphsqlite"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/graphns"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/searchindex"
 )
 
 var rebuildMu sync.Mutex
@@ -30,7 +31,24 @@ func RebuildGraph(ctx context.Context, cluster Cluster, writer graph.Writer, opt
 	if err != nil {
 		return err
 	}
-	return graph.Rebuild(ctx, writer, graphNamespace(options), snapshots)
+	if err := graph.Rebuild(ctx, writer, graphNamespace(options), snapshots); err != nil {
+		return err
+	}
+	return rebuildSearch(ctx, cluster, namespace, options)
+}
+
+func rebuildSearch(ctx context.Context, cluster Cluster, namespace string, options Options) error {
+	if options.Search == nil {
+		return nil
+	}
+	documents, err := searchindex.Documents(ctx, options.SearchReader, options.RepoPath)
+	if err != nil {
+		return err
+	}
+	if findings, err := searchindex.Findings(ctx, cluster, namespace); err == nil {
+		documents = append(documents, findings...)
+	}
+	return options.Search.Rebuild(ctx, documents)
 }
 
 func graphNamespace(options Options) string {

@@ -178,6 +178,42 @@ func TestBuildAddsOneHopOfTheGraphInBothDirections(t *testing.T) {
 	}
 }
 
+func TestANeighborCardCarriesTheIntentAndTheSignatures(t *testing.T) {
+	cluster := newFakeCluster()
+	cluster.put(systemContext())
+	cluster.put(repository(t, t.TempDir()))
+
+	writer := &fakeGraph{
+		out: map[string][]map[string]any{
+			graph.EdgeUpstream: {{"name": "math", "intent": "Arithmetic.\nand more prose"}},
+			graph.EdgeRequires: {
+				{"reqId": "r.add", "level": "MUST", "text": "Add adds."},
+				{"reqId": "r.later", "level": "SHOULD", "text": "multiply later."},
+			},
+			graph.EdgeDeclares: {{"name": "Add", "kind": "function", "signature": "func Add(a, b int) int"}},
+		},
+	}
+	built, err := Build(context.Background(), Options{Cluster: cluster, Context: "calc", Writer: writer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := agent.Neighbor{}
+	for _, neighbor := range built.Neighbors {
+		if neighbor.Edge == graph.EdgeUpstream && neighbor.Name == "math" {
+			card = neighbor
+		}
+	}
+	if card.Intent != "Arithmetic." {
+		t.Errorf("intent = %q, want the first line of the neighbor's intent", card.Intent)
+	}
+	if len(card.Requirements) != 1 || card.Requirements[0] != "r.add: Add adds." {
+		t.Errorf("MUST requirements = %v, want the MUST one only", card.Requirements)
+	}
+	if len(card.Interfaces) != 1 || card.Interfaces[0] != "Add (function) func Add(a, b int) int" {
+		t.Errorf("interfaces = %v, want the signature", card.Interfaces)
+	}
+}
+
 func indexed(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

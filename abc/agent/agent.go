@@ -7,11 +7,14 @@ import (
 )
 
 type Neighbor struct {
-	Edge      string
-	Direction string
-	Label     string
-	Name      string
-	Props     map[string]string
+	Edge         string
+	Direction    string
+	Label        string
+	Name         string
+	Intent       string
+	Requirements []string
+	Interfaces   []string
+	Props        map[string]string
 }
 
 const (
@@ -38,6 +41,8 @@ type ContextBundle struct {
 	Neighbors []Neighbor
 
 	CodeExcerpts []CodeExcerpt
+
+	Pack string
 
 	Budget int
 }
@@ -84,6 +89,8 @@ type RealizeMember struct {
 	Observed spec.ObservedFacts
 
 	ContextDoc string
+
+	Pack string
 }
 
 type RealizeRequest struct {
@@ -104,6 +111,8 @@ type RealizeRequest struct {
 	Observed spec.ObservedFacts
 
 	ContextDoc string
+
+	Pack string
 
 	Verify []string
 

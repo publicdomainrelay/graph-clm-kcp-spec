@@ -67,7 +67,15 @@ func runImportArch(args []string, stdout, stderr io.Writer) int {
 			return exitError
 		}
 		defer writer.Close(ctx)
-		if err := ingest.RebuildGraph(ctx, client, writer, ingest.Options{Namespace: options.namespace}); err != nil {
+		rebuild := ingest.Options{Namespace: options.namespace}
+		if directory, ok := searchRoot(""); ok {
+			if index, ok := searchIndexFor(directory); ok {
+				defer index.Close()
+				rebuild.Search = index
+				rebuild.SearchReader = writer
+			}
+		}
+		if err := ingest.RebuildGraph(ctx, client, writer, rebuild); err != nil {
 			fmt.Fprintf(stderr, "specctl import-arch: %v\n", err)
 			return exitError
 		}

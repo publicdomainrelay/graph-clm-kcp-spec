@@ -146,10 +146,12 @@ func RealizePrompt(request agent.RealizeRequest) string {
 			fmt.Fprintf(&builder, "### %s\n\n", member.Context)
 		}
 		target, _ := agent.RenderPromptWithSections(agent.ContextBundle{
-			Context:  member.Context,
-			Spec:     member.ToSpec,
-			Observed: member.Observed,
-			Budget:   request.Budget,
+			Context:    member.Context,
+			Spec:       member.ToSpec,
+			Observed:   member.Observed,
+			ContextDoc: member.ContextDoc,
+			Pack:       member.Pack,
+			Budget:     request.Budget,
 		})
 		builder.WriteString(target)
 		builder.WriteString("\n")

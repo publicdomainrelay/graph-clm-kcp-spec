@@ -13,11 +13,13 @@ import (
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/delta"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/search"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/searchindex"
 	"github.com/publicdomainrelay/kcp-libs/common/condition"
 )
 
@@ -51,6 +53,10 @@ type Options struct {
 	Tool string
 
 	Writer graph.Writer
+
+	Search search.Index
+
+	SearchReader searchindex.Reader
 
 	MaxConcurrent int
 
@@ -105,6 +111,8 @@ func Run(ctx context.Context, options Options) (Result, error) {
 			RootContext:    scope.Root,
 			ArchPath:       repository.ArchPath(),
 			Writer:         options.Writer,
+			Search:         options.Search,
+			SearchReader:   options.SearchReader,
 		})
 		if err != nil {
 			return result, err
@@ -324,8 +332,7 @@ func raise(
 			unfinished[change.Spec.SystemContext] = true
 		}
 	}
-	ordered := append([]spec.SystemContext{}, contexts...)
-	sort.Slice(ordered, func(left, right int) bool { return ordered[left].Name < ordered[right].Name })
+	ordered := leafFirst(contexts)
 
 	raised := 0
 	for index := range ordered {
@@ -383,6 +390,69 @@ func raise(
 		raised++
 	}
 	return raised, nil
+}
+
+// leafFirst orders the contexts of a pass so that a context is summarized after
+// the contexts it depends on: a topological order over the production
+// dependencies, leaves first, ties broken by name. A neighbor card carries the
+// neighbor's intent, so the intents have to exist by the time a dependent is
+// summarized. A dependency cycle is broken by name rather than left out.
+func leafFirst(contexts []spec.SystemContext) []spec.SystemContext {
+	byName := map[string]spec.SystemContext{}
+	names := []string{}
+	for _, context := range contexts {
+		byName[context.Name] = context
+		names = append(names, context.Name)
+	}
+	sort.Strings(names)
+	dependencies := map[string][]string{}
+	for _, context := range contexts {
+		deps := []string{}
+		for _, ref := range context.Spec.DependsOn {
+			name, ok := graph.RefTarget(ref, context.Spec.Arch != nil)
+			if !ok || name == context.Name {
+				continue
+			}
+			if _, present := byName[name]; present {
+				deps = append(deps, name)
+			}
+		}
+		sort.Strings(deps)
+		dependencies[context.Name] = deps
+	}
+	emitted := map[string]bool{}
+	remaining := names
+	out := make([]spec.SystemContext, 0, len(contexts))
+	for len(remaining) > 0 {
+		next := []string{}
+		progress := false
+		for _, name := range remaining {
+			if !ready(dependencies[name], emitted) {
+				next = append(next, name)
+				continue
+			}
+			out = append(out, byName[name])
+			emitted[name] = true
+			progress = true
+		}
+		remaining = next
+		if !progress {
+			for _, name := range remaining {
+				out = append(out, byName[name])
+			}
+			break
+		}
+	}
+	return out
+}
+
+func ready(dependencies []string, emitted map[string]bool) bool {
+	for _, dependency := range dependencies {
+		if !emitted[dependency] {
+			return false
+		}
+	}
+	return true
 }
 
 func writeStatus(ctx context.Context, options Options, namespace string, result Result) error {

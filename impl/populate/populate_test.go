@@ -21,6 +21,8 @@ import (
 type fakeCluster struct {
 	objects map[string]*unstructured.Unstructured
 
+	created []string
+
 	writes int
 }
 
@@ -70,6 +72,7 @@ func (f *fakeCluster) Create(_ context.Context, object *unstructured.Unstructure
 	created := object.DeepCopy()
 	created.SetResourceVersion("1")
 	f.objects[keyOf(object)] = created
+	f.created = append(f.created, created.GetName())
 	f.writes++
 	return created.DeepCopy(), nil
 }
@@ -390,6 +393,41 @@ func TestRunIsAlreadyExistsTolerant(t *testing.T) {
 	result, _ := run(t, cluster, repository, 4, 3)
 	if result.Raised != 2 {
 		t.Errorf("raised = %d, want both contexts: an existing name of another direction is not this episode", result.Raised)
+	}
+}
+
+func TestTheRaiseOrderPutsADependencyBeforeItsDependent(t *testing.T) {
+	cluster, repository := setup(t, true, 8)
+	for name, dependsOn := range map[string][]string{"lib": nil, "app": {"sc.lib"}} {
+		store(t, cluster, &spec.SystemContext{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: specapi.DefaultNamespace},
+			Spec:       spec.SystemContextSpec{Repository: "unseen", Upstream: spec.RefSelf, DependsOn: dependsOn},
+			Status: spec.SystemContextStatus{
+				ObservedCommit: "c1", SyncedCommit: "c1",
+				Observed: spec.ObservedFacts{Files: []string{name + "/mod.ts"}, Fingerprint: "f1"},
+			},
+		})
+	}
+	if _, err := Run(context.Background(), Options{
+		Cluster: cluster, Namespace: specapi.DefaultNamespace, Repository: repository,
+		Path: "/src/unseen", Commit: "c1", MaxConcurrent: 8, MaxAttempts: 3,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dependency, dependent := -1, -1
+	for index, name := range cluster.created {
+		switch name {
+		case "lib-c2s-c1-c1":
+			dependency = index
+		case "app-c2s-c1-c1":
+			dependent = index
+		}
+	}
+	if dependency < 0 || dependent < 0 {
+		t.Fatalf("created = %v, want a change for lib and for app", cluster.created)
+	}
+	if dependency > dependent {
+		t.Errorf("created = %v: the dependent was raised before its dependency", cluster.created)
 	}
 }
 

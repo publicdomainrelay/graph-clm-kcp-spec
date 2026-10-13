@@ -74,6 +74,8 @@ type Options struct {
 
 	Codegraph bundle.Codegraph
 
+	Pack string
+
 	Writer graph.Writer
 
 	Budget int
@@ -182,6 +184,8 @@ type target struct {
 	observed spec.ObservedFacts
 
 	contextDoc string
+
+	pack string
 }
 
 func Run(ctx context.Context, options Options) (Result, error) {
@@ -216,6 +220,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 			Budget:        options.Budget,
 			NodeLimit:     options.NodeLimit,
 			ManagedBudget: options.ManagedBudget,
+			Pack:          options.Pack,
 		})
 		if err != nil {
 			return result, err
@@ -230,6 +235,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 			fromSpec:   fromSpec,
 			observed:   built.Observed,
 			contextDoc: built.ContextDoc,
+			pack:       built.Pack,
 		})
 	}
 	realizedHash, err := spec.HashSystemContextSpec(targets[0].toSpec)
@@ -265,6 +271,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		ToSpec:      targets[0].toSpec,
 		Observed:    targets[0].observed,
 		ContextDoc:  targets[0].contextDoc,
+		Pack:        targets[0].pack,
 		Verify:      options.Repository.Spec.Verify,
 		Instruction: options.Instruction,
 		Attempt:     options.Attempt,
@@ -279,6 +286,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 			ToSpec:     entry.toSpec,
 			Observed:   entry.observed,
 			ContextDoc: entry.contextDoc,
+			Pack:       entry.pack,
 		})
 	}
 	agentResult, err := options.Agent.Realize(ctx, request)
