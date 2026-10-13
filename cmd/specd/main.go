@@ -100,6 +100,8 @@ type config struct {
 
 	persistRemote string
 
+	checkout string
+
 	maxAttempts int
 
 	retryBackoff time.Duration
@@ -154,6 +156,7 @@ func parseConfig(args []string, stderr io.Writer) (config, *boltflags.Options, e
 	fs.BoolVar(&config.persist, "persist", envOrPath("SPECD_PERSIST", "true") != "false", "persist every change of a repository's kcp state to its orphan open-architecture/<repository> branch")
 	fs.DurationVar(&config.persistDelay, "persist-delay", specd.DefaultPersistDelay, "how long a burst of changes is coalesced into one open-architecture commit")
 	fs.StringVar(&config.persistRemote, "persist-remote", envOrPath("SPECD_PERSIST_REMOTE", ""), "git remote the open-architecture branches are pushed to after each commit; empty pushes nothing")
+	fs.StringVar(&config.checkout, "checkout", envOrPath("SPECD_CHECKOUT", ""), "name of the checkout this controller runs in; a name that is not the repository's gives the checkout its own open-architecture branch")
 	fs.IntVar(&config.maxAttempts, "max-attempts", specd.DefaultMaxAttempts, "how many attempts one drift episode gets")
 	fs.DurationVar(&config.retryBackoff, "retry-backoff", specd.DefaultRetryBackoff, "wait before the second attempt at an episode")
 	fs.DurationVar(&config.batchWindow, "batch-window", specd.DefaultBatchWindow, "how long the oldest pending spec to code change of a repository waits for siblings before its batch starts")
@@ -256,6 +259,7 @@ func (c config) options(writer graph.Writer, bolt *boltflags.Options, log *slog.
 		Persist:                c.persist,
 		PersistDelay:           c.persistDelay,
 		PersistRemote:          c.persistRemote,
+		Checkout:               c.checkout,
 		MaxAttempts:            c.maxAttempts,
 		RetryBackoff:           c.retryBackoff,
 		BatchWindow:            c.batchWindow,

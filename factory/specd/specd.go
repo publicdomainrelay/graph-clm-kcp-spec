@@ -113,6 +113,11 @@ type Options struct {
 
 	ManagedBudget int
 
+	// Checkout is the name of the checkout this controller runs in. A checkout
+	// whose name is not the repository's owns an architecture branch of its
+	// own, so two checkouts never share one architecture by accident.
+	Checkout string
+
 	Persist bool
 
 	PersistDelay time.Duration

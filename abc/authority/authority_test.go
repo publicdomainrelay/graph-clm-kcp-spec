@@ -163,6 +163,82 @@ func TestSubstituteTakesTheRealizedSideForDeclaredUnits(t *testing.T) {
 	}
 }
 
+func TestProposalsSkipAWhitespaceOnlyOrEqualChange(t *testing.T) {
+	current := baseSpec()
+	rewrapped := baseSpec()
+	rewrapped.Intent = "Arithmetic   on two\nintegers."
+	rewrapped.Requirements[0].Text = "Add   returns the\n\tsum."
+	if proposals := Proposals(current, rewrapped, NewSet(UnitIntent, RequirementUnit("r.add"))); len(proposals) != 0 {
+		t.Errorf("proposals = %+v, want none for a whitespace only change", proposals)
+	}
+
+	equal := baseSpec()
+	if proposals := Proposals(current, equal, NewSet(UnitIntent, RequirementUnit("r.add"), InterfaceUnit("Add"))); len(proposals) != 0 {
+		t.Errorf("proposals = %+v, want none for an equal value", proposals)
+	}
+
+	real := baseSpec()
+	real.Requirements[0].Text = "Add returns the sum of two integers."
+	proposals := Proposals(current, real, NewSet(RequirementUnit("r.add")))
+	if len(proposals) != 1 {
+		t.Fatalf("proposals = %+v, want the real change", proposals)
+	}
+	if proposals[0].Current != "MUST: Add returns the sum." || proposals[0].Proposed != "MUST: Add returns the sum of two integers." {
+		t.Errorf("proposal = %+v, want the rendered requirement text on each side", proposals[0])
+	}
+	for _, side := range []string{proposals[0].Current, proposals[0].Proposed} {
+		if strings.ContainsAny(side, "{}") {
+			t.Errorf("a rendered value carries braces from a struct encoding: %q", side)
+		}
+	}
+}
+
+func TestProposalTextIsTheRenderedUnit(t *testing.T) {
+	current := baseSpec()
+	current.Interfaces = nil
+	current.Interactions = []spec.Interaction{{
+		ID: "i.report", Peer: "host", Initiator: spec.InitiatorSelf, Channel: "relay", Purpose: "network discovery",
+	}}
+	drafted := baseSpec()
+	drafted.Interfaces = []spec.Interface{{Name: "Add", Kind: "function", Signature: "func Add(a, b int) int", File: "calc/calc.go"}}
+	drafted.Interactions = nil
+
+	proposals := Proposals(current, drafted, NewSet(InterfaceUnit("Add"), InteractionUnit("i.report")))
+	byUnit := map[string]spec.Proposal{}
+	for _, proposal := range proposals {
+		byUnit[proposal.Unit] = proposal
+		if strings.ContainsAny(proposal.Current+proposal.Proposed, "{}") {
+			t.Errorf("proposal %+v is a struct encoding", proposal)
+		}
+	}
+	if got := byUnit[InterfaceUnit("Add")].Proposed; got != "Add function func Add(a, b int) int in calc/calc.go" {
+		t.Errorf("interface proposal = %q", got)
+	}
+	if got := byUnit[InteractionUnit("i.report")].Current; got != "i.report: self -> host over relay for network discovery" {
+		t.Errorf("interaction proposal = %q", got)
+	}
+}
+
+func TestMergeProposalsKeepsOneProposalPerUnit(t *testing.T) {
+	first := []spec.Proposal{
+		{Unit: RequirementUnit("r.add"), Current: "MUST: one", Proposed: "MUST: two"},
+		{Unit: UnitIntent, Current: "old", Proposed: "newer"},
+	}
+	second := []spec.Proposal{
+		{Unit: RequirementUnit("r.add"), Current: "MUST: two", Proposed: "MUST: three"},
+	}
+	merged := MergeProposals(first, second)
+	if len(merged) != 2 {
+		t.Fatalf("merged = %+v, want one proposal per unit", merged)
+	}
+	if merged[0].Unit != UnitIntent || merged[1].Unit != RequirementUnit("r.add") {
+		t.Errorf("merged order = %+v", merged)
+	}
+	if merged[1].Proposed != "MUST: three" {
+		t.Errorf("merged r.add = %+v, want the newest proposal", merged[1])
+	}
+}
+
 func TestMergeLeavesAPendingEditUnrealized(t *testing.T) {
 	realized := baseSpec()
 	current := baseSpec()

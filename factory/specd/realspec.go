@@ -38,6 +38,11 @@ func (c *Controller) reconcileSpecToCode(ctx context.Context, namespace string, 
 	if !ready {
 		return 0, nil
 	}
+	if held, err := c.holdUndeclaredRemoval(ctx, namespace, change); err != nil {
+		return 0, err
+	} else if held {
+		return 0, nil
+	}
 
 	plan, err := c.planBatch(ctx, namespace, change, repository)
 	if err != nil {
@@ -82,9 +87,18 @@ func (c *Controller) planBatch(ctx context.Context, namespace string, change *sp
 	ordered := specsync.OrderBatch(pending)
 	members := make([]*spec.SpecChange, 0, len(ordered))
 	for _, ref := range ordered {
-		if member, found := byName[ref.Name]; found {
-			members = append(members, member)
+		member, found := byName[ref.Name]
+		if !found {
+			continue
 		}
+		held, err := c.holdUndeclaredRemoval(ctx, namespace, member)
+		if err != nil {
+			return batchPlan{}, err
+		}
+		if held {
+			continue
+		}
+		members = append(members, member)
 	}
 	return batchPlan{members: members}, nil
 }

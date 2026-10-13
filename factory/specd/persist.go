@@ -164,6 +164,7 @@ func (c *Controller) reconcilePersist(ctx context.Context, namespace, repository
 		Repository:    repository,
 		Remote:        c.opts.PersistRemote,
 		ManagedBudget: c.opts.ManagedBudget,
+		Checkout:      c.opts.Checkout,
 		Adopt:         true,
 	})
 	if errors.Is(err, persist.ErrNotTopLevel) {

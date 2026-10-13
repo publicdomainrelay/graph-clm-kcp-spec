@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/authority"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/finding"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
@@ -79,7 +80,7 @@ func (c *Controller) reconcileCodeToSpec(ctx context.Context, namespace, name st
 		"agentLog": tailMessage(agent.Report(result.Draft.Summary)),
 	}
 	if len(result.Proposals) > 0 {
-		finished["proposals"] = result.Proposals
+		finished["proposals"] = authority.MergeProposals(change.Status.Proposals, result.Proposals)
 	}
 	clearOwner(finished)
 	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, name, finished); err != nil {

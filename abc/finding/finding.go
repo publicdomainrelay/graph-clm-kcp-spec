@@ -25,6 +25,11 @@ const (
 // not say what a declared unit says.
 const SourceProposal = "proposal"
 
+// SourceCLM marks a finding the clm write-back raised: the model zone of a
+// context document carried an instruction addressed to an agent, so the apply
+// was refused and the text is quarantined here instead of becoming a spec.
+const SourceCLM = "clm"
+
 // SeverityInfo is the severity of a proposal: the code suggests a value, it
 // does not break anything.
 const SeverityInfo = "info"

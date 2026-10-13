@@ -4,16 +4,20 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/authority"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/clm"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/delta"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/finding"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
@@ -133,6 +137,13 @@ func Apply(ctx context.Context, options Options, modelZone string) (ApplyResult,
 	merged := clm.MergeDeclared(systemContext.Spec, parsed.Declared)
 	change := delta.Diff(systemContext.Spec, merged)
 	result := ApplyResult{Context: systemContext.Name, Delta: change}
+	if unit, line, directive := DirectiveUnit(parsed.Declared); directive {
+		if err := openDirectiveFinding(ctx, options, systemContext, unit, line); err != nil {
+			fmt.Fprintf(options.Summary, "clm: could not record the quarantined directive of %s: %v\n", systemContext.Name, err)
+		}
+		return result, fmt.Errorf("clm: the model zone of %s carries an instruction addressed to an agent in %s (%q); the apply is refused and the text is quarantined as a finding, so the spec is unchanged",
+			systemContext.Name, unit, line)
+	}
 	if change.Empty() {
 		result.Message = "the model zone says what the spec already says"
 		return result, nil
@@ -226,6 +237,133 @@ func refuseImplicitRemoval(systemContext string, change spec.Delta, declared, al
 	return fmt.Errorf("clm: the model zone of %s removes requirement(s) or interaction(s) %s; list each id under `removed:` in the spec block or pass --allow-remove to remove them on purpose",
 		systemContext, strings.Join(unlisted, ", "))
 }
+
+// directivePrefixes are the words a line may open with without losing its
+// imperative shape: a list marker, a politeness and an auxiliary.
+var directivePrefixes = []string{
+	"-", "*", "+", ">", "#", "1.", "2.", "3.",
+	"please ", "you must ", "you should ", "you need to ", "you have to ",
+	"must ", "always ", "never ", "do not ", "don't ", "now ",
+}
+
+// directivePatterns are the imperative shapes of an instruction addressed to
+// an agent: leave your instructions or your rules, run a command or a tool, or
+// read a credential path or a secret file. Every pattern is anchored at the
+// start of the line, so prose that only mentions an instruction or a command
+// does not match.
+var directivePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)^(ignore|disregard|forget|override|bypass|skip)\b.{0,48}\b(instruction|rule|prompt|guideline|constraint|directive|guardrail)s?\b`),
+	regexp.MustCompile("(?i)^(run|execute|invoke|call|launch|spawn|install|download)\\b.{0,48}(`|\\$\\()?\\s*(rm|curl|wget|bash|sh|zsh|sudo|chmod|chown|docker|kubectl|git|python|python3|node|npm|deno|go|make|cat|echo|ssh|scp|nc)\\b"),
+	regexp.MustCompile(`(?i)^(read|open|cat|print|show|send|upload|copy|post|reveal|exfiltrate|steal|dump|fetch|list)\b.{0,64}(credential|secret|password|passwd|token|api[-_ ]?key|private[-_ ]?key|\.ssh|id_rsa|\.env\b|/etc/shadow|kubeconfig|\.aws|\.netrc|\.npmrc)`),
+}
+
+// Directive is the first line of text that tells an agent what to do, and
+// whether text carries one. A line is a directive only in the imperative
+// shape, so an ordinary sentence that happens to carry the words instruction
+// or command is not one.
+func Directive(text string) (string, bool) {
+	for _, line := range strings.Split(text, "\n") {
+		if isDirectiveLine(line) {
+			return strings.TrimSpace(line), true
+		}
+	}
+	return "", false
+}
+
+func isDirectiveLine(line string) bool {
+	candidate := strings.TrimSpace(line)
+	for {
+		trimmed := candidate
+		for _, prefix := range directivePrefixes {
+			if strings.HasPrefix(strings.ToLower(trimmed), prefix) {
+				trimmed = strings.TrimSpace(trimmed[len(prefix):])
+			}
+		}
+		if trimmed == candidate {
+			break
+		}
+		candidate = trimmed
+	}
+	if candidate == "" {
+		return false
+	}
+	for _, pattern := range directivePatterns {
+		if pattern.MatchString(candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+// DirectiveUnit scans the model zone of a context document and names the first
+// unit whose text carries a directive, so the apply can refuse it and tell the
+// finding which unit the text tried to change.
+func DirectiveUnit(declared spec.SystemContextSpec) (string, string, bool) {
+	type written struct {
+		unit string
+		text string
+	}
+	units := []written{{unit: authority.UnitIntent, text: declared.Intent}}
+	for _, requirement := range declared.Requirements {
+		units = append(units, written{unit: authority.RequirementUnit(requirement.ID), text: requirement.Text})
+	}
+	for _, declaredInterface := range declared.Interfaces {
+		units = append(units, written{
+			unit: authority.InterfaceUnit(declaredInterface.Name),
+			text: declaredInterface.Name + "\n" + declaredInterface.Signature + "\n" + declaredInterface.File,
+		})
+	}
+	for _, interaction := range declared.Interactions {
+		units = append(units, written{
+			unit: authority.InteractionUnit(interaction.ID),
+			text: interaction.Peer + "\n" + interaction.Initiator + "\n" + interaction.Channel + "\n" + interaction.Purpose,
+		})
+	}
+	for _, entry := range units {
+		if line, found := Directive(entry.text); found {
+			return entry.unit, line, true
+		}
+	}
+	return "", "", false
+}
+
+// openDirectiveFinding records the quarantine: the directive's first line as
+// the summary and the unit it tried to change. The finding is Open, because a
+// person has to decide what the text meant before it can come near the spec.
+func openDirectiveFinding(ctx context.Context, options Options, systemContext *spec.SystemContext, unit, line string) error {
+	summary := line
+	if len(summary) > findingSummaryLimit {
+		summary = summary[:findingSummaryLimit]
+	}
+	wanted := spec.Finding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      finding.Name(systemContext.Name, unit),
+			Namespace: systemContext.Namespace,
+		},
+		Spec: spec.FindingSpec{
+			Repository: systemContext.Spec.Repository,
+			Source:     finding.SourceCLM,
+			Context:    systemContext.Name,
+			Unit:       unit,
+			Severity:   finding.SeverityInfo,
+			Summary:    summary,
+		},
+		Status: spec.FindingStatus{State: finding.Open},
+	}
+	spec.SetDefaults(&wanted)
+	object, err := kcpclient.Unstructured(&wanted)
+	if err != nil {
+		return err
+	}
+	if _, err := options.Cluster.Apply(ctx, object); err != nil {
+		return fmt.Errorf("clm: record the quarantined directive of %s: %w", unit, err)
+	}
+	return nil
+}
+
+// findingSummaryLimit bounds the quarantine summary the way a proposal finding
+// is bounded.
+const findingSummaryLimit = 500
 
 // unsettledRunningChange names the SpecToCode change the context's own edit
 // queues behind: a change already realizing the context. The apply still writes

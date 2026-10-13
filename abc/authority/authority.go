@@ -149,6 +149,30 @@ func Changed(from, to spec.SystemContextSpec) Set {
 	return out
 }
 
+// Removed names the units a spec no longer holds: the requirements, interfaces
+// and interactions an edit takes away. A removal is never declared by the edit
+// that makes it, so the writer of a removal has to say so on purpose.
+func Removed(from, to spec.SystemContextSpec) Set {
+	change := delta.Diff(from, to)
+	out := Set{}
+	for _, entry := range change.Requirements {
+		if entry.Op == spec.OpRemoved {
+			out[RequirementUnit(entry.ID)] = true
+		}
+	}
+	for _, entry := range change.Interfaces {
+		if entry.Op == spec.OpRemoved {
+			out[InterfaceUnit(entry.Name)] = true
+		}
+	}
+	for _, entry := range change.Interactions {
+		if entry.Op == spec.OpRemoved {
+			out[InteractionUnit(entry.ID)] = true
+		}
+	}
+	return out
+}
+
 func onlyCodeRefs(fields []string) bool {
 	return len(fields) == 1 && fields[0] == spec.FieldCodeRefs
 }
@@ -252,6 +276,11 @@ func Merge(recorded Set, current spec.SystemContextSpec, realized *spec.SystemCo
 	}
 }
 
+// Proposals is the readable, deduplicated difference between a current and a
+// drafted spec for the units a code to spec writer must keep: one proposal per
+// declared unit, with the rendered value of the unit on each side. A unit whose
+// two values say the same thing (equal, or different only in whitespace)
+// raises no proposal.
 func Proposals(current, drafted spec.SystemContextSpec, declared Set) []spec.Proposal {
 	wanted := Changed(current, drafted)
 	out := []spec.Proposal{}
@@ -259,28 +288,138 @@ func Proposals(current, drafted spec.SystemContextSpec, declared Set) []spec.Pro
 		if !declared[unit] {
 			continue
 		}
+		if sameValue(current, drafted, unit) {
+			continue
+		}
 		out = append(out, spec.Proposal{
 			Unit:     unit,
-			Current:  render(current, unit),
-			Proposed: render(drafted, unit),
+			Current:  Render(current, unit),
+			Proposed: Render(drafted, unit),
 		})
 	}
 	return out
 }
 
-func render(contextSpec spec.SystemContextSpec, unit string) string {
+// MergeProposals folds a batch of proposals into the ones already recorded:
+// one proposal exists per unit and the newest wins, so a unit the writer
+// proposes again replaces what the earlier summary said instead of piling up.
+func MergeProposals(existing, proposed []spec.Proposal) []spec.Proposal {
+	byUnit := make(map[string]spec.Proposal, len(existing)+len(proposed))
+	for _, proposal := range existing {
+		byUnit[proposal.Unit] = proposal
+	}
+	for _, proposal := range proposed {
+		byUnit[proposal.Unit] = proposal
+	}
+	units := make([]string, 0, len(byUnit))
+	for unit := range byUnit {
+		units = append(units, unit)
+	}
+	sort.Strings(units)
+	out := make([]spec.Proposal, 0, len(units))
+	for _, unit := range units {
+		out = append(out, byUnit[unit])
+	}
+	return out
+}
+
+// sameValue reports whether two specs say the same thing about a unit: the
+// value is equal, or it differs only in the whitespace of its text.
+func sameValue(current, drafted spec.SystemContextSpec, unit string) bool {
+	left, hadLeft := Value(current, unit)
+	right, hadRight := Value(drafted, unit)
+	if hadLeft != hadRight {
+		return false
+	}
+	if !hadLeft {
+		return true
+	}
+	return reflect.DeepEqual(collapseValue(left), collapseValue(right))
+}
+
+// collapseValue removes the whitespace differences that carry no meaning: a
+// text that was re-wrapped or re-indented is the text it was.
+func collapseValue(value any) any {
+	switch typed := value.(type) {
+	case string:
+		return collapseSpace(typed)
+	case spec.Requirement:
+		typed.Text = collapseSpace(typed.Text)
+		return typed
+	case spec.Interface:
+		typed.Signature = collapseSpace(typed.Signature)
+		typed.File = collapseSpace(typed.File)
+		return typed
+	case spec.Interaction:
+		typed.Purpose = collapseSpace(typed.Purpose)
+		typed.Channel = collapseSpace(typed.Channel)
+		return typed
+	}
+	return value
+}
+
+func collapseSpace(text string) string {
+	return strings.Join(strings.Fields(text), " ")
+}
+
+// Render is the readable value of one unit of a spec: the intent paragraph,
+// the text of a requirement, a one line interface, a one line interaction. A
+// unit the spec does not hold renders empty, so a removal reads as the value it
+// had on one side and nothing on the other.
+func Render(contextSpec spec.SystemContextSpec, unit string) string {
 	value, ok := Value(contextSpec, unit)
 	if !ok {
 		return ""
 	}
-	if text, isText := value.(string); isText {
-		return text
+	switch typed := value.(type) {
+	case string:
+		return collapseSpace(typed)
+	case spec.Requirement:
+		return renderRequirement(typed)
+	case spec.Interface:
+		return renderInterface(typed)
+	case spec.Interaction:
+		return renderInteraction(typed)
 	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return ""
+	return ""
+}
+
+func renderRequirement(requirement spec.Requirement) string {
+	if requirement.Level == "" {
+		return collapseSpace(requirement.Text)
 	}
-	return string(encoded)
+	return string(requirement.Level) + ": " + collapseSpace(requirement.Text)
+}
+
+func renderInterface(declared spec.Interface) string {
+	line := declared.Name
+	if declared.Kind != "" {
+		line += " " + declared.Kind
+	}
+	if declared.Signature != "" {
+		line += " " + collapseSpace(declared.Signature)
+	}
+	if declared.File != "" {
+		line += " in " + declared.File
+	}
+	return line
+}
+
+func renderInteraction(interaction spec.Interaction) string {
+	line := interaction.ID + ": " + interaction.Initiator + " -> " + interaction.Peer
+	if interaction.Channel != "" {
+		line += " over " + interaction.Channel
+	}
+	if len(interaction.Carries) > 0 {
+		line += " carrying " + strings.Join(interaction.Carries, ", ")
+	}
+	if interaction.Purpose != "" {
+		line += " for " + collapseSpace(interaction.Purpose)
+	}
+	if interaction.Forbidden {
+		line += " (forbidden)"
+	}
+	return line
 }
 
 // Value returns the content of one unit of a spec, and whether the spec has it.

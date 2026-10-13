@@ -214,7 +214,8 @@ func declaredAfterEdit(c *Controller, systemContext *spec.SystemContext) (author
 			"systemcontext", systemContext.Name, "err", err)
 		recorded = authority.Set{}
 	}
-	next := recorded.Union(authority.Changed(realizedSpecOf(systemContext), systemContext.Spec))
+	realized := realizedSpecOf(systemContext)
+	next := recorded.Union(authority.Changed(realized, systemContext.Spec)).Without(authority.Removed(realized, systemContext.Spec))
 	return next, err != nil || !next.Equal(recorded)
 }
 

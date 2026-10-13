@@ -57,6 +57,7 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		RepoPath:   dir,
 		Remote:     *remote,
 		Adopt:      true,
+		Checkout:   filepath.Base(dir),
 	})
 	for _, context := range result.Created {
 		fmt.Fprintf(stdout, "%-24s created from the branch\n", context)
@@ -125,6 +126,7 @@ func runRestore(args []string, stdout, stderr io.Writer) int {
 		Repository: name,
 		RepoPath:   dir,
 		Remote:     *remote,
+		Checkout:   filepath.Base(dir),
 	})
 	if errors.Is(err, persist.ErrNoBranch) {
 		fmt.Fprintf(stderr, "specctl restore: %s has no %s locally or on %q; index it instead\n", dir, oabranch.Branch(name), *remote)

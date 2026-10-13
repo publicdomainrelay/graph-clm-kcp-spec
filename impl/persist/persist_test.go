@@ -641,6 +641,74 @@ func TestRestoreWithoutABranchSaysSo(t *testing.T) {
 	}
 }
 
+func TestAFreshWorktreeStartsItsOwnArchitectureBranch(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	ctx := context.Background()
+	shared, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	worktree := filepath.Join(t.TempDir(), "calc-0013")
+	git(t, repo, "worktree", "add", "-q", "-b", "worktree", worktree)
+	worktreeCluster := newFakeCluster()
+	seed(t, worktreeCluster, worktree)
+	checkout := filepath.Base(worktree)
+	result, err := Persist(ctx, Options{Cluster: worktreeCluster, Repository: "calc", Checkout: checkout})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "open-architecture/calc--" + oabranch.Slug(checkout)
+	if result.Branch != want {
+		t.Fatalf("branch = %q, want the checkout's own %q", result.Branch, want)
+	}
+	if !result.Committed {
+		t.Fatalf("the fresh worktree committed nothing: %+v", result)
+	}
+	if tip := git(t, worktree, "rev-parse", oabranch.Branch("calc")); tip != shared.Commit {
+		t.Fatalf("the worktree moved the repository's shared branch to %s", tip)
+	}
+	if git(t, worktree, "rev-parse", "refs/heads/"+want) != result.Commit {
+		t.Fatalf("the checkout branch does not hold the worktree's commit")
+	}
+}
+
+func TestRestoreAdoptsASharedBranchOnlyWhenNamed(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	ctx := context.Background()
+	shared, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	worktree := filepath.Join(t.TempDir(), "calc-0013")
+	git(t, repo, "worktree", "add", "-q", "-b", "worktree", worktree)
+	checkout := filepath.Base(worktree)
+	if _, err := Restore(ctx, RestoreOptions{
+		Cluster: newFakeCluster(), Repository: "calc", RepoPath: worktree, Checkout: checkout,
+	}); !errors.Is(err, ErrNoBranch) {
+		t.Fatalf("err = %v, want ErrNoBranch: the worktree has no branch of its own yet", err)
+	}
+
+	restored, err := Restore(ctx, RestoreOptions{
+		Cluster: newFakeCluster(), Repository: "calc", RepoPath: worktree, Checkout: checkout,
+		RestoreBranch: oabranch.Branch("calc"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Branch != oabranch.Branch("calc") || restored.Commit != shared.Commit {
+		t.Fatalf("restored = %+v, want the shared branch %s at %s", restored, oabranch.Branch("calc"), shared.Commit)
+	}
+	if strings.Join(restored.Contexts, ",") != "calc" {
+		t.Fatalf("contexts = %v", restored.Contexts)
+	}
+}
+
 func TestPersistRefusesASubdirectoryOfAnotherRepository(t *testing.T) {
 	repo := clone(t)
 	sub := filepath.Join(repo, "nested")
