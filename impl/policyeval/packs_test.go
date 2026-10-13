@@ -249,7 +249,7 @@ func ociRegistryHandler(store *orasoci.Store) http.Handler {
 }
 
 func TestConformancePackResolvesAsAnEmbeddedImport(t *testing.T) {
-	resolved, err := ResolveImport(policy.PackImport{Pack: "conformance", Version: "v1", Source: policy.SourceEmbedded}, ImportOptions{})
+	resolved, err := ResolveImport(policy.PackImport{Pack: "conformance", Version: "v2", Source: policy.SourceEmbedded}, ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestConformancePackResolvesAsAnEmbeddedImport(t *testing.T) {
 	}
 	library := policy.Library{Manifest: policy.PolicyLibrary{
 		Repository: "fixture",
-		Imports:    []policy.PackImport{{Pack: "conformance", Version: "v1", Source: policy.SourceEmbedded}},
+		Imports:    []policy.PackImport{{Pack: "conformance", Version: "v2", Source: policy.SourceEmbedded}},
 	}}
 	merged, entries, err := ResolveImports(library, ImportOptions{})
 	if err != nil {

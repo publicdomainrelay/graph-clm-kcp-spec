@@ -5,7 +5,7 @@ metadata:
   annotations:
     specs.publicdomainrelay.dev/title: "the host never reaches into the guest for network discovery"
     specs.publicdomainrelay.dev/level: MUST
-    specs.publicdomainrelay.dev/origin: "plan 0009 G4, pack rfp-guest-isolation v1"
+    specs.publicdomainrelay.dev/origin: "pack rfp-guest-isolation v1"
     specs.publicdomainrelay.dev/calibration: "reads the ArchitectureModel: a flow the host initiates that acts on the guest and carries network information or has network discovery as its purpose, and a container.exec or ssh.connect effect in a host component that reaches the guest"
 spec:
   crd:

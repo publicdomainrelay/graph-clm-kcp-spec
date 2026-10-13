@@ -8,8 +8,7 @@ metadata:
       is not the guest role, so the user_data that installs the root key and a test
       that asserts on it are not violations'
     specs.publicdomainrelay.dev/level: MUST
-    specs.publicdomainrelay.dev/origin: plan 0009 G4, pack rfp-provisioning-provenance
-      v1
+    specs.publicdomainrelay.dev/origin: pack rfp-provisioning-provenance v1
     specs.publicdomainrelay.dev/title: ssh key material is placed by the guest's user_data,
       never assembled by hand
   name: rfpkeymaterialprovenance

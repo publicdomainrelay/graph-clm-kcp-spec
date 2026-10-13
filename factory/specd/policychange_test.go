@@ -192,7 +192,7 @@ func TestPolicyChangeRecordDropsClusterBookkeeping(t *testing.T) {
 	}
 }
 
-// TestRenderBindModelStripsTheBinding pins plan 0010 D1: the model a bind-mode
+// TestRenderBindModelStripsTheBinding pins: the model a bind-mode
 // prompt carries has no role, no glob and no vocabulary of the branch's
 // existing binding.
 func TestRenderBindModelStripsTheBinding(t *testing.T) {
@@ -225,7 +225,7 @@ func TestRenderBindModelStripsTheBinding(t *testing.T) {
 	}
 }
 
-// TestBindRequestCarriesNoBindingNorVocabulary pins plan 0010 D1: a bind-mode
+// TestBindRequestCarriesNoBindingNorVocabulary pins: a bind-mode
 // request hands the harness a model built without the branch's binding and an
 // empty binding, so the prompt cannot contain the answer.
 func TestBindRequestCarriesNoBindingNorVocabulary(t *testing.T) {

@@ -6,7 +6,7 @@ metadata:
       interactions; an observed flow with no declared flow of the same shape is reported,
       never blocked
     specs.publicdomainrelay.dev/level: SHOULD
-    specs.publicdomainrelay.dev/origin: plan 0009 G3 conformance pack
+    specs.publicdomainrelay.dev/origin: conformance pack
     specs.publicdomainrelay.dev/title: every observed flow is declared by an interaction
   name: conformanceobservedundeclared
 spec:

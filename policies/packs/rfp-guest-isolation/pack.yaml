@@ -1,5 +1,5 @@
 name: rfp-guest-isolation
-version: v2
+version: v3
 description: >-
   The RFP flow's guest isolation invariants, written over the ArchitectureModel:
   the host never reaches into the guest, the guest reports its own network

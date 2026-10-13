@@ -6,7 +6,7 @@ metadata:
       true is a must-never; a declared or observed flow of the same shape is denied
       at spec time and after realize'
     specs.publicdomainrelay.dev/level: MUST
-    specs.publicdomainrelay.dev/origin: plan 0009 G3 conformance pack
+    specs.publicdomainrelay.dev/origin: conformance pack
     specs.publicdomainrelay.dev/title: no flow matches a declared must-never
   name: conformanceforbiddenflow
 spec:

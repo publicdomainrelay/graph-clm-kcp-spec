@@ -5,7 +5,7 @@ metadata:
   annotations:
     specs.publicdomainrelay.dev/title: "a declared MUST flow has evidence once code exists"
     specs.publicdomainrelay.dev/level: SHOULD
-    specs.publicdomainrelay.dev/origin: "plan 0009 G3 conformance pack"
+    specs.publicdomainrelay.dev/origin: "conformance pack"
     specs.publicdomainrelay.dev/calibration: "only when the model carries effects: before any code exists a declared MUST flow is a plan, not a gap"
 spec:
   crd:

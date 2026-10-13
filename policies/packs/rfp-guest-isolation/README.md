@@ -44,7 +44,7 @@ weaker than they read.
   (`ProxyCommand=./dial-guest.sh`) reads as a relay, and an ssh to a literal
   address the binding does not name is left alone -- bind the guest's
   addresses under `roles.guest.targets.hosts`. See
-  `templates/rfp-relay-only-guest-ssh/src.rego` and plan 0010 U2.
+  `templates/rfp-relay-only-guest-ssh/src.rego`.
 - **Effects inside a test body.** The CodeGraph has one node per declaration,
   so a `Deno.test` callback body is a *file-level* effect: an ssh spawned
   inside it is still denied (it is outside the guest role and no relay carries

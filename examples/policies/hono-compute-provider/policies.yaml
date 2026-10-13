@@ -2,7 +2,7 @@ defaultEnforcement: deny
 imports:
 - pack: rfp-guest-isolation
   source: embedded
-  version: v2
+  version: v3
 repository: hono-compute-provider
 classifiers:
 - compute-provider.yaml

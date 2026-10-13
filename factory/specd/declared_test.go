@@ -115,7 +115,7 @@ func TestADeclarationLandedWhileTheEditIsRecordedIsKept(t *testing.T) {
 		"interface/Divide", "requirement/r.divide", "requirement/r.operator")
 }
 
-// TestRecordingAnEditUnionsWhatWasDeclaredBeforeIt is plan 0013's second edit:
+// TestRecordingAnEditUnionsWhatWasDeclaredBeforeIt is the second edit of a batch:
 // a unit an earlier declaration recorded and this edit removes stays declared,
 // so the removal guard lets the change run, while a unit this edit removes
 // without any declaration is not declared by its own removal.

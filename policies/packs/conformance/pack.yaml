@@ -1,5 +1,5 @@
 name: conformance
-version: v1
+version: v2
 description: >-
   The declared-interaction conformance rules: a flow that matches a declared
   must-never, a MUST interaction no flow realizes, and an observed flow no

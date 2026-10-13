@@ -20,7 +20,7 @@ import (
 // The bind prompt must carry the code and no binding: the repository's own
 // model, with the roles, the vocabulary and the component globs stripped, and
 // an empty Binding, so the answer cannot ride in the request the harness reads
-// (plan 0010 D1; review 0006 N10). The fixture is perturbed -- the requester
+// The fixture is perturbed -- the requester
 // directory is renamed -- so a prompt built from a copy of the hand-written
 // binding would still name the old path and fail here.
 func TestTheBindRequestCarriesTheCodeAndNoBinding(t *testing.T) {

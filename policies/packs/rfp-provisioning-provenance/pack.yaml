@@ -1,5 +1,5 @@
 name: rfp-provisioning-provenance
-version: v1
+version: v2
 description: >-
   The RFP flow's provisioning provenance invariants, written over the
   CodeDiff and the ArchitectureModel: a guest's transport and its ssh key
