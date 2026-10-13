@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/authority"
@@ -167,46 +168,68 @@ func (c *Controller) reconcileChanges(
 	return requeue, nil
 }
 
+// declaredWriteAttempts bounds the re-read and the write when another writer,
+// an operator's declaration or a plan edit, lands between the two.
+const declaredWriteAttempts = 3
+
 // recordDeclared marks the units of a spec edit as declared, so once the edit
 // is realized the next summary still keeps them instead of rewriting them from
 // the code. The edit is detected the same way the spec to code change is.
+// The annotation is read again immediately before the write and only that key
+// is written, so a declaration another writer landed while the edit was being
+// recorded is kept: the write carries everything that was read plus the units
+// of the edit. A write that lost the race conflicts on the resource version and
+// is read and written again.
 func (c *Controller) recordDeclared(ctx context.Context, namespace string, systemContext *spec.SystemContext) error {
 	if _, changed := declaredAfterEdit(c, systemContext); !changed {
 		return nil
 	}
-	object, err := c.client.Get(ctx, specapi.SystemContextGVR, namespace, systemContext.Name)
-	if err != nil {
-		return err
-	}
-	typed, err := kcpclient.Typed(object)
-	if err != nil {
-		return err
-	}
-	fresh, ok := typed.(*spec.SystemContext)
-	if !ok {
-		return fmt.Errorf("specd: %s is not a SystemContext", systemContext.Name)
-	}
-	next, changed := declaredAfterEdit(c, fresh)
-	if !changed {
+	for attempt := 0; ; attempt++ {
+		object, err := c.client.Get(ctx, specapi.SystemContextGVR, namespace, systemContext.Name)
+		if err != nil {
+			return err
+		}
+		typed, err := kcpclient.Typed(object)
+		if err != nil {
+			return err
+		}
+		fresh, ok := typed.(*spec.SystemContext)
+		if !ok {
+			return fmt.Errorf("specd: %s is not a SystemContext", systemContext.Name)
+		}
+		next, changed := declaredAfterEdit(c, fresh)
+		if !changed {
+			return nil
+		}
+		recorded := authority.Format(next)
+		annotations := object.GetAnnotations()
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+		annotations[specapi.DeclaredAnnotation] = recorded
+		object.SetAnnotations(annotations)
+		if _, err := c.client.Update(ctx, object); err != nil {
+			if apierrors.IsConflict(err) && attempt < declaredWriteAttempts {
+				c.log.Info("a declaration landed while the edit was recorded; the union is written again",
+					"systemcontext", systemContext.Name)
+				continue
+			}
+			return err
+		}
+		if systemContext.Annotations == nil {
+			systemContext.Annotations = map[string]string{}
+		}
+		systemContext.Annotations[specapi.DeclaredAnnotation] = recorded
+		c.log.Info("declared units recorded", "systemcontext", systemContext.Name, "units", next.Sorted())
 		return nil
 	}
-	annotations := object.GetAnnotations()
-	if annotations == nil {
-		annotations = map[string]string{}
-	}
-	annotations[specapi.DeclaredAnnotation] = authority.Format(next)
-	object.SetAnnotations(annotations)
-	if _, err := c.client.Update(ctx, object); err != nil {
-		return err
-	}
-	if systemContext.Annotations == nil {
-		systemContext.Annotations = map[string]string{}
-	}
-	systemContext.Annotations[specapi.DeclaredAnnotation] = annotations[specapi.DeclaredAnnotation]
-	c.log.Info("declared units recorded", "systemcontext", systemContext.Name, "units", next.Sorted())
-	return nil
 }
 
+// declaredAfterEdit is the union of the units the context already declares and
+// the units of the edit, so recording an edit never drops a unit that was
+// declared before it: a unit a person or a plan declared and the edit removes
+// stays declared. The edit's own removals are left out of its contribution
+// only, because a removal is never declared by the edit that makes it.
 func declaredAfterEdit(c *Controller, systemContext *spec.SystemContext) (authority.Set, bool) {
 	recorded, err := authority.Parse(systemContext.Annotations[specapi.DeclaredAnnotation])
 	if err != nil {
@@ -215,7 +238,8 @@ func declaredAfterEdit(c *Controller, systemContext *spec.SystemContext) (author
 		recorded = authority.Set{}
 	}
 	realized := realizedSpecOf(systemContext)
-	next := recorded.Union(authority.Changed(realized, systemContext.Spec)).Without(authority.Removed(realized, systemContext.Spec))
+	edit := authority.Changed(realized, systemContext.Spec).Without(authority.Removed(realized, systemContext.Spec))
+	next := recorded.Union(edit)
 	return next, err != nil || !next.Equal(recorded)
 }
 
