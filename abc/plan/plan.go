@@ -343,6 +343,10 @@ func Evaluate(input Input) Evaluation {
 			case len(item.Acceptance) == 0:
 				status.Phase = ItemDone
 				status.Commit = input.Head
+				// The recorded hash stays the hash of the steps the item
+				// now names, so an item whose steps were dropped is not
+				// seen as changed on every later evaluation.
+				status.AcceptanceHash = acceptanceHash
 				status.Message = "realized; the item names no acceptance"
 			case status.Commit != input.Head || status.AcceptanceHash != acceptanceHash:
 				out.Actions = append(out.Actions, Action{Kind: ActionAcceptance, Item: item.ID, Acceptance: item.Acceptance})
