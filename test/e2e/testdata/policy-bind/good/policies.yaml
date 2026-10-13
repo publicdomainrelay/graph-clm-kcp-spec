@@ -2,7 +2,7 @@ defaultEnforcement: deny
 imports:
 - pack: rfp-guest-isolation
   source: embedded
-  version: v2
+  version: v3
 repository: policy-bind
 roles:
   guest:
