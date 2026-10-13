@@ -7,10 +7,8 @@ spec:
   repository: hydradb-0013
   title: the graph hybrid
   objective: >-
-    Structure, claims, memory, search and runs in one graph; a task gets a
-    ranked context pack; context quality is measured. Items A1 to A5, the
-    safety batch and the ingest fix are tracked here by their acceptance; the
-    remaining items of docs/plans/0013-graph-hybrid.md are added as they land.
+    Every item of docs/plans/0013-graph-hybrid.md, tracked by its acceptance:
+    the package tests of the change each item names.
   approved: false
   items:
     - id: ingest-scope
@@ -32,7 +30,7 @@ spec:
       summary: A4 and A4b dependsOn is production only, test imports are TEST_IMPORTS
       acceptance:
         - name: packages
-          command: ["go", "test", "-count=1", "./abc/sync/", "./abc/graph/"]
+          command: ["go", "test", "-count=1", "./abc/sync/"]
     - id: scope-prune
       summary: A5 the populate scope is persistent and out-of-scope contexts are pruned
       acceptance:
@@ -58,3 +56,43 @@ spec:
       acceptance:
         - name: packages
           command: ["go", "test", "-count=1", "./abc/authority/"]
+    - id: search-index
+      summary: C1 a task finds its entry points by text
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./impl/searchindex/"]
+    - id: context-pack
+      summary: C2 and C4 the context pack is the prompt, in a fixed order
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./abc/contextpack/"]
+    - id: pack-cli
+      summary: C5 specctl context pack reads the live graph
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./cmd/specctl/"]
+    - id: memory
+      summary: D1 and D2 memory notes become vertices and the recall tools share the core
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./impl/clm/"]
+    - id: skill
+      summary: D3 the context-management skill text is versioned
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./abc/clm/"]
+    - id: mod
+      summary: E the mod injects the owner card and the task card
+      acceptance:
+        - name: mod
+          command: ["bash", "-c", "cd cc-clm-mod && npm test"]
+    - id: swarm
+      summary: F the pack carries the blackboard and the scoreboard
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./abc/contextpack/"]
+    - id: history-eval
+      summary: G1 the context is measured on the repository's own history
+      acceptance:
+        - name: packages
+          command: ["go", "test", "-count=1", "./impl/eval/"]
