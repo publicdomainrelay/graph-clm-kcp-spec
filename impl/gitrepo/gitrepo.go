@@ -284,6 +284,55 @@ func ChangedFiles(ctx context.Context, dir, base, commit string) ([]string, erro
 	return strings.Split(output, "\n"), nil
 }
 
+// Commit is one commit a history walk read: its hash and the subject line that
+// is the query a benchmark asks about it.
+type Commit struct {
+	Hash string
+
+	Subject string
+}
+
+// Log lists the commits of a checkout, newest first, up to limit. Merge commits
+// are left out: a merge brings another commit's work in and its subject names a
+// change no file of its own made. A limit of zero or less walks the whole
+// history.
+func Log(ctx context.Context, dir string, limit int) ([]Commit, error) {
+	args := []string{"log", "--no-merges", "--format=%H%x09%s"}
+	if limit > 0 {
+		args = append(args, fmt.Sprintf("--max-count=%d", limit))
+	}
+	output, err := run(ctx, dir, args...)
+	if err != nil {
+		return nil, err
+	}
+	commits := []Commit{}
+	for _, line := range strings.Split(output, "\n") {
+		hash, subject, found := strings.Cut(strings.TrimSpace(line), "\t")
+		if !found || hash == "" {
+			continue
+		}
+		commits = append(commits, Commit{Hash: hash, Subject: subject})
+	}
+	return commits, nil
+}
+
+// CommitFiles lists the files one commit changed, relative to the checkout
+// root. The initial commit is listed whole rather than treated as empty, so a
+// repository of one commit still has a change to measure.
+func CommitFiles(ctx context.Context, dir, commit string) ([]string, error) {
+	output, err := run(ctx, dir, "diff-tree", "--no-commit-id", "--name-only", "--root", "-r", "-z", commit)
+	if err != nil {
+		return nil, err
+	}
+	files := []string{}
+	for _, path := range strings.Split(output, "\x00") {
+		if path = strings.TrimSpace(path); path != "" {
+			files = append(files, path)
+		}
+	}
+	return files, nil
+}
+
 func ChangedLines(ctx context.Context, dir, base, commit string) (string, error) {
 	if base == "" || commit == "" || base == commit {
 		return "", nil

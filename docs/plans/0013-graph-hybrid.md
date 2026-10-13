@@ -356,3 +356,31 @@ creating a new attempt when a newer attempt of the same episode exists, and it
 carries the plan item that staged the change, so a change and its plan item
 agree on the owner (finding F8). Live check: `specctl context pack --context
 impl-ingest` renders both sections in that order.
+
+### Item G: evals that score the context itself
+
+G1 (the git-history benchmark) is realized as `impl/eval/history.go` plus
+`specctl eval history`: it walks the checkout's own commits newest first
+(`--commits`, default 50), takes each commit's subject as the query, the
+contexts that own the files the commit touched (the `specctl arch owner`
+lookup) as the gold set, builds the pack of that query and reports recall@k over
+the pack's neighbour and claims sections, precision, the pack's token count and
+the sections the budget dropped. `impl/eval/history_test.go` proves the walk
+pairs a subject with the owners of its changed files, that a commit no context
+owns is skipped rather than counted as a miss, and that the summary averages
+recall over the commits that have a gold set.
+
+`contextpack.NamedContexts` carries the name on the card, so k is the set of
+contexts the two sections name and not a title re-parsed.
+
+**The G1 recall@5 reading is not taken yet.** It needs a live instance
+(`specctl up` in this checkout, graph and search index up) and a run of
+
+```
+specctl eval history --repo . --commits 50 --out docs/eval/history.md
+```
+
+in it; the plan's promise is that the number after item C is higher than the
+number before it, and the "before" run needs the pack as it stood at dfcf290.
+Both readings land in this section when they are taken, rather than a number
+guessed from the unit tests.

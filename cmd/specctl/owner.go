@@ -26,6 +26,31 @@ type observedContext struct {
 // the smallest of the equally deep ones, because the smallest is the context
 // the path is most specific to. The path is read as the checkout holds it. A
 // path no observed file matches is owned by no context.
+// observedContextsOf lists one repository's contexts as path resolution sees
+// them: the name kcp gives each one and the files it observes.
+func observedContextsOf(ctx context.Context, client *kcpclient.Client, namespace string, holder *spec.Repository) ([]observedContext, error) {
+	listed, err := client.List(ctx, specapi.SystemContextGVR, namespace)
+	if err != nil {
+		return nil, err
+	}
+	contexts := []observedContext{}
+	for index := range listed.Items {
+		typed, err := kcpclient.Typed(&listed.Items[index])
+		if err != nil {
+			return nil, err
+		}
+		systemContext, ok := typed.(*spec.SystemContext)
+		if !ok || systemContext.Spec.Repository != holder.Name {
+			continue
+		}
+		contexts = append(contexts, observedContext{
+			name:  systemContext.Name,
+			files: systemContext.Status.Observed.Files,
+		})
+	}
+	return contexts, nil
+}
+
 func ownerOfPath(path string, contexts []observedContext) string {
 	wanted := checkoutPath(path)
 	if wanted == "" {
@@ -141,26 +166,10 @@ func runArchOwner(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "specctl arch owner: %v\n", err)
 		return exitError
 	}
-	listed, err := client.List(ctx, specapi.SystemContextGVR, options.namespace)
+	contexts, err := observedContextsOf(ctx, client, options.namespace, holder)
 	if err != nil {
 		fmt.Fprintf(stderr, "specctl arch owner: %v\n", err)
 		return exitError
-	}
-	contexts := []observedContext{}
-	for index := range listed.Items {
-		typed, err := kcpclient.Typed(&listed.Items[index])
-		if err != nil {
-			fmt.Fprintf(stderr, "specctl arch owner: %v\n", err)
-			return exitError
-		}
-		systemContext, ok := typed.(*spec.SystemContext)
-		if !ok || systemContext.Spec.Repository != holder.Name {
-			continue
-		}
-		contexts = append(contexts, observedContext{
-			name:  systemContext.Name,
-			files: systemContext.Status.Observed.Files,
-		})
 	}
 	path := relativeToCheckout(holder, positional[0])
 	owner := ownerOfPath(path, contexts)

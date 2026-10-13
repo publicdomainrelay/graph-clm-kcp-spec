@@ -501,6 +501,13 @@ usage:
       $SPECD_EVAL_WORKSPACE when that is set, so a second checkout can name
       a workspace of its own and never disturb the objects another suite
       owns.
+  specctl eval history [--repo .] [--commits 50] [--out docs/eval/history.md]
+      the git-history benchmark: for each of the repository's own commits the
+      query is the commit subject and the gold set is the contexts that own
+      the files it touched, and the pack of that query is scored for recall@k
+      over its neighbour and claims sections, precision, tokens and the
+      sections the budget dropped. One line per commit, then the summary,
+      which is written as JSON beside the report so two runs compare.
 
 kinds:
   repository, systemcontext, specchange, policychange
@@ -529,6 +536,8 @@ populate flags (specctl ingest):
 
 eval flags (specctl eval):
   --fixtures <dir>        directory of fixtures (default fixtures)
+  --repo <path>           (history) checkout whose commits are walked
+  --commits <n>           (history) how many commits to walk (default 50)
   --scenarios <glob>      keep the scenarios whose name matches; repeatable is not needed
   --agent <kind>          empty (scripted baseline), claude, claude-mod or pi
   --summarize-agent <k>   the code -> spec half only, when it differs

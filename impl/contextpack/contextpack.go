@@ -276,7 +276,7 @@ func contextCard(ctx context.Context, options Options, name string) (contextpack
 		intent = contextpack.NoIntentNote
 	}
 	fmt.Fprintf(&builder, "intent: %s\n", intent)
-	return contextpack.Card{Title: value(row, "name"), Body: builder.String()}, true, nil
+	return contextpack.Card{Title: value(row, "name"), Name: value(row, "name"), Body: builder.String()}, true, nil
 }
 
 func neighborCards(ctx context.Context, options Options, name string) ([]contextpack.Card, error) {
@@ -371,7 +371,13 @@ func collect(
 	if title == "" {
 		title = direction + " " + edgeSpec.Type + " " + label + " " + name
 	}
-	cards[title] = contextpack.Card{Title: title, Body: body.String()}
+	// Only a card about a context is a name recall can match: a card about a
+	// requirement or a symbol names something that is never gold.
+	context := ""
+	if label == graph.LabelContext {
+		context = name
+	}
+	cards[title] = contextpack.Card{Title: title, Name: context, Body: body.String()}
 	*candidates = append(*candidates, contextpack.Candidate{
 		Label: label, Name: title, Context: name, Edge: edgeSpec.Type, Depth: 1,
 		Owner: direction == agent.DirectionOut && edgeSpec.Type == graph.EdgeOrchestrator,
@@ -510,6 +516,7 @@ func claimCards(ctx context.Context, options Options, contexts []string) ([]cont
 		summary, _, _ := unstructured.NestedString(item.Object, "spec", "summary")
 		cards = append(cards, contextpack.Card{
 			Title: "finding " + item.GetName(),
+			Name:  contextName,
 			Body:  oneLine(contextName + ": " + summary),
 		})
 	}
@@ -535,6 +542,7 @@ func claimCards(ctx context.Context, options Options, contexts []string) ([]cont
 			}
 			cards = append(cards, contextpack.Card{
 				Title: "plan item " + item.GetName(),
+				Name:  contextName,
 				Body:  oneLine(contextName + ": " + valueOf(planItem, "id") + " " + valueOf(planItem, "summary")),
 			})
 		}
@@ -569,6 +577,7 @@ func memoryCards(ctx context.Context, options Options, wanted map[string]bool) (
 		}
 		cards = append(cards, contextpack.Card{
 			Title: "memory " + value(row, "title"),
+			Name:  contextName,
 			Body:  oneLine(contextName + ": " + value(row, "body")),
 		})
 	}

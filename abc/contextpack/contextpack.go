@@ -144,7 +144,33 @@ func Rank(candidates []Candidate, plan Plan) []Candidate {
 type Card struct {
 	Title string
 
+	// Name is the context the card is about. The neighbour section and the
+	// claims section name contexts, and a reader that scores the pack for
+	// recall counts the ones that are gold, so the name travels with the card
+	// instead of being read back out of a title a context name with spaces in
+	// it would blur. Rendering ignores it.
+	Name string
+
 	Body string
+}
+
+// NamedContexts is the contexts the pack names in its neighbour and claims
+// sections, each once, in the order the pack renders them. It is the set
+// recall@k is measured against: k is what those two sections name.
+func NamedContexts(pack Pack) []string {
+	names := []string{}
+	seen := map[string]bool{}
+	for _, section := range [][]Card{pack.Neighbors, pack.Claims} {
+		for _, card := range section {
+			name := strings.TrimSpace(card.Name)
+			if name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 type Neighbor struct {
@@ -186,7 +212,7 @@ func NeighborCard(neighbor Neighbor) Card {
 		fmt.Fprintf(&builder, "interface %s\n", declared)
 	}
 	title := strings.TrimSpace(strings.Join([]string{neighbor.Direction, neighbor.Edge, neighbor.Label, neighbor.Name}, " "))
-	return Card{Title: title, Body: builder.String()}
+	return Card{Title: title, Name: neighbor.Name, Body: builder.String()}
 }
 
 func NeighborCards(neighbors []Neighbor) []Card {

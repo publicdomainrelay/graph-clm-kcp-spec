@@ -70,6 +70,9 @@ func deleteEvalWorkspace(kubeconfig, workspace string) {
 }
 
 func runEval(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "history" {
+		return runEvalHistory(args[1:], stdout, stderr)
+	}
 	fs := flag.NewFlagSet("specctl eval", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fixtures := fs.String("fixtures", "fixtures", "directory of fixtures, one subdirectory per repository")
