@@ -93,7 +93,7 @@ func runContextPack(args []string, stdout, stderr io.Writer) int {
 		Repository:     repository,
 		Budget:         *budget,
 	}
-	if directory, ok := searchRoot(*root); ok {
+	if directory, ok := searchRoot(*root, options.kubeconfig); ok {
 		if index, ok := searchIndexFor(directory); ok {
 			defer index.Close()
 			build.Index = index

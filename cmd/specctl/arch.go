@@ -68,7 +68,7 @@ func runImportArch(args []string, stdout, stderr io.Writer) int {
 		}
 		defer writer.Close(ctx)
 		rebuild := ingest.Options{Namespace: options.namespace}
-		if directory, ok := searchRoot(""); ok {
+		if directory, ok := searchRoot("", options.kubeconfig); ok {
 			if index, ok := searchIndexFor(directory); ok {
 				defer index.Close()
 				rebuild.Search = index

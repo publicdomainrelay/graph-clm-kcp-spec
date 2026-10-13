@@ -101,15 +101,22 @@ func runGraphNeighbors(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func searchRoot(named string) (string, bool) {
+// searchRoot names the instance root that holds search.db, the file the graph
+// rebuild writes and a query seed reads. A checkout specctl up started names
+// the root in its session; a checkout outside one falls back to the rule
+// specd resolves its own root with, the directory the kubeconfig lives in, so
+// the writer and the reader name the same file whichever of them runs first.
+func searchRoot(named, kubeconfig string) (string, bool) {
 	if named != "" {
 		return named, true
 	}
-	record, ok := session.ForDir(".")
-	if !ok || record.KcpRoot == "" {
+	if record, ok := session.ForDir("."); ok && record.KcpRoot != "" {
+		return record.KcpRoot, true
+	}
+	if kubeconfig == "" {
 		return "", false
 	}
-	return record.KcpRoot, true
+	return searchindex.InstanceRoot(kubeconfig), true
 }
 
 func searchIndexFor(root string) (*searchindex.Index, bool) {
@@ -136,7 +143,7 @@ func runGraphSearch(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "specctl graph search: one or more terms are required")
 		return exitUsage
 	}
-	directory, ok := searchRoot(*root)
+	directory, ok := searchRoot(*root, defaultKubeconfig())
 	if !ok {
 		fmt.Fprintln(stderr, "specctl graph search: no instance root; name one with --search-root")
 		return exitUsage
@@ -293,7 +300,7 @@ func runGraphRebuild(args []string, stdout, stderr io.Writer) int {
 	defer writer.Close(ctx)
 
 	rebuild := ingest.Options{Namespace: options.namespace}
-	if root, ok := searchRoot(*searchRootFlag); ok {
+	if root, ok := searchRoot(*searchRootFlag, options.kubeconfig); ok {
 		if index, ok := searchIndexFor(root); ok {
 			defer index.Close()
 			rebuild.Search = index

@@ -5,8 +5,17 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/search"
 )
+
+// graphRows is the graph as the rebuild reads it: a select of one label
+// answers the rows that label holds, the way a vertex select does.
+type graphRows map[string][]map[string]any
+
+func (g graphRows) Select(ctx context.Context, label string, properties []string, filter map[string]any) ([]map[string]any, error) {
+	return g[label], nil
+}
 
 func openIndex(t *testing.T) *Index {
 	t.Helper()
@@ -111,5 +120,37 @@ func TestTheLimitIsHonoured(t *testing.T) {
 	}
 	if len(hits) != 2 {
 		t.Fatalf("hits = %d, want 2", len(hits))
+	}
+}
+
+// A rebuild reads the graph and writes the index a query seeds from, so the
+// documents a query finds name the contexts whose intent or requirements
+// carry its terms, not just the symbols they mention.
+func TestARebuildWritesTheIndexAQueryReads(t *testing.T) {
+	index := openIndex(t)
+	rows := graphRows{
+		graph.LabelContext: []map[string]any{
+			{"name": "calc", "intent": "Arithmetic on two integers."},
+			{"name": "cmd-calc", "intent": "A command line front end."},
+		},
+		graph.LabelRequirement: []map[string]any{
+			{"context": "calc", "reqId": "r.adds", "level": "MUST", "text": "The calculator adds two integers."},
+		},
+	}
+	documents, err := Documents(context.Background(), rows, "")
+	if err != nil {
+		t.Fatalf("Documents: %v", err)
+	}
+	if err := index.Rebuild(context.Background(), documents); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+	for _, query := range []string{"Arithmetic on two integers", "calculator adds"} {
+		hits := find(t, index, query)
+		if len(hits) == 0 {
+			t.Fatalf("the rebuild wrote no document for %q", query)
+		}
+		if hits[0].Context != "calc" {
+			t.Fatalf("the hit for %q names %q, want calc", query, hits[0].Context)
+		}
 	}
 }

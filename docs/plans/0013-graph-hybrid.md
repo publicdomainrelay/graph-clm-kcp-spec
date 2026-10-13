@@ -384,3 +384,36 @@ in it; the plan's promise is that the number after item C is higher than the
 number before it, and the "before" run needs the pack as it stood at dfcf290.
 Both readings land in this section when they are taken, rather than a number
 guessed from the unit tests.
+
+**G1 measures nothing until the query pack names contexts** (requirement
+`r.history-eval-reads-a-pack`). The first run of
+`specctl eval history --repo . --commits 20` reported recall 0.00 with k 0 over
+its scored commits, because every pack it built for a commit subject named no
+context at all.
+
+The cause is the instance root, not the pack. A graph rebuild writes
+`search.db` under the instance root, and both writers resolved that root one
+way while a query seed resolved it another way: `specd` takes the directory the
+kubeconfig lives in, and `specctl` took the session record of the current
+checkout. A checkout with no session record -- a worktree, a copy, a plain
+`git clone` beside the instance -- resolved no root, so the query silently
+seeded from no index at all: no hits, no neighbour cards, no claims, k 0, and
+no message saying why.
+
+`searchRoot` now falls back to the same rule `specd` uses, so the writer (the
+graph rebuild) and the reader (a query seed) name one file whichever of them
+runs first. The reading is produced by the command in the instance:
+
+```
+specctl eval history --repo . --commits 20 --out docs/eval/history.md
+```
+
+Two tests carry the requirement. `impl/searchindex` proves a rebuild writes
+the index a query reads: the documents `Documents` reads off the graph are
+rebuilt into the index, and a query over a context's own intent words and over
+its requirement text finds that context
+(`TestARebuildWritesTheIndexAQueryReads`). `test/e2e` proves the live path end
+to end: the calc fixture is ingested, a context is given an intent the way a
+summary would, `specctl graph rebuild` writes the index, and a pack seeded by
+that intent words names that context
+(`TestAQueryPackNamesTheContextItsIntentNames`).
