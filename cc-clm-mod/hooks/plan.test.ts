@@ -6,6 +6,7 @@ import {
   contextSection,
   deltaSummaryLines,
   parseReport,
+  planItemsArgv,
   relativePath,
   renderArgv,
   reportArgv,
@@ -65,7 +66,16 @@ test("the report line is read, not guessed", () => {
 });
 
 test("the architecture tools map to specctl, and the edit carries the document on stdin", () => {
-  expect(ARCH_TOOLS.map((tool) => tool.name)).toEqual(["arch_outline", "arch_context", "arch_edit", "arch_changes"]);
+  expect(ARCH_TOOLS.map((tool) => tool.name)).toEqual([
+    "arch_outline",
+    "arch_context",
+    "arch_edit",
+    "arch_changes",
+    "arch_plans",
+    "arch_plan",
+    "arch_findings",
+    "arch_release",
+  ]);
   expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_outline`, {})).toEqual({ argv: ["specctl", "arch", "outline"] });
   expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_context`, { context: "calc" })).toEqual({
     argv: ["specctl", "clm", "render", "--context", "calc"],
@@ -81,6 +91,39 @@ test("an architecture tool call without what it needs is answered, not run", () 
   expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_context`, {})).toBe("string");
   expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_edit`, { context: "calc", document: "  " })).toBe("string");
   expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_nothing`, {})).toBe("string");
+});
+
+test("the plan and finding tools map to specctl", () => {
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_plans`, {})).toEqual({ argv: ["specctl", "plan", "ls"] });
+  const plan = "# Plan: calc\n";
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_plan`, { document: plan })).toEqual({
+    argv: ["specctl", "plan", "apply", "-f", "-"],
+    stdin: plan,
+  });
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_findings`, {})).toEqual({ argv: ["specctl", "finding", "ls"] });
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_release`, { context: "calc", unit: "Add" })).toEqual({
+    argv: ["specctl", "arch", "release", "calc", "--unit", "Add"],
+  });
+  expect(archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_release`, { context: "calc", unit: "all" })).toEqual({
+    argv: ["specctl", "arch", "release", "calc", "--all"],
+  });
+  expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_plan`, {})).toBe("string");
+  expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_release`, { context: "calc" })).toBe("string");
+  expect(typeof archInvocation("specctl", `${ARCH_TOOL_PREFIX}arch_release`, { unit: "all" })).toBe("string");
+});
+
+test("open plan items join the context section", () => {
+  const items = planItemsArgv({ specctl: "specctl", workspace: "root:tenant", namespace: "team" }, "calc");
+  expect(items.slice(0, 5)).toEqual(["specctl", "plan", "items", "--context", "calc"]);
+  expect(items).toContain("--workspace");
+  expect(items).toContain("root:tenant");
+  expect(items).toContain("--namespace");
+  expect(items).toContain("team");
+  const section = contextSection("# Context: calc\n", "p.add-multiply  draft\n");
+  expect(section?.text).toContain("## Open plan items for this context");
+  expect(section?.text).toContain("p.add-multiply  draft");
+  expect(contextSection("# Context: calc\n", "  \n")?.text).not.toContain("## Open plan items");
+  expect(contextSection("# Context: calc\n", "")?.text).not.toContain("## Open plan items");
 });
 
 test("the delta summary keeps only the lines the apply prints by id", () => {

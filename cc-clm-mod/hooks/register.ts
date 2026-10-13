@@ -19,6 +19,7 @@ import {
   deltaSummaryLines,
   guardDenial,
   parseReport,
+  planItemsArgv,
   relativePath,
   renderArgv,
   reportArgv,
@@ -57,6 +58,7 @@ interface Session {
   root?: string;
   rootRead?: boolean;
   doc?: string;
+  planItems?: string;
   archSpecctl?: string;
   archCwd?: string;
 }
@@ -156,10 +158,15 @@ async function start($: Engine, session: Session, cwd: string): Promise<void> {
   session.repoPath = repo ?? cwd;
   const env = await readEnv($);
   const context = env.context ?? "";
+  session.planItems = undefined;
   if (!context) {
     session.host = undefined;
     return;
   }
+  const items = await $.process
+    .run(planItemsArgv(env, context), { cwd: session.repoPath, timeoutMs: 60_000 })
+    .catch(() => undefined);
+  if (items && items.exitCode === 0 && items.stdout.trim()) session.planItems = items.stdout;
   session.doc = docPathFromEnv(
     {
       SPECD_CLM_DOC: await $.env.get("SPECD_CLM_DOC"),
@@ -252,7 +259,7 @@ export const register: Register = (on) => {
     const composed = await next(e);
     if (!session.host) return composed;
     const document = await session.host.section().catch(() => undefined);
-    const section = document ? contextSection(document) : undefined;
+    const section = document ? contextSection(document, session.planItems) : undefined;
     return section ? { sections: [...composed.sections, section] } : composed;
   });
 

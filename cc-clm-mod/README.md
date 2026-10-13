@@ -18,7 +18,7 @@ happens**, not guessed afterwards.
 | Hook | Behaviour |
 | --- | --- |
 | `session.start` | resolve the context (`SPECD_CLM_CONTEXT`), render it from kcp, write the context document to the state dir (`SPECD_CLM_DOC`), outside the project tree |
-| `prompt.compose` | inject that file as one more session system section, appended last so the context is the model's most recent instruction |
+| `prompt.compose` | inject that file as one more session system section, appended last so the context is the model's most recent instruction, with the context's open plan items (`specctl plan items`) below it so a realize agent sees why its change exists |
 | `tool.call` | refuse a path outside `SPECD_CLM_ROOT`, then report the file a `Read`/`Write`/`Edit`/`MultiEdit` touched |
 | `turn.complete` | apply the model zone when the model changed it, then report the turn |
 | `session.end` | the same, skipped when the exit budget has less than a second left: a hanging exit is worse than a spec edit the next session re-renders from kcp |
@@ -107,7 +107,7 @@ Set by specd on the model it launches:
 
 In a repository where `specctl up` ran, a plain `claude --plugin-dir cc-clm-mod`
 session (no `SPECD_CLM_CONTEXT`) finds that repository's kcp through
-`specctl env` and registers four tools the model can call:
+`specctl env` and registers eight tools the model can call:
 
 | tool | does |
 | --- | --- |
@@ -115,6 +115,10 @@ session (no `SPECD_CLM_CONTEXT`) finds that repository's kcp through
 | `mcp__cc-clm-mod__arch_context` | one context as its context document (prose intent, fenced `yaml spec` block, resolved refs) |
 | `mcp__cc-clm-mod__arch_edit` | send the edited document back; kcp records the delta and specd opens a `SpecToCode` change that realizes it, gated by the tests |
 | `mcp__cc-clm-mod__arch_changes` | the SpecChanges and their phase, to follow an edit until its code lands |
+| `mcp__cc-clm-mod__arch_plans` | the Plan objects kcp holds, with their status |
+| `mcp__cc-clm-mod__arch_plan` | send a Plan as YAML; it lands as a draft, and only a person approves it |
+| `mcp__cc-clm-mod__arch_findings` | the findings kcp holds: where the code and the spec disagree |
+| `mcp__cc-clm-mod__arch_release` | release a context's declared interfaces, one unit or `--all` |
 
 The spec never sits in the project tree: the tools read and write kcp, and kcp
 persists to the orphan branch `open-architecture/<repository>`.

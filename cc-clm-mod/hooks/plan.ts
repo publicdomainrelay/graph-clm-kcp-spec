@@ -187,12 +187,17 @@ export function relativePath(path: string, repoPath: string): string {
   return path;
 }
 
-export function contextSection(document: string): { id: string; text: string; scope: "session" } | undefined {
+export function contextSection(
+  document: string,
+  planItems?: string,
+): { id: string; text: string; scope: "session" } | undefined {
   const text = document.trim();
   if (!text) return undefined;
+  const items = planItems?.trim();
+  const body = items ? `${text}\n\n## Open plan items for this context\n\n${items}` : text;
   return {
     id: CONTEXT_SECTION_ID,
-    text: `The context document below is yours: keep it true to the code.\n\n${text}`,
+    text: `The context document below is yours: keep it true to the code.\n\n${body}`,
     scope: "session",
   };
 }
@@ -228,6 +233,22 @@ export function renderArgv(env: BridgeEnv, context: string): string[] {
     base.specctl,
     "clm",
     "render",
+    "--context",
+    context,
+    "--workspace",
+    base.workspace,
+    "--namespace",
+    base.namespace,
+    ...kubeconfigArgs(base),
+  ];
+}
+
+export function planItemsArgv(env: BridgeEnv, context: string): string[] {
+  const base = bridgeArgv(env);
+  return [
+    base.specctl,
+    "plan",
+    "items",
     "--context",
     context,
     "--workspace",
@@ -336,6 +357,41 @@ export const ARCH_TOOLS: readonly ArchTool[] = [
       "List the SpecChanges in kcp: each change's direction (SpecToCode or CodeToSpec), phase, and the commit it produced. Use it to follow an arch_edit until its code lands.",
     inputSchema: { type: "object", properties: {} },
   },
+  {
+    name: "arch_plans",
+    description:
+      "List the Plan objects kcp holds for this repository: each plan's id, status (draft or approved) and the work it names. A draft plan is not yet work to do.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "arch_plan",
+    description:
+      "Send one Plan as YAML to kcp. The plan lands as a draft: only a person approves it, so this tool never approves anything by itself. Use it to record the plan behind a proposal; arch_plans lists what kcp then holds.",
+    inputSchema: {
+      type: "object",
+      properties: { document: { type: "string", description: "the Plan as YAML" } },
+      required: ["document"],
+    },
+  },
+  {
+    name: "arch_findings",
+    description:
+      "List the findings kcp holds for this repository: what measurement saw that the code and the spec disagree about.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "arch_release",
+    description:
+      "Release the architecture of a system context: hand its declared interfaces back so a change may edit them, one unit at a time or all of them at once.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        context: { type: "string", description: "SystemContext name" },
+        unit: { type: "string", description: "the unit to release, or 'all'" },
+      },
+      required: ["context", "unit"],
+    },
+  },
 ];
 
 export interface ArchInvocation {
@@ -360,6 +416,21 @@ export function archInvocation(specctl: string, tool: string, input: Record<stri
     }
     case "arch_changes":
       return { argv: [specctl, "get", "specchanges"] };
+    case "arch_plans":
+      return { argv: [specctl, "plan", "ls"] };
+    case "arch_plan": {
+      const document = typeof input.document === "string" ? input.document : "";
+      if (!document.trim()) return "arch_plan needs the plan document";
+      return { argv: [specctl, "plan", "apply", "-f", "-"], stdin: document };
+    }
+    case "arch_findings":
+      return { argv: [specctl, "finding", "ls"] };
+    case "arch_release": {
+      const unit = typeof input.unit === "string" ? input.unit.trim() : "";
+      if (!context) return "arch_release needs a context name";
+      if (!unit) return "arch_release needs a unit, or 'all' for every unit";
+      return { argv: [specctl, "arch", "release", context, ...(unit === "all" ? ["--all"] : ["--unit", unit])] };
+    }
   }
   return `unknown architecture tool ${tool}`;
 }
