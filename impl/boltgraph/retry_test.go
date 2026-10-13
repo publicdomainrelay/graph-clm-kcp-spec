@@ -19,7 +19,10 @@ func TestTransientErrorsAreRetried(t *testing.T) {
 	if transient(&neo4j.Neo4jError{Code: "Neo.ClientError.Statement.SyntaxError"}) {
 		t.Error("a syntax error is reported as transient")
 	}
-	if transient(errors.New("connection refused")) {
-		t.Error("a plain error is reported as transient")
+	if transient(errors.New("the spec of factory-specd does not validate")) {
+		t.Error("a plain error that is not a lost connection is reported as transient")
+	}
+	if !transient(errors.New("dial tcp 127.0.0.1:7687: connect: connection refused")) {
+		t.Error("a refused connection is not reported as transient")
 	}
 }
