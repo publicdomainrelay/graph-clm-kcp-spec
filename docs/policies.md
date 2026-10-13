@@ -6,9 +6,7 @@ reviews the objects specd already holds (`Repository`, `SystemContext`,
 change). Policies live on the orphan branch `open-policy/<repository>` next to
 the specs, are audited on every indexed commit, and are evaluated offline by
 `specctl policy eval` -- no kcp, no controller, no cluster. The two example
-policies in this repository are the acceptance examples of
-`docs/plans/0008-policies.md`; the real run is
-`docs/examples/atproto-market-policies.md`.
+policy packs in this repository are the worked examples (`policies/packs/`).
 
 `specctl policy build` compiles a template into Gatekeeper form, and
 `specctl policy test` runs it through the same client `bin/gator` builds, so a
@@ -229,7 +227,7 @@ Four matchers matter for the guest side:
   component of the file, through the binding's globs). Comments are still
   skipped, and an identifier named `ssh` is not a match. The rules stay narrow
   on purpose: other shell commands written in TypeScript strings are not
-  effects (see the recall note in `docs/plans/0009-portable-policies.md`).
+  effects.
 
 ### The ArchitectureModel
 
@@ -515,8 +513,7 @@ gates do, and it is how the pre-existing violation is measured without kcp.
 
 `scripts/example-policy-findings.sh` runs the whole workflow: the fixture half
 lists, fixes and waives without a clone; with `CLONE=<checkout> BASE=<ref>` set
-it does the same against a real repository, and
-`docs/examples/atproto-market-policies.md` records that run.
+it does the same against a real repository.
 
 ### The conformance pack
 
@@ -723,9 +720,8 @@ kcp audit -- so a rule over the model gates a realize and an audit, not only an
 offline run. The spec-time gate is declared-only: a member's observed reach-in
 is not a fact before code exists.
 
-`docs/examples/portable-policies.md` records the three bindings of the pack
-(one repository plus a member, a provider alone, a spec-only repository) and
-`scripts/example-portable-policies.sh` repeats them.
+`scripts/example-portable-policies.sh` binds the pack three ways: one repository
+plus a member, a provider alone, and a spec-only repository.
 
 ### The rfp-guest-isolation pack
 
@@ -768,14 +764,14 @@ CodeDiff rules. They read effects and roles, so a transport named in a selector,
 a lexicon description or a test name, a `which dumbpipe` probe, and the
 `authorized_keys` the guest's own `user_data` writes are all clean.
 
-Measured on atproto-market PR #1 (`ffac22e`, base `d20070c`) with the rule in
-the library: adding the import changes nothing, 2 deny violations either way
+With the rule in the library, a diff that adds the import changes nothing: the
+same deny violations either way
 (`guest-report-driven-onnetwork`, `rfp-guest-reports-network`), because that
 diff installs no transport and no key material by hand -- the two rules this
-pack carries are quiet on a change that does not provision. On the phase I
-baseline the same two rules are what separates the library's 21 CodeDiff denies
-(which name a transport or key material wherever they appear) from the one real
-violation, which is the calibration the templates were written for.
+pack carries are quiet on a change that does not provision. On a provisioning
+diff the same two rules separate the library's CodeDiff denies (which name a
+transport or key material wherever they appear) from the one real violation,
+which is the calibration the templates were written for.
 
 Run its own suites:
 
@@ -991,72 +987,18 @@ repository reuses a template by changing only its constraint. Each rule has a
 default in the Rego (`x = out { out := input.parameters.x } else = [...]`) so a
 missing parameter narrows the rule rather than widening it.
 
-### A real run
+### A worked audit
 
-`specctl policy eval --diff-base REF` diffs `REF` against the evaluated commit
-(`--commit`, or the worktree's `HEAD`) and adds the resulting `CodeDiff` to both
-the reviewed objects and the inventory, so the provisioning and
-disabled-verification templates have something to read. The run below is the
-real output for the plan-0008 phase-H baseline: `publicdomainrelay/deno-kcp`
-pull request #1 (`dc4c717e`) against `main` (`25d10f92`), on a clone that is
-never edited or pushed. It is the library alone; the bound library of
-`examples/policies/deno-kcp` reports the same seven violations, and the table
-that reads each one labels it real or false positive:
-`docs/examples/deno-kcp-pr.md`, section "Policies: baseline of PR #1".
+`specctl policy eval` takes a checkout and a commit, and needs no controller.
 
 ```bash
 git clone https://github.com/publicdomainrelay/deno-kcp && cd deno-kcp
-git fetch origin main spec/bidder-and-bob-pds
-bin/specctl policy eval --repo deno-kcp \
-  --commit dc4c717e1b925e0c074237ed32dc7f093880d843 \
-  --diff-base main \
-  --path "$PWD" \
-  --library policies/library
+specctl policy eval --repo . --commit HEAD --diff-base origin/main --out ~/.tmp/audit.md
+specctl policy report
 ```
 
-```
-repository: deno-kcp  commit: dc4c717e
-templates: 7  constraints: 7
-violations: 7 (deny 7, warn 0, dryrun 0)
-
-deny     error      security-disabled-verification  CodeDiff default/deno-kcp
-         deploy/examples/atproto/market/accept.sh:269
-         added line deploy/examples/atproto/market/accept.sh:269 is "code=$(curl -skS -o /dev/null -w '%{http_code}' --max-time 10 \"$1\" 2>/dev/null) || true", which turns certificate verification off; a check that trusts any certificate checks nothing
-deny     error      security-disabled-verification  CodeDiff default/deno-kcp
-         deploy/examples/atproto/market/apply.sh:220
-         added line deploy/examples/atproto/market/apply.sh:220 is "echo \"  plc     curl -k https://127.0.0.1:2587/health\"", which turns certificate verification off; a check that trusts any certificate checks nothing
-deny     error      security-disabled-verification  CodeDiff default/deno-kcp
-         deploy/examples/atproto/market/apply.sh:227
-         added line deploy/examples/atproto/market/apply.sh:227 is "echo \"  curl -k -sS -X POST https://127.0.0.1:2583/xrpc/com.atproto.server.createAccount \\\\\"", which turns certificate verification off; a check that trusts any certificate checks nothing
-```
-
-(three of the seven are shown; `apply.sh:221-224` are the same printed
-`curl -k` line for the relay and the three remaining services.)
-
-One is the class `RESULTS.md` found at atproto-market's `accept.sh:141`: a
-`curl -skS` probe of a TLS listener, here the acceptance's `http_code` helper,
-so the check proves the listener answers and not that the leaf is the one the
-workspace's OpenBao authority issued. The other six are the block `apply.sh`
-prints to tell an operator how to health-check each port-forwarded service, and
-the same PR moved exactly those lines from `curl http://…` to
-`curl -k https://…`. Both shapes are real: the probe of a local service with a
-self-signed certificate is the known intentional case a repository may silence
-with the constraint's `allowPatterns`, and the printed guidance is what the
-origin's separate `safety-stale-tls-guidance` warning rule was for -- the port
-has no such template, so it lands here.
-
-The run this section used to record was against deno-kcp `0f1078d`, a commit
-that no longer resolves on the remote (the history was rewritten), and it
-reported five violations, three of them `kubectl … --validate=false`. Those
-three are a false positive that is now fixed: `--validate=false` is schema
-validation, not TLS verification, and the pattern set no longer carries it
-(see the `security-disabled-verification` calibration note). A gator case with
-the three real `--validate=false` lines asserts 0 violations.
-
-The two `SpecChange` templates are exercised by their gator suites here
-(`specctl policy test --dir policies/library --gator`), and run against a live
-`SpecChange` where the gate reviews one.
-
+The report lists each violation: policy, constraint, object, file, line and
+message. Add `--diff-base <ref>` to review only what a change introduced.
 ## lib.specd reference
 
 `lib.specd` is shipped by hydradb, inlined into every built template's
@@ -1536,13 +1478,12 @@ A bind-mode prompt no longer carries the branch's binding: the model in it is
 built with an empty binding, so no role, glob or vocabulary term is given away,
 and specd runs the harness in a scratch directory under the state directory
 that holds no `examples/`. But specd does not confine the process: a harness
-with file tools can still read an absolute path -- the first real bind run in
-`docs/examples/atproto-market-policies.md` produced a binding byte-identical to
-the hand-written one because the harness read
-`examples/policies/atproto-market/policies.yaml` from a hydradb checkout. A
-measurement of what a harness can *derive* has to run it in a sandbox
-(`bwrap`, a container) that exposes only the scratch directory; the example run
-does that with a wrapper as the repository's `spec.agent.command`.
+with file tools can still read an absolute path, so a bind run inside a hydradb
+checkout reproduces the hand-written binding by reading
+`examples/policies/atproto-market/policies.yaml`. A measurement of what a
+harness can *derive* has to run it in a sandbox (`bwrap`, a container) that
+exposes only the scratch directory; do that with a wrapper as the repository's
+`spec.agent.command`.
 
 ### The pack Rego keeps its comments
 
@@ -1618,9 +1559,8 @@ commit reports the pre-existing violations as inherited and does not block,
 while an added host reach-in is denied at the new site. What is still not
 pinned is the *in-cluster* two-round episode: a live test that lands a
 violation in one round and changes something else in the next, with kcp
-carrying both. The end-to-end measurement on a real repository is
-`docs/examples/atproto-market-policies.md`, which runs the offline
-`--inherited` form of the same decision.
+carrying both. The offline `--inherited` form measures the same decision on a
+real repository without a controller.
 
 ### The model cannot show where an emitted value came from
 
@@ -1680,7 +1620,7 @@ that difference in the rule, or be waived constraint-wide knowing the scope.
 
 ## The two example policies
 
-`examples/policies/atproto-market` holds the phase B acceptance policies, with
+`examples/policies/atproto-market` holds the acceptance policies, with
 `examples/policies/market-mini` as the fixture-parameterized twin:
 
 - `relay-only-ssh` (P-relay): integration tests that drive a bidder and a
@@ -1703,12 +1643,11 @@ that difference in the rule, or be waived constraint-wide knowing the scope.
   container IP), because the host -- not the guest -- decided the guest was on
   the network.
 
-`docs/examples/atproto-market-policies.md` runs them against
-`publicdomainrelay/atproto-market` at three refs and records the real output.
+Run them against a checkout of `publicdomainrelay/atproto-market` with
+`specctl policy eval --repo <checkout>`.
 
 `examples/policies/deno-kcp` is the second bound library: the seven library
 templates plus `relay-only-ssh` re-bound to deno-kcp's roles and vocabulary
 (host = the DenoPod provider, guest = the DenoPod workload manifests, requester
 and relay = target roles, test = the integration harness).
-phase H's baseline library; `docs/examples/deno-kcp-pr.md` records pull request
-#1's evaluation against it.
+the baseline library.
