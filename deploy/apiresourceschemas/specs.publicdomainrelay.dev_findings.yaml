@@ -37,8 +37,8 @@ spec:
             context:
               type: string
             ref:
-              description: Where the finding came from, such as docs/reviews/0003-policies.md#B1
-                or the SpecChange that proposed it.
+              description: Where the finding came from - a review, a check, or the
+                SpecChange that proposed it.
               type: string
             repository:
               type: string

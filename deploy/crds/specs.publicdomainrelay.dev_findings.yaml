@@ -49,7 +49,7 @@ spec:
                   enum: [review, proposal, drift, policy, manual]
                 ref:
                   type: string
-                  description: Where the finding came from: a review, a check, or the SpecChange that proposed it.
+                  description: Where the finding came from - a review, a check, or the SpecChange that proposed it.
                 context:
                   type: string
                 unit:
