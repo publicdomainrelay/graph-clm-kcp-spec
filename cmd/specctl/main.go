@@ -186,6 +186,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runEval(rest, stdout, stderr)
 	case "policy":
 		return runPolicy(rest, stdout, stderr)
+	case "plan":
+		return runPlan(rest, stdout, stderr)
 	case "kcp":
 		return runKcp(rest, stdout, stderr)
 	case "keeper":
@@ -455,6 +457,12 @@ usage:
       tests and the gator suites through the built-in engine, audit a checkout
       or a commit without a controller, apply a library or restore a branch
       into kcp, list what kcp holds and print the last audit
+  specctl plan apply|ls|show|approve|preview
+      apply stages one or more Plan documents (-f <file|->, - reads stdin)
+      without approving them and resets the approval of a stored plan whose
+      items changed, ls and show read what kcp holds, approve marks a stored
+      plan approved, preview prints each item's spec delta against the
+      contexts it names and writes nothing
   specctl eval [--fixtures fixtures] [--agent claude|claude-mod|pi]
       [--scenarios <glob>] [--out docs/eval/run-<date>.md]
       one Repository manifest per fixture, then one spec edit per scenario
