@@ -147,6 +147,59 @@ type Card struct {
 	Body string
 }
 
+type Neighbor struct {
+	Name string
+
+	Edge string
+
+	Direction string
+
+	Label string
+
+	Intent string
+
+	Requirements []string
+
+	Interfaces []string
+}
+
+const NoIntentNote = "no intent yet"
+
+func NeighborCard(neighbor Neighbor) Card {
+	builder := strings.Builder{}
+	intent := firstLine(neighbor.Intent)
+	switch {
+	case intent != "":
+		fmt.Fprintf(&builder, "intent: %s\n", intent)
+	case neighbor.Label == graph.LabelContext:
+		fmt.Fprintf(&builder, "intent: %s\n", NoIntentNote)
+	}
+	for _, requirement := range neighbor.Requirements {
+		fmt.Fprintf(&builder, "MUST %s\n", requirement)
+	}
+	for _, declared := range neighbor.Interfaces {
+		fmt.Fprintf(&builder, "interface %s\n", declared)
+	}
+	title := strings.TrimSpace(strings.Join([]string{neighbor.Direction, neighbor.Edge, neighbor.Label, neighbor.Name}, " "))
+	return Card{Title: title, Body: builder.String()}
+}
+
+func NeighborCards(neighbors []Neighbor) []Card {
+	cards := make([]Card, 0, len(neighbors))
+	for _, neighbor := range neighbors {
+		cards = append(cards, NeighborCard(neighbor))
+	}
+	return cards
+}
+
+func firstLine(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if index := strings.Index(trimmed, "\n"); index >= 0 {
+		trimmed = trimmed[:index]
+	}
+	return trimmed
+}
+
 type Task struct {
 	Seed Seed
 

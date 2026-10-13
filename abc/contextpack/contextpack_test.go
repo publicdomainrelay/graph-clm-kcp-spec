@@ -3,6 +3,8 @@ package contextpack
 import (
 	"strings"
 	"testing"
+
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 )
 
 func pack() Pack {
@@ -90,6 +92,56 @@ func TestTheTokenBudgetLine(t *testing.T) {
 	}
 	if position(t, text, BudgetTitle) > position(t, text, ModelZoneTitle) {
 		t.Errorf("the budget line is after the model zone:\n%s", text)
+	}
+}
+
+func TestThePackCarriesNeighborCards(t *testing.T) {
+	pack := Pack{
+		Seed:       Seed{Kind: SeedContext, Value: "impl-bundle"},
+		Repository: "repository: hydradb-0013",
+		Task:       Task{Seed: Seed{Kind: SeedContext, Value: "impl-bundle"}},
+		Owner:      Card{Title: "impl-bundle", Body: "intent: it summarizes a piece of a code base"},
+		Neighbors: NeighborCards([]Neighbor{
+			{
+				Name:         "impl-summarize",
+				Edge:         graph.EdgeDependsOn,
+				Direction:    "out",
+				Label:        graph.LabelContext,
+				Intent:       "it writes the context document\nand nothing else",
+				Requirements: []string{"r.context-doc: it writes a document per context"},
+				Interfaces:   []string{"WriteContextDoc (function) func WriteContextDoc(docDir, repository, context string) (string, error)"},
+			},
+			{
+				Name:      "impl-ingest",
+				Edge:      graph.EdgeDependsOn,
+				Direction: "in",
+				Label:     graph.LabelContext,
+			},
+		}),
+		Claims: []Card{{Title: "finding open", Body: "the code suggests: intent is empty"}},
+	}
+	text, dropped := Render(pack, 8000)
+	if len(dropped) != 0 {
+		t.Fatalf("dropped = %v, want none", dropped)
+	}
+	neighbors := position(t, text, NeighborsTitle)
+	if neighbors < position(t, text, OwnerTitle) || neighbors > position(t, text, ClaimsTitle) {
+		t.Fatalf("%q is not between the owner card and the claims:\n%s", NeighborsTitle, text)
+	}
+	for _, want := range []string{
+		"out " + graph.EdgeDependsOn + " " + graph.LabelContext + " impl-summarize",
+		"intent: it writes the context document\n",
+		"MUST r.context-doc: it writes a document per context",
+		"interface WriteContextDoc (function) func WriteContextDoc(docDir, repository, context string) (string, error)",
+		"in " + graph.EdgeDependsOn + " " + graph.LabelContext + " impl-ingest",
+		"intent: " + NoIntentNote,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the neighbor cards lost %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "and nothing else") {
+		t.Errorf("a neighbor card carried more than the first line of the intent:\n%s", text)
 	}
 }
 

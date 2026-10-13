@@ -315,18 +315,30 @@ func collect(
 		label = edgeSpec.FromLabel
 	}
 	name := neighborName(row)
-	title := direction + " " + edgeSpec.Type + " " + label + " " + name
+	neighbor := contextpack.Neighbor{
+		Name:      name,
+		Edge:      edgeSpec.Type,
+		Direction: direction,
+		Label:     label,
+		Intent:    value(row, "intent"),
+	}
+	if label == graph.LabelContext && name != "" {
+		neighbor.Requirements, neighbor.Interfaces = contextFacts(ctx, options, name)
+	}
+	card := contextpack.NeighborCard(neighbor)
 	body := strings.Builder{}
 	for _, key := range graph.LabelProperties[label] {
-		if value := value(row, key); value != "" && key != "name" {
+		if key == "name" || key == "intent" {
+			continue
+		}
+		if value := value(row, key); value != "" {
 			fmt.Fprintf(&body, "%s: %s\n", key, oneLine(value))
 		}
 	}
-	if label == graph.LabelContext && name != "" {
-		if intent := value(row, "intent"); intent != "" {
-			fmt.Fprintf(&body, "intent: %s\n", firstLine(intent))
-		}
-		cardOfContext(ctx, options, &body, name)
+	body.WriteString(card.Body)
+	title := card.Title
+	if title == "" {
+		title = direction + " " + edgeSpec.Type + " " + label + " " + name
 	}
 	cards[title] = contextpack.Card{Title: title, Body: body.String()}
 	*candidates = append(*candidates, contextpack.Candidate{
@@ -335,25 +347,28 @@ func collect(
 	})
 }
 
-func cardOfContext(ctx context.Context, options Options, body *strings.Builder, name string) {
+func contextFacts(ctx context.Context, options Options, name string) ([]string, []string) {
 	id := graph.ContextIDIn(options.graphNamespace(), name)
-	requirements, err := options.Reader.SelectOut(ctx, graph.EdgeRequires, graph.LabelContext, graph.LabelRequirement, id,
+	requirements := []string{}
+	rows, err := options.Reader.SelectOut(ctx, graph.EdgeRequires, graph.LabelContext, graph.LabelRequirement, id,
 		graph.LabelProperties[graph.LabelRequirement])
 	if err == nil {
-		for _, row := range requirements {
+		for _, row := range rows {
 			if !strings.EqualFold(value(row, "level"), string(spec.LevelMust)) {
 				continue
 			}
-			fmt.Fprintf(body, "MUST %s: %s\n", value(row, "reqId"), oneLine(value(row, "text")))
+			requirements = append(requirements, value(row, "reqId")+": "+oneLine(value(row, "text")))
 		}
 	}
-	interfaces, err := options.Reader.SelectOut(ctx, graph.EdgeDeclares, graph.LabelContext, graph.LabelInterface, id,
+	interfaces := []string{}
+	rows, err = options.Reader.SelectOut(ctx, graph.EdgeDeclares, graph.LabelContext, graph.LabelInterface, id,
 		graph.LabelProperties[graph.LabelInterface])
 	if err == nil {
-		for _, row := range interfaces {
-			fmt.Fprintf(body, "interface %s (%s) %s\n", value(row, "name"), value(row, "kind"), value(row, "signature"))
+		for _, row := range rows {
+			interfaces = append(interfaces, value(row, "name")+" ("+value(row, "kind")+") "+value(row, "signature"))
 		}
 	}
+	return requirements, interfaces
 }
 
 func ownerOfFile(ctx context.Context, options Options, path string) (string, error) {
