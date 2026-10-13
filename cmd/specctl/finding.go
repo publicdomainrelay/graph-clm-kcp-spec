@@ -104,7 +104,9 @@ func runFindingAdd(args []string, stdout, stderr io.Writer) int {
 	unit := fs.String("unit", "", "the declared unit the finding concerns")
 	severity := fs.String("severity", "", "how serious the finding is")
 	ref := fs.String("ref", "", "where the finding came from")
-	options := addGlobals(fs)
+	// --context names the SystemContext here, so the kubeconfig --context of
+	// the globals must not be defined a second time.
+	options := addGlobalsExcept(fs, "context")
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
 		return exitUsage

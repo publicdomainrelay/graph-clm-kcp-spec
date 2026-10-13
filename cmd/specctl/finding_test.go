@@ -105,3 +105,35 @@ func TestFindingCommandSummaryCut(t *testing.T) {
 		t.Errorf("summary = %q", got)
 	}
 }
+
+// buildVerbFlagSet builds one verb's flag set by running it with --help: every
+// verb parses its flags before it does anything else, so the help path reaches
+// the whole flag set and a flag it defines twice panics there. The panic is
+// turned into a test failure, so a duplicate flag fails here instead of in a
+// user's command.
+func buildVerbFlagSet(t *testing.T, command, verb string) {
+	t.Helper()
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	code := -1
+	func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				t.Errorf("specctl %s %s: %v", command, verb, recovered)
+			}
+		}()
+		code = run([]string{command, verb, "--help"}, stdout, stderr)
+	}()
+	if code != exitUsage && code != exitOK {
+		t.Errorf("specctl %s %s --help = %d, want %d or %d", command, verb, code, exitUsage, exitOK)
+	}
+}
+
+func TestFindingCommandFlagSetsDefineEveryFlagOnce(t *testing.T) {
+	for _, verb := range []string{"add", "ls", "dismiss"} {
+		buildVerbFlagSet(t, "finding", verb)
+	}
+	for _, verb := range []string{"apply", "ls", "show", "approve", "preview", "items", "status"} {
+		buildVerbFlagSet(t, "plan", verb)
+	}
+}
