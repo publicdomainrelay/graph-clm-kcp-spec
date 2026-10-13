@@ -172,3 +172,39 @@ Hashes stay out of the pack and are available through a tool.
 - **B3:** an injected directive in the model zone becomes a quarantined Finding.
 - **E:** a cc-clm-mod `npm test` for owner mapping and tools; a manual session in a `specctl up` checkout shows a card after a Read.
 - **Gates:** `gofmt`, `go vet ./...`, `go test ./...` and `make test-live` green at every commit.
+
+## Run log
+
+### Item A: ingest correctness
+
+Baseline (main at e6a9429, structure-only ingest of this repository, no model
+summaries):
+
+| reading | before | after A1 (default excludes) | after A2 (partitions are source only) |
+| --- | --- | --- | --- |
+| contexts | 375 | 209 | 81 |
+| of them under `fixtures/` | 152 | 0 | 0 |
+| under `examples/` | 70 | 70 | 0 |
+| under `policies/` | 54 | 54 | 2 |
+| `dependsOn` edges | 695 | 401 | 401 |
+| contexts depending on the root | 374 of 375 | 208 of 209 | 80 of 81 |
+
+Both changes were authored as requirements (`r.default-excludes`,
+`r.source-only-partitions` in `impl-ingest`) and realized by specd driving
+deepseek: c5c37d1 and 5930768. The measurements come from a fresh clone with no
+`open-architecture` branch, a fresh state directory and no other instance on
+that checkout.
+
+Findings from running them:
+
+- The requirement-coverage judgment reported `missing: r.default-excludes` for
+  c5c37d1, which does implement it; the judgment is a false negative there.
+- A stale specd on the same checkout re-creates the architecture branch after it
+  is deleted, so a "fresh" measurement silently restored the old contexts until
+  every instance on that checkout was stopped. Item A5 covers the scope; the
+  measurement recipe belongs in the README.
+- A transient graph write (`ConnectivityError: ... broken pipe`) failed a realize
+  twice; `boltgraph` now retries a query whose connection died (b0d16fd).
+- Verify needs `GOFLAGS=-buildvcs=false` in specd's detached realize worktree, or
+  `go build` fails with `error obtaining VCS status`; the Repository carries it
+  while the product fix is outstanding.
