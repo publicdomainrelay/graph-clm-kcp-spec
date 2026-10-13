@@ -344,3 +344,15 @@ prints `impl-ingest` and `abc/clm/memory.go` prints `abc-clm`.
 Note for a fresh worktree: `cc-clm-mod/node_modules` is not in git, so `npm ci`
 in that directory before `npm test` (or the vendor test fails with
 `Cannot find package 'esbuild'`).
+
+### Item F: the swarm
+
+Realized as 6e176d8. The pack gained two sections in the fixed order (after the
+neighbour cards, before the claims): the **blackboard** (the changes running for
+these contexts, the memory notes other agent contexts wrote, and the open
+proposals and findings) and the **scoreboard** (the plan items that touch these
+contexts and their phases). Recovery now fails an orphaned change without
+creating a new attempt when a newer attempt of the same episode exists, and it
+carries the plan item that staged the change, so a change and its plan item
+agree on the owner (finding F8). Live check: `specctl context pack --context
+impl-ingest` renders both sections in that order.
