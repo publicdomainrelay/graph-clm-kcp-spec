@@ -218,3 +218,18 @@ Findings from running them:
 - Verify needs `GOFLAGS=-buildvcs=false` in specd's detached realize worktree, or
   `go build` fails with `error obtaining VCS status`; the Repository carries it
   while the product fix is outstanding.
+
+Item A3 (application contexts), A4b (`TEST_IMPORTS`) and A5 (the scope is
+persistent and pruned) were authored in `cmd-specctl`, `abc-graph` and
+`impl-populate` and realized in one batch (b8f357f). The reading after them, from
+a fresh clone:
+
+| reading | after A4 | after the batch |
+| --- | --- | --- |
+| contexts | 81 | 81 |
+| command contexts (`cmd-*`) | 3 | 3 |
+| contexts naming an orchestrator | 0 | 34 |
+| `dependsOn` edges | 250 | 251 |
+| contexts depending on the root | 0 | 0 |
+| context pairs joined by `TEST_IMPORTS` | 0 | 71 |
+| `spec.testDependsOn` entries | 0 | 71 |
