@@ -195,30 +195,69 @@ func TestUnresolvedRefsResolveAgainstTheTree(t *testing.T) {
 	}
 }
 
-func TestPartitionDependenciesFollowImportsAndTheRoot(t *testing.T) {
+func TestPartitionDependenciesFollowProductionImports(t *testing.T) {
 	partitions := []Partition{
 		{Name: "calc", Directory: ".", TreeFiles: []string{"go.mod"}},
 		{Name: "calc-calc", Directory: "calc", Files: []string{"calc/calc.go"}},
-		{Name: "cmd-calc", Directory: "cmd/calc", Files: []string{"cmd/calc/main.go"}},
-		{Name: "store", Directory: "store", Files: []string{"store/store.go"}},
+		{Name: "cmd-calc", Directory: "cmd/calc", Files: []string{"cmd/calc/main.go", "cmd/calc/main_test.go"}},
+		{Name: "store", Directory: "store", Files: []string{"store/store.go", "test/helpers.go"}},
 	}
 	imports := []Import{
 		{From: "cmd/calc/main.go", Path: "example.com/calc/calc"},
 		{From: "cmd/calc/main.go", Path: "fmt"},
+		{From: "cmd/calc/main_test.go", Path: "example.com/calc/store"},
 		{From: "calc/calc.go", Path: "example.com/calc/calc"},
 		{From: "store/store.go", Path: "k8s.io/apimachinery/pkg/api/meta"},
+		{From: "test/helpers.go", Path: "example.com/calc/calc"},
 	}
 	dependencies := PartitionDependencies(partitions, imports, ModuleResolver{ModulePath: "example.com/calc"})
-	want := map[string][]string{
-		"cmd-calc":  {"calc", "calc-calc"},
-		"calc-calc": {"calc"},
-		"store":     {"calc"},
-	}
+	want := map[string][]string{"cmd-calc": {"calc-calc"}}
 	if !reflect.DeepEqual(dependencies, want) {
 		t.Fatalf("dependencies = %v, want %v", dependencies, want)
 	}
-	if refs := DependencyRefs(dependencies["cmd-calc"]); !reflect.DeepEqual(refs, []string{"sc.calc", "sc.calc-calc"}) {
+	if refs := DependencyRefs(dependencies["cmd-calc"]); !reflect.DeepEqual(refs, []string{"sc.calc-calc"}) {
 		t.Fatalf("refs = %v", refs)
+	}
+	tests := TestImportEdges(partitions, imports, ModuleResolver{ModulePath: "example.com/calc"})
+	wantTests := map[string][]string{"cmd-calc": {"store"}, "store": {"calc-calc"}}
+	if !reflect.DeepEqual(tests, wantTests) {
+		t.Fatalf("test edges = %v, want %v", tests, wantTests)
+	}
+	if _, carries := dependencies["calc-calc"]; carries {
+		t.Fatalf("calc-calc dependsOn = %v, want no dependency: a test file under test/ does not make one", dependencies["calc-calc"])
+	}
+}
+
+func TestPartitionDependenciesReachTheRootOnlyThroughProductionCode(t *testing.T) {
+	partitions := []Partition{
+		{Name: "calc", Directory: ".", TreeFiles: []string{"go.mod"}},
+		{Name: "calc-calc", Directory: "calc", Files: []string{"calc/calc.go"}},
+		{Name: "calc-store", Directory: "store", Files: []string{"store/store.go", "store/store_test.go"}},
+	}
+	imports := []Import{
+		{From: "store/store.go", Path: "example.com/calc"},
+		{From: "calc/calc.go", Path: "example.com/calc/calc"},
+	}
+	dependencies := PartitionDependencies(partitions, imports, ModuleResolver{ModulePath: "example.com/calc"})
+	want := map[string][]string{"calc-store": {"calc"}}
+	if !reflect.DeepEqual(dependencies, want) {
+		t.Fatalf("dependencies = %v, want %v", dependencies, want)
+	}
+	for _, name := range []string{"calc", "calc-calc"} {
+		if _, carries := dependencies[name]; carries {
+			t.Errorf("%s dependsOn = %v, want none: the root is not a default dependency", name, dependencies[name])
+		}
+	}
+
+	both := []Import{
+		{From: "store/store.go", Path: "example.com/calc/calc"},
+		{From: "store/store_test.go", Path: "example.com/calc/calc"},
+	}
+	if got := TestImportEdges(partitions, both, ModuleResolver{ModulePath: "example.com/calc"}); len(got) != 0 {
+		t.Errorf("test edges = %v, want none: production code carries the import too", got)
+	}
+	if got := PartitionDependencies(partitions, both, ModuleResolver{ModulePath: "example.com/calc"})["calc-store"]; !reflect.DeepEqual(got, []string{"calc-calc"}) {
+		t.Errorf("calc-store dependsOn = %v, want the import production code carries as well", got)
 	}
 }
 
@@ -243,9 +282,8 @@ func TestPartitionDependenciesResolveDenoImports(t *testing.T) {
 	}}
 	dependencies := PartitionDependencies(partitions, imports, resolver)
 	want := map[string][]string{
-		"lib-marker":          {"atproto-market", "lib-market-common", "lib-market-lexicons"},
-		"lib-market-common":   {"atproto-market", "lib-market-lexicons"},
-		"lib-market-lexicons": {"atproto-market"},
+		"lib-marker":        {"lib-market-common", "lib-market-lexicons"},
+		"lib-market-common": {"lib-market-lexicons"},
 	}
 	if !reflect.DeepEqual(dependencies, want) {
 		t.Fatalf("dependencies = %v, want %v", dependencies, want)

@@ -704,7 +704,7 @@ func TestRunGivesTheRepositoryARootContextAndSeedsTheArchDocument(t *testing.T) 
 		t.Errorf("cmd-calc upstream = %q, want the generated root context", command.Spec.Upstream)
 	}
 	if !reflect.DeepEqual(command.Spec.DependsOn, []string{"sc.calc", "sc.calc-root"}) {
-		t.Errorf("cmd-calc dependsOn = %v, want the import edge and the root", command.Spec.DependsOn)
+		t.Errorf("cmd-calc dependsOn = %v, want the import edge and the dependency the arch document declares", command.Spec.DependsOn)
 	}
 	found := false
 	for _, ref := range command.Spec.CodeRefs {
@@ -717,8 +717,8 @@ func TestRunGivesTheRepositoryARootContextAndSeedsTheArchDocument(t *testing.T) 
 	}
 
 	library := storedContext(t, cluster, "calc")
-	if !reflect.DeepEqual(library.Spec.DependsOn, []string{"sc.calc-root"}) {
-		t.Errorf("calc dependsOn = %v", library.Spec.DependsOn)
+	if len(library.Spec.DependsOn) != 0 {
+		t.Errorf("calc dependsOn = %v, want none: the root is not a default dependency", library.Spec.DependsOn)
 	}
 }
 

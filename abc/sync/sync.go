@@ -107,6 +107,19 @@ func IsTestFile(file string) bool {
 	return false
 }
 
+func IsTestImportFile(file string) bool {
+	if IsTestFile(file) {
+		return true
+	}
+	for directory := path.Dir(file); directory != "." && directory != "/" && directory != ""; directory = path.Dir(directory) {
+		switch path.Base(directory) {
+		case "test", "tests":
+			return true
+		}
+	}
+	return false
+}
+
 type PartitionOptions struct {
 	Mode string
 
@@ -506,7 +519,11 @@ func symbolsUnder(partition Partition, symbols []Symbol) []Symbol {
 	return out
 }
 
-const dependencyRoot = "."
+// TestImportsEdge names the edge only test code carries: a partition imports
+// another partition from a test file and no production file imports it. It
+// stays out of spec.dependsOn, so a cycle that exists only through test code
+// cannot enter it.
+const TestImportsEdge = "TEST_IMPORTS"
 
 // ModuleResolver turns an import specifier into the repository-relative path
 // it names. Go resolves through the module path; TypeScript resolves a relative
@@ -559,7 +576,24 @@ func (r ModuleResolver) fromImportMap(specifier string) (string, bool) {
 	return path.Clean(joined), true
 }
 
+// PartitionDependencies reports the production dependency edges between
+// partitions: an import whose file belongs to a partition and whose resolved
+// target lands in a different partition becomes an edge from the importing
+// partition to the target partition. An import carried only by test files is a
+// TEST_IMPORTS edge instead, an import carried by both is production, and no
+// partition depends on the repository root unless a production import resolves
+// to it.
 func PartitionDependencies(partitions []Partition, imports []Import, resolver ModuleResolver) map[string][]string {
+	return partitionImportEdges(partitions, imports, resolver, false)
+}
+
+// TestImportEdges reports the edges only test code carries, the ones
+// PartitionDependencies leaves out of spec.dependsOn.
+func TestImportEdges(partitions []Partition, imports []Import, resolver ModuleResolver) map[string][]string {
+	return partitionImportEdges(partitions, imports, resolver, true)
+}
+
+func partitionImportEdges(partitions []Partition, imports []Import, resolver ModuleResolver, testOnly bool) map[string][]string {
 	byDirectory := map[string]string{}
 	for _, partition := range partitions {
 		byDirectory[partition.Directory] = partition.Name
@@ -570,9 +604,11 @@ func PartitionDependencies(partitions []Partition, imports []Import, resolver Mo
 			owner[file] = partition.Name
 		}
 	}
-	dependencies := map[string]map[string]bool{}
+	production := map[string]map[string]bool{}
+	test := map[string]map[string]bool{}
 	for _, partition := range partitions {
-		dependencies[partition.Name] = map[string]bool{}
+		production[partition.Name] = map[string]bool{}
+		test[partition.Name] = map[string]bool{}
 	}
 	for _, edge := range imports {
 		from, ok := owner[edge.From]
@@ -587,18 +623,23 @@ func PartitionDependencies(partitions []Partition, imports []Import, resolver Mo
 		if !ok || target == from {
 			continue
 		}
-		dependencies[from][target] = true
-	}
-	root := byDirectory[dependencyRoot]
-	for _, partition := range partitions {
-		if root != "" && partition.Name != root {
-			dependencies[partition.Name][root] = true
+		if IsTestImportFile(edge.From) {
+			test[from][target] = true
+			continue
 		}
+		production[from][target] = true
+	}
+	selected := production
+	if testOnly {
+		selected = test
 	}
 	out := map[string][]string{}
-	for name, targets := range dependencies {
+	for name, targets := range selected {
 		ordered := make([]string, 0, len(targets))
 		for target := range targets {
+			if testOnly && production[name][target] {
+				continue
+			}
 			ordered = append(ordered, target)
 		}
 		sort.Strings(ordered)
