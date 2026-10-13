@@ -76,7 +76,7 @@ func TestRunGraphSubcommands(t *testing.T) {
 	t.Setenv("SPECD_BOLT_URL", "")
 
 	code, _, stderr := runWith("graph")
-	if code != exitUsage || !strings.Contains(stderr, "neighbors or rebuild") {
+	if code != exitUsage || !strings.Contains(stderr, "neighbors, rebuild, query, load, serve or stop") {
 		t.Errorf("graph alone: code %d, stderr %q", code, stderr)
 	}
 
