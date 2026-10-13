@@ -3,7 +3,9 @@
 # The markdown (0011-plans-as-objects.md) says why; this object says what is
 # done. Every acceptance step runs at the checkout HEAD in a detached worktree;
 # scripts/require-tests.sh fails when no test matching its pattern ran, so a step
-# written before its tests exist cannot pass on an empty match.
+# written before its tests exist cannot pass on an empty match. The worktree is
+# a pristine checkout: a step that needs untracked dependencies (node_modules)
+# installs them itself.
 apiVersion: specs.publicdomainrelay.dev/v1alpha1
 kind: Plan
 metadata:
@@ -288,7 +290,9 @@ spec:
             - bash
             - -c
             - >-
-              cd cc-clm-mod && npm test >/dev/null &&
+              cd cc-clm-mod &&
+              npm ci --no-audit --no-fund --prefer-offline --silent &&
+              npm test >/dev/null &&
               claude plugin test . 2>&1 | tee /dev/stderr |
               grep -q "(pass) the plan and finding tools map to specctl" &&
               claude plugin test . 2>&1 | grep -q "(pass) open plan items join the context section"
