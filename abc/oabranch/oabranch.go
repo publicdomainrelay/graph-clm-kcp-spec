@@ -36,6 +36,8 @@ const (
 
 	ChangesDir = "changes"
 
+	PlansDir = "plans"
+
 	ChangesDocPath = "CHANGES.md"
 
 	GitAttributesPath = ".gitattributes"
@@ -117,12 +119,20 @@ func ChangePath(change string) string {
 	return ChangesDir + "/" + change + ".yaml"
 }
 
+func PlanPath(plan string) string {
+	return PlansDir + "/" + plan + ".yaml"
+}
+
 type Snapshot struct {
 	Repository spec.Repository
 
 	Contexts []spec.SystemContext
 
 	Changes []spec.SpecChange
+
+	// Plans are the plans whose repository this is, written next to the specs
+	// so an approved plan and the item phases it reached survive the cluster.
+	Plans []spec.Plan
 
 	ManagedBudget int
 
@@ -477,6 +487,89 @@ func changeDeltaOf(in *spec.Delta) *changeDeltaDoc {
 	return out
 }
 
+// planDoc is what plans/<name>.yaml holds: the plan's whole spec and a summary
+// status of the phase and the per item phase and commit, so the file moves only
+// when an item's phase or a commit does.
+type planDoc struct {
+	APIVersion string `json:"apiVersion"`
+
+	Kind string `json:"kind"`
+
+	Metadata objectMeta `json:"metadata"`
+
+	Spec spec.PlanSpec `json:"spec"`
+
+	Status planStatusDoc `json:"status"`
+}
+
+type planStatusDoc struct {
+	Phase string `json:"phase,omitempty"`
+
+	Items []planItemStatusDoc `json:"items,omitempty"`
+}
+
+type planItemStatusDoc struct {
+	ID string `json:"id"`
+
+	Phase string `json:"phase,omitempty"`
+
+	Commit string `json:"commit,omitempty"`
+}
+
+func planStatusDocOf(status spec.PlanStatus) planStatusDoc {
+	doc := planStatusDoc{Phase: status.Phase}
+	for _, item := range status.Items {
+		doc.Items = append(doc.Items, planItemStatusDoc{ID: item.ID, Phase: item.Phase, Commit: item.Commit})
+	}
+	return doc
+}
+
+func (d planStatusDoc) planStatus() spec.PlanStatus {
+	status := spec.PlanStatus{Phase: d.Phase}
+	for _, item := range d.Items {
+		status.Items = append(status.Items, spec.PlanItemStatus{ID: item.ID, Phase: item.Phase, Commit: item.Commit})
+	}
+	return status
+}
+
+func sortedPlans(plans []spec.Plan) []spec.Plan {
+	out := append([]spec.Plan{}, plans...)
+	sort.Slice(out, func(left, right int) bool { return out[left].Name < out[right].Name })
+	return out
+}
+
+// PlanFiles parses the plans a branch tree holds, keyed by name. A file outside
+// plans/ is not a plan and is ignored.
+func PlanFiles(files map[string][]byte) (map[string]spec.Plan, error) {
+	out := map[string]spec.Plan{}
+	for path, data := range files {
+		name, ok := strings.CutPrefix(path, PlansDir+"/")
+		if !ok || !strings.HasSuffix(name, ".yaml") || strings.Contains(name, "/") {
+			continue
+		}
+		name = strings.TrimSuffix(name, ".yaml")
+		doc := planDoc{}
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, fmt.Errorf("oabranch: parse %s: %w", path, err)
+		}
+		if doc.Kind != specapi.PlanKind {
+			return nil, fmt.Errorf("oabranch: %s is a %q, want %s", path, doc.Kind, specapi.PlanKind)
+		}
+		plan := spec.Plan{}
+		plan.APIVersion = doc.APIVersion
+		plan.Kind = doc.Kind
+		plan.Name = doc.Metadata.Name
+		if plan.Name == "" {
+			plan.Name = name
+		}
+		plan.Namespace = doc.Metadata.Namespace
+		plan.Spec = doc.Spec
+		plan.Status = doc.Status.planStatus()
+		out[name] = plan
+	}
+	return out, nil
+}
+
 type supersededDoc struct {
 	Name string `json:"name"`
 
@@ -620,6 +713,23 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 		files[ChangePath(surviving.Name)] = data
 	}
 
+	for _, plan := range sortedPlans(snapshot.Plans) {
+		if plan.Name == "" {
+			return nil, fmt.Errorf("oabranch: a plan has no name")
+		}
+		data, err := yamlx.Marshal(planDoc{
+			APIVersion: specapi.Group + "/" + specapi.Version,
+			Kind:       specapi.PlanKind,
+			Metadata:   objectMeta{Name: plan.Name, Namespace: plan.Namespace},
+			Spec:       plan.Spec,
+			Status:     planStatusDocOf(plan.Status),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("oabranch: render plan %s: %w", plan.Name, err)
+		}
+		files[PlanPath(plan.Name)] = data
+	}
+
 	vertices, edges := graph.Build(graph.Snapshot{Repository: portable(snapshot.Repository), Contexts: contexts, CodeRefs: refs})
 	vertexLines, err := vertexJSONL(vertices)
 	if err != nil {
@@ -678,6 +788,7 @@ func readme(repository string) string {
 		"| `status/<context>.yaml` | observed code facts and conditions |\n" +
 		"| `context/<context>.md` | the context's prose and resolved code references; the spec lives in `specs/` |\n" +
 		"| `changes/<name>.yaml` | each SpecChange: direction, a delta summary (counts and ids), a progress summary, the agent's report and the verify summary |\n" +
+		"| `plans/<name>.yaml` | each Plan: its spec, and each item's phase and commit |\n" +
 		"| `CHANGES.md` | on a feature branch: the requirement delta against the default branch |\n" +
 		"| `graph/*.jsonl` | the context graph, one vertex or edge per line |\n"
 }

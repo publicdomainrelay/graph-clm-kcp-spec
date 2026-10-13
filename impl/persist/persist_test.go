@@ -772,6 +772,84 @@ func TestRestoreMakesANonSettledChangeFailed(t *testing.T) {
 	}
 }
 
+func seedPlan(t *testing.T, cluster *fakeCluster, name string) {
+	t.Helper()
+	plan := spec.Plan{}
+	plan.APIVersion = specapi.Group + "/" + specapi.Version
+	plan.Kind = specapi.PlanKind
+	plan.Name = name
+	plan.Namespace = "default"
+	plan.Spec = spec.PlanSpec{
+		Repository: "calc",
+		Title:      "Tidy calc",
+		Approved:   true,
+		ApprovedBy: "bob",
+		Items:      []spec.PlanItem{{ID: "i1", Summary: "add the subtraction"}},
+	}
+	plan.Status = spec.PlanStatus{
+		Phase: "Approved",
+		Items: []spec.PlanItemStatus{{ID: "i1", Phase: specapi.PhaseSucceeded, Commit: "c0ffee"}},
+	}
+	cluster.put(t, &plan)
+}
+
+func TestPersistAndRestoreCarryThePlans(t *testing.T) {
+	repo := clone(t)
+	cluster := newFakeCluster()
+	seed(t, cluster, repo)
+	seedPlan(t, cluster, "calc-plan")
+	ctx := context.Background()
+
+	result, err := Persist(ctx, Options{Cluster: cluster, Repository: "calc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Committed {
+		t.Fatalf("result = %+v", result)
+	}
+	document := git(t, repo, "show", oabranch.Branch("calc")+":plans/calc-plan.yaml")
+	for _, want := range []string{"kind: Plan", "name: calc-plan", "phase: Approved", "commit: c0ffee"} {
+		if !strings.Contains(document, want) {
+			t.Errorf("the branch plan lacks %q:\n%s", want, document)
+		}
+	}
+
+	empty := newFakeCluster()
+	restored, err := Restore(ctx, RestoreOptions{Cluster: empty, Repository: "calc", RepoPath: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(restored.Plans, ",") != "calc-plan" {
+		t.Fatalf("restored plans = %v", restored.Plans)
+	}
+	plan := readRestoredPlan(t, empty, "calc-plan")
+	if plan.Spec.Title != "Tidy calc" || !plan.Spec.Approved || plan.Spec.ApprovedBy != "bob" {
+		t.Fatalf("restored spec = %+v", plan.Spec)
+	}
+	if len(plan.Spec.Items) != 1 || plan.Spec.Items[0].ID != "i1" {
+		t.Fatalf("restored items = %+v", plan.Spec.Items)
+	}
+	if plan.Status.Phase != "Approved" || len(plan.Status.Items) != 1 {
+		t.Fatalf("restored status = %+v", plan.Status)
+	}
+	if item := plan.Status.Items[0]; item.ID != "i1" || item.Phase != specapi.PhaseSucceeded || item.Commit != "c0ffee" {
+		t.Fatalf("restored item = %+v", item)
+	}
+}
+
+func readRestoredPlan(t *testing.T, cluster *fakeCluster, name string) spec.Plan {
+	t.Helper()
+	object, err := cluster.Get(context.Background(), specapi.PlanGVR, "default", name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return *typed.(*spec.Plan)
+}
+
 func readRestoredChange(t *testing.T, cluster *fakeCluster, name string) spec.SpecChange {
 	t.Helper()
 	object, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, "default", name)

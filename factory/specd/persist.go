@@ -52,8 +52,49 @@ func (c *Controller) repositoryOf(ctx context.Context, item key) string {
 			return ""
 		}
 		return c.contextRepository(ctx, namespace, change.Spec.SystemContext)
+	case specapi.PlanKind:
+		return c.planPersistRepository(ctx, namespace, item.Name)
 	}
 	return ""
+}
+
+// planPersistRepository is the repository a plan's status change persists: the
+// repository its spec names, or the only Repository the namespace holds when it
+// names none.
+func (c *Controller) planPersistRepository(ctx context.Context, namespace, name string) string {
+	object, err := c.client.Get(ctx, specapi.PlanGVR, namespace, name)
+	if err != nil {
+		return ""
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		return ""
+	}
+	plan, ok := typed.(*spec.Plan)
+	if !ok {
+		return ""
+	}
+	if plan.Spec.Repository != "" {
+		return plan.Spec.Repository
+	}
+	return c.onlyRepository(ctx, namespace)
+}
+
+// onlyRepository is the single Repository a namespace holds. A namespace with
+// none, or with more than one, leaves the plan's repository unknown.
+func (c *Controller) onlyRepository(ctx context.Context, namespace string) string {
+	list, err := c.client.List(ctx, specapi.RepositoryGVR, namespace)
+	if err != nil {
+		return ""
+	}
+	name := ""
+	for _, object := range list.Items {
+		if name != "" {
+			return ""
+		}
+		name = object.GetName()
+	}
+	return name
 }
 
 func (c *Controller) contextRepository(ctx context.Context, namespace, name string) string {

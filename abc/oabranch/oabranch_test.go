@@ -3,6 +3,7 @@ package oabranch
 import (
 	"fmt"
 	"os/exec"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -92,6 +93,68 @@ func TestFilesLayout(t *testing.T) {
 	}
 	if !strings.Contains(string(files[GraphVerticesPath]), `"label":"SpecContext"`) {
 		t.Errorf("vertices lack the context:\n%s", files[GraphVerticesPath])
+	}
+}
+
+func TestPlanFilesRoundTrip(t *testing.T) {
+	snapshot := calcSnapshot()
+	plan := spec.Plan{}
+	plan.Name = "calc-plan"
+	plan.Namespace = "default"
+	plan.Spec = spec.PlanSpec{
+		Repository: "calc",
+		Title:      "Tidy calc",
+		Approved:   true,
+		ApprovedBy: "bob",
+		Items:      []spec.PlanItem{{ID: "i1", Summary: "add sub"}},
+	}
+	plan.Status = spec.PlanStatus{
+		Phase: "Approved",
+		Items: []spec.PlanItemStatus{{
+			ID:      "i1",
+			Phase:   "Succeeded",
+			Commit:  "c0ffee",
+			Preview: []string{"a preview a reader should not pay for"},
+			Message: "done",
+		}},
+	}
+	snapshot.Plans = []spec.Plan{plan}
+
+	files, err := Files(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, ok := files[PlanPath("calc-plan")]
+	if !ok {
+		t.Fatalf("the branch has no %s", PlanPath("calc-plan"))
+	}
+	for _, want := range []string{"kind: Plan", "name: calc-plan", "repository: calc", "phase: Approved", "commit: c0ffee"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("the plan file lacks %q:\n%s", want, data)
+		}
+	}
+	for _, unwanted := range []string{"a preview a reader should not pay for", "message: done"} {
+		if strings.Contains(string(data), unwanted) {
+			t.Errorf("the plan file carries %q:\n%s", unwanted, data)
+		}
+	}
+
+	parsed, err := PlanFiles(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, ok := parsed["calc-plan"]
+	if !ok {
+		t.Fatalf("PlanFiles dropped the plan: %v", parsed)
+	}
+	if !reflect.DeepEqual(restored.Spec, plan.Spec) {
+		t.Errorf("spec = %+v, want %+v", restored.Spec, plan.Spec)
+	}
+	if restored.Status.Phase != "Approved" || len(restored.Status.Items) != 1 {
+		t.Fatalf("status = %+v", restored.Status)
+	}
+	if item := restored.Status.Items[0]; item.ID != "i1" || item.Phase != "Succeeded" || item.Commit != "c0ffee" {
+		t.Errorf("item = %+v", item)
 	}
 }
 

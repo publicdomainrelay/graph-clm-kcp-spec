@@ -456,6 +456,22 @@ func read(ctx context.Context, options Options) (state, error) {
 	sort.Slice(current.snapshot.Changes, func(left, right int) bool {
 		return current.snapshot.Changes[left].Name < current.snapshot.Changes[right].Name
 	})
+
+	plans, err := options.Cluster.List(ctx, specapi.PlanGVR, namespace)
+	if err != nil {
+		return state{}, fmt.Errorf("persist: list plans: %w", err)
+	}
+	for index := range plans.Items {
+		typed, err := kcpclient.Typed(&plans.Items[index])
+		if err != nil {
+			return state{}, err
+		}
+		plan, ok := typed.(*spec.Plan)
+		if !ok || (plan.Spec.Repository != "" && plan.Spec.Repository != options.Repository) {
+			continue
+		}
+		current.snapshot.Plans = append(current.snapshot.Plans, *plan)
+	}
 	return current, nil
 }
 
@@ -700,6 +716,8 @@ type RestoreResult struct {
 
 	Contexts []string
 
+	Plans []string
+
 	Changes []string
 }
 
@@ -808,6 +826,11 @@ func Restore(ctx context.Context, options RestoreOptions) (RestoreResult, error)
 		}
 		result.Contexts = append(result.Contexts, name)
 	}
+	restoredPlans, err := restorePlans(ctx, options.Cluster, namespace, files)
+	if err != nil {
+		return result, err
+	}
+	result.Plans = restoredPlans
 	adopted := Result{Branch: result.Branch, Commit: tip, Conflicts: map[string][]string{}}
 	restored, err := restoreChanges(ctx, options.Cluster, namespace, files)
 	if err != nil {
@@ -818,6 +841,74 @@ func Restore(ctx context.Context, options RestoreOptions) (RestoreResult, error)
 		return result, err
 	}
 	return result, nil
+}
+
+// restorePlans rebuilds the plans the branch carries, so an approved plan and
+// the item phases it reached survive a cluster loss and continue where the
+// branch left them. A Plan's status is dropped by the apply, so the phase and
+// the per item phase and commit are patched back afterwards.
+func restorePlans(ctx context.Context, cluster Cluster, namespace string, files map[string][]byte) ([]string, error) {
+	plans, err := oabranch.PlanFiles(files)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(plans))
+	for name := range plans {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	restored := make([]string, 0, len(names))
+	for _, name := range names {
+		plan := plans[name]
+		plan.APIVersion = specapi.Group + "/" + specapi.Version
+		plan.Kind = specapi.PlanKind
+		plan.Namespace = namespace
+		if plan.Name == "" {
+			plan.Name = name
+		}
+		plan.ResourceVersion = ""
+		plan.ManagedFields = nil
+		status := plan.Status
+		plan.Status = spec.PlanStatus{}
+		object, err := kcpclient.Unstructured(&plan)
+		if err != nil {
+			return nil, fmt.Errorf("persist: encode plan %s: %w", plan.Name, err)
+		}
+		unstructured.RemoveNestedField(object.Object, "status")
+		if _, err := cluster.Apply(ctx, object); err != nil {
+			return nil, fmt.Errorf("persist: apply plan %s: %w", plan.Name, err)
+		}
+		if _, err := cluster.PatchStatus(ctx, specapi.PlanGVR, namespace, plan.Name, planStatusValue(status)); err != nil {
+			return nil, fmt.Errorf("persist: patch plan %s status: %w", plan.Name, err)
+		}
+		restored = append(restored, plan.Name)
+	}
+	sort.Strings(restored)
+	return restored, nil
+}
+
+// planStatusValue is the status a restored plan is patched with: the phase the
+// branch recorded and, per item, its id, phase and commit.
+func planStatusValue(status spec.PlanStatus) map[string]any {
+	items := make([]any, 0, len(status.Items))
+	for _, item := range status.Items {
+		entry := map[string]any{"id": item.ID}
+		if item.Phase != "" {
+			entry["phase"] = item.Phase
+		}
+		if item.Commit != "" {
+			entry["commit"] = item.Commit
+		}
+		items = append(items, entry)
+	}
+	value := map[string]any{}
+	if status.Phase != "" {
+		value["phase"] = status.Phase
+	}
+	if len(items) > 0 {
+		value["items"] = items
+	}
+	return value
 }
 
 // restoreChanges rebuilds the SpecChange history the branch carries. A CRD's
