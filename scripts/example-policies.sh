@@ -2,7 +2,7 @@
 #
 # Evaluate a repository's bound policy library against a fresh clone at each
 # ref in REFS, writing the text and JSON reports to OUT. With the defaults this
-# is the atproto-market run docs/examples/atproto-market-policies.md records.
+# is the atproto-market binding.
 # The clone is never edited and never pushed.
 #
 # Environment:

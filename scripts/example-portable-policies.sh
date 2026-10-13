@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# The three runs docs/examples/portable-policies.md records, on one pack:
+# The three bindings of one pack:
 #
 #   A  atproto-market at its pre-iroh ref plus hono-compute-provider as a
 #      member repository: the reach-in lives in the provider, and the

@@ -2,7 +2,7 @@
 
 # Repo rules
 
-- Active plan: `docs/plans/0001-kcp.md`. Read it before any change.
+- `README.md` states what the system is and how to run it. Read it before a change.
 - Go is primary. Layering follows `../kcp-libs`: `common/` <- `abc/` <- `impl/` <- `factory/` <- `cmd/`.
   `abc/` has no I/O. Arrow points one way only.
 - The org-root `../CLAUDE.md` TypeScript rules apply to TypeScript code
