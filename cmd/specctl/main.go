@@ -417,6 +417,10 @@ usage:
       keeps running unless --stop-others); every later specctl call in the
       repo finds the current branch's session
   specctl arch outline [--repository <name>] [-o text|json]
+  specctl arch declared <context> [-o text|json]
+  specctl arch declare <context> --unit <unit>...
+  specctl arch release <context> (--unit <unit>... | --all)
+  specctl arch proposals [<context>] [-o text|json]
   specctl retry [--reason <text>] [--by <user>] <systemcontext>
       create the next attempt of the context's failed episodes, keeping the
       failed changes as the audit trail and recording who retried it and why

@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/authority"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/clm"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
@@ -23,6 +24,8 @@ type Cluster interface {
 	Get(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
 
 	Apply(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error)
+
+	Update(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error)
 
 	PatchStatus(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, status map[string]any) (*unstructured.Unstructured, error)
 }
@@ -65,6 +68,10 @@ type Result struct {
 	Applied bool
 
 	ContextDoc string
+
+	Proposals []spec.Proposal
+
+	Declared []string
 }
 
 func Run(ctx context.Context, options Options) (Result, error) {
@@ -110,41 +117,26 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	result.Dropped = draft.Dropped
 	result.Warnings = draft.Warnings
 
-	merged, validation := agent.ValidateDraft(options.Context, systemContext.Spec, systemContext.Status.Observed, draft)
-	if !validation.OK() {
-		return result, fmt.Errorf("summarize: the draft of %s does not validate: %w", options.Context, validation.Err())
+	write, err := guardedWrite(ctx, options, namespace, systemContext, draft)
+	if err != nil {
+		return result, err
 	}
+	systemContext = write.context
+	merged := write.plan.Spec
+	realized := write.plan.Realized
+	result.Proposals = write.plan.Proposals
+	result.Declared = write.plan.Declared.Sorted()
 	mergedHash, err := spec.HashSystemContextSpec(merged)
 	if err != nil {
 		return result, err
 	}
-	result.SpecHash = mergedHash
-
-	generation := systemContext.GetGeneration()
-	previousHash, previousErr := spec.HashSystemContextSpec(systemContext.Spec)
-	if previousErr != nil || previousHash != mergedHash {
-		updated := &spec.SystemContext{
-			ObjectMeta: *systemContext.ObjectMeta.DeepCopy(),
-			Spec:       merged,
-			Status:     systemContext.Status,
-		}
-		if updated.Annotations == nil {
-			updated.Annotations = map[string]string{}
-		}
-		updated.Annotations[specapi.OriginAnnotation] = specapi.OriginIngest
-		updated.Annotations[specapi.OriginHashAnnotation] = mergedHash
-		updated.SetDefaults()
-		stamped, err := kcpclient.Unstructured(updated)
-		if err != nil {
-			return result, err
-		}
-		applied, err := options.Cluster.Apply(ctx, stamped)
-		if err != nil {
-			return result, err
-		}
-		generation = applied.GetGeneration()
-		result.Applied = true
+	realizedHash, err := spec.HashSystemContextSpec(realized)
+	if err != nil {
+		return result, err
 	}
+	result.SpecHash = mergedHash
+	generation := write.generation
+	result.Applied = write.applied
 
 	observed := systemContext.Status.Observed
 	_, conditions := specsync.Conditions(specsync.Input{
@@ -157,8 +149,8 @@ func Run(ctx context.Context, options Options) (Result, error) {
 
 	status := map[string]any{
 		"observedGeneration": generation,
-		"realizedSpecHash":   mergedHash,
-		"realizedSpec":       &merged,
+		"realizedSpecHash":   realizedHash,
+		"realizedSpec":       &realized,
 		"syncedCommit":       systemContext.Status.ObservedCommit,
 		"syncedFingerprint":  observed.Fingerprint,
 		"syncedObserved":     observed,
@@ -187,4 +179,92 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		result.ContextDoc = path
 	}
 	return result, nil
+}
+
+const writeAttempts = 5
+
+type written struct {
+	context *spec.SystemContext
+
+	plan authority.Write
+
+	generation int64
+
+	applied bool
+}
+
+// guardedWrite stores a draft against the spec as it is when the agent is
+// done, not as it was when the agent started: a person can edit the spec while
+// the model works, and the update carries the resource version it read, so an
+// edit that lands in between is merged again instead of overwritten.
+func guardedWrite(ctx context.Context, options Options, namespace string, started *spec.SystemContext, draft agent.SpecDraft) (written, error) {
+	current := started
+	for attempt := 1; ; attempt++ {
+		recorded, err := authority.Parse(current.Annotations[specapi.DeclaredAnnotation])
+		if err != nil {
+			return written{}, fmt.Errorf("summarize: %s: %w", options.Context, err)
+		}
+		recorded = recorded.Union(authority.Changed(started.Spec, current.Spec))
+		drafted, validation := agent.ValidateDraft(options.Context, current.Spec, current.Status.Observed, draft)
+		if !validation.OK() {
+			return written{}, fmt.Errorf("summarize: the draft of %s does not validate: %w", options.Context, validation.Err())
+		}
+		plan := authority.Merge(recorded, current.Spec, current.Status.RealizedSpec, drafted)
+		out := written{context: current, plan: plan, generation: current.GetGeneration()}
+
+		mergedHash, err := spec.HashSystemContextSpec(plan.Spec)
+		if err != nil {
+			return written{}, err
+		}
+		realizedHash, err := spec.HashSystemContextSpec(plan.Realized)
+		if err != nil {
+			return written{}, err
+		}
+		previousHash, previousErr := spec.HashSystemContextSpec(current.Spec)
+		if previousErr == nil && previousHash == mergedHash {
+			return out, nil
+		}
+
+		updated := &spec.SystemContext{
+			ObjectMeta: *current.ObjectMeta.DeepCopy(),
+			Spec:       plan.Spec,
+			Status:     current.Status,
+		}
+		if updated.Annotations == nil {
+			updated.Annotations = map[string]string{}
+		}
+		updated.Annotations[specapi.OriginAnnotation] = specapi.OriginIngest
+		if mergedHash == realizedHash {
+			updated.Annotations[specapi.OriginHashAnnotation] = mergedHash
+		} else {
+			delete(updated.Annotations, specapi.OriginHashAnnotation)
+		}
+		updated.SetDefaults()
+		stamped, err := kcpclient.Unstructured(updated)
+		if err != nil {
+			return written{}, err
+		}
+		applied, err := options.Cluster.Update(ctx, stamped)
+		if err == nil {
+			out.generation = applied.GetGeneration()
+			out.applied = true
+			return out, nil
+		}
+		if !kcpclient.IsConflict(err) || attempt >= writeAttempts {
+			return written{}, err
+		}
+		object, err := options.Cluster.Get(ctx, specapi.SystemContextGVR, namespace, options.Context)
+		if err != nil {
+			return written{}, fmt.Errorf("summarize: re-read systemcontext %s: %w", options.Context, err)
+		}
+		typed, err := kcpclient.Typed(object)
+		if err != nil {
+			return written{}, err
+		}
+		fresh, ok := typed.(*spec.SystemContext)
+		if !ok {
+			return written{}, fmt.Errorf("summarize: %s is not a SystemContext", options.Context)
+		}
+		current = fresh
+	}
 }

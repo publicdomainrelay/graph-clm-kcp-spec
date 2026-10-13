@@ -35,9 +35,25 @@ type outlineEntry struct {
 	Conditions map[string]string `json:"conditions,omitempty"`
 }
 
+const archUsage = `usage: specctl arch outline [--repository <name>] [-o text|json]
+       specctl arch declared <context> [-o text|json]
+       specctl arch declare <context> --unit <unit> [--unit <unit>...]
+       specctl arch release <context> (--unit <unit>... | --all)
+       specctl arch proposals [<context>] [-o text|json]`
+
 func runArch(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] != "outline" {
-		fmt.Fprintln(stderr, "usage: specctl arch outline [--repository <name>] [-o text|json]")
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, archUsage)
+		return exitUsage
+	}
+	switch args[0] {
+	case "outline":
+	case "declared", "declare", "release":
+		return runArchAuthority(args[0], args[1:], stdout, stderr)
+	case "proposals":
+		return runArchProposals(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintln(stderr, archUsage)
 		return exitUsage
 	}
 	fs := flag.NewFlagSet("specctl arch outline", flag.ContinueOnError)

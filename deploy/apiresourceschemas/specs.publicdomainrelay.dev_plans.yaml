@@ -1,0 +1,261 @@
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  name: v1alpha1-9.plans.specs.publicdomainrelay.dev
+spec:
+  group: specs.publicdomainrelay.dev
+  names:
+    categories:
+    - specs
+    kind: Plan
+    listKind: PlanList
+    plural: plans
+    singular: plan
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.repository
+      name: Repository
+      type: string
+    - jsonPath: .spec.approved
+      name: Approved
+      type: boolean
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      properties:
+        spec:
+          properties:
+            approved:
+              description: Nothing of the plan is applied before a person approves
+                it; until then the status previews each item's delta.
+              type: boolean
+            approvedBy:
+              type: string
+            items:
+              items:
+                properties:
+                  acceptance:
+                    description: The item's done criteria, run in the checkout at
+                      HEAD.
+                    items:
+                      properties:
+                        command:
+                          items:
+                            type: string
+                          type: array
+                        env:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        gate:
+                          type: boolean
+                        name:
+                          type: string
+                        timeoutSeconds:
+                          type: integer
+                      required:
+                      - name
+                      - command
+                      type: object
+                    type: array
+                  dependsOn:
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: set
+                  edits:
+                    description: Staged spec edits. An item without edits is tracked
+                      by its acceptance only.
+                    items:
+                      properties:
+                        context:
+                          type: string
+                        intent:
+                          type: string
+                        interactions:
+                          items:
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                          type: array
+                        interfaces:
+                          items:
+                            properties:
+                              file:
+                                type: string
+                              kind:
+                                type: string
+                              name:
+                                type: string
+                              signature:
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          type: array
+                        removeInteractions:
+                          items:
+                            type: string
+                          type: array
+                        removeInterfaces:
+                          items:
+                            type: string
+                          type: array
+                        removeRequirements:
+                          items:
+                            type: string
+                          type: array
+                        requirements:
+                          items:
+                            properties:
+                              codeRefs:
+                                items:
+                                  type: string
+                                type: array
+                              id:
+                                type: string
+                              level:
+                                enum:
+                                - MUST
+                                - SHOULD
+                                - MAY
+                                type: string
+                              text:
+                                type: string
+                            required:
+                            - id
+                            - level
+                            - text
+                            type: object
+                          type: array
+                      required:
+                      - context
+                      type: object
+                    type: array
+                  findings:
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: set
+                  id:
+                    type: string
+                  repository:
+                    description: The repository whose instance acts on this item;
+                      empty is the plan's own.
+                    type: string
+                  summary:
+                    type: string
+                required:
+                - id
+                type: object
+              type: array
+              x-kubernetes-list-map-keys:
+              - id
+              x-kubernetes-list-type: map
+            objective:
+              type: string
+            repository:
+              description: The repository whose instance holds the plan; an item may
+                name another.
+              type: string
+            title:
+              type: string
+          required:
+          - repository
+          type: object
+        status:
+          properties:
+            conditions:
+              items:
+                properties:
+                  lastTransitionTime:
+                    format: date-time
+                    type: string
+                  message:
+                    type: string
+                  observedGeneration:
+                    format: int64
+                    type: integer
+                  reason:
+                    type: string
+                  status:
+                    enum:
+                    - "True"
+                    - "False"
+                    - Unknown
+                    type: string
+                  type:
+                    type: string
+                required:
+                - type
+                - status
+                type: object
+              type: array
+              x-kubernetes-list-map-keys:
+              - type
+              x-kubernetes-list-type: map
+            items:
+              items:
+                properties:
+                  acceptance:
+                    items:
+                      properties:
+                        durationSeconds:
+                          type: number
+                        exitCode:
+                          type: integer
+                        name:
+                          type: string
+                        outputTail:
+                          type: string
+                        overridden:
+                          type: boolean
+                        passed:
+                          type: boolean
+                      type: object
+                    type: array
+                  appliedSpecHashes:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  changes:
+                    items:
+                      type: string
+                    type: array
+                  commit:
+                    type: string
+                  id:
+                    type: string
+                  message:
+                    type: string
+                  phase:
+                    type: string
+                  preview:
+                    items:
+                      type: string
+                    type: array
+                required:
+                - id
+                type: object
+              type: array
+              x-kubernetes-list-map-keys:
+              - id
+              x-kubernetes-list-type: map
+            observedGeneration:
+              format: int64
+              type: integer
+            phase:
+              type: string
+          type: object
+      required:
+      - spec
+      type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

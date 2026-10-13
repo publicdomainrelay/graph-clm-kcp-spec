@@ -74,6 +74,18 @@ func (f *fakeCluster) Apply(_ context.Context, object *unstructured.Unstructured
 	return updated.DeepCopy(), nil
 }
 
+func (f *fakeCluster) Update(_ context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	key := objectKey(gvrOf(object), object.GetNamespace(), object.GetName())
+	stored, ok := f.objects[key]
+	if !ok {
+		return nil, apierrors.NewNotFound(schema.GroupResource{Group: gvrOf(object).Group}, object.GetName())
+	}
+	if object.GetResourceVersion() != "" && object.GetResourceVersion() != stored.GetResourceVersion() {
+		return nil, apierrors.NewConflict(schema.GroupResource{Group: gvrOf(object).Group}, object.GetName(), errors.New("the object has been modified"))
+	}
+	return f.Apply(context.Background(), object)
+}
+
 func (f *fakeCluster) Create(_ context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
 	key := objectKey(gvrOf(object), object.GetNamespace(), object.GetName())
 	if _, ok := f.objects[key]; ok {
@@ -991,5 +1003,46 @@ func TestAModFolderMakesTheModTheAgent(t *testing.T) {
 	}
 	if got := agentKind(Options{}); got != "" {
 		t.Errorf("kind = %q, want no agent at all", got)
+	}
+}
+
+func TestASpecEditRecordsItsUnitsAsDeclared(t *testing.T) {
+	cluster := newFakeCluster()
+	apply(t, cluster, systemContext("calc", func(systemContext *spec.SystemContext) {
+		systemContext.Status.RealizedSpecHash = strings.Repeat("a", 64)
+		systemContext.Status.RealizedSpec = &spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf}
+		systemContext.Spec.Intent = "the person's intent"
+		systemContext.Spec.Requirements = []spec.Requirement{{ID: "r.person", Level: spec.LevelMust, Text: "A person wrote this."}}
+		systemContext.Annotations = map[string]string{
+			specapi.OriginAnnotation:   specapi.OriginHuman,
+			specapi.DeclaredAnnotation: `["requirement/r.earlier"]`,
+		}
+	}))
+	controller := testController(cluster)
+	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+	object, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := object.GetAnnotations()[specapi.DeclaredAnnotation]
+	want := `["intent","interface/Add","requirement/r.earlier","requirement/r.person"]`
+	if got != want {
+		t.Errorf("declared = %s, want %s", got, want)
+	}
+	if raised := cluster.names(specapi.SpecChangeGVR); len(raised) != 1 {
+		t.Errorf("changes = %v, want the edit's spec to code change", raised)
+	}
+
+	if _, err := controller.reconcileSystemContext(context.Background(), specapi.DefaultNamespace, "calc"); err != nil {
+		t.Fatal(err)
+	}
+	again, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.GetAnnotations()[specapi.DeclaredAnnotation] != want {
+		t.Errorf("a second reconcile rewrote the declared units: %s", again.GetAnnotations()[specapi.DeclaredAnnotation])
 	}
 }

@@ -1,0 +1,234 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: plans.specs.publicdomainrelay.dev
+spec:
+  group: specs.publicdomainrelay.dev
+  scope: Namespaced
+  names:
+    kind: Plan
+    listKind: PlanList
+    plural: plans
+    singular: plan
+    categories: [specs]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Repository
+          type: string
+          jsonPath: .spec.repository
+        - name: Approved
+          type: boolean
+          jsonPath: .spec.approved
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [repository]
+              properties:
+                repository:
+                  type: string
+                  description: The repository whose instance holds the plan; an item may name another.
+                title:
+                  type: string
+                objective:
+                  type: string
+                approved:
+                  type: boolean
+                  description: Nothing of the plan is applied before a person approves it; until then the status previews each item's delta.
+                approvedBy:
+                  type: string
+                items:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [id]
+                  items:
+                    type: object
+                    required: [id]
+                    properties:
+                      id:
+                        type: string
+                      summary:
+                        type: string
+                      repository:
+                        type: string
+                        description: The repository whose instance acts on this item; empty is the plan's own.
+                      dependsOn:
+                        type: array
+                        x-kubernetes-list-type: set
+                        items:
+                          type: string
+                      findings:
+                        type: array
+                        x-kubernetes-list-type: set
+                        items:
+                          type: string
+                      edits:
+                        type: array
+                        description: Staged spec edits. An item without edits is tracked by its acceptance only.
+                        items:
+                          type: object
+                          required: [context]
+                          properties:
+                            context:
+                              type: string
+                            intent:
+                              type: string
+                            requirements:
+                              type: array
+                              items:
+                                type: object
+                                required: [id, level, text]
+                                properties:
+                                  id:
+                                    type: string
+                                  level:
+                                    type: string
+                                    enum: [MUST, SHOULD, MAY]
+                                  text:
+                                    type: string
+                                  codeRefs:
+                                    type: array
+                                    items:
+                                      type: string
+                            removeRequirements:
+                              type: array
+                              items:
+                                type: string
+                            interfaces:
+                              type: array
+                              items:
+                                type: object
+                                required: [name]
+                                properties:
+                                  name:
+                                    type: string
+                                  kind:
+                                    type: string
+                                  signature:
+                                    type: string
+                                  file:
+                                    type: string
+                            removeInterfaces:
+                              type: array
+                              items:
+                                type: string
+                            interactions:
+                              type: array
+                              items:
+                                type: object
+                                x-kubernetes-preserve-unknown-fields: true
+                            removeInteractions:
+                              type: array
+                              items:
+                                type: string
+                      acceptance:
+                        type: array
+                        description: The item's done criteria, run in the checkout at HEAD.
+                        items:
+                          type: object
+                          required: [name, command]
+                          properties:
+                            name:
+                              type: string
+                            command:
+                              type: array
+                              items:
+                                type: string
+                            timeoutSeconds:
+                              type: integer
+                            gate:
+                              type: boolean
+                            env:
+                              type: object
+                              additionalProperties:
+                                type: string
+            status:
+              type: object
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                phase:
+                  type: string
+                items:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [id]
+                  items:
+                    type: object
+                    required: [id]
+                    properties:
+                      id:
+                        type: string
+                      phase:
+                        type: string
+                      appliedSpecHashes:
+                        type: object
+                        additionalProperties:
+                          type: string
+                      changes:
+                        type: array
+                        items:
+                          type: string
+                      preview:
+                        type: array
+                        items:
+                          type: string
+                      commit:
+                        type: string
+                      acceptance:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            exitCode:
+                              type: integer
+                            durationSeconds:
+                              type: number
+                            passed:
+                              type: boolean
+                            outputTail:
+                              type: string
+                            overridden:
+                              type: boolean
+                      message:
+                        type: string
+                conditions:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      observedGeneration:
+                        type: integer
+                        format: int64

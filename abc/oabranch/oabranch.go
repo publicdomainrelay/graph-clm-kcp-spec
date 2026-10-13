@@ -268,6 +268,8 @@ type changeStatusDoc struct {
 
 	RequirementCoverage []spec.RequirementVerdict `json:"requirementCoverage,omitempty"`
 
+	Proposals []spec.Proposal `json:"proposals,omitempty"`
+
 	Policy *spec.PolicyGateStatus `json:"policy,omitempty"`
 
 	Progress *changeProgressDoc `json:"progress,omitempty"`
@@ -307,6 +309,7 @@ func changeStatusDocOf(status spec.SpecChangeStatus) changeStatusDoc {
 		RetryBy:             status.RetryBy,
 		Acceptance:          status.Acceptance,
 		RequirementCoverage: status.RequirementCoverage,
+		Proposals:           status.Proposals,
 		Policy:              status.Policy,
 		Progress:            progressSummary(status.Progress),
 	}
@@ -326,6 +329,7 @@ func (s changeStatusDoc) specChangeStatus() spec.SpecChangeStatus {
 		RetryBy:             s.RetryBy,
 		Acceptance:          s.Acceptance,
 		RequirementCoverage: s.RequirementCoverage,
+		Proposals:           s.Proposals,
 		Policy:              s.Policy,
 	}
 }
@@ -576,7 +580,8 @@ func Files(snapshot Snapshot) (map[string][]byte, error) {
 	files[ArchPath] = arch
 
 	for _, context := range contexts {
-		specFile, err := mirror.RenderWithRefs(context.Name, context.Namespace, context.Spec, codeRefIndex(context, refs))
+		specFile, err := mirror.RenderDeclared(context.Name, context.Namespace, context.Spec, codeRefIndex(context, refs),
+			context.Annotations[specapi.DeclaredAnnotation])
 		if err != nil {
 			return nil, err
 		}

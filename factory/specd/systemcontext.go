@@ -8,6 +8,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/authority"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/delta"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
@@ -70,6 +71,11 @@ func (c *Controller) reconcileChanges(
 	}
 	editDue := specsync.SpecEditDue(specHash, systemContext.Status.RealizedSpecHash,
 		systemContext.Annotations[specapi.OriginHashAnnotation])
+	if editDue {
+		if err := c.recordDeclared(ctx, namespace, systemContext); err != nil {
+			return 0, err
+		}
+	}
 	if !driftDue && !editDue {
 		return 0, nil
 	}
@@ -159,6 +165,57 @@ func (c *Controller) reconcileChanges(
 		}
 	}
 	return requeue, nil
+}
+
+// recordDeclared marks the units of a spec edit as declared, so once the edit
+// is realized the next summary still keeps them instead of rewriting them from
+// the code. The edit is detected the same way the spec to code change is.
+func (c *Controller) recordDeclared(ctx context.Context, namespace string, systemContext *spec.SystemContext) error {
+	if _, changed := declaredAfterEdit(c, systemContext); !changed {
+		return nil
+	}
+	object, err := c.client.Get(ctx, specapi.SystemContextGVR, namespace, systemContext.Name)
+	if err != nil {
+		return err
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		return err
+	}
+	fresh, ok := typed.(*spec.SystemContext)
+	if !ok {
+		return fmt.Errorf("specd: %s is not a SystemContext", systemContext.Name)
+	}
+	next, changed := declaredAfterEdit(c, fresh)
+	if !changed {
+		return nil
+	}
+	annotations := object.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	annotations[specapi.DeclaredAnnotation] = authority.Format(next)
+	object.SetAnnotations(annotations)
+	if _, err := c.client.Update(ctx, object); err != nil {
+		return err
+	}
+	if systemContext.Annotations == nil {
+		systemContext.Annotations = map[string]string{}
+	}
+	systemContext.Annotations[specapi.DeclaredAnnotation] = annotations[specapi.DeclaredAnnotation]
+	c.log.Info("declared units recorded", "systemcontext", systemContext.Name, "units", next.Sorted())
+	return nil
+}
+
+func declaredAfterEdit(c *Controller, systemContext *spec.SystemContext) (authority.Set, bool) {
+	recorded, err := authority.Parse(systemContext.Annotations[specapi.DeclaredAnnotation])
+	if err != nil {
+		c.log.Warn("the declared annotation does not parse; it is rewritten from the edit",
+			"systemcontext", systemContext.Name, "err", err)
+		recorded = authority.Set{}
+	}
+	next := recorded.Union(authority.Changed(realizedSpecOf(systemContext), systemContext.Spec))
+	return next, err != nil || !next.Equal(recorded)
 }
 
 func (c *Controller) retryDelay(changes []spec.SpecChange, taken []string, base string) (time.Duration, bool) {

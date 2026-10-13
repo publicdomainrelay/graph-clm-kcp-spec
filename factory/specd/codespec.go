@@ -66,10 +66,16 @@ func (c *Controller) reconcileCodeToSpec(ctx context.Context, namespace, name st
 	if !result.Applied {
 		message += "; the spec already said this"
 	}
+	if kept := len(result.Proposals); kept > 0 {
+		message += fmt.Sprintf("; kept %d declared unit(s) and recorded the summary's version as proposals", kept)
+	}
 	finished := map[string]any{
 		"phase":    specapi.PhaseSucceeded,
 		"message":  message,
 		"agentLog": tailMessage(agent.Report(result.Draft.Summary)),
+	}
+	if len(result.Proposals) > 0 {
+		finished["proposals"] = result.Proposals
 	}
 	clearOwner(finished)
 	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, name, finished); err != nil {

@@ -1,0 +1,74 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: findings.specs.publicdomainrelay.dev
+spec:
+  group: specs.publicdomainrelay.dev
+  scope: Namespaced
+  names:
+    kind: Finding
+    listKind: FindingList
+    plural: findings
+    singular: finding
+    categories: [specs]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Source
+          type: string
+          jsonPath: .spec.source
+        - name: Context
+          type: string
+          jsonPath: .spec.context
+        - name: State
+          type: string
+          jsonPath: .status.state
+        - name: Plan
+          type: string
+          jsonPath: .status.plan
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [source, summary]
+              properties:
+                repository:
+                  type: string
+                source:
+                  type: string
+                  enum: [review, proposal, drift, policy, manual]
+                ref:
+                  type: string
+                  description: Where the finding came from, such as docs/reviews/0003-policies.md#B1 or the SpecChange that proposed it.
+                context:
+                  type: string
+                unit:
+                  type: string
+                summary:
+                  type: string
+                severity:
+                  type: string
+            status:
+              type: object
+              properties:
+                state:
+                  type: string
+                  enum: [Open, Planned, Resolved, Dismissed]
+                plan:
+                  type: string
+                item:
+                  type: string
+                resolvedCommit:
+                  type: string
+                message:
+                  type: string

@@ -74,3 +74,28 @@ func TestParseRejectsAnotherKind(t *testing.T) {
 		t.Fatal("a Repository document was accepted")
 	}
 }
+
+func TestTheDeclaredUnitsSurviveTheFile(t *testing.T) {
+	contextSpec := spec.SystemContextSpec{Repository: "calc", Upstream: "self", Intent: "a calculator"}
+	data, err := RenderDeclared("calc", "default", contextSpec, nil, `["intent"]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "specs.publicdomainrelay.dev/declared") {
+		t.Errorf("file = %s, want the declared annotation", data)
+	}
+	parsed, err := Parse("calc", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Annotations["specs.publicdomainrelay.dev/declared"] != `["intent"]` {
+		t.Errorf("annotations = %v", parsed.Annotations)
+	}
+	plain, err := RenderWithRefs("calc", "default", contextSpec, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain), "annotations") {
+		t.Errorf("a spec with nothing declared carries annotations: %s", plain)
+	}
+}

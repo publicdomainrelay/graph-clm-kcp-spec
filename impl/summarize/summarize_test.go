@@ -7,6 +7,7 @@ import (
 	"errors"
 	"maps"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -27,6 +28,8 @@ type fakeCluster struct {
 	objects map[string]*unstructured.Unstructured
 
 	writes int
+
+	beforeUpdate func(f *fakeCluster)
 }
 
 func newFakeCluster() *fakeCluster {
@@ -57,6 +60,31 @@ func (f *fakeCluster) Apply(_ context.Context, object *unstructured.Unstructured
 	f.objects[f.key(object)] = updated
 	f.writes++
 	return updated.DeepCopy(), nil
+}
+
+func (f *fakeCluster) Update(_ context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	if hook := f.beforeUpdate; hook != nil {
+		f.beforeUpdate = nil
+		hook(f)
+	}
+	stored, ok := f.objects[f.key(object)]
+	if !ok {
+		return nil, apierrors.NewNotFound(schema.GroupResource{Group: object.GroupVersionKind().Group}, object.GetName())
+	}
+	if object.GetResourceVersion() != stored.GetResourceVersion() {
+		return nil, apierrors.NewConflict(schema.GroupResource{Group: object.GroupVersionKind().Group}, object.GetName(), errors.New("the object has been modified"))
+	}
+	updated := object.DeepCopy()
+	updated.SetResourceVersion(nextVersion(stored.GetResourceVersion()))
+	updated.SetGeneration(stored.GetGeneration() + 1)
+	f.objects[f.key(object)] = updated
+	f.writes++
+	return updated.DeepCopy(), nil
+}
+
+func nextVersion(version string) string {
+	number, _ := strconv.Atoi(version)
+	return strconv.Itoa(number + 1)
 }
 
 func (f *fakeCluster) PatchStatus(_ context.Context, gvr schema.GroupVersionResource, _, name string, status map[string]any) (*unstructured.Unstructured, error) {
@@ -312,5 +340,127 @@ contexts:
 	}
 	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "r.surface") {
 		t.Fatalf("warnings = %v, want one naming r.surface so the caller can report it", result.Warnings)
+	}
+}
+
+func storedContext(t *testing.T, cluster *fakeCluster) *spec.SystemContext {
+	t.Helper()
+	object, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return typed.(*spec.SystemContext)
+}
+
+func storeContext(t *testing.T, cluster *fakeCluster, systemContext *spec.SystemContext) {
+	t.Helper()
+	systemContext.SetDefaults()
+	stamped, err := kcpclient.Unstructured(systemContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamped.SetResourceVersion(nextVersion(systemContext.GetResourceVersion()))
+	cluster.objects[cluster.key(stamped)] = stamped
+}
+
+func personRequirement() spec.Requirement {
+	return spec.Requirement{ID: "r.divide", Level: spec.LevelMust, Text: "Divide by zero returns an error."}
+}
+
+func TestRunKeepsADeclaredRequirementAndProposesInstead(t *testing.T) {
+	cluster, repository := setup(t)
+	declared := storedContext(t, cluster)
+	declared.Spec.Requirements = []spec.Requirement{personRequirement()}
+	declared.Status.RealizedSpec = &spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf,
+		Requirements: []spec.Requirement{personRequirement()}}
+	declared.Annotations = map[string]string{specapi.DeclaredAnnotation: `["requirement/r.divide"]`}
+	storeContext(t, cluster, declared)
+
+	result, err := Run(context.Background(), Options{
+		Cluster: cluster, Context: "calc", Repository: repository, Agent: scripted(t, oneRequirement),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := storedContext(t, cluster)
+	ids := []string{}
+	for _, requirement := range spec.CanonicalRequirements(after.Spec.Requirements) {
+		ids = append(ids, requirement.ID)
+	}
+	if strings.Join(ids, ",") != "r.add,r.divide" {
+		t.Errorf("requirements = %v, want the model's r.add next to the person's r.divide", ids)
+	}
+	if len(result.Proposals) != 1 || result.Proposals[0].Unit != "requirement/r.divide" || result.Proposals[0].Proposed != "" {
+		t.Errorf("proposals = %+v, want the removal of r.divide proposed", result.Proposals)
+	}
+	hash, err := spec.HashSystemContextSpec(after.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status.RealizedSpecHash != hash || after.Annotations[specapi.OriginHashAnnotation] != hash {
+		t.Errorf("a realized declared unit must not open a spec to code change: realized %q origin %q spec %q",
+			after.Status.RealizedSpecHash, after.Annotations[specapi.OriginHashAnnotation], hash)
+	}
+}
+
+func TestRunLeavesAPendingEditForTheRealize(t *testing.T) {
+	cluster, repository := setup(t)
+	pending := storedContext(t, cluster)
+	pending.Spec.Requirements = []spec.Requirement{personRequirement()}
+	pending.Status.RealizedSpec = &spec.SystemContextSpec{Repository: "calc", Upstream: spec.RefSelf}
+	storeContext(t, cluster, pending)
+
+	if _, err := Run(context.Background(), Options{
+		Cluster: cluster, Context: "calc", Repository: repository, Agent: scripted(t, oneRequirement),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	after := storedContext(t, cluster)
+	hash, err := spec.HashSystemContextSpec(after.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status.RealizedSpecHash == hash {
+		t.Error("the summary marked the person's unrealized edit as realized")
+	}
+	if _, stamped := after.Annotations[specapi.OriginHashAnnotation]; stamped {
+		t.Error("the origin hash would hide the pending edit from the spec to code reconcile")
+	}
+	if after.Status.RealizedSpec == nil || len(after.Status.RealizedSpec.Requirements) != 1 ||
+		after.Status.RealizedSpec.Requirements[0].ID != "r.add" {
+		t.Errorf("realizedSpec = %+v, want the model's view of the code without r.divide", after.Status.RealizedSpec)
+	}
+	found := false
+	for _, requirement := range after.Spec.Requirements {
+		found = found || requirement.ID == "r.divide"
+	}
+	if !found {
+		t.Error("the pending r.divide was dropped")
+	}
+}
+
+func TestRunMergesAnEditThatLandsWhileTheModelWorks(t *testing.T) {
+	cluster, repository := setup(t)
+	cluster.beforeUpdate = func(f *fakeCluster) {
+		edited := storedContext(t, f)
+		edited.Spec.Requirements = append(edited.Spec.Requirements, personRequirement())
+		storeContext(t, f, edited)
+	}
+	if _, err := Run(context.Background(), Options{
+		Cluster: cluster, Context: "calc", Repository: repository, Agent: scripted(t, oneRequirement),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	after := storedContext(t, cluster)
+	ids := []string{}
+	for _, requirement := range spec.CanonicalRequirements(after.Spec.Requirements) {
+		ids = append(ids, requirement.ID)
+	}
+	if strings.Join(ids, ",") != "r.add,r.divide" {
+		t.Errorf("requirements = %v, want the edit made during the run kept", ids)
 	}
 }

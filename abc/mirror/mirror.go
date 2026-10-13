@@ -19,6 +19,10 @@ type Metadata struct {
 	Name string `json:"name"`
 
 	Namespace string `json:"namespace,omitempty"`
+
+	// Annotations carries only the declared units, so the authority over the
+	// spec survives the branch: a restore keeps a person's requirement theirs.
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 type Document struct {
@@ -40,12 +44,21 @@ func Render(name, namespace string, contextSpec spec.SystemContextSpec) ([]byte,
 }
 
 func RenderWithRefs(name, namespace string, contextSpec spec.SystemContextSpec, refs []string) ([]byte, error) {
+	return RenderDeclared(name, namespace, contextSpec, refs, "")
+}
+
+// RenderDeclared renders a spec file that also records the declared units.
+func RenderDeclared(name, namespace string, contextSpec spec.SystemContextSpec, refs []string, declaredUnits string) ([]byte, error) {
 	declared := spec.Canonicalize(contextSpec)
 	declared.CodeRefs = nil
+	metadata := Metadata{Name: name, Namespace: namespace}
+	if declaredUnits != "" {
+		metadata.Annotations = map[string]string{specapi.DeclaredAnnotation: declaredUnits}
+	}
 	document := Document{
 		APIVersion:   specapi.Group + "/" + specapi.Version,
 		Kind:         specapi.SystemContextKind,
-		Metadata:     Metadata{Name: name, Namespace: namespace},
+		Metadata:     metadata,
 		Spec:         declared,
 		CodeRefIndex: refs,
 	}
@@ -73,6 +86,9 @@ func Parse(name string, data []byte) (spec.SystemContext, error) {
 	out := spec.SystemContext{}
 	out.Name = name
 	out.Namespace = document.Metadata.Namespace
+	if declaredUnits := document.Metadata.Annotations[specapi.DeclaredAnnotation]; declaredUnits != "" {
+		out.Annotations = map[string]string{specapi.DeclaredAnnotation: declaredUnits}
+	}
 	out.Spec = document.Spec
 	if result := spec.ValidateSystemContext(&out); !result.OK() {
 		return spec.SystemContext{}, fmt.Errorf("mirror: %s does not validate: %v", name, result.Err())

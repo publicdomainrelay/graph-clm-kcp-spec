@@ -71,7 +71,10 @@ done
 # find the requested resource". Applying is idempotent, so the loop reapplies
 # every CRD until all of them land and the group is served.
 specs_served() {
-  W api-resources --api-group=specs.publicdomainrelay.dev 2>/dev/null | grep -q systemcontexts
+  served=$(W api-resources --api-group=specs.publicdomainrelay.dev 2>/dev/null) || return 1
+  for resource in systemcontexts plans findings agentruns; do
+    grep -qw "$resource" <<<"$served" || return 1
+  done
 }
 
 # Gatekeeper's ConstraintTemplate CRD is vendored under crds/gatekeeper/. specd

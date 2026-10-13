@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/authority"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/oabranch"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
@@ -256,6 +258,9 @@ func adopt(ctx context.Context, options Options, store oagit.Store, current stat
 			created.Namespace = options.namespace()
 			created.Spec = theirContext.Spec
 			created.Spec.Repository = options.Repository
+			if declared := theirContext.Annotations[specapi.DeclaredAnnotation]; declared != "" {
+				created.Annotations = map[string]string{specapi.DeclaredAnnotation: declared}
+			}
 			if err := applyContext(ctx, options, created); err != nil {
 				return err
 			}
@@ -272,17 +277,43 @@ func adopt(ctx context.Context, options Options, store oagit.Store, current stat
 			result.Conflicts[name] = merged.Conflicts
 			continue
 		}
-		if !merged.Changed {
+		declared, declaredChanged := unionDeclared(ourContext.Annotations, theirContext.Annotations)
+		if !merged.Changed && !declaredChanged {
 			continue
 		}
 		updated := ourContext
 		updated.Spec = merged.Spec
+		if declaredChanged {
+			updated.Annotations = maps.Clone(ourContext.Annotations)
+			if updated.Annotations == nil {
+				updated.Annotations = map[string]string{}
+			}
+			updated.Annotations[specapi.DeclaredAnnotation] = declared
+		}
 		if err := applyContext(ctx, options, updated); err != nil {
 			return err
 		}
 		result.Imported = append(result.Imported, name)
 	}
 	return nil
+}
+
+// unionDeclared joins the declared units of both sides of a restore: a unit a
+// person declared on either side stays declared.
+func unionDeclared(ours, theirs map[string]string) (string, bool) {
+	ourUnits, ourErr := authority.Parse(ours[specapi.DeclaredAnnotation])
+	theirUnits, theirErr := authority.Parse(theirs[specapi.DeclaredAnnotation])
+	if theirErr != nil {
+		return ours[specapi.DeclaredAnnotation], false
+	}
+	if ourErr != nil {
+		ourUnits = authority.Set{}
+	}
+	joined := ourUnits.Union(theirUnits)
+	if ourErr == nil && joined.Equal(ourUnits) {
+		return ours[specapi.DeclaredAnnotation], false
+	}
+	return authority.Format(joined), true
 }
 
 func applyContext(ctx context.Context, options Options, context spec.SystemContext) error {
@@ -832,6 +863,9 @@ func restoreChanges(ctx context.Context, cluster Cluster, namespace string, file
 		}
 		if change.Status.VerifyExitCode != 0 {
 			status["verifyExitCode"] = int64(change.Status.VerifyExitCode)
+		}
+		if len(change.Status.Proposals) > 0 {
+			status["proposals"] = change.Status.Proposals
 		}
 		if change.Status.RetryReason != "" {
 			status["retryReason"] = change.Status.RetryReason

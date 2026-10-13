@@ -158,6 +158,8 @@ type Cluster interface {
 
 	Apply(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error)
 
+	Update(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error)
+
 	Create(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error)
 
 	PatchStatus(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, status map[string]any) (*unstructured.Unstructured, error)

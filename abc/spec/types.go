@@ -457,6 +457,8 @@ type SpecChangeStatus struct {
 
 	RequirementCoverage []RequirementVerdict `json:"requirementCoverage,omitempty"`
 
+	Proposals []Proposal `json:"proposals,omitempty"`
+
 	Policy *PolicyGateStatus `json:"policy,omitempty"`
 
 	Attempt int `json:"attempt,omitempty"`
@@ -483,6 +485,17 @@ type RequirementVerdict struct {
 	Implemented bool `json:"implemented"`
 
 	Evidence string `json:"evidence,omitempty"`
+}
+
+// Proposal is what a code to spec writer would have written into a unit a
+// person, a model or a plan declared. The writer keeps the declared value and
+// records this instead; releasing the unit lets the next summarize write it.
+type Proposal struct {
+	Unit string `json:"unit"`
+
+	Current string `json:"current,omitempty"`
+
+	Proposed string `json:"proposed,omitempty"`
 }
 
 type SpecChange struct {

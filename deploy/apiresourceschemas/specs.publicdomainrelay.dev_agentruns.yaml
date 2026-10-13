@@ -1,0 +1,76 @@
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  name: v1alpha1-9.agentruns.specs.publicdomainrelay.dev
+spec:
+  group: specs.publicdomainrelay.dev
+  names:
+    categories:
+    - specs
+    kind: AgentRun
+    listKind: AgentRunList
+    plural: agentruns
+    singular: agentrun
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.purpose
+      name: Purpose
+      type: string
+    - jsonPath: .spec.change
+      name: Change
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.durationSeconds
+      name: Seconds
+      type: number
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      properties:
+        spec:
+          properties:
+            agent:
+              type: string
+            change:
+              type: string
+            command:
+              type: string
+            context:
+              type: string
+            purpose:
+              enum:
+              - summarize
+              - realize
+              type: string
+          required:
+          - purpose
+          type: object
+        status:
+          properties:
+            durationSeconds:
+              type: number
+            finishedAt:
+              type: string
+            message:
+              type: string
+            phase:
+              enum:
+              - Running
+              - Succeeded
+              - Failed
+              type: string
+            startedAt:
+              type: string
+          type: object
+      required:
+      - spec
+      type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

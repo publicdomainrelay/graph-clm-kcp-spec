@@ -1,7 +1,7 @@
 apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
-  name: v1alpha1-8.specchanges.specs.publicdomainrelay.dev
+  name: v1alpha1-9.specchanges.specs.publicdomainrelay.dev
 spec:
   group: specs.publicdomainrelay.dev
   names:
@@ -689,6 +689,25 @@ spec:
                     type: integer
                 type: object
               type: array
+            proposals:
+              description: what a code to spec summary would have written into a unit
+                a person, a model or a plan declared; the declared value was kept
+                and this is recorded instead
+              items:
+                properties:
+                  current:
+                    type: string
+                  proposed:
+                    type: string
+                  unit:
+                    type: string
+                required:
+                - unit
+                type: object
+              type: array
+              x-kubernetes-list-map-keys:
+              - unit
+              x-kubernetes-list-type: map
             requirementCoverage:
               description: the requirement-coverage judgment of the realized diff,
                 one entry per added or changed requirement

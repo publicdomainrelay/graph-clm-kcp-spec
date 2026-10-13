@@ -106,6 +106,12 @@ func Typed(object *unstructured.Unstructured) (any, error) {
 		return decode(object, func() any { return &spec.SpecChange{} })
 	case specapi.PolicyChangeKind:
 		return decode(object, func() any { return &policy.PolicyChange{} })
+	case specapi.PlanKind:
+		return decode(object, func() any { return &spec.Plan{} })
+	case specapi.FindingKind:
+		return decode(object, func() any { return &spec.Finding{} })
+	case specapi.AgentRunKind:
+		return decode(object, func() any { return &spec.AgentRun{} })
 	}
 	return nil, fmt.Errorf("kcpclient: kind %q is not a spec object", object.GetKind())
 }

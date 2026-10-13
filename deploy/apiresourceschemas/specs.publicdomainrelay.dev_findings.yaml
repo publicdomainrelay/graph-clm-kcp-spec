@@ -1,0 +1,87 @@
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  name: v1alpha1-9.findings.specs.publicdomainrelay.dev
+spec:
+  group: specs.publicdomainrelay.dev
+  names:
+    categories:
+    - specs
+    kind: Finding
+    listKind: FindingList
+    plural: findings
+    singular: finding
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.source
+      name: Source
+      type: string
+    - jsonPath: .spec.context
+      name: Context
+      type: string
+    - jsonPath: .status.state
+      name: State
+      type: string
+    - jsonPath: .status.plan
+      name: Plan
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      properties:
+        spec:
+          properties:
+            context:
+              type: string
+            ref:
+              description: Where the finding came from, such as docs/reviews/0003-policies.md#B1
+                or the SpecChange that proposed it.
+              type: string
+            repository:
+              type: string
+            severity:
+              type: string
+            source:
+              enum:
+              - review
+              - proposal
+              - drift
+              - policy
+              - manual
+              type: string
+            summary:
+              type: string
+            unit:
+              type: string
+          required:
+          - source
+          - summary
+          type: object
+        status:
+          properties:
+            item:
+              type: string
+            message:
+              type: string
+            plan:
+              type: string
+            resolvedCommit:
+              type: string
+            state:
+              enum:
+              - Open
+              - Planned
+              - Resolved
+              - Dismissed
+              type: string
+          type: object
+      required:
+      - spec
+      type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

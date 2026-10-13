@@ -543,6 +543,21 @@ spec:
                         type: string
                       at:
                         type: string
+                proposals:
+                  type: array
+                  description: what a code to spec summary would have written into a unit a person, a model or a plan declared; the declared value was kept and this is recorded instead
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [unit]
+                  items:
+                    type: object
+                    required: [unit]
+                    properties:
+                      unit:
+                        type: string
+                      current:
+                        type: string
+                      proposed:
+                        type: string
                 requirementCoverage:
                   type: array
                   description: the requirement-coverage judgment of the realized diff, one entry per added or changed requirement

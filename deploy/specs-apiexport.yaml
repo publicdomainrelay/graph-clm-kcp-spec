@@ -11,21 +11,36 @@ spec:
   resources:
     - group: specs.publicdomainrelay.dev
       name: repositories
-      schema: v1alpha1-8.repositories.specs.publicdomainrelay.dev
+      schema: v1alpha1-9.repositories.specs.publicdomainrelay.dev
       storage:
         crd: {}
     - group: specs.publicdomainrelay.dev
       name: systemcontexts
-      schema: v1alpha1-8.systemcontexts.specs.publicdomainrelay.dev
+      schema: v1alpha1-9.systemcontexts.specs.publicdomainrelay.dev
       storage:
         crd: {}
     - group: specs.publicdomainrelay.dev
       name: specchanges
-      schema: v1alpha1-8.specchanges.specs.publicdomainrelay.dev
+      schema: v1alpha1-9.specchanges.specs.publicdomainrelay.dev
       storage:
         crd: {}
     - group: specs.publicdomainrelay.dev
       name: policychanges
-      schema: v1alpha1-8.policychanges.specs.publicdomainrelay.dev
+      schema: v1alpha1-9.policychanges.specs.publicdomainrelay.dev
+      storage:
+        crd: {}
+    - group: specs.publicdomainrelay.dev
+      name: plans
+      schema: v1alpha1-9.plans.specs.publicdomainrelay.dev
+      storage:
+        crd: {}
+    - group: specs.publicdomainrelay.dev
+      name: findings
+      schema: v1alpha1-9.findings.specs.publicdomainrelay.dev
+      storage:
+        crd: {}
+    - group: specs.publicdomainrelay.dev
+      name: agentruns
+      schema: v1alpha1-9.agentruns.specs.publicdomainrelay.dev
       storage:
         crd: {}

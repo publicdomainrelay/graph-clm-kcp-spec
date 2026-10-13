@@ -19,6 +19,9 @@ const (
 	SystemContextKind = "SystemContext"
 	SpecChangeKind    = "SpecChange"
 	PolicyChangeKind  = "PolicyChange"
+	PlanKind          = "Plan"
+	FindingKind       = "Finding"
+	AgentRunKind      = "AgentRun"
 )
 
 const (
@@ -26,6 +29,9 @@ const (
 	SystemContextResource = "systemcontexts"
 	SpecChangeResource    = "specchanges"
 	PolicyChangeResource  = "policychanges"
+	PlanResource          = "plans"
+	FindingResource       = "findings"
+	AgentRunResource      = "agentruns"
 )
 
 const (
@@ -33,6 +39,9 @@ const (
 	SystemContextListKind = "SystemContextList"
 	SpecChangeListKind    = "SpecChangeList"
 	PolicyChangeListKind  = "PolicyChangeList"
+	PlanListKind          = "PlanList"
+	FindingListKind       = "FindingList"
+	AgentRunListKind      = "AgentRunList"
 )
 
 const DefaultNamespace = "default"
@@ -42,11 +51,16 @@ const (
 
 	OriginHashAnnotation = Group + "/origin-hash"
 
+	DeclaredAnnotation = Group + "/declared"
+
 	OriginIngest  = "ingest"
 	OriginRealize = "realize"
 	OriginHuman   = "human"
 	OriginGit     = "git"
 	OriginCLM     = "clm"
+	OriginPlan    = "plan"
+
+	PlanItemAnnotation = Group + "/plan-item"
 
 	PopulateRequestAnnotation = Group + "/populate-request"
 
@@ -153,6 +167,15 @@ var (
 	PolicyChangeGVR = schema.GroupVersionResource{
 		Group: Group, Version: Version, Resource: PolicyChangeResource,
 	}
+	PlanGVR = schema.GroupVersionResource{
+		Group: Group, Version: Version, Resource: PlanResource,
+	}
+	FindingGVR = schema.GroupVersionResource{
+		Group: Group, Version: Version, Resource: FindingResource,
+	}
+	AgentRunGVR = schema.GroupVersionResource{
+		Group: Group, Version: Version, Resource: AgentRunResource,
+	}
 )
 
 func RepositoryGVK() schema.GroupVersionKind {
@@ -181,6 +204,12 @@ func GVRForKind(kind string) (schema.GroupVersionResource, error) {
 		return SpecChangeGVR, nil
 	case PolicyChangeKind, PolicyChangeResource:
 		return PolicyChangeGVR, nil
+	case PlanKind, PlanResource:
+		return PlanGVR, nil
+	case FindingKind, FindingResource:
+		return FindingGVR, nil
+	case AgentRunKind, AgentRunResource:
+		return AgentRunGVR, nil
 	}
 	return schema.GroupVersionResource{}, fmt.Errorf("specapi: unknown kind %q", kind)
 }
@@ -195,6 +224,12 @@ func KindForArg(arg string) (string, error) {
 		return SpecChangeKind, nil
 	case "policychange", "policychanges", "policy", "policies":
 		return PolicyChangeKind, nil
+	case "plan", "plans":
+		return PlanKind, nil
+	case "finding", "findings":
+		return FindingKind, nil
+	case "agentrun", "agentruns", "run", "runs":
+		return AgentRunKind, nil
 	}
 	return "", fmt.Errorf("specapi: unknown kind %q", arg)
 }
@@ -217,6 +252,12 @@ func KindForResource(resource string) (string, error) {
 		return SpecChangeKind, nil
 	case PolicyChangeResource:
 		return PolicyChangeKind, nil
+	case PlanResource:
+		return PlanKind, nil
+	case FindingResource:
+		return FindingKind, nil
+	case AgentRunResource:
+		return AgentRunKind, nil
 	}
 	return "", fmt.Errorf("specapi: unknown resource %q", resource)
 }

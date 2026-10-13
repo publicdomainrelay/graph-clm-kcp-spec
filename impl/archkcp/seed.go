@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/archyaml"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/authority"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
@@ -101,6 +102,10 @@ func Seed(ctx context.Context, cluster SeedCluster, options SeedOptions) (SeedRe
 		if err != nil {
 			return result, err
 		}
+		realized, realizedHash, err := seedRealized(current, merged)
+		if err != nil {
+			return result, err
+		}
 		updated := &spec.SystemContext{
 			ObjectMeta: *current.ObjectMeta.DeepCopy(),
 			Spec:       merged,
@@ -110,7 +115,11 @@ func Seed(ctx context.Context, cluster SeedCluster, options SeedOptions) (SeedRe
 			updated.Annotations = map[string]string{}
 		}
 		updated.Annotations[specapi.OriginAnnotation] = specapi.OriginIngest
-		updated.Annotations[specapi.OriginHashAnnotation] = hash
+		if realizedHash == hash {
+			updated.Annotations[specapi.OriginHashAnnotation] = hash
+		} else {
+			delete(updated.Annotations, specapi.OriginHashAnnotation)
+		}
 		updated.SetDefaults()
 		encoded, err := kcpclient.Unstructured(updated)
 		if err != nil {
@@ -120,8 +129,8 @@ func Seed(ctx context.Context, cluster SeedCluster, options SeedOptions) (SeedRe
 			return result, fmt.Errorf("archkcp: seed %s from %s: %w", name, node.ID, err)
 		}
 		if _, err := cluster.PatchStatus(ctx, specapi.SystemContextGVR, namespace, name, map[string]any{
-			"realizedSpecHash": hash,
-			"realizedSpec":     specObject(merged),
+			"realizedSpecHash": realizedHash,
+			"realizedSpec":     specObject(realized),
 		}); err != nil {
 			return result, fmt.Errorf("archkcp: seed %s from %s: %w", name, node.ID, err)
 		}
@@ -343,6 +352,24 @@ func mergeSeed(current, seed spec.SystemContextSpec) (spec.SystemContextSpec, bo
 		return current, false
 	}
 	return merged, true
+}
+
+// seedRealized is the spec the seed may mark realized: the seeded structure,
+// with every declared unit (a person's edit not realized yet among them) kept
+// at its realized value so the edit still reaches the code.
+func seedRealized(current *spec.SystemContext, merged spec.SystemContextSpec) (spec.SystemContextSpec, string, error) {
+	recorded, err := authority.Parse(current.Annotations[specapi.DeclaredAnnotation])
+	if err != nil {
+		recorded = authority.Set{}
+	}
+	declared := authority.Declared(recorded, current.Spec, current.Status.RealizedSpec)
+	base := current.Spec
+	if current.Status.RealizedSpec != nil {
+		base = *current.Status.RealizedSpec
+	}
+	realized := authority.Substitute(merged, base, declared)
+	hash, err := spec.HashSystemContextSpec(realized)
+	return realized, hash, err
 }
 
 func union(existing, added []string) []string {

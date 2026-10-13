@@ -8,5 +8,11 @@ func SetDefaults(object any) {
 		typed.SetDefaults()
 	case *SpecChange:
 		typed.SetDefaults()
+	case *Plan:
+		typed.SetDefaults()
+	case *Finding:
+		typed.SetDefaults()
+	case *AgentRun:
+		typed.SetDefaults()
 	}
 }

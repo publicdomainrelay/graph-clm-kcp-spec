@@ -317,6 +317,10 @@ func IsNotFound(err error) bool {
 	return apierrors.IsNotFound(err)
 }
 
+func IsConflict(err error) bool {
+	return apierrors.IsConflict(err)
+}
+
 func IsAlreadyExists(err error) bool {
 	return apierrors.IsAlreadyExists(err)
 }

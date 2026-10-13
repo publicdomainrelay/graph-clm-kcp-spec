@@ -115,6 +115,14 @@ func (r *clusterRouter) Apply(ctx context.Context, object *unstructured.Unstruct
 	return client.Apply(ctx, object)
 }
 
+func (r *clusterRouter) Update(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	client, err := r.target(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.Update(ctx, object)
+}
+
 func (r *clusterRouter) Create(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error) {
 	client, err := r.target(ctx)
 	if err != nil {
