@@ -166,17 +166,21 @@ type PopulateCounts struct {
 }
 
 type RepositoryStatus struct {
-	ObservedGeneration int64                   `json:"observedGeneration,omitempty"`
-	ResolvedPath       string                  `json:"resolvedPath,omitempty"`
-	HeadCommit         string                  `json:"headCommit,omitempty"`
-	IndexedCommit      string                  `json:"indexedCommit,omitempty"`
-	Phase              string                  `json:"phase,omitempty"`
-	Contexts           *PopulateCounts         `json:"contexts,omitempty"`
-	PopulateRequest    string                  `json:"populateRequest,omitempty"`
-	OpenArchitecture   *OpenArchitectureStatus `json:"openArchitecture,omitempty"`
-	Policy             *PolicyStatus           `json:"policy,omitempty"`
-	Graph              *GraphStatus            `json:"graph,omitempty"`
-	Conditions         []metav1.Condition      `json:"conditions,omitempty"`
+	ObservedGeneration int64  `json:"observedGeneration,omitempty"`
+	ResolvedPath       string `json:"resolvedPath,omitempty"`
+	HeadCommit         string `json:"headCommit,omitempty"`
+	IndexedCommit      string `json:"indexedCommit,omitempty"`
+	Phase              string `json:"phase,omitempty"`
+	// Message reports what the last reconcile did to the contexts of this
+	// repository beyond counting them, such as how many the populate scope no
+	// longer names and the reconcile therefore removed.
+	Message          string                  `json:"message"`
+	Contexts         *PopulateCounts         `json:"contexts,omitempty"`
+	PopulateRequest  string                  `json:"populateRequest,omitempty"`
+	OpenArchitecture *OpenArchitectureStatus `json:"openArchitecture,omitempty"`
+	Policy           *PolicyStatus           `json:"policy,omitempty"`
+	Graph            *GraphStatus            `json:"graph,omitempty"`
+	Conditions       []metav1.Condition      `json:"conditions,omitempty"`
 }
 
 // GraphStatus is the graph the controller of this repository writes to: the
@@ -227,6 +231,30 @@ func (r *Repository) Summarize() bool {
 
 func (r *Repository) RootContext() bool {
 	return r.Spec.Populate != nil && r.Spec.Populate.Root
+}
+
+// PopulateScope is the scope an ingest of this repository runs under. It
+// belongs to the repository, not to the call: the initial index, the realize
+// settle, the reanchor and the restore all read the same include, exclude,
+// partition and root from Repository.spec.populate.
+type PopulateScope struct {
+	Partition string
+
+	Include []string
+
+	Exclude []string
+
+	Root bool
+}
+
+func (r *Repository) PopulateScope() PopulateScope {
+	scope := PopulateScope{Partition: r.Partition(), Root: r.RootContext()}
+	if r.Spec.Populate == nil {
+		return scope
+	}
+	scope.Include = r.Spec.Populate.Include
+	scope.Exclude = r.Spec.Populate.Exclude
+	return scope
 }
 
 func (r *Repository) ArchPath() string {
@@ -335,18 +363,19 @@ type ArchSection struct {
 }
 
 type SystemContextSpec struct {
-	Repository   string        `json:"repository"`
-	Upstream     string        `json:"upstream,omitempty"`
-	Overlay      []string      `json:"overlay,omitempty"`
-	Orchestrator string        `json:"orchestrator,omitempty"`
-	DependsOn    []string      `json:"dependsOn,omitempty"`
-	Introduces   []string      `json:"introduces,omitempty"`
-	Intent       string        `json:"intent,omitempty"`
-	Requirements []Requirement `json:"requirements,omitempty"`
-	Interfaces   []Interface   `json:"interfaces,omitempty"`
-	Interactions []Interaction `json:"interactions,omitempty"`
-	CodeRefs     []string      `json:"codeRefs,omitempty"`
-	Arch         *ArchSpec     `json:"arch,omitempty"`
+	Repository    string        `json:"repository"`
+	Upstream      string        `json:"upstream,omitempty"`
+	Overlay       []string      `json:"overlay,omitempty"`
+	Orchestrator  string        `json:"orchestrator,omitempty"`
+	DependsOn     []string      `json:"dependsOn,omitempty"`
+	TestDependsOn []string      `json:"testDependsOn,omitempty"`
+	Introduces    []string      `json:"introduces,omitempty"`
+	Intent        string        `json:"intent,omitempty"`
+	Requirements  []Requirement `json:"requirements,omitempty"`
+	Interfaces    []Interface   `json:"interfaces,omitempty"`
+	Interactions  []Interaction `json:"interactions,omitempty"`
+	CodeRefs      []string      `json:"codeRefs,omitempty"`
+	Arch          *ArchSpec     `json:"arch,omitempty"`
 }
 
 type ObservedInterface struct {

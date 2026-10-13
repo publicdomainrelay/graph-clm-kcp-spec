@@ -64,6 +64,12 @@ spec:
                   x-kubernetes-list-type: set
                   items:
                     type: string
+                testDependsOn:
+                  type: array
+                  description: Refs this context depends on through test code alone. A set, disjoint from dependsOn; the graph renders it as TEST_IMPORTS.
+                  x-kubernetes-list-type: set
+                  items:
+                    type: string
                 introduces:
                   type: array
                   description: Refs this context introduces. A set.
@@ -259,6 +265,11 @@ spec:
                     orchestrator:
                       type: string
                     dependsOn:
+                      type: array
+                      x-kubernetes-list-type: set
+                      items:
+                        type: string
+                    testDependsOn:
                       type: array
                       x-kubernetes-list-type: set
                       items:

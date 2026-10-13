@@ -271,6 +271,9 @@ spec:
                 phase:
                   type: string
                   enum: [Cloning, Indexing, Populating, Populated, Failed]
+                message:
+                  type: string
+                  description: What the last reconcile did beyond counting the contexts, such as how many contexts the populate scope no longer names and the reconcile therefore removed.
                 contexts:
                   type: object
                   properties:

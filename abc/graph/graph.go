@@ -39,6 +39,7 @@ const (
 	EdgeOverlay      = "OVERLAY"
 	EdgeOrchestrator = "ORCHESTRATOR"
 	EdgeDependsOn    = "DEPENDS_ON"
+	EdgeTestImports  = "TEST_IMPORTS"
 	EdgeIntroduces   = "INTRODUCES"
 	EdgeTouched      = "TOUCHED"
 	EdgeOccurred     = "OCCURRED"
@@ -373,6 +374,7 @@ var EdgeSpecs = []EdgeSpec{
 	{Type: EdgeReferences, FromLabel: LabelContext, ToLabel: LabelCodeRef},
 	{Type: EdgeReferences, FromLabel: LabelRequirement, ToLabel: LabelCodeRef},
 	{Type: EdgeDependsOn, FromLabel: LabelContext, ToLabel: LabelContext},
+	{Type: EdgeTestImports, FromLabel: LabelContext, ToLabel: LabelContext},
 	{Type: EdgeIntroduces, FromLabel: LabelContext, ToLabel: LabelContext},
 }
 
@@ -401,7 +403,7 @@ func Build(snapshot Snapshot) ([]VertexSet, []EdgeSet) {
 	requirementIndex, interfaceIndex, codeRefIndex := 2, 3, 4
 	hasContextIndex, upstreamIndex, overlayIndex, orchestratorIndex := 0, 1, 2, 3
 	requiresIndex, declaresIndex, contextRefsIndex, requirementRefsIndex := 4, 5, 6, 7
-	dependsOnIndex, introducesIndex := 8, 9
+	dependsOnIndex, testImportsIndex, introducesIndex := 8, 9, 10
 
 	namespace := snapshot.Namespace
 	repository := snapshot.Repository
@@ -506,6 +508,9 @@ func Build(snapshot Snapshot) ([]VertexSet, []EdgeSet) {
 		edges[orchestratorIndex].Rows = appendRef(edges[orchestratorIndex].Rows, contextID, context.Spec.Orchestrator, arch, namespace)
 		for _, dependency := range context.Spec.DependsOn {
 			edges[dependsOnIndex].Rows = appendRef(edges[dependsOnIndex].Rows, contextID, dependency, arch, namespace)
+		}
+		for _, dependency := range context.Spec.TestDependsOn {
+			edges[testImportsIndex].Rows = appendRef(edges[testImportsIndex].Rows, contextID, dependency, arch, namespace)
 		}
 		for _, introduced := range context.Spec.Introduces {
 			edges[introducesIndex].Rows = appendRef(edges[introducesIndex].Rows, contextID, introduced, arch, namespace)

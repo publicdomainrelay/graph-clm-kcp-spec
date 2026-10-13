@@ -129,6 +129,15 @@ func (f *fakeCluster) PatchStatus(_ context.Context, gvr schema.GroupVersionReso
 	return updated.DeepCopy(), nil
 }
 
+func (f *fakeCluster) Delete(_ context.Context, gvr schema.GroupVersionResource, namespace, name string) error {
+	key := objectKey(gvr, namespace, name)
+	if _, ok := f.objects[key]; !ok {
+		return apierrors.NewNotFound(schema.GroupResource{Group: gvr.Group, Resource: gvr.Resource}, name)
+	}
+	delete(f.objects, key)
+	return nil
+}
+
 func (f *fakeCluster) names(gvr schema.GroupVersionResource) []string {
 	out := []string{}
 	for key := range f.objects {

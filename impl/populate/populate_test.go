@@ -99,6 +99,18 @@ func (f *fakeCluster) PatchStatus(_ context.Context, gvr schema.GroupVersionReso
 	return nil, apierrors.NewNotFound(schema.GroupResource{Group: gvr.Group, Resource: gvr.Resource}, name)
 }
 
+func (f *fakeCluster) Delete(_ context.Context, gvr schema.GroupVersionResource, _, name string) error {
+	for key, object := range f.objects {
+		if object.GetName() != name || specapi.ResourceForKind(object.GetKind()) != gvr.Resource {
+			continue
+		}
+		delete(f.objects, key)
+		f.writes++
+		return nil
+	}
+	return apierrors.NewNotFound(schema.GroupResource{Group: gvr.Group, Resource: gvr.Resource}, name)
+}
+
 func normalize(value any) any {
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -233,6 +245,62 @@ func TestRunIsIdempotent(t *testing.T) {
 	}
 	if cluster.writes != writes {
 		t.Errorf("the second run wrote status %d time(s)", cluster.writes-writes)
+	}
+}
+
+func TestRunRemovesTheContextsTheScopeNoLongerNames(t *testing.T) {
+	cluster, repository := setup(t, false, 4)
+	repository.Spec.Populate.Include = []string{"calc/**"}
+	store(t, cluster, repository)
+	store(t, cluster, &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: "greet-c2s-c1-c1", Namespace: specapi.DefaultNamespace},
+		Spec:       spec.SpecChangeSpec{SystemContext: "greet", Direction: specapi.DirectionCodeToSpec, FromCommit: "c1", ToCommit: "c1"},
+	})
+
+	result, after := run(t, cluster, repository, 4, 3)
+	if result.Removed != 1 {
+		t.Errorf("removed = %d, want the one context the scope dropped", result.Removed)
+	}
+	if _, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, "greet"); !kcpclient.IsNotFound(err) {
+		t.Errorf("greet is still there: %v", err)
+	}
+	if _, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, "greet-c2s-c1-c1"); !kcpclient.IsNotFound(err) {
+		t.Errorf("the change of an out-of-scope context is still there: %v", err)
+	}
+	if _, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, "calc"); err != nil {
+		t.Errorf("calc is inside the scope and was removed: %v", err)
+	}
+	if result.Total != 2 {
+		t.Errorf("total = %d, want the contexts left", result.Total)
+	}
+	if !strings.Contains(after.Status.Message, "removed 1 context") {
+		t.Errorf("status.message = %q, want the removal count", after.Status.Message)
+	}
+
+	second, settled := run(t, cluster, repository, 4, 3)
+	if second.Removed != 0 {
+		t.Errorf("second pass removed %d, want nothing left to remove", second.Removed)
+	}
+	if settled.Status.Message != "" {
+		t.Errorf("status.message = %q, want it cleared once there is nothing to report", settled.Status.Message)
+	}
+}
+
+func TestRunKeepsEveryContextWhenTheScopeIsEmpty(t *testing.T) {
+	cluster, repository := setup(t, false, 4)
+	store(t, cluster, &spec.SpecChange{
+		ObjectMeta: metav1.ObjectMeta{Name: "greet-c2s-c1-c1", Namespace: specapi.DefaultNamespace},
+		Spec:       spec.SpecChangeSpec{SystemContext: "greet", Direction: specapi.DirectionCodeToSpec, FromCommit: "c1", ToCommit: "c1"},
+	})
+	result, _ := run(t, cluster, repository, 4, 3)
+	if result.Removed != 0 || result.Total != 3 {
+		t.Errorf("result = %+v, want nothing removed without a scope", result)
+	}
+	if _, err := cluster.Get(context.Background(), specapi.SystemContextGVR, specapi.DefaultNamespace, "greet"); err != nil {
+		t.Errorf("greet was removed under an empty scope: %v", err)
+	}
+	if _, err := cluster.Get(context.Background(), specapi.SpecChangeGVR, specapi.DefaultNamespace, "greet-c2s-c1-c1"); err != nil {
+		t.Errorf("the change was removed under an empty scope: %v", err)
 	}
 }
 

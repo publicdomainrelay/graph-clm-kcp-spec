@@ -166,10 +166,9 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 	}
 	partitions := specsync.PartitionFactsWith(facts, partitionOptions)
 	partitions = SourceOnlyPartitions(partitions, options.RootContext)
-	dependencies := specsync.PartitionDependencies(partitions, facts.Imports, resolver)
-	for index := range partitions {
-		partitions[index].DependsOn = dependencies[partitions[index].Name]
-	}
+	partitions, entryPoints := ApplicationPartitions(repoPath, facts.Files, facts.Symbols, partitions, repositoryName)
+	specsync.AttachDependencies(partitions, facts.Imports, resolver)
+	partitions, orchestrators := applicationEdges(partitions, entryPoints)
 
 	result := Result{Repository: repositoryName, Commit: commit, SpecPath: specPath}
 
@@ -183,7 +182,7 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 	}
 
 	for _, partition := range partitions {
-		contextResult, err := ingestPartition(ctx, cluster, repositoryName, namespace, commit, partition, options)
+		contextResult, err := ingestPartition(ctx, cluster, repositoryName, namespace, commit, partition, orchestrators, options)
 		if err != nil {
 			return Result{}, err
 		}
@@ -296,6 +295,7 @@ func ingestPartition(
 	cluster Cluster,
 	repositoryName, namespace, commit string,
 	partition specsync.Partition,
+	orchestrators map[string]string,
 	options Options,
 ) (ContextResult, error) {
 	adopt := options.Adopt
@@ -353,6 +353,12 @@ func ingestPartition(
 	}
 	if len(merged.DependsOn) == 0 {
 		merged.DependsOn = specsync.DependencyRefs(partition.DependsOn)
+	}
+	if len(merged.TestDependsOn) == 0 {
+		merged.TestDependsOn = specsync.DependencyRefs(partition.TestDependsOn)
+	}
+	if merged.Orchestrator == "" {
+		merged.Orchestrator = orchestrators[partition.Name]
 	}
 	merged.CodeRefs = mergeCodeRefs(merged.CodeRefs, observed.Files)
 	merged = specsync.ReanchorRefs(merged, existingContext.Status.SyncedObserved, observed)

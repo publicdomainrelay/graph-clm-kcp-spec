@@ -104,6 +104,7 @@ func Canonicalize(in SystemContextSpec) SystemContextSpec {
 	out.CodeRefs = CanonicalSet(in.CodeRefs)
 	out.Overlay = CanonicalSet(in.Overlay)
 	out.DependsOn = CanonicalSet(in.DependsOn)
+	out.TestDependsOn = CanonicalSet(in.TestDependsOn)
 	out.Introduces = CanonicalSet(in.Introduces)
 	if in.Arch != nil {
 		arch := *in.Arch

@@ -169,6 +169,13 @@ spec:
               x-kubernetes-list-map-keys:
               - id
               x-kubernetes-list-type: map
+            testDependsOn:
+              description: Refs this context depends on through test code alone. A
+                set, disjoint from dependsOn; the graph renders it as TEST_IMPORTS.
+              items:
+                type: string
+              type: array
+              x-kubernetes-list-type: set
             upstream:
               default: self
               description: self, sc.<name> or up.<name>.
@@ -378,6 +385,11 @@ spec:
                   x-kubernetes-list-map-keys:
                   - id
                   x-kubernetes-list-type: map
+                testDependsOn:
+                  items:
+                    type: string
+                  type: array
+                  x-kubernetes-list-type: set
                 upstream:
                   type: string
               required:

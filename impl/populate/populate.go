@@ -14,6 +14,7 @@ import (
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/delta"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/graph"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
+	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/ingest"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/impl/kcpclient"
@@ -30,6 +31,8 @@ type Cluster interface {
 	Create(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error)
 
 	PatchStatus(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, status map[string]any) (*unstructured.Unstructured, error)
+
+	Delete(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) error
 }
 
 type Options struct {
@@ -70,6 +73,10 @@ type Result struct {
 	Failed int
 
 	Raised int
+
+	// Removed counts the contexts the populate scope no longer names, which
+	// this pass removed together with their changes.
+	Removed int
 }
 
 func Run(ctx context.Context, options Options) (Result, error) {
@@ -79,6 +86,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	}
 	repository := options.Repository
 	result := Result{Repository: repository.Name, Total: 0}
+	scope := repository.PopulateScope()
 
 	if options.Index {
 		if err := patchPhase(ctx, options, namespace, specapi.PhaseIndexing); err != nil {
@@ -91,10 +99,10 @@ func Run(ctx context.Context, options Options) (Result, error) {
 			SpecPath:       options.Path,
 			Tool:           options.Tool,
 			Commit:         options.Commit,
-			Partition:      repository.Partition(),
-			Include:        includeOf(repository),
-			Exclude:        excludeOf(repository),
-			RootContext:    repository.RootContext(),
+			Partition:      scope.Partition,
+			Include:        scope.Include,
+			Exclude:        scope.Exclude,
+			RootContext:    scope.Root,
 			ArchPath:       repository.ArchPath(),
 			Writer:         options.Writer,
 		})
@@ -119,6 +127,22 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	changes, err := listChanges(ctx, options.Cluster, namespace)
 	if err != nil {
 		return result, err
+	}
+
+	removed, err := pruneOutOfScope(ctx, options.Cluster, namespace, repository, contexts, changes)
+	if err != nil {
+		return result, err
+	}
+	result.Removed = removed
+	if removed > 0 {
+		contexts, err = listContexts(ctx, options.Cluster, namespace, repository.Name)
+		if err != nil {
+			return result, err
+		}
+		changes, err = listChanges(ctx, options.Cluster, namespace)
+		if err != nil {
+			return result, err
+		}
 	}
 
 	result.Total = len(contexts)
@@ -147,6 +171,63 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		return result, err
 	}
 	return result, nil
+}
+
+// pruneOutOfScope removes the contexts the populate scope of the repository no
+// longer names, together with the changes that belong to them, and reports how
+// many it removed. A context inside the scope is kept, and a context the scope
+// cannot judge, one that carries no observed file at all, is kept too.
+func pruneOutOfScope(
+	ctx context.Context,
+	cluster Cluster,
+	namespace string,
+	repository *spec.Repository,
+	contexts []spec.SystemContext,
+	changes []spec.SpecChange,
+) (int, error) {
+	scope := specsync.NewScope(repository.PopulateScope().Include, repository.PopulateScope().Exclude)
+	if scope.Empty() {
+		return 0, nil
+	}
+	removed := 0
+	for index := range contexts {
+		context := &contexts[index]
+		if inPopulateScope(scope, *context) {
+			continue
+		}
+		for changeIndex := range changes {
+			if changes[changeIndex].Spec.SystemContext != context.Name {
+				continue
+			}
+			if err := cluster.Delete(ctx, specapi.SpecChangeGVR, namespace, changes[changeIndex].Name); err != nil {
+				if kcpclient.IsNotFound(err) {
+					continue
+				}
+				return removed, err
+			}
+		}
+		if err := cluster.Delete(ctx, specapi.SystemContextGVR, namespace, context.Name); err != nil {
+			if kcpclient.IsNotFound(err) {
+				continue
+			}
+			return removed, err
+		}
+		removed++
+	}
+	return removed, nil
+}
+
+func inPopulateScope(scope specsync.Scope, context spec.SystemContext) bool {
+	observed := append(append([]string{}, context.Status.Observed.Files...), context.Status.Observed.TreeFiles...)
+	if len(observed) == 0 {
+		return true
+	}
+	for _, file := range observed {
+		if scope.Covers(file) {
+			return true
+		}
+	}
+	return false
 }
 
 type counts struct {
@@ -328,6 +409,7 @@ func writeStatus(ctx context.Context, options Options, namespace string, result 
 		ObservedGeneration: repository.GetGeneration(),
 		ResolvedPath:       options.Path,
 		Phase:              result.Phase,
+		Message:            removalMessage(result.Removed),
 		Contexts: &spec.PopulateCounts{
 			Total:      result.Total,
 			Summarized: result.Summarized,
@@ -341,6 +423,13 @@ func writeStatus(ctx context.Context, options Options, namespace string, result 
 	}
 	_, err := options.Cluster.PatchStatus(ctx, specapi.RepositoryGVR, namespace, repository.Name, status)
 	return err
+}
+
+func removalMessage(removed int) string {
+	if removed == 0 {
+		return ""
+	}
+	return fmt.Sprintf("removed %d context(s) the populate scope no longer names", removed)
 }
 
 func statusObject(status spec.RepositoryStatus) map[string]any {
@@ -403,20 +492,6 @@ func listChanges(ctx context.Context, cluster Cluster, namespace string) ([]spec
 		out = append(out, *change)
 	}
 	return out, nil
-}
-
-func includeOf(repository *spec.Repository) []string {
-	if repository.Spec.Populate == nil {
-		return nil
-	}
-	return repository.Spec.Populate.Include
-}
-
-func excludeOf(repository *spec.Repository) []string {
-	if repository.Spec.Populate == nil {
-		return nil
-	}
-	return repository.Spec.Populate.Exclude
 }
 
 func WaitForPopulated(ctx context.Context, cluster Cluster, namespace, name, request string, interval time.Duration) (*spec.Repository, error) {

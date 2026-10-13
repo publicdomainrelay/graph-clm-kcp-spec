@@ -177,6 +177,7 @@ func ValidateSystemContext(context *SystemContext) Result {
 		b.add("spec.orchestrator", "%q is not self, sc.<name>, up.<name>, ov.<name> or orch.<name>", context.Spec.Orchestrator)
 	}
 	b.checkRefs("spec.dependsOn", context.Spec.DependsOn)
+	b.checkRefs("spec.testDependsOn", context.Spec.TestDependsOn)
 	b.checkRefs("spec.introduces", context.Spec.Introduces)
 
 	b.checkRequirements(context.Spec.Requirements)

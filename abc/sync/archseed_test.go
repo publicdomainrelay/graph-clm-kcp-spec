@@ -228,6 +228,47 @@ func TestPartitionDependenciesFollowProductionImports(t *testing.T) {
 	}
 }
 
+func TestAttachDependenciesKeepsATestOnlyImportOutOfDependsOn(t *testing.T) {
+	partitions := func() []Partition {
+		return []Partition{
+			{Name: "calc", Directory: ".", TreeFiles: []string{"go.mod"}},
+			{Name: "calc-calc", Directory: "calc", Files: []string{"calc/calc.go", "calc/calc_test.go"}},
+			{Name: "calc-store", Directory: "store", Files: []string{"store/store.go"}},
+		}
+	}
+	resolver := ModuleResolver{ModulePath: "example.com/calc"}
+
+	both := partitions()
+	AttachDependencies(both, []Import{
+		{From: "calc/calc.go", Path: "example.com/calc/store"},
+		{From: "calc/calc_test.go", Path: "example.com/calc/store"},
+	}, resolver)
+	if got := both[1].DependsOn; !reflect.DeepEqual(got, []string{"calc-store"}) {
+		t.Errorf("calc-calc dependsOn = %v, want the import production code carries", got)
+	}
+	if got := both[1].TestDependsOn; len(got) != 0 {
+		t.Errorf("calc-calc testDependsOn = %v, want none: both kinds of file carry the import", got)
+	}
+	if got := both[2].DependsOn; len(got) != 0 {
+		t.Errorf("calc-store dependsOn = %v, want none", got)
+	}
+
+	onlyTest := partitions()
+	AttachDependencies(onlyTest, []Import{
+		{From: "calc/calc.go", Path: "example.com/calc/calc"},
+		{From: "calc/calc_test.go", Path: "example.com/calc/store"},
+	}, resolver)
+	if got := onlyTest[1].DependsOn; len(got) != 0 {
+		t.Errorf("calc-calc dependsOn = %v, want none: only a test file imports calc-store", got)
+	}
+	if got := onlyTest[1].TestDependsOn; !reflect.DeepEqual(got, []string{"calc-store"}) {
+		t.Fatalf("calc-calc testDependsOn = %v, want the test-only import", got)
+	}
+	if got := DependencyRefs(onlyTest[1].TestDependsOn); !reflect.DeepEqual(got, []string{"sc.calc-store"}) {
+		t.Errorf("testDependsOn refs = %v", got)
+	}
+}
+
 func TestPartitionDependenciesReachTheRootOnlyThroughProductionCode(t *testing.T) {
 	partitions := []Partition{
 		{Name: "calc", Directory: ".", TreeFiles: []string{"go.mod"}},

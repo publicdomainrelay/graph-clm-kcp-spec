@@ -404,6 +404,7 @@ func settle(ctx context.Context, options Options, namespace string, adopted map[
 func settleOptions(options Options, namespace, head string, adopted map[string]*spec.SystemContextSpec) ingest.Options {
 	repository := options.Repository
 	repoPath := repository.WorkPath()
+	scope := repository.PopulateScope()
 	return ingest.Options{
 		RepoPath:       repoPath,
 		RepositoryName: repository.Name,
@@ -411,28 +412,14 @@ func settleOptions(options Options, namespace, head string, adopted map[string]*
 		SpecPath:       repoPath,
 		Tool:           options.Tool,
 		Commit:         head,
-		Partition:      repository.Partition(),
-		Include:        populateInclude(repository),
-		Exclude:        populateExclude(repository),
-		RootContext:    repository.RootContext(),
+		Partition:      scope.Partition,
+		Include:        scope.Include,
+		Exclude:        scope.Exclude,
+		RootContext:    scope.Root,
 		ArchPath:       repository.ArchPath(),
 		AdoptAll:       adopted,
 		Writer:         options.Writer,
 	}
-}
-
-func populateInclude(repository *spec.Repository) []string {
-	if repository.Spec.Populate == nil {
-		return nil
-	}
-	return repository.Spec.Populate.Include
-}
-
-func populateExclude(repository *spec.Repository) []string {
-	if repository.Spec.Populate == nil {
-		return nil
-	}
-	return repository.Spec.Populate.Exclude
 }
 
 func readContext(ctx context.Context, cluster Cluster, namespace, name string) (*spec.SystemContext, error) {

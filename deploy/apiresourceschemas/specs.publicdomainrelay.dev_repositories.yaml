@@ -283,6 +283,11 @@ spec:
               type: string
             indexedCommit:
               type: string
+            message:
+              description: What the last reconcile did beyond counting the contexts,
+                such as how many contexts the populate scope no longer names and the
+                reconcile therefore removed.
+              type: string
             observedGeneration:
               format: int64
               type: integer

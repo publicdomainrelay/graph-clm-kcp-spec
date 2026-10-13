@@ -112,6 +112,43 @@ func TestBuildVertices(t *testing.T) {
 	}
 }
 
+func TestTestImportsEdgesAreDeclaredAndEmitted(t *testing.T) {
+	declared := false
+	for _, edgeSpec := range EdgeSpecs {
+		if edgeSpec.Type == EdgeTestImports {
+			declared = true
+			if edgeSpec.FromLabel != LabelContext || edgeSpec.ToLabel != LabelContext {
+				t.Errorf("TEST_IMPORTS goes %s to %s, want %s to %s", edgeSpec.FromLabel, edgeSpec.ToLabel, LabelContext, LabelContext)
+			}
+		}
+	}
+	if !declared {
+		t.Fatal("EdgeSpecs has no TEST_IMPORTS edge")
+	}
+
+	library := spec.SystemContext{
+		ObjectMeta: metav1.ObjectMeta{Name: "calc"},
+		Spec:       spec.SystemContextSpec{Repository: "calc", DependsOn: []string{"sc.store"}, TestDependsOn: []string{"sc.store", "sc.greet"}},
+	}
+	_, edges := Build(Snapshot{
+		Repository: spec.Repository{ObjectMeta: metav1.ObjectMeta{Name: "calc"}},
+		Contexts:   []spec.SystemContext{library},
+	})
+	testImports := findEdgeSet(edges, EdgeTestImports, LabelContext).Rows
+	if len(testImports) != 2 {
+		t.Fatalf("TEST_IMPORTS rows = %+v, want one per testDependsOn ref", testImports)
+	}
+	for _, row := range testImports {
+		want := ContextID("store")
+		if row.To != want && row.To != ContextID("greet") {
+			t.Errorf("TEST_IMPORTS row = %+v, want the context a testDependsOn ref names", row)
+		}
+	}
+	if got := len(findEdgeSet(edges, EdgeDependsOn, LabelContext).Rows); got != 1 {
+		t.Errorf("DEPENDS_ON rows = %d, want only the dependsOn ref", got)
+	}
+}
+
 func TestBuildResolvesArchRefsAndExtraEdges(t *testing.T) {
 	parent := spec.SystemContext{
 		ObjectMeta: metav1.ObjectMeta{Name: "sc-deno-kcp"},

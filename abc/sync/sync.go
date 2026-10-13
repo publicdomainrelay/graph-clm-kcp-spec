@@ -71,6 +71,11 @@ type Partition struct {
 	Symbols   []Symbol
 
 	DependsOn []string
+
+	// TestDependsOn is the dependency a partition carries through test code
+	// alone. It is a fact in its own right, never merged into DependsOn, so a
+	// cycle that exists only through tests cannot enter the production graph.
+	TestDependsOn []string
 }
 
 var interfaceKinds = map[string]bool{
@@ -373,6 +378,37 @@ func filterTreeFiles(treeFiles []string, exclude []string) []string {
 	return out
 }
 
+// Scope is a compiled populate scope: the include and exclude globs a
+// repository declares. It is the same rule the partitioner filters files with,
+// so a caller that asks whether a path is still in scope gets the answer the
+// next ingest would give.
+type Scope struct {
+	includes []glob
+
+	excludes []glob
+}
+
+func NewScope(include, exclude []string) Scope {
+	return Scope{includes: compileGlobs(include), excludes: compileGlobs(exclude)}
+}
+
+// Empty reports a scope that names no path at all: every path is in it.
+func (s Scope) Empty() bool {
+	return len(s.includes) == 0 && len(s.excludes) == 0
+}
+
+// Covers reports whether one repository-relative path survives the scope: it
+// matches an include when the scope names one, and it matches no exclude.
+func (s Scope) Covers(file string) bool {
+	if file == "" {
+		return false
+	}
+	if len(s.includes) > 0 && !matchAny(s.includes, file) {
+		return false
+	}
+	return !matchAny(s.excludes, file)
+}
+
 func IsLegacySpecMirrorPath(file string) bool {
 	return file == mirror.LegacyDir || strings.HasPrefix(file, mirror.LegacyDir+"/")
 }
@@ -620,6 +656,9 @@ func partitionImportEdges(partitions []Partition, imports []Import, resolver Mod
 			continue
 		}
 		target, ok := partitionForPath(resolved, byDirectory)
+		if !ok {
+			target, ok = partitionForFiles(resolved, owner)
+		}
 		if !ok || target == from {
 			continue
 		}
@@ -649,6 +688,33 @@ func partitionImportEdges(partitions []Partition, imports []Import, resolver Mod
 		out[name] = ordered
 	}
 	return out
+}
+
+// partitionForFiles reports the partition that owns the files a resolved
+// directory holds. A partition need not sit one per directory: a package of a
+// tree partitioned by manifest lives inside the partition of its root, and an
+// import of it must still reach that partition.
+func partitionForFiles(resolved string, owner map[string]string) (string, bool) {
+	if resolved == "" || strings.HasPrefix(resolved, "..") {
+		return "", false
+	}
+	best, name := "", ""
+	for file, holder := range owner {
+		if resolved == "." {
+			if path.Dir(file) != "." {
+				continue
+			}
+		} else if !strings.HasPrefix(file, resolved+"/") {
+			continue
+		}
+		if best == "" || file < best {
+			best, name = file, holder
+		}
+	}
+	if best == "" {
+		return "", false
+	}
+	return name, true
 }
 
 func partitionForPath(resolved string, byDirectory map[string]string) (string, bool) {
@@ -682,6 +748,34 @@ func importDirectory(importPath, modulePath string) (string, bool) {
 		return "", false
 	}
 	return relative, true
+}
+
+// AttachDependencies fills both dependency facts of every partition from its
+// imports: the production edges into DependsOn and the edges only test code
+// carries into TestDependsOn. The two sets are disjoint, so an import a
+// production file also carries stays production.
+func AttachDependencies(partitions []Partition, imports []Import, resolver ModuleResolver) {
+	production := PartitionDependencies(partitions, imports, resolver)
+	tests := TestImportEdges(partitions, imports, resolver)
+	for index := range partitions {
+		partitions[index].DependsOn = production[partitions[index].Name]
+		partitions[index].TestDependsOn = tests[partitions[index].Name]
+	}
+}
+
+// PartitionName reports the name a partition of this directory takes.
+func PartitionName(directory, repositoryName string) string {
+	return partitionName(directory, repositoryName)
+}
+
+// UniqueName reports a name no other partition holds yet.
+func UniqueName(name string, used map[string]int) string {
+	return uniqueName(name, used)
+}
+
+// SymbolsUnder reports the symbols the files of one partition carry.
+func SymbolsUnder(partition Partition, symbols []Symbol) []Symbol {
+	return symbolsUnder(partition, symbols)
 }
 
 func DependencyRefs(names []string) []string {

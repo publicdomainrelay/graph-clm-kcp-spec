@@ -167,6 +167,8 @@ type Cluster interface {
 	Create(ctx context.Context, object *unstructured.Unstructured) (*unstructured.Unstructured, error)
 
 	PatchStatus(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, status map[string]any) (*unstructured.Unstructured, error)
+
+	Delete(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) error
 }
 
 type Controller struct {

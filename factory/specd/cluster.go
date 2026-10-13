@@ -177,6 +177,14 @@ func (r *clusterRouter) CreateCluster(ctx context.Context, object *unstructured.
 	return client.CreateCluster(ctx, object)
 }
 
+func (r *clusterRouter) Delete(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) error {
+	client, err := r.target(ctx)
+	if err != nil {
+		return err
+	}
+	return client.Delete(ctx, gvr, namespace, name)
+}
+
 func (r *clusterRouter) DeleteCluster(ctx context.Context, gvr schema.GroupVersionResource, name string) error {
 	client, err := r.clusterTarget(ctx)
 	if err != nil {
