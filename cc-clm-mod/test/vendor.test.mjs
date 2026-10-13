@@ -24,7 +24,7 @@ test("the bundle is one ES module the engine can load", () => {
 });
 
 test("the bundle carries the pieces both hosts share", () => {
-  for (const name of ["ClmHost", "renderModelZone", "parseModelZone", "mergeDeclared", "diff", "liveRows", "MANAGED_BEGIN"]) {
+  for (const name of ["ClmHost", "renderModelZone", "parseModelZone", "mergeDeclared", "diff", "liveRows", "MANAGED_BEGIN", "CONTEXT_SKILL", "contextSkill"]) {
     assert.match(bundle, new RegExp(`\\b${name}\\b`), `${name} is missing from the bundle`);
   }
 });

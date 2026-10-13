@@ -44,6 +44,12 @@ type Options struct {
 
 	Writer graph.Writer
 
+	Reader Reader
+
+	RepoPath string
+
+	Turn int
+
 	GraphNamespace string
 
 	ManagedBudget int
@@ -143,6 +149,9 @@ func Apply(ctx context.Context, options Options, modelZone string) (ApplyResult,
 		}
 		return result, fmt.Errorf("clm: the model zone of %s carries an instruction addressed to an agent in %s (%q); the apply is refused and the text is quarantined as a finding, so the spec is unchanged",
 			systemContext.Name, unit, line)
+	}
+	if err := writeNotes(ctx, options, systemContext.Name, modelZone); err != nil {
+		fmt.Fprintf(options.Summary, "clm: could not record the notes of %s: %v\n", systemContext.Name, err)
 	}
 	if change.Empty() {
 		result.Message = "the model zone says what the spec already says"

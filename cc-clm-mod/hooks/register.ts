@@ -2,6 +2,7 @@ import type { Register } from "claude-code";
 
 import {
   ClmHost,
+  contextSkill,
   docPathFromEnv,
   type CommandResult,
   type FileStore,
@@ -259,7 +260,7 @@ export const register: Register = (on) => {
     const composed = await next(e);
     if (!session.host) return composed;
     const document = await session.host.section().catch(() => undefined);
-    const section = document ? contextSection(document, session.planItems) : undefined;
+    const section = document ? contextSection(document, session.planItems, contextSkill().text) : undefined;
     return section ? { sections: [...composed.sections, section] } : composed;
   });
 

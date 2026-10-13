@@ -190,14 +190,16 @@ export function relativePath(path: string, repoPath: string): string {
 export function contextSection(
   document: string,
   planItems?: string,
+  skill?: string,
 ): { id: string; text: string; scope: "session" } | undefined {
   const text = document.trim();
   if (!text) return undefined;
   const items = planItems?.trim();
   const body = items ? `${text}\n\n## Open plan items for this context\n\n${items}` : text;
+  const protocol = skill?.trim() || "The context document below is yours: keep it true to the code.";
   return {
     id: CONTEXT_SECTION_ID,
-    text: `The context document below is yours: keep it true to the code.\n\n${body}`,
+    text: `${protocol}\n\n${body}`,
     scope: "session",
   };
 }

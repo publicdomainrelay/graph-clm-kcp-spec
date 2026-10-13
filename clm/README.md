@@ -17,6 +17,10 @@ core, so the file one host writes and the file the other reads are one format.
 - Reference extraction, the token budget, the FNV-1a content ids, the Cypher row
   builders, and the delta mirror of the Go `abc/delta` (the same JSON, held to
   the same golden files).
+- The context-management skill (`skill.ts`): the one versioned text every host
+  injects — what to keep in the model zone, when to compact, what belongs in the
+  spec block instead. A repository replaces it with `.specs/context-skill.md`,
+  whose version is what the `AgentContext` vertex records.
 - The ports: `StateBridge`, `FileStore`, `Runner`, `GraphWriter`, `Clock`. The
   core reaches the world only through them.
 

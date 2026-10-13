@@ -134,6 +134,24 @@ export declare function docDirFromEnv(env: Env, home: string | undefined): strin
 
 export declare function docPathFromEnv(env: Env, home: string | undefined, repoPath: string, context: string): string;
 
+export interface ContextSkill {
+  version: string;
+  text: string;
+  source: string;
+}
+
+export declare const CONTEXT_SKILL_VERSION: string;
+
+export declare const CONTEXT_SKILL: string;
+
+export declare const REPOSITORY_SKILL_PATH: string;
+
+export declare const SHARED_CONTEXT_SKILL: ContextSkill;
+
+export declare function contextSkill(override?: string | { text?: string; version?: string; source?: string }): ContextSkill;
+
+export declare function repositorySkill(text: string, source?: string): ContextSkill;
+
 export declare class ClmHost {
   constructor(options: HostOptions);
   readonly context: string;

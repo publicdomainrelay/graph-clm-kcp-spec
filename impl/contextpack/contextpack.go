@@ -539,6 +539,40 @@ func claimCards(ctx context.Context, options Options, contexts []string) ([]cont
 			})
 		}
 	}
+	memories, err := memoryCards(ctx, options, wanted)
+	if err != nil {
+		return cards, nil
+	}
+	return append(cards, memories...), nil
+}
+
+// memoryCards is what the model wrote in its own context document: one card per
+// memory note of the pack's contexts, so a note one turn wrote reaches the next
+// pack as a claim.
+func memoryCards(ctx context.Context, options Options, wanted map[string]bool) ([]contextpack.Card, error) {
+	if options.Reader == nil {
+		return nil, nil
+	}
+	filter := map[string]any{}
+	if namespace := options.graphNamespace(); namespace != "" {
+		filter[graph.ScopeProperty] = namespace
+	}
+	rows, err := options.Reader.Select(ctx, graph.LabelMemory, []string{"title", "body", "context", "turn"}, filter)
+	if err != nil {
+		return nil, fmt.Errorf("contextpack: read %s: %w", graph.LabelMemory, err)
+	}
+	cards := []contextpack.Card{}
+	for _, row := range rows {
+		contextName := value(row, "context")
+		if !wanted[contextName] {
+			continue
+		}
+		cards = append(cards, contextpack.Card{
+			Title: "memory " + value(row, "title"),
+			Body:  oneLine(contextName + ": " + value(row, "body")),
+		})
+	}
+	sort.Slice(cards, func(left, right int) bool { return cards[left].Title < cards[right].Title })
 	return cards, nil
 }
 

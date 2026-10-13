@@ -1,4 +1,4 @@
-import { cypherLiteral, changeId, codeRefId, progressId } from "./ids.ts";
+import { agentContextId, changeId, codeRefId, cypherLiteral, memoryId, progressId } from "./ids.ts";
 import type { CodeRefRecord } from "./context-doc.ts";
 import type { ProgressRecord, SpecChange } from "./types.ts";
 
@@ -36,6 +36,8 @@ export const LABELS = {
   change: "SpecChange",
   progress: "SpecProgress",
   piMemory: "PiMemory",
+  memory: "Memory",
+  agentContext: "AgentContext",
 } as const;
 
 export const EDGES = {
@@ -51,6 +53,7 @@ export const EDGES = {
   touched: "TOUCHED",
   occurred: "OCCURRED",
   specifies: "SPECIFIES",
+  remembered: "REMEMBERED",
 } as const;
 
 export const VERTEX_PROPERTIES: Record<string, string[]> = {
@@ -62,7 +65,36 @@ export const VERTEX_PROPERTIES: Record<string, string[]> = {
   [LABELS.change]: ["name", "context", "direction", "phase"],
   [LABELS.progress]: ["change", "turn", "tool", "note", "at"],
   [LABELS.piMemory]: ["title", "body", "session"],
+  [LABELS.memory]: ["title", "body", "context", "turn", "agentContext"],
+  [LABELS.agentContext]: ["name", "context", "skillVersion"],
 };
+
+export interface MemoryNoteRow {
+  context: string;
+  title: string;
+  body: string;
+  turn: number;
+}
+
+export function memoryRow(namespace: string, note: MemoryNoteRow): VertexRow {
+  return {
+    id: memoryId(namespace, note.context, note.title),
+    title: note.title,
+    body: note.body,
+    context: note.context,
+    turn: note.turn,
+    agentContext: note.context,
+  };
+}
+
+export function agentContextRow(namespace: string, context: string, skillVersion: string): VertexRow {
+  return {
+    id: agentContextId(namespace, context),
+    name: context,
+    context,
+    skillVersion,
+  };
+}
 
 export function vertexUpsert(label: string, properties: readonly string[]): string {
   const assignments = properties.map((property) => `n.${property} = row.${property}`);

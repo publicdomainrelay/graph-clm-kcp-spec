@@ -7,6 +7,9 @@ import {
   canonicalSpec,
   changeId,
   codeRefId,
+  CONTEXT_SKILL,
+  CONTEXT_SKILL_VERSION,
+  contextSkill,
   count,
   deltaEmpty,
   diff,
@@ -16,6 +19,8 @@ import {
   fileCodeRefId,
   mergeDeclared,
   parseModelZone,
+  REPOSITORY_SKILL_PATH,
+  repositorySkill,
   renderModelZone,
   renderManagedZone,
   splitContextDoc,
@@ -366,4 +371,25 @@ test("the delta summary keeps only the by-id lines", () => {
   ].join("\n");
   assert.equal(deltaSummaryLines(stderr), "+ r.subtract\n~ r.add (text)\n- interface Multiply");
   assert.equal(deltaSummaryLines("specctl clm apply: no change: nothing"), "");
+});
+
+test("the context skill is one versioned constant", () => {
+  const shared = contextSkill();
+  assert.equal(shared.text, CONTEXT_SKILL);
+  assert.equal(shared.version, CONTEXT_SKILL_VERSION);
+  assert.equal(shared.source, "core");
+  assert.match(shared.text, /notes heading/);
+  assert.match(shared.text, /Compact when/);
+});
+
+test("a repository skill replaces the shared one and is not appended to it", () => {
+  const override = repositorySkill("version: 7\n\n# House rules\n\nKeep the zone under 200 lines.\n");
+  const chosen = contextSkill(override);
+  assert.equal(chosen.version, "7");
+  assert.equal(chosen.source, REPOSITORY_SKILL_PATH);
+  assert.equal(chosen.text, "# House rules\n\nKeep the zone under 200 lines.");
+  assert.equal(chosen.text.includes(CONTEXT_SKILL), false, "the shared skill was appended");
+  assert.equal(contextSkill("").version, CONTEXT_SKILL_VERSION);
+  assert.match(contextSkill("# Only this\n").version, /^repo-/);
+  assert.equal(contextSkill("# Only this\n").text, "# Only this");
 });

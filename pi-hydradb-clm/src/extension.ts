@@ -85,6 +85,12 @@ export function memoryNodeId(sessionKey: string, kind: string, title: string, bo
   return stableNodeId(nodeKey(sessionKey, "memory", `${kind}\u0001${title}\u0001${body}`));
 }
 
+// graphNamespace is the instance's graph namespace: the ids a query matches
+// carry it, the way graph.Key builds them on the Go side.
+export function graphNamespace(env: NodeJS.ProcessEnv = process.env): string {
+  return (env.SPECD_GRAPH_NAMESPACE ?? "").trim();
+}
+
 function reportApplied(result: { applied?: boolean; queued?: string; summary?: string; error?: string } | undefined): void {
   if (result?.error) console.error(`pi-hydradb-clm: the spec edit was not applied: ${result.error}`);
   else if (result?.applied) {
@@ -376,7 +382,7 @@ export function hydraClmExtension(pi: ExtensionAPI, options: HydraClmOptions): v
             resolvedIds.push(node.id);
           }
         }
-        specified = await linkSpecifies(client, id, resolvedIds);
+        specified = await linkSpecifies(client, id, resolvedIds, graphNamespace());
       } catch (error) {
         return text(
           `remembered ${params.kind} "${params.title}" as node ${id}, but linking stopped ` +

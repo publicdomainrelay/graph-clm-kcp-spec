@@ -140,7 +140,9 @@ func RenderModelZoneWithProse(context, repository, prose string, in spec.SystemC
 	}
 	builder.Write(encoded)
 	builder.WriteString(RemovalHint + "\n")
-	builder.WriteString(SpecFenceClose + "\n")
+	builder.WriteString(SpecFenceClose + "\n\n")
+	builder.WriteString(NotesHeading + "\n\n")
+	builder.WriteString(NotesHint + "\n")
 	return builder.String(), nil
 }
 

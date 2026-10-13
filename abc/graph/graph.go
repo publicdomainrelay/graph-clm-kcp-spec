@@ -23,9 +23,11 @@ const (
 var ManagedLabels = []string{LabelRepo, LabelContext, LabelRequirement, LabelInterface, LabelCodeRef}
 
 const (
-	LabelChange   = "SpecChange"
-	LabelProgress = "SpecProgress"
-	LabelPiMemory = "PiMemory"
+	LabelChange       = "SpecChange"
+	LabelProgress     = "SpecProgress"
+	LabelPiMemory     = "PiMemory"
+	LabelMemory       = "Memory"
+	LabelAgentContext = "AgentContext"
 )
 
 var LiveLabels = []string{LabelChange, LabelProgress}
@@ -44,12 +46,16 @@ const (
 	EdgeTouched      = "TOUCHED"
 	EdgeOccurred     = "OCCURRED"
 	EdgeSpecifies    = "SPECIFIES"
+	EdgeRemembered   = "REMEMBERED"
 )
 
 var LiveEdgeSpecs = []EdgeSpec{
 	{Type: EdgeTouched, FromLabel: LabelChange, ToLabel: LabelCodeRef},
 	{Type: EdgeOccurred, FromLabel: LabelChange, ToLabel: LabelProgress},
 	{Type: EdgeSpecifies, FromLabel: LabelPiMemory, ToLabel: LabelRequirement},
+	{Type: EdgeSpecifies, FromLabel: LabelMemory, ToLabel: LabelRequirement},
+	{Type: EdgeReferences, FromLabel: LabelMemory, ToLabel: LabelCodeRef},
+	{Type: EdgeRemembered, FromLabel: LabelAgentContext, ToLabel: LabelMemory},
 }
 
 func LiveTable() ([]VertexSet, []EdgeSet) {
@@ -139,6 +145,19 @@ func ProgressIDIn(namespace, change string, index int) int64 {
 
 func PiMemoryID(title string) int64 {
 	return ids.Stable("pimemory:" + title)
+}
+
+// MemoryID names a memory note inside the graph namespace: the same note
+// written twice in one context is one vertex, so a rewrite updates rather than
+// duplicates.
+func MemoryID(namespace, context, title string) int64 {
+	return Key(namespace, "memory:"+context+"/"+title)
+}
+
+// AgentContextID names the one agent context file of a context, the vertex a
+// note is REMEMBERED by.
+func AgentContextID(namespace, context string) int64 {
+	return Key(namespace, "agentcontext:"+context)
 }
 
 func FileCodeRef(path string) Vertex {
@@ -379,14 +398,16 @@ var EdgeSpecs = []EdgeSpec{
 }
 
 var LabelProperties = map[string][]string{
-	LabelRepo:        {"name", "path", ScopeProperty},
-	LabelContext:     {"name", "repo", "intent", "specHash", ScopeProperty},
-	LabelRequirement: {"context", "reqId", "level", "text", ScopeProperty},
-	LabelInterface:   {"context", "name", "kind", "signature", ScopeProperty},
-	LabelCodeRef:     {"codegraphId", "kind", "name", "filePath", "line", "display", ScopeProperty},
-	LabelChange:      {"name", "context", "direction", "phase", ScopeProperty},
-	LabelProgress:    {"change", "turn", "tool", "note", "at", ScopeProperty},
-	LabelPiMemory:    {"title", "body", "session"},
+	LabelRepo:         {"name", "path", ScopeProperty},
+	LabelContext:      {"name", "repo", "intent", "specHash", ScopeProperty},
+	LabelRequirement:  {"context", "reqId", "level", "text", ScopeProperty},
+	LabelInterface:    {"context", "name", "kind", "signature", ScopeProperty},
+	LabelCodeRef:      {"codegraphId", "kind", "name", "filePath", "line", "display", ScopeProperty},
+	LabelChange:       {"name", "context", "direction", "phase", ScopeProperty},
+	LabelProgress:     {"change", "turn", "tool", "note", "at", ScopeProperty},
+	LabelPiMemory:     {"title", "body", "session"},
+	LabelMemory:       {"title", "body", "context", "turn", "agentContext", ScopeProperty},
+	LabelAgentContext: {"name", "context", "skillVersion", ScopeProperty},
 }
 
 func Build(snapshot Snapshot) ([]VertexSet, []EdgeSet) {

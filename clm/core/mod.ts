@@ -2,6 +2,7 @@ export * from "./types.ts";
 export * from "./ids.ts";
 export * from "./canonical.ts";
 export * from "./context-doc.ts";
+export * from "./skill.ts";
 export * from "./delta.ts";
 export * from "./rows.ts";
 export * from "./ports.ts";

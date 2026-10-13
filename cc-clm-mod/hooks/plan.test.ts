@@ -38,6 +38,13 @@ test("the context document becomes one session section", () => {
   expect(contextSection("   \n")).toBeUndefined();
 });
 
+test("the injected section leads with the shared context skill", () => {
+  const section = contextSection("# Context: calc\n", undefined, "# House rules\n");
+  expect(section?.text.startsWith("# House rules")).toBe(true);
+  expect(section?.text).toContain("# Context: calc");
+  expect(contextSection("# Context: calc\n", undefined, "")?.text).not.toContain("# House rules");
+});
+
 test("the workspace is named explicitly, not left to the default", () => {
   const argv = bridgeArgv({ specctl: "/repo/bin/specctl", workspace: "root:tenant", namespace: "team" });
   expect(argv.specctl).toBe("/repo/bin/specctl");

@@ -42,8 +42,27 @@ export function interfaceId(context: string, name: string): number {
   return stable(`interface:${context}/${name}`);
 }
 
+// keyId is graph.Key: one id for one key inside a graph namespace. A graph the
+// instance scoped answers a query whose id carries the same namespace and only
+// that one, so a host that matches an unnamespaced id finds no row.
+export function keyId(namespace: string, key: string): number {
+  return namespace ? stable(`${namespace}|${key}`) : stable(key);
+}
+
 export function codeRefId(codegraphId: string): number {
   return stable(`coderef:${codegraphId}`);
+}
+
+export function codeRefIdIn(namespace: string, codegraphId: string): number {
+  return keyId(namespace, `coderef:${codegraphId}`);
+}
+
+export function memoryId(namespace: string, context: string, title: string): number {
+  return keyId(namespace, `memory:${context}/${title}`);
+}
+
+export function agentContextId(namespace: string, context: string): number {
+  return keyId(namespace, `agentcontext:${context}`);
 }
 
 export function fileCodeRefId(path: string): number {

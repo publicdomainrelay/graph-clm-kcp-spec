@@ -18,7 +18,7 @@ happens**, not guessed afterwards.
 | Hook | Behaviour |
 | --- | --- |
 | `session.start` | resolve the context (`SPECD_CLM_CONTEXT`), render it from kcp, write the context document to the state dir (`SPECD_CLM_DOC`), outside the project tree |
-| `prompt.compose` | inject that file as one more session system section, appended last so the context is the model's most recent instruction, with the context's open plan items (`specctl plan items`) below it so a realize agent sees why its change exists |
+| `prompt.compose` | inject that file as one more session system section, appended last so the context is the model's most recent instruction, led by the shared context-management skill (`contextSkill()` of `clm/core`, or the repository's `.specs/context-skill.md`), with the context's open plan items (`specctl plan items`) below it so a realize agent sees why its change exists |
 | `tool.call` | refuse a path outside `SPECD_CLM_ROOT`, then report the file a `Read`/`Write`/`Edit`/`MultiEdit` touched |
 | `turn.complete` | apply the model zone when the model changed it, then report the turn |
 | `session.end` | the same, skipped when the exit budget has less than a second left: a hanging exit is worse than a spec edit the next session re-renders from kcp |
@@ -51,9 +51,16 @@ The mod never computes a delta, writes a graph row or talks to kcp. It runs
 
 ```
 specctl clm render --context <name>
-specctl clm apply  --context <name> < model-zone
+specctl clm apply  --context <name> --turn <n> < model-zone
 specctl clm report --change <name> --event <json>
 ```
+
+`apply` also turns the free-form notes of the model zone into graph memory: one
+`Memory` vertex per `- title: body` line under the notes heading, linked by
+`REFERENCES` to the code they name and by `SPECIFIES` to the claim units, and
+`REMEMBERED` by the context's `AgentContext`. The shared core carries the same
+tools directly: `specctl clm remember`, `specctl clm recall <terms>` and
+`specctl clm neighbors <context>`.
 
 so kcp access, the delta authority (`abc/delta`) and the graph writes have one
 implementation, and this host and the pi host agree by construction.
