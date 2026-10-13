@@ -79,7 +79,7 @@ test:
 # packages run at once, and kcpproc caps instances host-wide at
 # SPECD_MAX_INSTANCES. The e2e package alone runs longer than go test's default
 # ten minutes, and a timeout panic skips its cleanup.
-LIVE_PARALLEL ?= 2
+LIVE_PARALLEL ?= 6
 LIVE_TIMEOUT ?= 45m
 
 test-live:

@@ -20,7 +20,7 @@
   (`<kcp root>/graph/graph.json`, the session, `Repository.status.graph`). Never
   assume a fixed graph port; an external graph is named with `--bolt-url`.
 - Every change: `gofmt`, `go vet ./...`, `go test ./...` green, then commit and push.
-  The live suite is `make test-live` (`-p 2 -timeout 45m`): `test/e2e` runs
+  The live suite is `make test-live` (`-p 6 -timeout 45m`): `test/e2e` runs
   longer than go test's default 10 minutes, and a timeout panic skips its
   cleanup. kcpproc caps instances host-wide at `SPECD_MAX_INSTANCES` (default
   max(2, CPUs/2)); a start waits for a free slot. Never leave an instance
