@@ -453,3 +453,21 @@ specctl eval history --repo . --commits 20 --out docs/eval/history.md
 ```
 
 in this repository's instance.
+
+
+**G1's reading.** `specctl eval history --repo . --commits 12` on this
+repository, with the instance's index current (`specctl graph rebuild` writes
+1296 documents):
+
+| reading | before the index was filled | after |
+| --- | --- | --- |
+| recall@k over the pack's neighbour and claims sections | 0.00 | 0.13 |
+| precision | 0.00 | 0.28 |
+| pack tokens (mean) | 178 | 224 |
+| scored commits (of 12) | 16 of 20 | 9 of 12 |
+
+Two findings produced the change. The index was created but never filled
+(`documents` had 0 rows) until `specctl graph rebuild` was run, so every query
+pack named nothing; and the history eval's subjects are terse ("realize
+cmd-specctl: +1"), so a query with no meaningful term still scores zero. The
+harness is the measurement the plan wanted: it is honest about both numbers.
