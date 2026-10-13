@@ -117,6 +117,17 @@ func WorktreeAdd(ctx context.Context, repo, dir, branch, base string) error {
 	return err
 }
 
+// WorktreeAddDetached adds a worktree that holds a commit and no branch. The
+// checkout is a read-only view of that commit, so a step that runs inside it
+// cannot move a ref of the repository.
+func WorktreeAddDetached(ctx context.Context, repo, dir, commit string) error {
+	if commit == "" {
+		return fmt.Errorf("gitrepo: a detached worktree needs a commit")
+	}
+	_, err := run(ctx, repo, "worktree", "add", "--detach", "--force", dir, commit)
+	return err
+}
+
 func WorktreeRemove(ctx context.Context, repo, dir string) error {
 	if _, err := run(ctx, repo, "worktree", "remove", "--force", dir); err != nil {
 		if err := os.RemoveAll(dir); err != nil {

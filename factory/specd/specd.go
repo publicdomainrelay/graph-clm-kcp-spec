@@ -193,6 +193,9 @@ func Resources() []watch.Resource {
 		{Kind: specapi.SystemContextKind, GVR: specapi.SystemContextGVR},
 		{Kind: specapi.SpecChangeKind, GVR: specapi.SpecChangeGVR},
 		{Kind: specapi.PolicyChangeKind, GVR: specapi.PolicyChangeGVR},
+		{Kind: specapi.PlanKind, GVR: specapi.PlanGVR},
+		{Kind: specapi.FindingKind, GVR: specapi.FindingGVR},
+		{Kind: specapi.AgentRunKind, GVR: specapi.AgentRunGVR},
 	}
 }
 
@@ -452,6 +455,12 @@ func (c *Controller) reconcile(ctx context.Context, item key) (time.Duration, er
 		requeue, err = c.reconcileSpecChange(ctx, namespace, item.Name)
 	case specapi.PolicyChangeKind:
 		requeue, err = c.reconcilePolicyChange(ctx, namespace, item.Name)
+	case specapi.PlanKind:
+		requeue, err = c.reconcilePlan(ctx, namespace, item.Name)
+	case specapi.FindingKind:
+		requeue, err = c.reconcileFinding(ctx, namespace, item.Name)
+	case specapi.AgentRunKind:
+		requeue, err = c.reconcileAgentRun(ctx, namespace, item.Name)
 	case PersistKind:
 		return c.reconcilePersist(ctx, namespace, item.Name)
 	default:
