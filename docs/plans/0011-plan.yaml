@@ -1,0 +1,377 @@
+# Plan 0011 as the object that tracks it. Apply with
+#   specctl plan apply -f docs/plans/0011-plan.yaml && specctl plan approve p0011
+# The markdown (0011-plans-as-objects.md) says why; this object says what is
+# done. Every acceptance step runs at the checkout HEAD in a detached worktree;
+# scripts/require-tests.sh fails when no test matching its pattern ran, so a step
+# written before its tests exist cannot pass on an empty match.
+apiVersion: specs.publicdomainrelay.dev/v1alpha1
+kind: Plan
+metadata:
+  name: p0011
+spec:
+  repository: hydradb
+  title: plans, findings and agent runs as objects; spec authority
+  objective: >-
+    Make the chain review -> finding -> plan -> staged spec edit -> SpecChange
+    -> agent run -> acceptance at HEAD state that kcp holds and specd
+    reconciles, so a plan is reviewed as spec intent before any code and an
+    item is done only when its acceptance passes at HEAD.
+  items:
+    - id: authority
+      summary: "A: code -> spec may propose; a declared unit is never overwritten"
+      acceptance:
+        - name: authority
+          command: [scripts/require-tests.sh, ".", ./abc/authority/]
+        - name: summarize
+          command: [scripts/require-tests.sh, "Declared|Pending|Proposal|Merge", ./impl/summarize/]
+
+    - id: plan-resource
+      summary: "B: the Plan object, its reconciler, specctl plan, plans on the orphan branch"
+      dependsOn: [authority]
+      acceptance:
+        - name: decision-core
+          command: [scripts/require-tests.sh, ".", ./abc/plan/]
+        - name: reconciler
+          command: [scripts/require-tests.sh, "Plan|Watched", ./factory/specd/]
+        - name: cli-and-persist
+          command: [scripts/require-tests.sh, "Plan", ./cmd/specctl/, ./impl/persist/, ./abc/oabranch/]
+        - name: settle-keeps-the-partition
+          command: [scripts/require-tests.sh, "SettleOptions", ./impl/realize/]
+
+    - id: finding
+      summary: "C: a summary proposal becomes a Finding; findings start Open"
+      dependsOn: [plan-resource]
+      edits:
+        - context: factory-specd
+          requirements:
+            - id: r.finding-from-proposal
+              level: MUST
+              text: >-
+                A new pure package abc/finding (no I/O) holds the Finding
+                states as constants Open, Planned, Resolved and Dismissed (the
+                FindingOpen/FindingPlanned/FindingResolved/FindingDismissed
+                constants in factory/specd/plan.go are replaced by these),
+                Name(context, unit string) string and FromProposal(repository,
+                change, context string, proposal spec.Proposal) spec.Finding.
+                Name is "proposal-" + a slug of context + "-" + unit: lower
+                case, every run of characters outside [a-z0-9.-] replaced by
+                one "-", leading and trailing "-" and "." trimmed; when the
+                result is longer than 63 characters it keeps the first 54 and
+                appends "-" and the first 8 hex characters of the sha256 of
+                the input before slugging, so the name is stable and a valid
+                object name. FromProposal sets metadata name Name(context,
+                proposal.Unit), namespace via SetDefaults, spec source
+                "proposal", repository, ref = the change name, context, unit,
+                severity "info" and summary "the code suggests: " followed by
+                proposal.Proposed cut to 500 characters.
+            - id: r.finding-recorded
+              level: MUST
+              text: >-
+                When reconcileCodeToSpec (factory/specd/codespec.go) finishes a
+                CodeToSpec change whose summary returned proposals, a new
+                method recordProposalFindings(ctx, namespace, repository,
+                change, proposals) creates one Finding per proposal with
+                abc/finding.FromProposal; when the Finding exists already it
+                updates only spec.ref and spec.summary and never touches its
+                status, so a Planned, Resolved or Dismissed finding keeps its
+                state. A failure to record a finding is logged and never fails
+                the change. reconcileFinding (factory/specd/plan.go) sets
+                status.state Open on a Finding whose state is empty and does
+                nothing else.
+            - id: r.finding-tests
+              level: MUST
+              text: >-
+                Tests whose names start with TestFinding: abc/finding
+                (Name slug, the 63 character cap with its hash suffix and its
+                stability, FromProposal fields) and factory/specd
+                (recordProposalFindings on the fakeCluster creates a Finding
+                per proposal, a second call updates ref and summary and keeps
+                a Dismissed state; reconcileFinding moves an empty state to
+                Open and leaves Planned alone).
+      acceptance:
+        - name: finding
+          command: [scripts/require-tests.sh, "^TestFinding", ./abc/finding/, ./factory/specd/]
+
+    - id: finding-cli
+      summary: "C: specctl finding add|ls|dismiss"
+      dependsOn: [finding]
+      edits:
+        - context: cmd-specctl
+          requirements:
+            - id: r.finding-command
+              level: MUST
+              text: >-
+                main.go dispatches "finding" to runFinding in a new
+                cmd/specctl/finding.go (usage line "finding add|ls|dismiss"),
+                built like cmd/specctl/plan.go: addGlobals, parseInterspersed,
+                errors as "specctl finding <verb>: <error>". "specctl finding
+                add [<name>] --summary <text> [--source manual] [--context c]
+                [--unit u] [--severity s] [--ref r]" creates a Finding (name
+                defaults to "manual-" + a slug of the summary cut to 40
+                characters; source defaults to manual and must be one of
+                review, proposal, drift, policy, manual; repository defaults
+                to the session's repository) with status.state Open, and
+                prints "finding <name> added". "specctl finding ls [--all] [-o
+                text|json]" prints NAME STATE SOURCE CONTEXT UNIT PLAN SUMMARY
+                (summary cut to 60 characters) for findings whose state is
+                Open or Planned, every state with --all. "specctl finding
+                dismiss <name> [--reason r]" patches status {state:
+                Dismissed, message: reason} and prints "finding <name>
+                dismissed".
+            - id: r.finding-command-tests
+              level: MUST
+              text: >-
+                cmd/specctl/finding_test.go has tests whose names start with
+                TestFindingCommand covering the pure parts: the default name
+                slug, the source check, and the ls renderer's columns and its
+                Open/Planned filter without --all.
+      acceptance:
+        - name: finding-cli
+          command: [scripts/require-tests.sh, "^TestFindingCommand", ./cmd/specctl/]
+
+    - id: finding-persist
+      summary: "C: findings persist to findings/<name>.yaml and restore"
+      dependsOn: [finding]
+      edits:
+        - context: impl-persist
+          requirements:
+            - id: r.persist-findings
+              level: MUST
+              text: >-
+                Findings persist next to the plans, the same way r.persist-plans
+                and r.restore-plans do it: abc/oabranch gains FindingsDir =
+                "findings", FindingPath(name), Snapshot.Findings []spec.Finding,
+                Files writes findings/<name>.yaml (apiVersion, kind Finding,
+                metadata.name, the whole spec and status {state, plan, item,
+                resolvedCommit}), and FindingFiles(files) reads them back;
+                persist.read lists Findings (specapi.FindingGVR) whose
+                spec.repository is the persisted repository or empty;
+                persist.Restore applies each finding's spec and patches its
+                status, and RestoreResult gains Findings []string.
+                factory/specd/persist.go repositoryOf schedules a persist for
+                an item of kind specapi.FindingKind (its spec.repository, else
+                the only Repository of the namespace).
+            - id: r.persist-findings-tests
+              level: MUST
+              text: >-
+                Tests: TestFindingFilesRoundTrip in abc/oabranch and
+                TestPersistAndRestoreCarryTheFindings in impl/persist,
+                following TestPlanFilesRoundTrip and
+                TestPersistAndRestoreCarryThePlans.
+      acceptance:
+        - name: finding-persist
+          command: [scripts/require-tests.sh, "FindingFilesRoundTrip|CarryTheFindings", ./abc/oabranch/, ./impl/persist/]
+
+    - id: agentrun
+      summary: "D: every model call specd makes is an AgentRun object"
+      dependsOn: [finding-persist, finding-cli]
+      edits:
+        - context: factory-specd
+          requirements:
+            - id: r.agentrun-decorator
+              level: MUST
+              text: >-
+                A new package impl/agentrun wraps an abc/agent.Agent:
+                Wrap(inner agent.Agent, options Options) agent.Agent with
+                Options{Cluster (an interface with Create and PatchStatus of
+                *unstructured.Unstructured, as factory/specd Cluster has),
+                Namespace, Change, Context, Agent (the kind), Command, Now
+                func() time.Time (default time.Now), OnRun func(name string),
+                Log *slog.Logger}. Summarize and Realize each create an
+                AgentRun before calling the inner agent: name "<change>-" +
+                purpose ("summarize" or "realize") + "-" + the start time as
+                UTC "20060102t150405" (lower case), spec {purpose, change,
+                context, agent, command}, then patch status {phase Running,
+                startedAt RFC3339}; after the call patch status {phase
+                Succeeded or Failed, finishedAt, durationSeconds, message: the
+                error text cut to 1000 characters, or "ok"} and call OnRun
+                with the name. A failure to create or patch the record is
+                logged and never changes what the inner agent returned.
+            - id: r.agentrun-wired
+              level: MUST
+              text: >-
+                factory/specd wraps the agent it builds for a CodeToSpec
+                summary (codespec.go, c.agents.AgentFor) and for a SpecToCode
+                realize (realspec.go, c.agents.Agent) with agentrun.Wrap, the
+                change being the change name (the batch leader for a realize)
+                and the agent kind from c.agents.KindFor(repository). OnRun
+                appends the run name to the change's status.agentRuns: a new
+                field AgentRuns []string `json:"agentRuns,omitempty"` on
+                spec.SpecChangeStatus, added to
+                deploy/crds/specs.publicdomainrelay.dev_specchanges.yaml
+                (status.properties.agentRuns: array of string, list type set)
+                and regenerated into deploy/apiresourceschemas with "make
+                generate-schemas". A batch member other than the leader gets
+                the leader's run name too.
+            - id: r.agentrun-tests
+              level: MUST
+              text: >-
+                Tests whose names start with TestAgentRun: impl/agentrun
+                (a successful and a failing inner agent each leave one AgentRun
+                with spec purpose and change, Succeeded or Failed status with
+                finishedAt, durationSeconds and message; OnRun gets the name;
+                a Cluster whose Create fails still returns the inner result)
+                and factory/specd (the wrapped summary of a CodeToSpec change
+                on the fakeCluster appends the run name to the change's
+                status.agentRuns).
+      acceptance:
+        - name: agentrun
+          command: [scripts/require-tests.sh, "^TestAgentRun", ./impl/agentrun/, ./factory/specd/]
+        - name: schemas
+          command: [scripts/require-tests.sh, "TestEveryCRDHasItsAPIResourceSchema", ./impl/schemagen/]
+
+    - id: mod-cli
+      summary: "E: specctl plan items --context, the open items a session sees"
+      dependsOn: [agentrun]
+      edits:
+        - context: cmd-specctl
+          requirements:
+            - id: r.plan-items
+              level: MUST
+              text: >-
+                "specctl plan items --context <name> [-o text|json]" lists the
+                plan items of the namespace that touch the context: items of
+                every plan whose phase is not Complete or Failed, whose own
+                status phase is not Done or Failed, and that have an edit naming
+                the context. Text output is one line per item "- <plan>/<item>
+                [<phase or Pending>] <summary>" followed by "    <preview>"
+                lines from abc/plan.Preview of each of its edits of that
+                context against the context's current spec; no item prints
+                nothing and exits 0. The selection is a pure function tested by
+                tests whose names start with TestPlanItems in cmd/specctl.
+      acceptance:
+        - name: plan-items
+          command: [scripts/require-tests.sh, "^TestPlanItems", ./cmd/specctl/]
+
+    - id: mod
+      summary: "E: cc-clm-mod tools arch_plans, arch_plan, arch_findings, arch_release"
+      dependsOn: [mod-cli]
+      edits:
+        - context: cc-clm-mod-hooks
+          requirements:
+            - id: r.plan-tools
+              level: MUST
+              text: >-
+                ARCH_TOOLS in cc-clm-mod/hooks/plan.ts gains four tools and
+                archInvocation maps them: arch_plans -> [specctl, plan, ls];
+                arch_plan with input {document: a Plan YAML} -> [specctl, plan,
+                apply, -f, -] with the document on stdin, its description
+                saying the plan lands as a draft and only a person approves it
+                (the tool never runs plan approve); arch_findings -> [specctl,
+                finding, ls]; arch_release with input {context, unit} ->
+                [specctl, arch, release, <context>, --unit, <unit>], or
+                --all when unit is "all". A missing document, context or unit
+                is answered with a message, not run, like arch_edit.
+            - id: r.plan-section
+              level: MUST
+              text: >-
+                At session start, when SPECD_CLM_CONTEXT names a context, the
+                mod also runs [specctl, plan, items, --context, <context>] with
+                the same --workspace and --namespace as the render call
+                (a planItemsArgv function in plan.ts beside renderArgv), and
+                contextSection appends, when that output is not empty, a
+                section headed "## Open plan items for this context" with the
+                output, so a realize agent sees why its change exists. A
+                failing call leaves the section out.
+            - id: r.plan-tools-tests
+              level: MUST
+              text: >-
+                hooks/plan.test.ts has a test named "the plan and finding
+                tools map to specctl" (each new tool's argv, the stdin of
+                arch_plan, --all for arch_release) and a test named "open plan
+                items join the context section" (planItemsArgv carries the
+                workspace and namespace; an empty output adds no section). The
+                README.md tool table of cc-clm-mod lists the four tools.
+      acceptance:
+        - name: mod
+          command:
+            - bash
+            - -c
+            - >-
+              cd cc-clm-mod && npm test >/dev/null &&
+              claude plugin test . 2>&1 | tee /dev/stderr |
+              grep -q "(pass) the plan and finding tools map to specctl" &&
+              claude plugin test . 2>&1 | grep -q "(pass) open plan items join the context section"
+
+    - id: instances
+      summary: "F: plan apply and status across every instance specctl ls lists"
+      dependsOn: [mod]
+      edits:
+        - context: cmd-specctl
+          requirements:
+            - id: r.plan-all-instances
+              level: MUST
+              text: >-
+                "specctl plan apply -f <file> --all-instances" writes the plan
+                to every instance session.List() returns whose kcp is ready
+                (kcpproc.Ready of the record's instance, as cmd/specctl/ls.go
+                checks it), with a kcpclient built from the record's
+                AdminKubeconfig, Workspace and Namespace, and prints
+                "<repository>@<branch>: plan <name> applied" per instance; one
+                instance failing is reported and the rest still get the plan.
+                "specctl plan status <name> [--all-instances] [-o text|json]"
+                reads the plan from the current instance, or from every ready
+                instance with --all-instances, and prints one row per spec
+                item: ITEM REPOSITORY PHASE INSTANCE COMMIT MESSAGE, where the
+                phase of an item is taken from the instance whose repository
+                owns it (item.repository, else spec.repository) and is
+                "Elsewhere" in the others; with --all-instances it then writes
+                each owned item that is Done or Failed into the status of the
+                instances that show it Elsewhere (patching status.items of that
+                item: phase, commit, message "<phase> in <repository>"), so a
+                dependsOn across repositories resolves. Do not change
+                cmd/specctl/up.go, impl/session or impl/kcpproc.
+            - id: r.plan-all-instances-tests
+              level: MUST
+              text: >-
+                The merge is a pure function (instance plans in, merged rows
+                and the status writes out) tested by tests whose names start
+                with TestPlanStatusMerge in cmd/specctl: an item owned by
+                repository b shows b's phase; a Done item of b is written into
+                a's status where a shows it Elsewhere; an item no instance owns
+                shows "-".
+      acceptance:
+        - name: instances
+          command: [scripts/require-tests.sh, "^TestPlanStatusMerge", ./cmd/specctl/]
+
+    - id: dogfood
+      summary: "G: a live e2e drives a plan through draft, approve, realize, verify, done"
+      dependsOn: [instances]
+      findings: [p0011-live-plan-e2e]
+      edits:
+        - context: factory-specd
+          requirements:
+            - id: r.plan-live-e2e
+              level: MUST
+              text: >-
+                test/e2e/plan_live_test.go (package e2e; do not edit
+                test/e2e/main_test.go) has TestPlanLiveDraftApproveRealizeVerify,
+                built like TestPhase6SpecToCodeWithTheScriptedAgent in
+                test/e2e/phase6_live_test.go: requireLive, startCluster,
+                fixture.CopyAs(t, "calc", "plan-calc"), forgetObjects for the
+                repository, the contexts, the plan and the finding, a
+                Repository with Verify [go, test, ./...] and agent
+                scripted:examples/phase6/scenario.yaml (via phase6Scenario),
+                and an in-process specd.New with Resync 500ms, Persist true.
+                After the first ingest it creates a Finding
+                "plan-calc-subtract" (source manual) and a Plan "plan-calc"
+                (spec.repository plan-calc) with one item "subtract" whose
+                findings name that Finding, whose edit of context calc is the
+                same interface Subtract and requirement r.subtract the phase 6
+                test applies, and whose acceptance is [go, test, ./...]. It
+                waits for and asserts, in order: plan phase Draft with a
+                preview line starting "calc: " and the calc spec unchanged;
+                after spec.approved=true is applied, item Realizing with
+                appliedSpecHashes.calc set and a SpecToCode change of calc
+                whose spec.toSpecHash equals it; the change Succeeded; the item
+                Done with commit equal to the fixture checkout HEAD and every
+                acceptance result passed; plan phase Complete; the Finding
+                status state Resolved with resolvedCommit equal to that commit
+                and plan plan-calc; and plans/plan-calc.yaml on the orphan
+                branch open-architecture/plan-calc of the fixture repository
+                (git show) with status phase Complete.
+      acceptance:
+        - name: live
+          timeoutSeconds: 2700
+          env: {SPECD_REQUIRE_LIVE: "1"}
+          command: [scripts/require-tests.sh, "^TestPlanLiveDraftApproveRealizeVerify$", ./test/e2e/]
