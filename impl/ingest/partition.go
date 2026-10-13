@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -140,6 +141,62 @@ var DefaultExcludes = []string{
 	"**/.git/**",
 	"**/generated/**",
 	"**/*.min.js",
+}
+
+// SourceExtensions is the extension set that makes a file source code. Every
+// other file is a tree file: YAML, JSON, Markdown, Rego, lockfiles, images and
+// .env data are observed by a context, they never make one.
+var SourceExtensions = []string{
+	".go", ".ts", ".tsx", ".js", ".mjs", ".jsx", ".rs", ".py",
+	".rb", ".sh", ".c", ".cc", ".h", ".cpp",
+}
+
+// IsSourceFile reports whether a repository-relative path holds source code.
+func IsSourceFile(file string) bool {
+	return slices.Contains(SourceExtensions, strings.ToLower(path.Ext(file)))
+}
+
+// SourceOnlyFacts drops the data files from the indexed facts, so the
+// partitioner makes a context from source code alone, and returns the dropped
+// paths for the caller to observe as tree files of the context that owns
+// their directory. A tree of data files alone is not a context.
+func SourceOnlyFacts(facts specsync.Facts) (specsync.Facts, []string) {
+	files := make([]specsync.SourceFile, 0, len(facts.Files))
+	data := []string{}
+	for _, file := range facts.Files {
+		if IsSourceFile(file.Path) {
+			files = append(files, file)
+			continue
+		}
+		data = append(data, file.Path)
+	}
+	symbols := make([]specsync.Symbol, 0, len(facts.Symbols))
+	for _, symbol := range facts.Symbols {
+		if IsSourceFile(symbol.File) {
+			symbols = append(symbols, symbol)
+		}
+	}
+	facts.Files = files
+	facts.Symbols = symbols
+	return facts, data
+}
+
+// SourceOnlyPartitions drops a partition that holds tree files alone, so a
+// directory of data never becomes a SystemContext. The root context a
+// repository asks for is the one exception: it is a context of the tree files
+// at the repository root by design.
+func SourceOnlyPartitions(partitions []specsync.Partition, rootContext bool) []specsync.Partition {
+	out := make([]specsync.Partition, 0, len(partitions))
+	for _, partition := range partitions {
+		if len(partition.Files) > 0 {
+			out = append(out, partition)
+			continue
+		}
+		if rootContext && partition.Directory == "." && partition.Name != "" {
+			out = append(out, partition)
+		}
+	}
+	return out
 }
 
 var generatedMarkers = []string{"THIS FILE WAS GENERATED", "DO NOT EDIT", "@generated"}

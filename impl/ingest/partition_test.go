@@ -3,6 +3,7 @@ package ingest
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -16,6 +17,79 @@ func write(t *testing.T, path, contents string) {
 	}
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSourceExtensionsAreTheSourceCodeExtensions(t *testing.T) {
+	want := []string{
+		".go", ".ts", ".tsx", ".js", ".mjs", ".jsx", ".rs", ".py",
+		".rb", ".sh", ".c", ".cc", ".h", ".cpp",
+	}
+	if !reflect.DeepEqual(SourceExtensions, want) {
+		t.Fatalf("SourceExtensions = %v, want %v", SourceExtensions, want)
+	}
+	for _, file := range []string{"impl/ingest/ingest.go", "web/app.tsx", "web/app.min.js", "tool/run.sh", "lib/x.mjs"} {
+		if !IsSourceFile(file) {
+			t.Errorf("%s holds source code", file)
+		}
+	}
+	for _, file := range []string{"policies/allow.yaml", "deno.lock", "docs/adr.md", "policies/policy.rego", "deploy/.env", "assets/logo.png", "Makefile"} {
+		if IsSourceFile(file) {
+			t.Errorf("%s is a tree file, not source", file)
+		}
+	}
+}
+
+func TestATreeOfDataFilesMakesNoPartition(t *testing.T) {
+	facts, data := SourceOnlyFacts(specsync.Facts{
+		Commit: "abc123",
+		Files: []specsync.SourceFile{
+			{Path: "policies/allow.yaml", Language: "yaml"},
+			{Path: "policies/deny.yaml", Language: "yaml"},
+			{Path: "deploy/guest.yaml", Language: "yaml"},
+		},
+	})
+	if len(facts.Files) != 0 {
+		t.Fatalf("source files = %v, want none", facts.Files)
+	}
+	if !reflect.DeepEqual(data, []string{"policies/allow.yaml", "policies/deny.yaml", "deploy/guest.yaml"}) {
+		t.Errorf("data files = %v", data)
+	}
+	partitions := SourceOnlyPartitions(specsync.PartitionFactsWith(facts, specsync.PartitionOptions{
+		RepositoryName: "demo",
+		TreeFiles:      data,
+	}), false)
+	if len(partitions) != 0 {
+		t.Fatalf("partitions = %+v, want none for a data-only tree", partitions)
+	}
+}
+
+func TestASourceFileMakesThePartitionAndItsDataFilesAreTreeFiles(t *testing.T) {
+	facts, data := SourceOnlyFacts(specsync.Facts{
+		Commit: "abc123",
+		Files: []specsync.SourceFile{
+			{Path: "policies/policy.go", Language: "go"},
+			{Path: "policies/allow.yaml", Language: "yaml"},
+		},
+		Symbols: []specsync.Symbol{
+			{ID: "function:Allow", Name: "Allow", Kind: "function", File: "policies/policy.go", Exported: true},
+		},
+	})
+	partitions := SourceOnlyPartitions(specsync.PartitionFactsWith(facts, specsync.PartitionOptions{
+		RepositoryName: "demo",
+		TreeFiles:      data,
+	}), false)
+	if len(partitions) != 1 || partitions[0].Name != "policies" {
+		t.Fatalf("partitions = %+v, want the policies context", partitions)
+	}
+	if !reflect.DeepEqual(partitions[0].Files, []string{"policies/policy.go"}) {
+		t.Errorf("files = %v, want the Go source alone", partitions[0].Files)
+	}
+	if !reflect.DeepEqual(partitions[0].TreeFiles, []string{"policies/allow.yaml"}) {
+		t.Errorf("tree files = %v, want the YAML next to the source", partitions[0].TreeFiles)
+	}
+	if len(partitions[0].Symbols) != 1 || partitions[0].Symbols[0].Name != "Allow" {
+		t.Errorf("symbols = %+v, want the source function", partitions[0].Symbols)
 	}
 }
 

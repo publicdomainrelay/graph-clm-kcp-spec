@@ -676,10 +676,13 @@ func TestRunGivesTheRepositoryARootContextAndSeedsTheArchDocument(t *testing.T) 
 		names = append(names, context.Name)
 	}
 	sort.Strings(names)
-	want := []string{"calc-root", "calc", "cmd-calc", "tools-open-architecture"}
+	want := []string{"calc-root", "calc", "cmd-calc"}
 	sort.Strings(want)
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("contexts = %v, want %v", names, want)
+	}
+	if contains(names, "tools-open-architecture") {
+		t.Error("the arch document's directory is a tree of data and must make no context")
 	}
 	if !reflect.DeepEqual(result.Seeded, []string{"calc-root", "cmd-calc"}) {
 		t.Errorf("seeded = %v", result.Seeded)
@@ -861,6 +864,50 @@ func TestRunAppliesTheDefaultExcludesAndReplacesThemWhenNamed(t *testing.T) {
 	}
 	if !contains(replacedNames, "fixtures-alpha") {
 		t.Errorf("a named exclude must replace the default list, not extend it: %v", replacedNames)
+	}
+}
+
+func TestRunMakesNoContextForADataOnlyTree(t *testing.T) {
+	fixture.Require(t, "codegraph", "git")
+	repoPath := sampleRepository(t, map[string]string{
+		"go.mod":              sampleGoMod,
+		"README.md":           "# sample\n",
+		"policies/allow.yaml": "allow: true\n",
+		"deploy/guest.yaml":   "kind: Deployment\n",
+	})
+
+	result, err := Run(context.Background(), newFakeCluster(), Options{RepoPath: repoPath, Commit: "cafebabe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Contexts) != 0 {
+		t.Fatalf("contexts = %v, want none: the tree holds no source file", contextNames(result))
+	}
+}
+
+func TestRunObservesTheDataFilesOfASourceDirectoryAsTreeFiles(t *testing.T) {
+	fixture.Require(t, "codegraph", "git")
+	repoPath := sampleRepository(t, map[string]string{
+		"go.mod":              sampleGoMod,
+		"policies/policy.go":  "package policies\n\nfunc Allow() bool { return true }\n",
+		"policies/allow.yaml": "allow: true\n",
+		"deploy/guest.yaml":   "kind: Deployment\n",
+	})
+
+	cluster := newFakeCluster()
+	result, err := Run(context.Background(), cluster, Options{RepoPath: repoPath, Commit: "cafebabe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := contextNames(result); !reflect.DeepEqual(names, []string{"policies"}) {
+		t.Fatalf("contexts = %v, want only the directory that holds source code", names)
+	}
+	observed := storedContext(t, cluster, "policies").Status.Observed
+	if !reflect.DeepEqual(observed.Files, []string{"policies/policy.go"}) {
+		t.Errorf("observed files = %v, want the Go source alone", observed.Files)
+	}
+	if !contains(observed.TreeFiles, "policies/allow.yaml") {
+		t.Errorf("observed tree files = %v, want the YAML next to the source", observed.TreeFiles)
 	}
 }
 

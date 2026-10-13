@@ -128,10 +128,15 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 	if err != nil {
 		return Result{}, err
 	}
+	// A partition is made from source code: the indexed data files (YAML,
+	// JSON, Markdown, Rego, lockfiles, images, .env) are observed as tree
+	// files of the context that owns their directory instead of becoming one.
+	facts, dataFiles := SourceOnlyFacts(facts)
 	treeFiles, err := gitrepo.TrackedFiles(ctx, repoPath)
 	if err != nil {
 		treeFiles = nil
 	}
+	treeFiles = append(treeFiles, dataFiles...)
 	resolver := specsync.ModuleResolver{ModulePath: GoModulePath(repoPath), ImportMap: DenoImportMap(repoPath)}
 	// An empty populate exclude is the default scope, not every path: a
 	// repository that names no exclude still leaves the sample, vendored and
@@ -160,6 +165,7 @@ func Run(ctx context.Context, cluster Cluster, options Options) (Result, error) 
 		partitionOptions.Roots = withoutGenerated(roots, partitionOptions.Generated)
 	}
 	partitions := specsync.PartitionFactsWith(facts, partitionOptions)
+	partitions = SourceOnlyPartitions(partitions, options.RootContext)
 	dependencies := specsync.PartitionDependencies(partitions, facts.Imports, resolver)
 	for index := range partitions {
 		partitions[index].DependsOn = dependencies[partitions[index].Name]
