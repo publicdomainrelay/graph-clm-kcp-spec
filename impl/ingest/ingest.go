@@ -474,6 +474,16 @@ func ingestPartition(
 		if err != nil {
 			return result, err
 		}
+		// The object can move while this pass runs: a person's edit, a plan's
+		// edit or the units specd records for one. Apply re-reads only the
+		// resource version, so writing now would replace whatever landed with
+		// the values this pass read. Re-read, and start the merge again against
+		// what the object holds.
+		if live, _, err := loadContext(ctx, cluster, namespace, partition.Name); err == nil && live.GetResourceVersion() != current.GetResourceVersion() {
+			current = live
+			result.Created = false
+			continue
+		}
 		applied, err := cluster.Apply(ctx, object)
 		if err == nil {
 			result.SpecChanged = true
