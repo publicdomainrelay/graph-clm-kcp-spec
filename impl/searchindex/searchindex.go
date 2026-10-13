@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -158,21 +159,21 @@ type claimSource struct {
 var claimSources = []claimSource{
 	{
 		label:      graph.LabelContext,
-		properties: []string{"name", "intent"},
+		properties: []string{"id", "name", "intent"},
 		context:    "name",
 		key:        "intent",
 		text:       func(row map[string]any) string { return value(row, "name") + "\n" + value(row, "intent") },
 	},
 	{
 		label:      graph.LabelRequirement,
-		properties: []string{"context", "reqId", "level", "text"},
+		properties: []string{"id", "context", "reqId", "level", "text"},
 		context:    "context",
 		key:        "reqId",
 		text:       func(row map[string]any) string { return value(row, "level") + " " + value(row, "text") },
 	},
 	{
 		label:      graph.LabelInterface,
-		properties: []string{"context", "name", "kind", "signature"},
+		properties: []string{"id", "context", "name", "kind", "signature"},
 		context:    "context",
 		key:        "name",
 		text: func(row map[string]any) string {
@@ -181,18 +182,37 @@ var claimSources = []claimSource{
 	},
 	{
 		label:      graph.LabelPiMemory,
-		properties: []string{"title", "body", "session"},
+		properties: []string{"id", "title", "body", "session"},
 		context:    "session",
 		key:        "title",
 		text:       func(row map[string]any) string { return value(row, "title") + "\n" + value(row, "body") },
 	},
 }
 
-func Documents(ctx context.Context, reader Reader, repoPath string) ([]search.Document, error) {
+// scopeFilter keeps a read inside the instance's graph namespace. The rebuild
+// writes every vertex with the scope of the namespace it rebuilds, so a select
+// that names the scope answers the rows this instance wrote and not the rows a
+// graph shared with another instance holds. A label that carries no scope
+// property (a memory note) is read whole, because filtering it on a property it
+// never has would hide it.
+func scopeFilter(label, namespace string) map[string]any {
+	if namespace == "" {
+		return nil
+	}
+	if !slices.Contains(graph.LabelProperties[label], graph.ScopeProperty) {
+		return nil
+	}
+	return map[string]any{graph.ScopeProperty: namespace}
+}
+
+// Documents is everything one rebuild indexes: the contexts, requirements,
+// interfaces, memory notes and code symbols the graph holds in this instance's
+// namespace, plus the code symbols of a checkout when the caller names one.
+func Documents(ctx context.Context, reader Reader, repoPath, namespace string) ([]search.Document, error) {
 	out := []search.Document{}
 	if reader != nil {
 		for _, source := range claimSources {
-			rows, err := reader.Select(ctx, source.label, source.properties, nil)
+			rows, err := reader.Select(ctx, source.label, source.properties, scopeFilter(source.label, namespace))
 			if err != nil {
 				return nil, fmt.Errorf("searchindex: read %s: %w", source.label, err)
 			}
@@ -210,16 +230,23 @@ func Documents(ctx context.Context, reader Reader, repoPath string) ([]search.Do
 			}
 		}
 	}
-	symbols, err := symbolDocuments(ctx, repoPath)
+	symbols, err := symbolDocuments(ctx, reader, repoPath, namespace)
 	if err != nil {
 		return nil, err
 	}
 	return append(out, symbols...), nil
 }
 
-func symbolDocuments(ctx context.Context, repoPath string) ([]search.Document, error) {
+// symbolDocuments indexes the code symbols of a checkout from its own code
+// graph index when the caller names a checkout, and the symbols the graph holds
+// when it does not: a rebuild that runs with no checkout beside it (specctl
+// graph rebuild) still fills the index with one document per symbol.
+func symbolDocuments(ctx context.Context, reader Reader, repoPath, namespace string) ([]search.Document, error) {
 	if repoPath == "" {
-		return nil, nil
+		if reader == nil {
+			return nil, nil
+		}
+		return coderefDocuments(ctx, reader, namespace)
 	}
 	database, found, err := codegraphsqlite.OpenRepo(repoPath)
 	if err != nil || !found {
@@ -240,6 +267,30 @@ func symbolDocuments(ctx context.Context, repoPath string) ([]search.Document, e
 			ID:      ids.Stable("symbol:" + node.ID),
 			Label:   "symbol:" + node.Kind,
 			Context: node.FilePath,
+			Text:    text,
+		})
+	}
+	return out, nil
+}
+
+// coderefDocuments indexes the code symbols the graph holds, one document per
+// CodeRef vertex: a rebuild with no checkout beside it reads the symbols here
+// instead of from a code graph index it cannot open.
+func coderefDocuments(ctx context.Context, reader Reader, namespace string) ([]search.Document, error) {
+	rows, err := reader.Select(ctx, graph.LabelCodeRef, []string{"id", "codegraphId", "name", "kind", "display", "filePath"}, scopeFilter(graph.LabelCodeRef, namespace))
+	if err != nil {
+		return nil, fmt.Errorf("searchindex: read %s: %w", graph.LabelCodeRef, err)
+	}
+	out := []search.Document{}
+	for _, row := range rows {
+		text := strings.Join([]string{value(row, "name"), value(row, "kind"), value(row, "display"), value(row, "filePath")}, " ")
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		out = append(out, search.Document{
+			ID:      int64Value(row["id"]),
+			Label:   graph.LabelCodeRef + ":" + value(row, "codegraphId"),
+			Context: value(row, "filePath"),
 			Text:    text,
 		})
 	}

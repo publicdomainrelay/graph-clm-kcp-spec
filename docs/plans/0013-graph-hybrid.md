@@ -417,3 +417,39 @@ to end: the calc fixture is ingested, a context is given an intent the way a
 summary would, `specctl graph rebuild` writes the index, and a pack seeded by
 that intent words names that context
 (`TestAQueryPackNamesTheContextItsIntentNames`).
+
+**The rebuild now fills the index per thing** (requirement
+`r.index-is-filled-by-a-rebuild`). Three gaps kept the documents table short of
+one row per indexed thing:
+
+- The rebuild read the graph whole. It reads the instance's own graph namespace
+  now (`searchindex.Documents` takes the namespace and filters a label on the
+  scope property it carries), so a graph shared with another instance does not
+  seed this instance's packs with the other instance's contexts. A memory note
+  carries no scope property, so it is read whole rather than filtered away.
+- The reads asked for the values but not the vertex id, so every document of a
+  label took the same id and a pack's k could not tell two things apart. Each
+  read asks for `id` now, and a unit test asserts the rebuild writes one
+  document per context, requirement, interface, finding, memory note and code
+  symbol, with no two documents sharing an id.
+- `specctl graph rebuild` names no checkout, so the symbol source (the
+  checkout's code graph index) gave it nothing. It falls back to the CodeRef
+  vertices the graph holds, which is the half of the requirement that asks for
+  one document per code symbol the graph holds.
+
+`TestARebuildWritesOneDocumentPerIndexedThing` in `impl/searchindex` counts the
+rows the rebuild writes per label and asserts the namespace filter and the id
+uniqueness; `TestARebuildReplacesTheIndex` proves a rebuild replaces rather than
+appends.
+
+The number itself is still not taken: it needs an instance (`specctl up` in
+this checkout, graph and search index up) and the command above, and this
+change was written in a worktree with no instance to run it in. Until that run
+lands, the promise stays a promise: the reading to beat is the recall@5 the
+pack reached before item C (dfcf290), and the run that fills this section is
+
+```
+specctl eval history --repo . --commits 20 --out docs/eval/history.md
+```
+
+in this repository's instance.

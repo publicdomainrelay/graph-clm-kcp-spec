@@ -41,7 +41,7 @@ func rebuildSearch(ctx context.Context, cluster Cluster, namespace string, optio
 	if options.Search == nil {
 		return nil
 	}
-	documents, err := searchindex.Documents(ctx, options.SearchReader, options.RepoPath)
+	documents, err := searchindex.Documents(ctx, options.SearchReader, options.RepoPath, graphNamespace(options))
 	if err != nil {
 		return err
 	}
