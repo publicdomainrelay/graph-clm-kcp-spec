@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/authority"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/finding"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/plan"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
@@ -25,11 +26,6 @@ const (
 	PlanConditionValid = "Valid"
 
 	PlanReasonInvalid = "Invalid"
-
-	FindingOpen      = "Open"
-	FindingPlanned   = "Planned"
-	FindingResolved  = "Resolved"
-	FindingDismissed = "Dismissed"
 )
 
 // reconcilePlan drives a Plan with the pure decision core in abc/plan: it reads
@@ -123,9 +119,33 @@ func (c *Controller) reconcilePlan(ctx context.Context, namespace, name string) 
 	return requeue, nil
 }
 
-// reconcileFinding and reconcileAgentRun keep a watched Finding and AgentRun
-// from logging "no reconciler". Nothing reads them back into a decision yet.
-func (c *Controller) reconcileFinding(context.Context, string, string) (time.Duration, error) {
+// reconcileFinding gives a finding with no state the state a new finding
+// starts in. Everything else about a finding is the plan's to move, so this
+// does nothing else. reconcileAgentRun keeps a watched AgentRun from logging
+// "no reconciler"; nothing reads it back into a decision yet.
+func (c *Controller) reconcileFinding(ctx context.Context, namespace, name string) (time.Duration, error) {
+	object, err := c.client.Get(ctx, specapi.FindingGVR, namespace, name)
+	if err != nil {
+		if kcpclient.IsNotFound(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	typed, err := kcpclient.Typed(object)
+	if err != nil {
+		return 0, err
+	}
+	recorded, ok := typed.(*spec.Finding)
+	if !ok {
+		return 0, nil
+	}
+	if recorded.Status.State != "" {
+		return 0, nil
+	}
+	if _, err := c.client.PatchStatus(ctx, specapi.FindingGVR, namespace, name, map[string]any{"state": finding.Open}); err != nil {
+		return 0, err
+	}
+	c.log.Info("finding opened", "finding", name)
 	return 0, nil
 }
 
@@ -396,12 +416,12 @@ func (c *Controller) moveFindings(ctx context.Context, namespace string, planObj
 		if err != nil {
 			return err
 		}
-		finding, ok := typed.(*spec.Finding)
+		recorded, ok := typed.(*spec.Finding)
 		if !ok {
 			continue
 		}
-		status := planFindingStatus(planObject, finding, name, evaluated)
-		if status == nil || specapi.StatusMatches(finding.Status, status) {
+		status := planFindingStatus(planObject, recorded, name, evaluated)
+		if status == nil || specapi.StatusMatches(recorded.Status, status) {
 			continue
 		}
 		if _, err := c.client.PatchStatus(ctx, specapi.FindingGVR, namespace, name, status); err != nil {
@@ -412,24 +432,24 @@ func (c *Controller) moveFindings(ctx context.Context, namespace string, planObj
 	return nil
 }
 
-func planFindingStatus(planObject *spec.Plan, finding *spec.Finding, name string, evaluated plan.Evaluation) map[string]any {
+func planFindingStatus(planObject *spec.Plan, recorded *spec.Finding, name string, evaluated plan.Evaluation) map[string]any {
 	item := evaluated.Planned[name]
 	if item == "" {
-		item = finding.Status.Item
+		item = recorded.Status.Item
 	}
 	if commit, resolved := evaluated.Resolved[name]; resolved {
 		return map[string]any{
-			"state":          FindingResolved,
+			"state":          finding.Resolved,
 			"plan":           planObject.Name,
 			"item":           item,
 			"resolvedCommit": commit,
 		}
 	}
-	if finding.Status.State == FindingResolved || finding.Status.State == FindingDismissed {
+	if recorded.Status.State == finding.Resolved || recorded.Status.State == finding.Dismissed {
 		return nil
 	}
 	return map[string]any{
-		"state": FindingPlanned,
+		"state": finding.Planned,
 		"plan":  planObject.Name,
 		"item":  item,
 	}

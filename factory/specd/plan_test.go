@@ -9,6 +9,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/finding"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/plan"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/common/specapi"
@@ -74,11 +75,11 @@ func readFinding(t *testing.T, cluster *fakeCluster, name string) *spec.Finding 
 	if err != nil {
 		t.Fatal(err)
 	}
-	finding, ok := typed.(*spec.Finding)
+	recorded, ok := typed.(*spec.Finding)
 	if !ok {
 		t.Fatalf("%s is not a Finding", name)
 	}
-	return finding
+	return recorded
 }
 
 func planCluster(t *testing.T, planObject *spec.Plan) (*fakeCluster, *Controller, string) {
@@ -303,14 +304,14 @@ func TestAnApprovedPlanMovesItsFindings(t *testing.T) {
 	apply(t, cluster, &spec.Finding{
 		ObjectMeta: metav1.ObjectMeta{Name: "f-1", Namespace: specapi.DefaultNamespace},
 		Spec:       spec.FindingSpec{Repository: "calc", Source: "manual", Summary: "the requirement is not there"},
-		Status:     spec.FindingStatus{State: FindingOpen},
+		Status:     spec.FindingStatus{State: finding.Open},
 	})
 
 	if _, err := controller.reconcilePlan(context.Background(), specapi.DefaultNamespace, "p1"); err != nil {
 		t.Fatal(err)
 	}
 	planned := readFinding(t, cluster, "f-1")
-	if planned.Status.State != FindingPlanned {
+	if planned.Status.State != finding.Planned {
 		t.Fatalf("state = %q, want Planned", planned.Status.State)
 	}
 	if planned.Status.Plan != "p1" || planned.Status.Item != "one" {
@@ -321,7 +322,7 @@ func TestAnApprovedPlanMovesItsFindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	resolved := readFinding(t, cluster, "f-1")
-	if resolved.Status.State != FindingResolved {
+	if resolved.Status.State != finding.Resolved {
 		t.Fatalf("state = %q, want Resolved once the item is done", resolved.Status.State)
 	}
 	if resolved.Status.ResolvedCommit != head {
@@ -343,13 +344,13 @@ func TestAPlanLeavesADismissedFindingAlone(t *testing.T) {
 	apply(t, cluster, &spec.Finding{
 		ObjectMeta: metav1.ObjectMeta{Name: "f-1", Namespace: specapi.DefaultNamespace},
 		Spec:       spec.FindingSpec{Repository: "calc", Source: "manual", Summary: "not this one"},
-		Status:     spec.FindingStatus{State: FindingDismissed},
+		Status:     spec.FindingStatus{State: finding.Dismissed},
 	})
 
 	if _, err := controller.reconcilePlan(context.Background(), specapi.DefaultNamespace, "p1"); err != nil {
 		t.Fatal(err)
 	}
-	if state := readFinding(t, cluster, "f-1").Status.State; state != FindingDismissed {
+	if state := readFinding(t, cluster, "f-1").Status.State; state != finding.Dismissed {
 		t.Errorf("state = %q, want Dismissed", state)
 	}
 }

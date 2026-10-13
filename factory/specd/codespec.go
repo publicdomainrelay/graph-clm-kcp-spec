@@ -6,7 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/agent"
+	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/finding"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/spec"
 	specsync "github.com/publicdomainrelay/graph-clm-kcp-spec/abc/sync"
 	"github.com/publicdomainrelay/graph-clm-kcp-spec/abc/watch"
@@ -81,9 +84,60 @@ func (c *Controller) reconcileCodeToSpec(ctx context.Context, namespace, name st
 	if _, err := c.client.PatchStatus(ctx, specapi.SpecChangeGVR, namespace, name, finished); err != nil {
 		return 0, err
 	}
+	if len(result.Proposals) > 0 {
+		repository := ""
+		if recorded := c.changeRepository(ctx, namespace, change); recorded != nil {
+			repository = recorded.Name
+		}
+		if err := c.recordProposalFindings(ctx, namespace, repository, change, result.Proposals); err != nil {
+			c.log.Warn("could not record the proposals as findings",
+				"change", name, "systemcontext", change.Spec.SystemContext, "err", err)
+		}
+	}
 	c.log.Info("code to spec done",
 		"change", name, "systemcontext", change.Spec.SystemContext, "applied", result.Applied)
 	return 0, nil
+}
+
+// recordProposalFindings raises one Finding per proposal the summary made: the
+// code does not say what the declared unit says. A finding the namespace
+// already holds keeps its state, so a planned, resolved or dismissed finding
+// stays where the plan put it; only the change and the value the code suggests
+// are refreshed. Recording is best effort: the caller logs a failure and the
+// change still succeeds.
+func (c *Controller) recordProposalFindings(ctx context.Context, namespace, repository string, change *spec.SpecChange, proposals []spec.Proposal) error {
+	for _, proposal := range proposals {
+		wanted := finding.FromProposal(repository, change.Name, change.Spec.SystemContext, proposal)
+		object, err := kcpclient.Unstructured(&wanted)
+		if err != nil {
+			return err
+		}
+		existing, err := c.client.Get(ctx, specapi.FindingGVR, namespace, wanted.Name)
+		switch {
+		case err == nil:
+			updated := existing.DeepCopy()
+			if err := unstructured.SetNestedField(updated.Object, wanted.Spec.Ref, "spec", "ref"); err != nil {
+				return err
+			}
+			if err := unstructured.SetNestedField(updated.Object, wanted.Spec.Summary, "spec", "summary"); err != nil {
+				return err
+			}
+			if _, err := c.client.Update(ctx, updated); err != nil {
+				return err
+			}
+		case kcpclient.IsNotFound(err):
+			if _, err := c.client.Create(ctx, object); err != nil {
+				if kcpclient.IsAlreadyExists(err) {
+					continue
+				}
+				return err
+			}
+			c.log.Info("finding recorded", "finding", wanted.Name, "change", change.Name, "unit", proposal.Unit)
+		default:
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *Controller) summarize(ctx context.Context, namespace string, change *spec.SpecChange) (summarize.Result, error) {
